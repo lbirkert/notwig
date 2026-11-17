@@ -1,12 +1,12 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
 use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
 use notwig_core::{DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
-use notwig_ui::{MeterValues, NotificationKind, NotwigUi, RuntimeView, UiIntent};
+use notwig_ui::{DropAudioTarget, MeterValues, NotificationKind, NotwigUi, RuntimeView, UiIntent};
 
 use crate::audio::AudioService;
 use crate::workspace::Workspace;
@@ -28,12 +28,23 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     .map_err(|err| err.to_string())
 }
 
+#[derive(Debug, Clone, Copy)]
+enum DialogAction {
+    OpenProject,
+    SaveAs,
+    Render,
+    ImportAudio,
+    Relink(notwig_core::AssetId),
+}
+
 struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
     audio: Option<AudioService>,
     fallback_playhead: f64,
     last_tick: Instant,
+    dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
+    pending_drops: Vec<(PathBuf, DropAudioTarget, TimeMus)>,
 }
 
 impl NotwigApp {
@@ -57,6 +68,8 @@ impl NotwigApp {
             audio: None,
             fallback_playhead,
             last_tick: Instant::now(),
+            dialog_rx: None,
+            pending_drops: Vec::new(),
         };
         app.restart_audio();
         app
@@ -294,31 +307,38 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
-            UiIntent::SetClipFades {
-                clip_id,
-                fade_in_samples,
-                fade_out_samples,
-            } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::EditClip {
-                    clip_id,
-                    range: None,
-                    name: None,
-                    muted: None,
-                    content_start: None,
-                    content_length: None,
-                    audio: Some(notwig_core::protocol::AudioEdit {
-                        source_start_sample: None,
-                        source_end_sample: None,
-                        gain_db: None,
-                        fade_in_samples: Some(fade_in_samples),
-                        fade_out_samples: Some(fade_out_samples),
-                    }),
-                }) {
+            UiIntent::DuplicateClip { clip_id } => {
+                if let Err(err) = self.workspace.duplicate_clip(clip_id) {
                     self.notify_error(err);
                 }
             }
-            UiIntent::DuplicateClip { clip_id } => {
-                if let Err(err) = self.workspace.duplicate_clip(clip_id) {
+            UiIntent::CopySelection { clips, time } => {
+                self.workspace.copy_selection(&clips, time);
+            }
+            UiIntent::CutSelection { clips, time } => {
+                self.workspace.cut_selection(&clips, time);
+            }
+            UiIntent::PasteClips { at } => {
+                if let Err(err) = self.workspace.paste_clips(at) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::DeleteTimeSelection { range, tracks } => {
+                if let Err(err) = self.workspace.delete_time_range(range, &tracks) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::DuplicateTimeSelection { range, tracks } => {
+                if let Err(err) = self.workspace.duplicate_time_range(range, &tracks) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::MoveTrack { id, index } => {
+                if let Err(err) = self.workspace.apply(CommandPayload::MoveTrack {
+                    id,
+                    parent: None,
+                    index,
+                }) {
                     self.notify_error(err);
                 }
             }
@@ -369,48 +389,16 @@ impl NotwigApp {
             UiIntent::ImportAudio => {
                 if self.workspace.bundle.is_none() {
                     self.notify_error("Save the project before importing audio.".into());
-                } else if let Some(path) = rfd::FileDialog::new()
-                    .add_filter(
-                        "Audio",
-                        &[
-                            "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
-                        ],
-                    )
-                    .set_title("Import audio")
-                    .pick_file()
-                {
-                    if let Err(err) = self.workspace.import_audio(&path) {
-                        self.notify_error(err);
-                    }
+                } else {
+                    self.spawn_dialog(DialogAction::ImportAudio, audio_pick_dialog("Import audio"));
                 }
             }
             UiIntent::DropAudio { path, target, at } => {
                 if self.workspace.bundle.is_none() {
+                    self.pending_drops.push((path, target, at));
                     self.handle_save_as();
-                }
-                if self.workspace.bundle.is_none() {
-                    self.notify_error("Save the project before importing audio.".into());
-                    return;
-                }
-                let track_id = match target {
-                    notwig_ui::DropAudioTarget::Track(track_id) => Some(track_id),
-                    notwig_ui::DropAudioTarget::NewTrack { index } => {
-                        match self
-                            .workspace
-                            .create_track_at(notwig_core::TrackKind::Audio, Some(index))
-                        {
-                            Ok(track_id) => Some(track_id),
-                            Err(err) => {
-                                self.notify_error(err);
-                                None
-                            }
-                        }
-                    }
-                };
-                if let Some(track_id) = track_id {
-                    if let Err(err) = self.workspace.import_audio_at(&path, track_id, at) {
-                        self.notify_error(err);
-                    }
+                } else {
+                    self.perform_drop(path, target, at);
                 }
             }
             UiIntent::InsertAudioClip { track_id, asset_id } => {
@@ -449,20 +437,10 @@ impl NotwigApp {
                 }
             }
             UiIntent::RelinkAsset(asset_id) => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter(
-                        "Audio",
-                        &[
-                            "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
-                        ],
-                    )
-                    .set_title("Relink audio asset")
-                    .pick_file()
-                {
-                    if let Err(err) = self.workspace.relink_asset(asset_id, &path) {
-                        self.notify_error(err);
-                    }
-                }
+                self.spawn_dialog(
+                    DialogAction::Relink(asset_id),
+                    audio_pick_dialog("Relink audio asset"),
+                );
             }
             UiIntent::NewProject | UiIntent::NewProjectAtRate(_) => {
                 let rate = match intent {
@@ -480,20 +458,11 @@ impl NotwigApp {
                 }
             }
             UiIntent::OpenProject => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Open Notwig project bundle")
-                    .pick_folder()
-                {
-                    match Workspace::open(&path) {
-                        Ok(workspace) => {
-                            self.fallback_playhead = workspace.doc.transport.playhead.as_f64();
-                            self.workspace = workspace;
-                            self.restart_audio();
-                            self.notify_info(format!("Opened {}", path.display()));
-                        }
-                        Err(err) => self.notify_error(err),
-                    }
-                }
+                self.spawn_dialog(DialogAction::OpenProject, || {
+                    rfd::FileDialog::new()
+                        .set_title("Open Notwig project bundle")
+                        .pick_folder()
+                });
             }
             UiIntent::Save => {
                 self.sync_playhead();
@@ -507,21 +476,13 @@ impl NotwigApp {
             }
             UiIntent::SaveAs => self.handle_save_as(),
             UiIntent::RenderMixdown => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("WAV", &["wav"])
-                    .set_file_name("mixdown.wav")
-                    .set_title("Render mixdown")
-                    .save_file()
-                {
-                    match self.workspace.render_to(&path) {
-                        Ok(frames) => self.notify_info(format!(
-                            "Rendered {} frames to {}",
-                            frames,
-                            path.display()
-                        )),
-                        Err(err) => self.notify_error(err),
-                    }
-                }
+                self.spawn_dialog(DialogAction::Render, || {
+                    rfd::FileDialog::new()
+                        .add_filter("WAV", &["wav"])
+                        .set_file_name("mixdown.wav")
+                        .set_title("Render mixdown")
+                        .save_file()
+                });
             }
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
         }
@@ -529,17 +490,130 @@ impl NotwigApp {
 
     fn handle_save_as(&mut self) {
         self.sync_playhead();
-        if let Some(mut path) = rfd::FileDialog::new()
-            .set_file_name(format!("{}.notwig", self.workspace.doc.meta.name))
-            .set_title("Save Notwig project bundle")
-            .save_file()
-        {
-            if path.extension().is_none() {
-                path.set_extension("notwig");
+        let file_name = format!("{}.notwig", self.workspace.doc.meta.name);
+        self.spawn_dialog(DialogAction::SaveAs, move || {
+            rfd::FileDialog::new()
+                .set_file_name(file_name)
+                .set_title("Save Notwig project bundle")
+                .save_file()
+        });
+    }
+
+    fn spawn_dialog<F>(&mut self, action: DialogAction, open: F)
+    where
+        F: FnOnce() -> Option<PathBuf> + Send + 'static,
+    {
+        if self.dialog_rx.is_some() {
+            self.notify_info("A file dialog is already open.".into());
+            return;
+        }
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send((action, open()));
+        });
+        self.dialog_rx = Some(receiver);
+    }
+
+    fn poll_dialog(&mut self) {
+        if let Some(receiver) = &self.dialog_rx {
+            match receiver.try_recv() {
+                Ok((action, path)) => {
+                    self.dialog_rx = None;
+                    self.apply_dialog(action, path);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.dialog_rx = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
             }
-            match self.workspace.save(Some(&path)) {
-                Ok(path) => self.notify_info(format!("Saved {}", path.display())),
-                Err(err) => self.notify_error(err),
+        }
+    }
+
+    fn apply_dialog(&mut self, action: DialogAction, path: Option<PathBuf>) {
+        match action {
+            DialogAction::OpenProject => {
+                let Some(path) = path else {
+                    return;
+                };
+                match Workspace::open(&path) {
+                    Ok(workspace) => {
+                        self.fallback_playhead = workspace.doc.transport.playhead.as_f64();
+                        self.workspace = workspace;
+                        self.restart_audio();
+                        self.notify_info(format!("Opened {}", path.display()));
+                    }
+                    Err(err) => self.notify_error(err),
+                }
+            }
+            DialogAction::SaveAs => {
+                let Some(mut path) = path else {
+                    return;
+                };
+                if path.extension().is_none() {
+                    path.set_extension("notwig");
+                }
+                match self.workspace.save(Some(&path)) {
+                    Ok(path) => {
+                        self.notify_info(format!("Saved {}", path.display()));
+                        let drops = std::mem::take(&mut self.pending_drops);
+                        for (source, target, at) in drops {
+                            self.perform_drop(source, target, at);
+                        }
+                    }
+                    Err(err) => self.notify_error(err),
+                }
+            }
+            DialogAction::Render => {
+                let Some(path) = path else {
+                    return;
+                };
+                match self.workspace.render_to(&path) {
+                    Ok(frames) => self.notify_info(format!(
+                        "Rendered {} frames to {}",
+                        frames,
+                        path.display()
+                    )),
+                    Err(err) => self.notify_error(err),
+                }
+            }
+            DialogAction::ImportAudio => {
+                let Some(path) = path else {
+                    return;
+                };
+                if let Err(err) = self.workspace.import_audio(&path) {
+                    self.notify_error(err);
+                }
+            }
+            DialogAction::Relink(asset_id) => {
+                let Some(path) = path else {
+                    return;
+                };
+                if let Err(err) = self.workspace.relink_asset(asset_id, &path) {
+                    self.notify_error(err);
+                }
+            }
+        }
+    }
+
+    fn perform_drop(&mut self, path: PathBuf, target: DropAudioTarget, at: TimeMus) {
+        let track_id = match target {
+            DropAudioTarget::Track(track_id) => Some(track_id),
+            DropAudioTarget::NewTrack { index } => {
+                match self
+                    .workspace
+                    .create_track_at(notwig_core::TrackKind::Audio, Some(index))
+                {
+                    Ok(track_id) => Some(track_id),
+                    Err(err) => {
+                        self.notify_error(err);
+                        None
+                    }
+                }
+            }
+        };
+        if let Some(track_id) = track_id {
+            if let Err(err) = self.workspace.import_audio_at(&path, track_id, at) {
+                self.notify_error(err);
             }
         }
     }
@@ -547,6 +621,8 @@ impl NotwigApp {
 
 impl eframe::App for NotwigApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_dialog();
+        let dialog_open = self.dialog_rx.is_some();
         let dirty = if self.workspace.dirty { "*" } else { "" };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
             "{}{} — Notwig",
@@ -577,6 +653,9 @@ impl eframe::App for NotwigApp {
             self.handle_intent(intent);
         }
         self.workspace.autosave_if_due();
+        if dialog_open {
+            ctx.request_repaint_after(Duration::from_millis(50));
+        }
         if playing {
             ctx.request_repaint_after(Duration::from_millis(16));
         } else if snapshot.running {
@@ -606,5 +685,19 @@ fn platform_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
             }
         }
         Mouse::Error => None,
+    }
+}
+
+fn audio_pick_dialog(title: &'static str) -> impl FnOnce() -> Option<PathBuf> + Send + 'static {
+    move || {
+        rfd::FileDialog::new()
+            .add_filter(
+                "Audio",
+                &[
+                    "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
+                ],
+            )
+            .set_title(title)
+            .pick_file()
     }
 }

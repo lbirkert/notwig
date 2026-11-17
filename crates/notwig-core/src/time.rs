@@ -120,9 +120,10 @@ impl Add for Rational {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let den = self.den * rhs.den;
-        let num = self.num * i64::from(rhs.den) + rhs.num * i64::from(self.den);
-        Self::new(num, den)
+        let den = i128::from(self.den) * i128::from(rhs.den);
+        let num =
+            i128::from(self.num) * i128::from(rhs.den) + i128::from(rhs.num) * i128::from(self.den);
+        rational_from_i128(num, den)
     }
 }
 
@@ -130,10 +131,39 @@ impl Sub for Rational {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let den = self.den * rhs.den;
-        let num = self.num * i64::from(rhs.den) - rhs.num * i64::from(self.den);
-        Self::new(num, den)
+        let den = i128::from(self.den) * i128::from(rhs.den);
+        let num =
+            i128::from(self.num) * i128::from(rhs.den) - i128::from(rhs.num) * i128::from(self.den);
+        rational_from_i128(num, den)
     }
+}
+
+fn rational_from_i128(mut num: i128, mut den: i128) -> Rational {
+    if den < 0 {
+        num = -num;
+        den = -den;
+    }
+    let gcd = gcd_i128(num, den);
+    num /= gcd;
+    den /= gcd;
+    let num = i64::try_from(num).unwrap_or(if num.is_negative() {
+        i64::MIN
+    } else {
+        i64::MAX
+    });
+    let den = u32::try_from(den).unwrap_or(u32::MAX).max(1);
+    Rational::new(num, den)
+}
+
+fn gcd_i128(a: i128, b: i128) -> i128 {
+    let mut a = a.abs();
+    let mut b = b.abs();
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    if a == 0 { 1 } else { a }
 }
 
 impl PartialOrd for Rational {

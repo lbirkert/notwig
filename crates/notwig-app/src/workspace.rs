@@ -18,6 +18,18 @@ use notwig_plugins::PluginHost;
 use notwig_ui::PluginEntry;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
+struct ClipboardEntry {
+    track_id: TrackId,
+    offset: notwig_core::TimeMus,
+    clip: notwig_core::ClipEntity,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Clipboard {
+    clips: Vec<ClipboardEntry>,
+}
+
 pub struct Workspace {
     pub doc: ProjectDoc,
     pub bundle: Option<PathBuf>,
@@ -30,6 +42,7 @@ pub struct Workspace {
     pub error: Option<String>,
     pub last_autosave: std::time::Instant,
     pub play_start: Option<notwig_core::TimeMus>,
+    clipboard: Clipboard,
 }
 
 impl Workspace {
@@ -90,6 +103,7 @@ impl Workspace {
             error: None,
             last_autosave: std::time::Instant::now(),
             play_start: None,
+            clipboard: Clipboard::default(),
         };
         workspace.load_assets();
         workspace.rebuild_engine()?;
@@ -524,6 +538,204 @@ impl Workspace {
         })
     }
 
+    pub fn copy_clips(&mut self, clip_ids: &[ClipId]) {
+        let mut clips: Vec<notwig_core::ClipEntity> = clip_ids
+            .iter()
+            .filter_map(|id| self.doc.arranger.clips.get(id).cloned())
+            .collect();
+        clips.sort_by_key(|clip| clip.range.start);
+        let Some(base) = clips.first().map(|clip| clip.range.start) else {
+            return;
+        };
+        self.clipboard.clips = clips
+            .into_iter()
+            .map(|clip| ClipboardEntry {
+                track_id: clip.track_id,
+                offset: clip.range.start - base,
+                clip,
+            })
+            .collect();
+        self.status = Some("Copied selection.".into());
+    }
+
+    pub fn copy_time_range(&mut self, range: notwig_core::RangeMus, tracks: &[TrackId]) {
+        let track_set: std::collections::BTreeSet<TrackId> = tracks.iter().copied().collect();
+        self.clipboard.clips = self
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter(|clip| track_set.contains(&clip.track_id) && clip.range.intersects(range))
+            .map(|clip| ClipboardEntry {
+                track_id: clip.track_id,
+                offset: clip.range.start - range.start,
+                clip: clip.clone(),
+            })
+            .collect();
+        self.status = Some("Copied time selection.".into());
+    }
+
+    pub fn copy_selection(
+        &mut self,
+        clip_ids: &[ClipId],
+        time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
+    ) {
+        if let Some((range, tracks)) = time {
+            self.copy_time_range(range, &tracks);
+        } else {
+            self.copy_clips(clip_ids);
+        }
+    }
+
+    pub fn cut_selection(
+        &mut self,
+        clip_ids: &[ClipId],
+        time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
+    ) {
+        if let Some((range, tracks)) = time.clone() {
+            self.copy_time_range(range, &tracks);
+            let _ = self.delete_time_range(range, &tracks);
+        } else {
+            self.copy_clips(clip_ids);
+            for clip in clip_ids {
+                let _ = self.apply(CommandPayload::DeleteClip { clip_id: *clip });
+            }
+        }
+    }
+
+    pub fn paste_clips(&mut self, at: notwig_core::TimeMus) -> Result<(), String> {
+        let entries = self.clipboard.clips.clone();
+        if entries.is_empty() {
+            return Ok(());
+        }
+        for entry in entries {
+            if !self.doc.tracks.contains_key(&entry.track_id) {
+                continue;
+            }
+            let start = (at.as_f64() + entry.offset.as_f64()).max(0.0);
+            let start = notwig_core::TimeMus::new((start * 1_000_000.0).round() as i64, 1_000_000);
+            let end = start + entry.clip.range.length();
+            let range = notwig_core::RangeMus::new(start, end).map_err(|err| err.to_string())?;
+            let payload = match &entry.clip.payload {
+                ClipPayload::Midi(midi) => {
+                    let notes = midi
+                        .notes
+                        .iter()
+                        .cloned()
+                        .map(|mut note| {
+                            note.id = Id::<NoteMarker>::from_uuid(Uuid::new_v4());
+                            note
+                        })
+                        .collect();
+                    ClipPayload::Midi(notwig_core::MidiClipData {
+                        length: midi.length,
+                        content_start: midi.content_start,
+                        notes,
+                    })
+                }
+                ClipPayload::Audio(audio) => ClipPayload::Audio(audio.clone()),
+            };
+            let clip_id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
+            let kind = entry.clip.kind;
+            self.apply(CommandPayload::CreateClip {
+                id: clip_id,
+                track_id: entry.track_id,
+                kind,
+                range,
+                payload,
+            })?;
+        }
+        self.status = Some("Pasted selection.".into());
+        Ok(())
+    }
+
+    pub fn delete_time_range(
+        &mut self,
+        range: notwig_core::RangeMus,
+        tracks: &[TrackId],
+    ) -> Result<(), String> {
+        let track_set: std::collections::BTreeSet<TrackId> = tracks.iter().copied().collect();
+        let clips: Vec<notwig_core::ClipEntity> = self
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter(|clip| track_set.contains(&clip.track_id) && clip.range.intersects(range))
+            .cloned()
+            .collect();
+        for clip in clips {
+            let clip_id = clip.id;
+            if clip.range.start >= range.start && clip.range.end <= range.end {
+                self.apply(CommandPayload::DeleteClip { clip_id })?;
+            } else if clip.range.start < range.start && clip.range.end > range.end {
+                let right_id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
+                let mut new_note_ids = Vec::new();
+                if let ClipPayload::Midi(midi) = &clip.payload {
+                    let split_content = midi.content_start + (range.start - clip.range.start);
+                    for note in &midi.notes {
+                        if note.start < split_content && note.start + note.length > split_content {
+                            new_note_ids.push(Id::<NoteMarker>::from_uuid(Uuid::new_v4()));
+                        }
+                    }
+                }
+                self.apply(CommandPayload::SplitClip {
+                    clip_id,
+                    at: range.start,
+                    new_clip_id: right_id,
+                    new_note_ids,
+                })?;
+                if range.end < clip.range.end {
+                    self.edit_clip_range(
+                        right_id,
+                        notwig_core::RangeMus::new(range.end, clip.range.end)
+                            .map_err(|err| err.to_string())?,
+                    )?;
+                } else {
+                    self.apply(CommandPayload::DeleteClip { clip_id: right_id })?;
+                }
+            } else if clip.range.start < range.start {
+                self.edit_clip_range(
+                    clip_id,
+                    notwig_core::RangeMus::new(clip.range.start, range.start)
+                        .map_err(|err| err.to_string())?,
+                )?;
+            } else if clip.range.end > range.end {
+                self.edit_clip_range(
+                    clip_id,
+                    notwig_core::RangeMus::new(range.end, clip.range.end)
+                        .map_err(|err| err.to_string())?,
+                )?;
+            }
+        }
+        self.status = Some("Deleted time selection.".into());
+        Ok(())
+    }
+
+    pub fn duplicate_time_range(
+        &mut self,
+        range: notwig_core::RangeMus,
+        tracks: &[TrackId],
+    ) -> Result<(), String> {
+        self.copy_time_range(range, tracks);
+        self.paste_clips(range.start + range.length())
+    }
+
+    fn edit_clip_range(
+        &mut self,
+        clip_id: ClipId,
+        range: notwig_core::RangeMus,
+    ) -> Result<(), String> {
+        self.apply(CommandPayload::EditClip {
+            clip_id,
+            range: Some(range),
+            name: None,
+            muted: None,
+            content_start: None,
+            content_length: None,
+            audio: None,
+        })
+    }
+
     pub fn relink_asset(&mut self, asset_id: AssetId, path: &Path) -> Result<(), String> {
         let uri = path.to_string_lossy().into_owned();
         self.apply(CommandPayload::RelinkAsset { asset_id, uri })?;
@@ -822,6 +1034,69 @@ mod tests {
         let out = dir.join("mp3.wav");
         assert!(workspace.render_to(&out).unwrap() > 0);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn copy_paste_and_time_range_edits_work() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )
+            .unwrap();
+        let clip = *workspace.doc.arranger.clips.keys().next().unwrap();
+        workspace.copy_clips(&[clip]);
+        workspace.paste_clips(Rational::new(4, 1)).unwrap();
+        assert_eq!(workspace.doc.arranger.clips.len(), 2);
+    }
+
+    #[test]
+    fn duplicate_and_delete_time_range_work() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )
+            .unwrap();
+        workspace
+            .duplicate_time_range(
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+                &[track],
+            )
+            .unwrap();
+        assert_eq!(workspace.doc.arranger.clips.len(), 2);
+
+        workspace
+            .delete_time_range(
+                notwig_core::RangeMus::new(Rational::new(1, 1), Rational::new(3, 1)).unwrap(),
+                &[track],
+            )
+            .unwrap();
+        let clips: Vec<_> = workspace.doc.arranger.clips.values().collect();
+        assert!(clips.iter().any(|clip| {
+            clip.range.start == Rational::zero() && clip.range.end == Rational::new(1, 1)
+        }));
+        assert!(clips.iter().any(|clip| {
+            clip.range.start == Rational::new(3, 1) && clip.range.end == Rational::new(4, 1)
+        }));
     }
 
     #[test]

@@ -37,13 +37,31 @@ pub enum UiIntent {
         clip_id: ClipId,
         muted: bool,
     },
-    SetClipFades {
-        clip_id: ClipId,
-        fade_in_samples: u64,
-        fade_out_samples: u64,
-    },
     DuplicateClip {
         clip_id: ClipId,
+    },
+    CopySelection {
+        clips: Vec<ClipId>,
+        time: Option<(RangeMus, Vec<TrackId>)>,
+    },
+    CutSelection {
+        clips: Vec<ClipId>,
+        time: Option<(RangeMus, Vec<TrackId>)>,
+    },
+    PasteClips {
+        at: TimeMus,
+    },
+    DeleteTimeSelection {
+        range: RangeMus,
+        tracks: Vec<TrackId>,
+    },
+    DuplicateTimeSelection {
+        range: RangeMus,
+        tracks: Vec<TrackId>,
+    },
+    MoveTrack {
+        id: TrackId,
+        index: usize,
     },
     SplitClip {
         clip_id: ClipId,

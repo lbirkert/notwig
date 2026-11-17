@@ -7,7 +7,7 @@ use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::shell::{NotwigUi, clip_color, track_depth};
 use crate::theme;
-use crate::widgets::{format_db, snap_16};
+use crate::widgets::{format_db, snap_step, snap_time};
 
 const HEADER_W: f32 = 230.0;
 const ROW_H: f32 = 48.0;
@@ -19,8 +19,6 @@ pub enum ClipDragMode {
     Move,
     TrimStart,
     TrimEnd,
-    FadeIn,
-    FadeOut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -52,6 +50,7 @@ impl NotwigUi {
         );
         let start = self.state.viewport.start;
         let beats_per_bar = doc.meta.time_sig_num.max(1);
+        let grid = snap_step(ppb, beats_per_bar);
         let width = ui.available_width().max(320.0);
         let header_w = HEADER_W.min(width * 0.45);
         self.timeline_width = (width - header_w).max(80.0);
@@ -73,8 +72,10 @@ impl NotwigUi {
             timeline_left,
             ppb,
             beats_per_bar,
+            grid,
         );
 
+        let rows_top = ui.cursor().top();
         let rows_height = (ui.available_height() - SCROLLBAR_H - 4.0).max(60.0);
         ui.allocate_ui_with_layout(
             Vec2::new(width, rows_height),
@@ -85,7 +86,7 @@ impl NotwigUi {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for track_id in doc.track_order.depth_first() {
-                            self.track_row(ui, doc, track_id, header_w, ppb, start, runtime);
+                            self.track_row(ui, doc, track_id, header_w, ppb, start, runtime, grid);
                         }
                         let (add_rect, add_resp) =
                             ui.allocate_exact_size(Vec2::new(width, 28.0), Sense::click());
@@ -105,6 +106,35 @@ impl NotwigUi {
             },
         );
 
+        let content_rect = Rect::from_min_max(
+            egui::pos2(timeline_left, rows_top),
+            egui::pos2(ruler_rect.right(), rows_top + rows_height),
+        );
+        let overlay = ui.painter().with_clip_rect(content_rect);
+        let playhead_x = timeline_left + (runtime.playhead.as_f64() - start.as_f64()) as f32 * ppb;
+        if playhead_x >= content_rect.left() && playhead_x <= content_rect.right() {
+            overlay.line_segment(
+                [
+                    egui::pos2(playhead_x, content_rect.top()),
+                    egui::pos2(playhead_x, content_rect.bottom()),
+                ],
+                Stroke::new(1.0_f32, Color32::WHITE),
+            );
+        }
+        if let Some(time) = &self.state.selection.time {
+            for beat in [time.range.start, time.range.end] {
+                let x = timeline_left + (beat.as_f64() - start.as_f64()) as f32 * ppb;
+                if x >= content_rect.left() && x <= content_rect.right() {
+                    overlay.line_segment(
+                        [
+                            egui::pos2(x, content_rect.top()),
+                            egui::pos2(x, content_rect.bottom()),
+                        ],
+                        Stroke::new(1.0_f32, Color32::WHITE),
+                    );
+                }
+            }
+        }
         let (bar_rect, _) = ui.allocate_exact_size(Vec2::new(width, SCROLLBAR_H), Sense::hover());
         self.draw_drop_preview(ui, doc, header_w);
         self.timeline_scrollbar(ui, bar_rect, doc, header_w, ppb);
@@ -122,6 +152,7 @@ impl NotwigUi {
         timeline_left: f32,
         ppb: f32,
         beats_per_bar: u8,
+        grid: TimeMus,
     ) {
         let painter = ui.painter().clone();
         painter.rect_filled(ruler_rect, CornerRadius::ZERO, theme::PANEL_LIGHT);
@@ -167,33 +198,52 @@ impl NotwigUi {
                 Color32::from_rgba_unmultiplied(255, 210, 120, 34),
             );
         }
-        let first_beat = start.as_f64().floor().max(0.0) as i64;
-        let last_beat = (start.as_f64() + visible_beats).ceil() as i64 + 1;
+        let step = grid.as_f64().max(1.0 / 256.0);
+        let bar_len = f64::from(beats_per_bar);
         let show_beats = ppb >= 26.0;
-        for beat in first_beat..=last_beat {
-            let x = timeline_left + (beat as f64 - start.as_f64()) as f32 * ppb;
+        let first_index = (start.as_f64() / step).floor() as i64;
+        let last_index = ((start.as_f64() + visible_beats) / step).ceil() as i64 + 1;
+        for index in first_index..=last_index {
+            let beat = index as f64 * step;
+            if beat < 0.0 {
+                continue;
+            }
+            let x = timeline_left + (beat - start.as_f64()) as f32 * ppb;
             if x < timeline_left - 1.0 || x > ruler_rect.right() + 1.0 {
                 continue;
             }
-            let strong = beat % i64::from(beats_per_bar) == 0;
-            let label = if strong || show_beats {
-                let bar = beat / i64::from(beats_per_bar) + 1;
-                let beat_in_bar = beat % i64::from(beats_per_bar) + 1;
+            let strong = (beat / bar_len).fract().abs() < 1e-6;
+            let beat_line = (beat.fract()).abs() < 1e-6;
+            let label = if strong || (show_beats && beat_line) {
+                let bar = (beat / bar_len).floor() as i64 + 1;
+                let beat_in_bar = (beat % bar_len).floor() as i64 + 1;
                 format!("{bar}.{beat_in_bar}")
             } else {
                 String::new()
             };
             painter.line_segment(
                 [
-                    egui::pos2(x, ruler_rect.top() + if strong { 6.0 } else { 16.0 }),
+                    egui::pos2(
+                        x,
+                        ruler_rect.top()
+                            + if strong {
+                                6.0
+                            } else if beat_line {
+                                14.0
+                            } else {
+                                20.0
+                            },
+                    ),
                     egui::pos2(x, ruler_rect.bottom()),
                 ],
                 Stroke::new(
                     1.0_f32,
                     if strong {
                         theme::GRID_STRONG
-                    } else {
+                    } else if beat_line {
                         theme::GRID
+                    } else {
+                        theme::GRID.gamma_multiply(0.55)
                     },
                 ),
             );
@@ -211,22 +261,16 @@ impl NotwigUi {
                 );
             }
         }
-        let playhead_x = timeline_left + (runtime.playhead.as_f64() - start.as_f64()) as f32 * ppb;
-        if playhead_x >= timeline_left && playhead_x <= ruler_rect.right() {
-            painter.line_segment(
-                [
-                    egui::pos2(playhead_x, ruler_rect.top()),
-                    egui::pos2(playhead_x, ruler_rect.bottom()),
-                ],
-                Stroke::new(1.5_f32, theme::PLAYHEAD),
-            );
+        let play_start_x =
+            timeline_left + (runtime.play_start.as_f64() - start.as_f64()) as f32 * ppb;
+        if play_start_x >= timeline_left && play_start_x <= ruler_rect.right() {
             painter.add(egui::Shape::convex_polygon(
                 vec![
-                    egui::pos2(playhead_x - 5.0, ruler_rect.top()),
-                    egui::pos2(playhead_x + 5.0, ruler_rect.top()),
-                    egui::pos2(playhead_x, ruler_rect.top() + 7.0),
+                    egui::pos2(play_start_x, ruler_rect.top() + 4.0),
+                    egui::pos2(play_start_x, ruler_rect.top() + 14.0),
+                    egui::pos2(play_start_x + 8.0, ruler_rect.top() + 9.0),
                 ],
-                theme::PLAYHEAD,
+                theme::ACCENT,
                 Stroke::NONE,
             ));
         }
@@ -237,10 +281,8 @@ impl NotwigUi {
                 if pos.x > timeline_left {
                     let beat = start.as_f64() + f64::from((pos.x - timeline_left) / ppb);
                     let shift = ui.input(|i| i.modifiers.shift);
-                    self.emit(UiIntent::SetPlayStart(snap_16(
-                        TimeMus::new((beat * 1_000_000.0).round() as i64, 1_000_000),
-                        shift,
-                    )));
+                    let beat = TimeMus::new((beat * 1_000_000.0).round() as i64, 1_000_000);
+                    self.emit(UiIntent::SetPlayStart(snap_time(beat, grid, shift)));
                 }
             }
         }
@@ -307,6 +349,7 @@ impl NotwigUi {
         ppb: f32,
         start: TimeMus,
         runtime: &RuntimeView,
+        grid: TimeMus,
     ) {
         let Some(track) = doc.tracks.get(&track_id) else {
             return;
@@ -465,14 +508,21 @@ impl NotwigUi {
 
         let beats_per_bar = doc.meta.time_sig_num.max(1);
         let visible_beats = f64::from((lane_rect.width() / ppb).max(1.0));
-        let first_beat = start.as_f64().floor().max(0.0) as i64;
-        let last_beat = (start.as_f64() + visible_beats).ceil() as i64 + 1;
-        for beat in first_beat..=last_beat {
-            let x = lane_rect.left() + (beat as f64 - start.as_f64()) as f32 * ppb;
+        let step = grid.as_f64().max(1.0 / 256.0);
+        let bar_len = f64::from(beats_per_bar);
+        let first_index = (start.as_f64() / step).floor() as i64;
+        let last_index = ((start.as_f64() + visible_beats) / step).ceil() as i64 + 1;
+        for index in first_index..=last_index {
+            let beat = index as f64 * step;
+            if beat < 0.0 {
+                continue;
+            }
+            let x = lane_rect.left() + (beat - start.as_f64()) as f32 * ppb;
             if x < lane_rect.left() - 1.0 || x > lane_rect.right() + 1.0 {
                 continue;
             }
-            let strong = beat % i64::from(beats_per_bar) == 0;
+            let strong = (beat / bar_len).fract().abs() < 1e-6;
+            let beat_line = (beat.fract()).abs() < 1e-6;
             painter.line_segment(
                 [
                     egui::pos2(x, lane_rect.top()),
@@ -482,8 +532,10 @@ impl NotwigUi {
                     1.0_f32,
                     if strong {
                         theme::GRID_STRONG
-                    } else {
+                    } else if beat_line {
                         theme::GRID
+                    } else {
+                        theme::GRID.gamma_multiply(0.55)
                     },
                 ),
             );
@@ -492,12 +544,47 @@ impl NotwigUi {
         let header_resp = ui.interact(
             header_rect,
             Id::new(("track-header", track_id)),
-            Sense::click(),
+            Sense::click_and_drag(),
         );
         if header_resp.clicked() {
             let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
             self.state.selection.select_track(track_id, additive);
             self.emit(UiIntent::SelectTrack(track_id));
+        }
+        if header_resp.drag_started() && track.kind != TrackKind::Master {
+            self.track_drag = Some(track_id);
+            self.state.selection.select_track(track_id, false);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+        if header_resp.dragged() {
+            if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
+                let painter = ui.painter();
+                painter.line_segment(
+                    [
+                        egui::pos2(row_rect.left(), pointer.y),
+                        egui::pos2(row_rect.right(), pointer.y),
+                    ],
+                    Stroke::new(2.0_f32, theme::ACCENT),
+                );
+            }
+        }
+        if header_resp.drag_stopped()
+            && self.track_drag.take().is_some()
+            && let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
+        {
+            let order = doc.track_order.depth_first();
+            let mut index = 0usize;
+            for id in &order {
+                if let Some(row) = self.track_rows.get(id) {
+                    if pointer.y > row.center().y {
+                        index += 1;
+                    }
+                }
+            }
+            self.emit(UiIntent::MoveTrack {
+                id: track_id,
+                index,
+            });
         }
         if ui
             .interact(mute_rect, Id::new(("mute", track_id)), Sense::click())
@@ -531,7 +618,29 @@ impl NotwigUi {
         );
         if lane_resp.double_clicked() {
             if let Some(pos) = lane_resp.interact_pointer_pos() {
-                self.lane_double_click(doc, track_id, pos, lane_rect, start, ppb);
+                self.lane_double_click(
+                    doc,
+                    track_id,
+                    pos,
+                    lane_rect,
+                    start,
+                    ppb,
+                    grid,
+                    ui.input(|i| i.modifiers.shift),
+                );
+            }
+        }
+        if lane_resp.clicked() {
+            if let Some(pos) = lane_resp.interact_pointer_pos() {
+                let shift = ui.input(|i| i.modifiers.shift);
+                let beat = snap_time(
+                    self.state.viewport.x_to_beat(pos.x, lane_rect.left()),
+                    grid,
+                    shift,
+                );
+                if let Ok(range) = RangeMus::new(beat, beat) {
+                    self.state.selection.select_time(range, &[track_id]);
+                }
             }
         }
         if lane_resp.drag_started_by(egui::PointerButton::Primary) {
@@ -541,8 +650,9 @@ impl NotwigUi {
             {
                 if pos.y > lane_rect.center().y {
                     let shift = ui.input(|i| i.modifiers.shift);
-                    let beat = snap_16(
+                    let beat = snap_time(
                         self.state.viewport.x_to_beat(pos.x, lane_rect.left()),
+                        grid,
                         shift,
                     );
                     let range = RangeMus::new(beat, beat).unwrap();
@@ -559,8 +669,9 @@ impl NotwigUi {
             if let Some(drag) = self.time_drag {
                 if let Some(pos) = lane_resp.interact_pointer_pos() {
                     let shift = ui.input(|i| i.modifiers.shift);
-                    let beat = snap_16(
+                    let beat = snap_time(
                         self.state.viewport.x_to_beat(pos.x, lane_rect.left()),
+                        grid,
                         shift,
                     );
                     let (start_mus, end_mus) = if drag.start_beat <= beat {
@@ -641,7 +752,9 @@ impl NotwigUi {
             .map(|lane| lane.clips.clone())
             .unwrap_or_default();
         for clip_id in clip_ids {
-            self.draw_clip(ui, doc, track_id, clip_id, lane_rect, start, ppb, runtime);
+            self.draw_clip(
+                ui, doc, track_id, clip_id, lane_rect, start, ppb, runtime, grid,
+            );
         }
         if let Some((preview_clip, preview_range, preview_track)) = self.clip_preview {
             if preview_track == track_id
@@ -681,24 +794,7 @@ impl NotwigUi {
                     CornerRadius::ZERO,
                     Color32::from_rgba_unmultiplied(255, 210, 120, 26),
                 );
-                painter.rect_stroke(
-                    rect,
-                    CornerRadius::ZERO,
-                    Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 210, 120, 130)),
-                    StrokeKind::Inside,
-                );
             }
-        }
-        let playhead_x =
-            lane_rect.left() + (runtime.playhead.as_f64() - start.as_f64()) as f32 * ppb;
-        if playhead_x >= lane_rect.left() && playhead_x <= lane_rect.right() {
-            painter.line_segment(
-                [
-                    egui::pos2(playhead_x, lane_rect.top()),
-                    egui::pos2(playhead_x, lane_rect.bottom()),
-                ],
-                Stroke::new(1.2_f32, theme::PLAYHEAD),
-            );
         }
     }
 
@@ -710,15 +806,18 @@ impl NotwigUi {
         lane_rect: Rect,
         start: TimeMus,
         ppb: f32,
+        grid: TimeMus,
+        bypass_snap: bool,
     ) {
         let Some(track) = doc.tracks.get(&track_id) else {
             return;
         };
         let alt = false;
         let beat = start.as_f64() + f64::from((pos.x - lane_rect.left()) / ppb);
-        let beat = snap_16(
+        let beat = snap_time(
             TimeMus::new((beat * 1_000_000.0).round() as i64, 1_000_000),
-            alt,
+            grid,
+            bypass_snap || alt,
         );
         match track.kind {
             TrackKind::Instrument => {
@@ -757,6 +856,7 @@ impl NotwigUi {
         start: TimeMus,
         ppb: f32,
         runtime: &RuntimeView,
+        grid: TimeMus,
     ) {
         let Some(clip) = doc.arranger.clips.get(&clip_id) else {
             return;
@@ -769,10 +869,11 @@ impl NotwigUi {
         let x1 = lane_rect.left() + (range.start.as_f64() - start.as_f64()) as f32 * ppb;
         let x2 = lane_rect.left() + (range.end.as_f64() - start.as_f64()) as f32 * ppb;
         let clip_rect = Rect::from_min_max(
-            egui::pos2(x1.max(lane_rect.left() + 1.0), lane_rect.top() + 3.0),
-            egui::pos2(x2.min(lane_rect.right() - 1.0), lane_rect.bottom() - 3.0),
+            egui::pos2(x1, lane_rect.top() + 3.0),
+            egui::pos2(x2.max(x1 + 1.0), lane_rect.bottom() - 3.0),
         );
-        if clip_rect.width() < 2.0 {
+        let visible = clip_rect.intersect(lane_rect);
+        if visible.width() < 2.0 {
             return;
         }
         let selected = self.state.selection.clips.contains(&clip_id);
@@ -782,7 +883,7 @@ impl NotwigUi {
         } else {
             color
         };
-        let painter = ui.painter().clone();
+        let painter = ui.painter().with_clip_rect(lane_rect);
         painter.rect_filled(clip_rect, CornerRadius::same(3), color);
         let name_height = 14.0_f32.min(clip_rect.height() * 0.42);
         let name_rect = Rect::from_min_max(
@@ -817,14 +918,6 @@ impl NotwigUi {
                         audio.source_end_sample,
                     );
                 }
-                let (fade_in, fade_out) = self
-                    .fade_preview
-                    .filter(|(id, _, _)| *id == clip_id)
-                    .map_or(
-                        (audio.fade_in_samples, audio.fade_out_samples),
-                        |(_, i, o)| (i, o),
-                    );
-                draw_fades(&painter, body_rect, audio, fade_in, fade_out);
             }
         }
         painter.rect_stroke(
@@ -863,19 +956,20 @@ impl NotwigUi {
             );
         }
 
-        let response = ui.interact(
-            clip_rect,
-            Id::new(("clip", clip_id)),
+        let name_visible = name_rect.intersect(lane_rect);
+        let name_response = ui.interact(
+            name_visible,
+            Id::new(("clip-name", clip_id)),
             Sense::click_and_drag(),
         );
-        if response.clicked() {
+        if name_response.clicked() {
             let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
             self.state
                 .selection
                 .select_clip(clip_id, track_id, additive);
             self.emit(UiIntent::SelectClip(clip_id));
         }
-        response.context_menu(|ui| {
+        name_response.context_menu(|ui| {
             if ui
                 .button(if clip.muted { "Unmute" } else { "Mute" })
                 .clicked()
@@ -903,100 +997,112 @@ impl NotwigUi {
                 ui.close();
             }
         });
-        if response.drag_started() {
+        if name_response.drag_started() {
             if let Some(pos) = ui
                 .input(|i| i.pointer.press_origin())
-                .or_else(|| response.interact_pointer_pos())
+                .or_else(|| name_response.interact_pointer_pos())
             {
-                let edge = 7.0;
-                let fade_zone = 12.0;
-                let audio = matches!(clip.payload, ClipPayload::Audio(_));
-                let mode = if audio
-                    && pos.y <= clip_rect.top() + 15.0
-                    && (pos.x - clip_rect.left()).abs() < fade_zone
-                {
-                    ClipDragMode::FadeIn
-                } else if audio
-                    && pos.y <= clip_rect.top() + 15.0
-                    && (pos.x - clip_rect.right()).abs() < fade_zone
-                {
-                    ClipDragMode::FadeOut
-                } else if (pos.x - clip_rect.left()).abs() < edge {
-                    ClipDragMode::TrimStart
-                } else if (pos.x - clip_rect.right()).abs() < edge {
-                    ClipDragMode::TrimEnd
-                } else {
-                    ClipDragMode::Move
-                };
-                self.drag = Some(ClipDrag {
-                    clip_id,
-                    track_id,
-                    mode,
-                    origin: clip.range,
-                    start_pointer: pos,
-                });
-                if self.state.selection.clips.contains(&clip_id) {
-                    self.state.selection.clips.set_primary(clip_id);
-                } else {
-                    self.state.selection.select_clip(clip_id, track_id, false);
-                }
+                self.begin_clip_drag(clip, clip_id, track_id, ClipDragMode::Move, pos);
             }
         }
+        self.update_clip_drag(ui, doc, &name_response, clip, clip_id, lane_rect, ppb, grid);
+
+        for (mode, edge_x, id) in [
+            (ClipDragMode::TrimStart, clip_rect.left(), "trim-start"),
+            (ClipDragMode::TrimEnd, clip_rect.right(), "trim-end"),
+        ] {
+            let handle = Rect::from_min_max(
+                egui::pos2(edge_x - 4.0, name_rect.top()),
+                egui::pos2(edge_x + 4.0, name_rect.bottom()),
+            )
+            .intersect(lane_rect);
+            if handle.width() < 1.0 {
+                continue;
+            }
+            let response = ui.interact(handle, Id::new(("clip", clip_id, id)), Sense::drag());
+            if response.hovered() || response.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                let edge_grip = Rect::from_center_size(
+                    egui::pos2(edge_x, name_rect.center().y),
+                    Vec2::new(4.0, (name_rect.height() - 4.0).max(8.0)),
+                )
+                .intersect(lane_rect);
+                painter.rect_filled(edge_grip, CornerRadius::same(2), Color32::WHITE);
+                painter.rect_stroke(
+                    edge_grip,
+                    CornerRadius::same(2),
+                    Stroke::new(1.0_f32, Color32::from_black_alpha(160)),
+                    StrokeKind::Inside,
+                );
+            }
+            if response.drag_started() {
+                if let Some(pos) = ui
+                    .input(|i| i.pointer.press_origin())
+                    .or_else(|| response.interact_pointer_pos())
+                {
+                    self.begin_clip_drag(clip, clip_id, track_id, mode, pos);
+                }
+            }
+            self.update_clip_drag(ui, doc, &response, clip, clip_id, lane_rect, ppb, grid);
+        }
+    }
+
+    fn begin_clip_drag(
+        &mut self,
+        clip: &notwig_core::ClipEntity,
+        clip_id: ClipId,
+        track_id: TrackId,
+        mode: ClipDragMode,
+        pointer: egui::Pos2,
+    ) {
+        self.drag = Some(ClipDrag {
+            clip_id,
+            track_id,
+            mode,
+            origin: clip.range,
+            start_pointer: pointer,
+        });
+        if self.state.selection.clips.contains(&clip_id) {
+            self.state.selection.clips.set_primary(clip_id);
+        } else {
+            self.state.selection.select_clip(clip_id, track_id, false);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_clip_drag(
+        &mut self,
+        ui: &egui::Ui,
+        doc: &ProjectDoc,
+        response: &egui::Response,
+        clip: &notwig_core::ClipEntity,
+        clip_id: ClipId,
+        _lane_rect: Rect,
+        ppb: f32,
+        grid: TimeMus,
+    ) {
         if response.dragged() {
-            if let Some(drag) = self.drag {
+            if let Some(drag) = self.drag.filter(|drag| drag.clip_id == clip_id) {
                 let current = response
                     .interact_pointer_pos()
                     .or_else(|| ui.input(|i| i.pointer.hover_pos()))
                     .unwrap_or(drag.start_pointer);
-                if matches!(drag.mode, ClipDragMode::FadeIn | ClipDragMode::FadeOut) {
-                    if let ClipPayload::Audio(audio) = &clip.payload {
-                        let duration = audio.source_duration();
-                        let width = clip_rect.width().max(1.0);
-                        let fraction = if drag.mode == ClipDragMode::FadeIn {
-                            (current.x - clip_rect.left()) / width
-                        } else {
-                            (clip_rect.right() - current.x) / width
-                        }
-                        .clamp(0.0, 1.0);
-                        let samples = (fraction * duration as f32) as u64;
-                        let other = if drag.mode == ClipDragMode::FadeIn {
-                            audio.fade_out_samples
-                        } else {
-                            audio.fade_in_samples
-                        };
-                        let samples = samples.min(duration.saturating_sub(other));
-                        let (fade_in, fade_out) = if drag.mode == ClipDragMode::FadeIn {
-                            (samples, audio.fade_out_samples)
-                        } else {
-                            (audio.fade_in_samples, samples)
-                        };
-                        self.fade_preview = Some((clip_id, fade_in, fade_out));
-                    }
+                let alt = ui.input(|i| i.modifiers.alt);
+                let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
+                let range = drag_range(drag, delta, alt, grid);
+                let target = if drag.mode == ClipDragMode::Move {
+                    ui.input(|i| i.pointer.hover_pos())
+                        .and_then(|pos| self.track_at(pos.y))
+                        .filter(|target| compatible_track(doc, clip.kind, *target))
+                        .unwrap_or(drag.track_id)
                 } else {
-                    let alt = ui.input(|i| i.modifiers.alt);
-                    let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
-                    let range = drag_range(drag, delta, alt);
-                    let target = if drag.mode == ClipDragMode::Move {
-                        ui.input(|i| i.pointer.hover_pos())
-                            .and_then(|pos| self.track_at(pos.y))
-                            .filter(|target| compatible_track(doc, clip.kind, *target))
-                            .unwrap_or(drag.track_id)
-                    } else {
-                        drag.track_id
-                    };
-                    self.clip_preview = Some((clip_id, range, target));
-                }
+                    drag.track_id
+                };
+                self.clip_preview = Some((clip_id, range, target));
             }
         }
         if response.drag_stopped() {
-            if let Some((id, fade_in, fade_out)) = self.fade_preview.take() {
-                self.emit(UiIntent::SetClipFades {
-                    clip_id: id,
-                    fade_in_samples: fade_in,
-                    fade_out_samples: fade_out,
-                });
-                self.drag = None;
-            } else if let Some((id, range, target_track)) = self.clip_preview.take() {
+            if let Some((id, range, target_track)) = self.clip_preview.take() {
                 if let Some(drag) = self.drag.take() {
                     if range != drag.origin || target_track != drag.track_id {
                         if drag.mode == ClipDragMode::Move {
@@ -1234,86 +1340,18 @@ fn draw_waveform(
     }
 }
 
-fn draw_fades(
-    painter: &egui::Painter,
-    rect: Rect,
-    audio: &notwig_core::AudioClipData,
-    fade_in: u64,
-    fade_out: u64,
-) {
-    let duration = audio.source_duration().max(1);
-    let width = rect.width();
-    let in_px = (fade_in as f32 / duration as f32 * width).clamp(0.0, width);
-    let out_px = (fade_out as f32 / duration as f32 * width).clamp(0.0, width);
-    if in_px > 0.5 {
-        let x = rect.left() + in_px;
-        painter.add(egui::Shape::convex_polygon(
-            vec![
-                egui::pos2(rect.left(), rect.bottom()),
-                egui::pos2(x, rect.top()),
-                egui::pos2(rect.left(), rect.top()),
-            ],
-            Color32::from_black_alpha(38),
-            Stroke::NONE,
-        ));
-        painter.line_segment(
-            [
-                egui::pos2(rect.left(), rect.bottom()),
-                egui::pos2(x, rect.top()),
-            ],
-            Stroke::new(1.0_f32, Color32::from_white_alpha(170)),
-        );
-    }
-    if out_px > 0.5 {
-        let x = rect.right() - out_px;
-        painter.add(egui::Shape::convex_polygon(
-            vec![
-                egui::pos2(rect.right(), rect.bottom()),
-                egui::pos2(x, rect.top()),
-                egui::pos2(rect.right(), rect.top()),
-            ],
-            Color32::from_black_alpha(38),
-            Stroke::NONE,
-        ));
-        painter.line_segment(
-            [
-                egui::pos2(x, rect.top()),
-                egui::pos2(rect.right(), rect.bottom()),
-            ],
-            Stroke::new(1.0_f32, Color32::from_white_alpha(170)),
-        );
-    }
-    for handle in [
-        Rect::from_min_size(
-            egui::pos2(rect.left() + 2.0, rect.top() + 2.0),
-            Vec2::splat(6.0),
-        ),
-        Rect::from_min_size(
-            egui::pos2(rect.right() - 8.0, rect.top() + 2.0),
-            Vec2::splat(6.0),
-        ),
-    ] {
-        painter.rect_filled(handle, CornerRadius::same(1), Color32::WHITE);
-        painter.rect_stroke(
-            handle,
-            CornerRadius::same(1),
-            Stroke::new(1.0_f32, Color32::from_black_alpha(160)),
-            StrokeKind::Inside,
-        );
-    }
-}
-
-fn drag_range(drag: ClipDrag, delta: f64, alt: bool) -> RangeMus {
+fn drag_range(drag: ClipDrag, delta: f64, alt: bool, grid: TimeMus) -> RangeMus {
     let origin_start = drag.origin.start.as_f64();
     let origin_end = drag.origin.end.as_f64();
     let length = (origin_end - origin_start).max(1.0 / 16.0);
     match drag.mode {
         ClipDragMode::Move => {
-            let start = snap_16(
+            let start = snap_time(
                 TimeMus::new(
                     (((origin_start + delta) * 1_000_000.0).round()) as i64,
                     1_000_000,
                 ),
+                grid,
                 alt,
             );
             RangeMus::new(
@@ -1323,11 +1361,12 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool) -> RangeMus {
             .unwrap_or(drag.origin)
         }
         ClipDragMode::TrimStart => {
-            let start = snap_16(
+            let start = snap_time(
                 TimeMus::new(
                     (((origin_start + delta) * 1_000_000.0).round()) as i64,
                     1_000_000,
                 ),
+                grid,
                 alt,
             );
             let end = TimeMus::new((origin_end * 1_000_000.0) as i64, 1_000_000);
@@ -1338,11 +1377,12 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool) -> RangeMus {
             }
         }
         ClipDragMode::TrimEnd => {
-            let end = snap_16(
+            let end = snap_time(
                 TimeMus::new(
                     (((origin_end + delta) * 1_000_000.0).round()) as i64,
                     1_000_000,
                 ),
+                grid,
                 alt,
             );
             let start = TimeMus::new((origin_start * 1_000_000.0) as i64, 1_000_000);
@@ -1352,7 +1392,6 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool) -> RangeMus {
                 drag.origin
             }
         }
-        ClipDragMode::FadeIn | ClipDragMode::FadeOut => drag.origin,
     }
 }
 
