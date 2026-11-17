@@ -112,7 +112,10 @@ impl NotwigUi {
         );
         let overlay = ui.painter().with_clip_rect(content_rect);
         let playhead_x = timeline_left + (runtime.playhead.as_f64() - start.as_f64()) as f32 * ppb;
-        if playhead_x >= content_rect.left() && playhead_x <= content_rect.right() {
+        if runtime.playing
+            && playhead_x >= content_rect.left()
+            && playhead_x <= content_rect.right()
+        {
             overlay.line_segment(
                 [
                     egui::pos2(playhead_x, content_rect.top()),
