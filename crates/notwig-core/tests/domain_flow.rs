@@ -187,7 +187,7 @@ fn group_delete_removes_descendants_clips_and_devices() {
 }
 
 #[test]
-fn overlap_auto_trims_existing_clips() {
+fn overlap_makes_space_and_preserves_both_fragments() {
     let mut doc = new_doc();
     let (track, _) = add_track(&mut doc, 2, TrackKind::Instrument);
     let doc = create_midi_clip(
@@ -206,13 +206,19 @@ fn overlap_auto_trims_existing_clips() {
     );
 
     let lane = &doc.arranger.lanes[&track];
-    assert_eq!(lane.clips.len(), 2);
+    assert_eq!(lane.clips.len(), 3);
     let first = &doc.arranger.clips[&id::<Clip>(20)];
-    assert_eq!(first.range.start, Rational::new(3, 1));
-    assert_eq!(first.range.end, Rational::new(4, 1));
+    assert_eq!(first.range.start, Rational::zero());
+    assert_eq!(first.range.end, Rational::new(2, 1));
     let second = &doc.arranger.clips[&id::<Clip>(21)];
     assert_eq!(second.range.start, Rational::new(2, 1));
     assert_eq!(second.range.end, Rational::new(3, 1));
+    assert!(doc.arranger.clips.values().any(|clip| {
+        clip.id != id::<Clip>(20)
+            && clip.id != id::<Clip>(21)
+            && clip.range.start == Rational::new(3, 1)
+            && clip.range.end == Rational::new(4, 1)
+    }));
 }
 
 #[test]
@@ -325,6 +331,8 @@ fn audio_clip_requires_sample_accurate_range() {
             fade_in_samples: 100,
             fade_out_samples: 100,
             fade_shape: FadeShape::Linear,
+            slices: Vec::new(),
+            slices_enabled: false,
         }),
     });
     let doc = apply(&doc, &good).unwrap().doc;
@@ -342,6 +350,8 @@ fn audio_clip_requires_sample_accurate_range() {
             fade_in_samples: 0,
             fade_out_samples: 0,
             fade_shape: FadeShape::Linear,
+            slices: Vec::new(),
+            slices_enabled: false,
         }),
     });
     assert!(matches!(
@@ -391,6 +401,8 @@ fn edit_audio_clip_updates_gain_and_range() {
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
             }),
         }),
     )

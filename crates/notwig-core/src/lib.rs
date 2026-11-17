@@ -14,7 +14,7 @@ pub use domain::{
     Meta, ParamValue, ProjectDoc, SCHEMA_VERSION, StateBlobRef, TransportDoc,
 };
 pub use ids::{
-    AssetId, ClipId, DeviceChainId, DeviceId, Entity, Id, NoteId, ParamId, SendId, TrackId,
+    AssetId, ClipId, DeviceChainId, DeviceId, Entity, Id, NoteId, ParamId, SendId, SliceId, TrackId,
 };
 pub use protocol::{
     AffectedSet, Command, CommandPayload, DocChange, EngineMsg, PlanHandle, PlaybackSchedule,

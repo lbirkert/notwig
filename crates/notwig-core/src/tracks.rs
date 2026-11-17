@@ -91,12 +91,20 @@ impl Default for TrackIO {
     }
 }
 
+const fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: TrackId,
     pub kind: TrackKind,
     pub name: String,
     pub color: Option<Color>,
+    #[serde(default)]
+    pub comment: String,
+    #[serde(default = "default_true")]
+    pub active: bool,
     pub parent: Option<TrackId>,
     pub mixer: MixerState,
     pub io: TrackIO,
@@ -189,13 +197,17 @@ impl TrackForest {
     }
 
     pub fn remove(&mut self, id: TrackId) {
+        self.detach(id);
+        self.children.remove(&id);
+    }
+
+    fn detach(&mut self, id: TrackId) {
         if let Some(pos) = self.roots.iter().position(|root| *root == id) {
             self.roots.remove(pos);
         }
         for siblings in self.children.values_mut() {
             siblings.retain(|child| *child != id);
         }
-        self.children.remove(&id);
     }
 
     pub fn move_node(
@@ -205,7 +217,7 @@ impl TrackForest {
         index: usize,
     ) -> Result<(), CoreError> {
         if self.contains(id) {
-            self.remove(id);
+            self.detach(id);
         }
         self.insert(id, parent, Some(index));
         Ok(())

@@ -3,6 +3,7 @@
 mod audio;
 mod gui;
 mod history;
+mod logging;
 mod workspace;
 
 use std::path::{Path, PathBuf};
@@ -43,6 +44,7 @@ enum AppError {
 }
 
 fn main() {
+    logging::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(err) = run(&args) {
         eprintln!("error: {err}");
@@ -55,6 +57,12 @@ fn run(args: &[String]) -> Result<(), AppError> {
         return gui::run(None).map_err(AppError::Gui);
     };
     match command {
+        "scan-plugins" => {
+            let path = args
+                .get(1)
+                .ok_or_else(|| AppError::Usage("scan-plugins <cache.json>".into()))?;
+            scan_plugins(Path::new(path))
+        }
         "ui" => {
             let initial = args.get(1).map(PathBuf::from);
             gui::run(initial).map_err(AppError::Gui)
@@ -205,17 +213,37 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
     )?
     .doc;
     for (param, value) in [
-        (notwig_dsp::stock::band_param(1, 2), 180.0),
-        (notwig_dsp::stock::band_param(1, 3), -5.0),
-        (notwig_dsp::stock::band_param(2, 2), 3_500.0),
-        (notwig_dsp::stock::band_param(2, 3), 4.0),
+        (
+            notwig_dsp::stock::band_param(1, 0),
+            notwig_core::ParamValue::Bool(true),
+        ),
+        (
+            notwig_dsp::stock::band_param(1, 2),
+            notwig_core::ParamValue::F64(180.0),
+        ),
+        (
+            notwig_dsp::stock::band_param(1, 3),
+            notwig_core::ParamValue::F64(-5.0),
+        ),
+        (
+            notwig_dsp::stock::band_param(2, 0),
+            notwig_core::ParamValue::Bool(true),
+        ),
+        (
+            notwig_dsp::stock::band_param(2, 2),
+            notwig_core::ParamValue::F64(3_500.0),
+        ),
+        (
+            notwig_dsp::stock::band_param(2, 3),
+            notwig_core::ParamValue::F64(4.0),
+        ),
     ] {
         doc = apply(
             &doc,
             &Command::new(CommandPayload::SetParam {
                 device_id: eq_id,
                 param_id: param,
-                value: notwig_core::ParamValue::F64(value),
+                value,
                 ramp: None,
             }),
         )?
@@ -252,6 +280,8 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
                 fade_in_samples: 480,
                 fade_out_samples: 480,
                 fade_shape: FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
             }),
         }),
     )?
@@ -276,6 +306,25 @@ fn render_bundle(
         eprintln!("warning: {}: {}", issue.entity, issue.message);
     }
     render_doc(&loaded.doc, bundle, out, start_beat, end_beat)
+}
+
+fn scan_plugins(cache_path: &Path) -> Result<(), AppError> {
+    let mut host = notwig_plugins::PluginHost::new();
+    let _ = host.scan(&plugin_scan_paths());
+    host.save_cache(cache_path)
+        .map_err(|err| AppError::Gui(err.to_string()))
+}
+
+fn plugin_scan_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        paths.push(home.join("Library/Audio/Plug-Ins/VST3"));
+        paths.push(home.join("Library/Audio/Plug-Ins/Components"));
+    }
+    paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST3"));
+    paths.push(PathBuf::from("/Library/Audio/Plug-Ins/Components"));
+    paths
 }
 
 fn render_doc(
@@ -307,8 +356,22 @@ fn render_doc(
     };
     let plan = notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps)?;
     let config = EngineConfig::new(sample_rate, 512);
-    let plugins = notwig_plugins::PluginHost::new();
-    let mut engine = Engine::with_factory(config, Arc::new(PluginDeviceFactory::new(plugins)));
+    let mut plugins = notwig_plugins::PluginHost::new();
+    let descriptors = if doc
+        .devices
+        .values()
+        .any(|device| device.type_id.starts_with("vst3.") || device.type_id.starts_with("au."))
+    {
+        let paths = plugin_scan_paths();
+        let _ = plugins.scan(&paths);
+        plugins.cache().descriptors()
+    } else {
+        Vec::new()
+    };
+    let mut engine = Engine::with_factory(
+        config,
+        Arc::new(PluginDeviceFactory::new(plugins, descriptors)),
+    );
     engine.apply(EngineMsg::UpdateSchedule {
         schedule: Arc::new(PlaybackSchedule::from_doc(doc)),
     })?;

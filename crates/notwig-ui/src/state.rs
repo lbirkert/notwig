@@ -143,6 +143,14 @@ impl Selection {
         }
     }
 
+    pub fn select_clips(&mut self, clips: &[(ClipId, TrackId)]) {
+        self.clear();
+        for (clip, track) in clips {
+            self.clips.insert(*clip);
+            self.tracks.insert(*track);
+        }
+    }
+
     pub fn select_device(&mut self, id: DeviceId, track: TrackId, additive: bool) {
         if additive {
             self.devices.toggle(id);
@@ -263,6 +271,13 @@ impl Viewport {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EditFocus {
+    #[default]
+    Timeline,
+    ClipEditor,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotificationKind {
     Info,
@@ -365,6 +380,26 @@ mod selection_tests {
         assert_eq!(selection.tracks.len(), 2);
         selection.clear();
         assert!(selection.time.is_none());
+    }
+
+    #[test]
+    fn bar_selection_and_additive_node_selection_share_one_model() {
+        let mut selection = Selection::default();
+        let track = id::<Track>(30);
+        let clip = id::<Clip>(31);
+        let range = RangeMus::new(TimeMus::new(1, 1), TimeMus::new(3, 1)).unwrap();
+        selection.select_time(range, &[track]);
+        assert!(selection.time.is_some());
+        assert!(selection.clips.is_empty());
+
+        selection.select_clip(clip, track, false);
+        assert!(selection.time.is_none());
+        assert!(selection.clips.contains(&clip));
+
+        selection.select_time(range, &[track]);
+        selection.select_clip(clip, track, true);
+        assert!(selection.time.is_some());
+        assert!(selection.clips.contains(&clip));
     }
 
     #[test]

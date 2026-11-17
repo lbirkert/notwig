@@ -42,6 +42,13 @@ pub enum CommandPayload {
         loop_enabled: Option<bool>,
         loop_range: Option<Option<RangeMus>>,
     },
+    SetTempo {
+        tempo_bpm: f64,
+    },
+    SetTimeSignature {
+        numerator: u8,
+        denominator: u8,
+    },
     Pause,
     Stop,
     CreateTrack {
@@ -59,6 +66,18 @@ pub enum CommandPayload {
     RenameTrack {
         id: TrackId,
         name: String,
+    },
+    SetTrackColor {
+        id: TrackId,
+        color: Option<crate::time::Color>,
+    },
+    SetTrackComment {
+        id: TrackId,
+        comment: String,
+    },
+    SetTrackActive {
+        id: TrackId,
+        active: bool,
     },
     MoveTrack {
         id: TrackId,
@@ -155,6 +174,10 @@ pub enum CommandPayload {
         device_id: DeviceId,
         state_ref: Option<crate::domain::StateBlobRef>,
     },
+    SetClipSlices {
+        clip_id: ClipId,
+        slices: Vec<crate::sequencer::AudioSlice>,
+    },
     SetParam {
         device_id: DeviceId,
         param_id: ParamId,
@@ -185,7 +208,10 @@ impl CommandPayload {
     pub fn requires_plan_rebuild(&self) -> bool {
         matches!(
             self,
-            Self::CreateTrack { .. }
+            Self::SetTempo { .. }
+                | Self::SetTimeSignature { .. }
+                | Self::SetTrackActive { .. }
+                | Self::CreateTrack { .. }
                 | Self::DeleteTrack { .. }
                 | Self::MoveTrack { .. }
                 | Self::SetTrackRoute { .. }

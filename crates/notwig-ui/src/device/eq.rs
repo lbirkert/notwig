@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Vec2};
+use egui::{Align, Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Vec2};
 use notwig_core::{DeviceId, DeviceInstance, ParamId, ParamValue};
 
 use crate::intent::UiIntent;
@@ -25,8 +25,13 @@ pub struct EqDrag {
 }
 
 impl NotwigUi {
-    fn eq_curve(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, sample_rate: f64) {
-        let height = 88.0;
+    fn eq_curve(
+        &mut self,
+        ui: &mut egui::Ui,
+        device: &DeviceInstance,
+        sample_rate: f64,
+        height: f32,
+    ) {
         let (rect, response) = ui.allocate_exact_size(
             Vec2::new(ui.available_width().max(220.0), height),
             Sense::click_and_drag(),
@@ -48,6 +53,14 @@ impl NotwigUi {
                 - (db.clamp(-f64::from(range), f64::from(range)) / f64::from(range)) as f32
                     * rect.height()
                     * 0.44
+        };
+        let freq_for_x = |x: f32| {
+            let t = ((x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+            min_f * (max_f / min_f).powf(f64::from(t))
+        };
+        let db_for_y = |y: f32| {
+            f64::from(((rect.center().y - y) / (rect.height() * 0.44)).clamp(-1.0, 1.0))
+                * f64::from(range)
         };
         for (freq, label) in [
             (20.0, "20"),
@@ -103,55 +116,56 @@ impl NotwigUi {
             }
         }
         let values = self.device_values(device);
-        let mut points = Vec::with_capacity(240);
+        let mut points: Vec<Option<egui::Pos2>> = Vec::with_capacity(241);
         for index in 0..=240u32 {
             let t = f64::from(index) / 240.0;
             let freq = 10.0_f64.powf(log_min + t * (log_max - log_min));
             let magnitude = notwig_dsp::stock::eq_magnitude_response(&values, sample_rate, freq);
-            let db = 20.0 * magnitude.max(1e-9).log10();
-            points.push(egui::pos2(x_for_freq(freq), y_for_db(db)));
+            let db = 20.0 * magnitude.max(1e-12).log10();
+            let point = (db.is_finite() && db >= -f64::from(range) && db <= f64::from(range))
+                .then(|| egui::pos2(x_for_freq(freq), y_for_db(db)));
+            points.push(point);
         }
         for pair in points.windows(2) {
-            let t = (pair[0].x - rect.left()) / rect.width();
-            painter.line_segment([pair[0], pair[1]], Stroke::new(2.2_f32, curve_color(t)));
+            let (Some(start), Some(end)) = (pair[0], pair[1]) else {
+                continue;
+            };
+            let t = (start.x - rect.left()) / rect.width();
+            painter.line_segment([start, end], Stroke::new(2.2_f32, curve_color(t)));
         }
         let band = self.eq_band.min(3);
         let selected_freq = values
             .get(&notwig_dsp::stock::band_param(band, 2))
             .and_then(ParamValue::as_f64)
             .unwrap_or(1_000.0);
-        let line_x = x_for_freq(selected_freq);
-        painter.line_segment(
-            [
-                egui::pos2(line_x, rect.top()),
-                egui::pos2(line_x, rect.bottom()),
-            ],
-            Stroke::new(1.0_f32, Color32::from_white_alpha(210)),
+        let selected_enabled = matches!(
+            values.get(&notwig_dsp::stock::band_param(band, 0)),
+            Some(ParamValue::Bool(true))
         );
+        if selected_enabled {
+            let line_x = x_for_freq(selected_freq);
+            painter.line_segment(
+                [
+                    egui::pos2(line_x, rect.top()),
+                    egui::pos2(line_x, rect.bottom()),
+                ],
+                Stroke::new(1.0_f32, Color32::from_white_alpha(210)),
+            );
+        }
         let mut point_positions = Vec::new();
         for band_index in 0..4 {
-            let enabled = !matches!(
+            let enabled = matches!(
                 values.get(&notwig_dsp::stock::band_param(band_index, 0)),
-                Some(ParamValue::Bool(false))
+                Some(ParamValue::Bool(true))
             );
             let freq = values
                 .get(&notwig_dsp::stock::band_param(band_index, 2))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(1_000.0);
-            let kind = values
-                .get(&notwig_dsp::stock::band_param(band_index, 1))
+            let gain = values
+                .get(&notwig_dsp::stock::band_param(band_index, 3))
                 .and_then(ParamValue::as_f64)
-                .unwrap_or(0.0) as u32;
-            let gain = if kind == 3 || kind == 4 {
-                let magnitude =
-                    notwig_dsp::stock::eq_magnitude_response(&values, sample_rate, freq);
-                20.0 * magnitude.max(1e-9).log10()
-            } else {
-                values
-                    .get(&notwig_dsp::stock::band_param(band_index, 3))
-                    .and_then(ParamValue::as_f64)
-                    .unwrap_or(0.0)
-            };
+                .unwrap_or(0.0);
             point_positions.push((
                 band_index,
                 egui::pos2(x_for_freq(freq), y_for_db(gain)),
@@ -162,16 +176,17 @@ impl NotwigUi {
         let hovered_band = hover_pos.and_then(|pos| {
             point_positions
                 .iter()
-                .find(|(_, point, _)| pos.distance(*point) <= 14.0)
+                .find(|(_, point, enabled)| *enabled && pos.distance(*point) <= 14.0)
                 .map(|(band_index, _, _)| *band_index)
         });
         let mut handles = Vec::new();
         for (band_index, pos, enabled) in &point_positions {
+            if !enabled {
+                continue;
+            }
             let active = *band_index == band;
             let show_handle = active || Some(*band_index) == hovered_band;
-            let fill = if !enabled {
-                Color32::from_gray(95)
-            } else if active {
+            let fill = if active {
                 Color32::WHITE
             } else {
                 Color32::from_gray(220)
@@ -225,38 +240,55 @@ impl NotwigUi {
                 .input(|input| input.pointer.press_origin())
                 .or_else(|| response.interact_pointer_pos())
             {
-                let mut started = None;
+                let mut started: Option<(usize, EqDragMode, bool)> = None;
                 if let Some((band_index, _)) =
                     handles.iter().find(|(_, handle)| handle.contains(pos))
                 {
-                    self.eq_band = *band_index;
-                    started = Some(EqDragMode::Q);
-                } else {
-                    for (band_index, point, _) in &point_positions {
-                        if pos.distance(*point) <= 13.0 {
-                            self.eq_band = *band_index;
-                            started = Some(EqDragMode::GainFrequency);
-                            break;
-                        }
-                    }
+                    started = Some((*band_index, EqDragMode::Q, false));
+                } else if let Some((band_index, _, _)) = point_positions
+                    .iter()
+                    .find(|(_, point, enabled)| *enabled && pos.distance(*point) <= 13.0)
+                {
+                    started = Some((*band_index, EqDragMode::GainFrequency, false));
+                } else if let Some((band_index, _, _)) =
+                    point_positions.iter().find(|(_, _, enabled)| !*enabled)
+                {
+                    started = Some((*band_index, EqDragMode::GainFrequency, true));
                 }
-                if let Some(mode) = started {
-                    let active = self.eq_band.min(3);
-                    let freq = values
-                        .get(&notwig_dsp::stock::band_param(active, 2))
-                        .and_then(ParamValue::as_f64)
-                        .unwrap_or(1_000.0);
-                    let gain = values
-                        .get(&notwig_dsp::stock::band_param(active, 3))
-                        .and_then(ParamValue::as_f64)
-                        .unwrap_or(0.0);
-                    let q = values
-                        .get(&notwig_dsp::stock::band_param(active, 4))
-                        .and_then(ParamValue::as_f64)
-                        .unwrap_or(0.707);
+                if let Some((band_index, mode, enable)) = started {
+                    self.eq_band = band_index;
+                    if enable {
+                        self.emit(UiIntent::SetParam {
+                            device_id: device.id,
+                            param_id: notwig_dsp::stock::band_param(band_index, 0),
+                            value: ParamValue::Bool(true),
+                        });
+                    }
+                    let (freq, gain, q) = if enable {
+                        let freq = freq_for_x(pos.x);
+                        let gain = db_for_y(pos.y);
+                        self.emit_eq_param(device.id, band_index, 2, freq);
+                        self.emit_eq_param(device.id, band_index, 3, gain);
+                        (freq, gain, 0.707)
+                    } else {
+                        (
+                            values
+                                .get(&notwig_dsp::stock::band_param(band_index, 2))
+                                .and_then(ParamValue::as_f64)
+                                .unwrap_or(1_000.0),
+                            values
+                                .get(&notwig_dsp::stock::band_param(band_index, 3))
+                                .and_then(ParamValue::as_f64)
+                                .unwrap_or(0.0),
+                            values
+                                .get(&notwig_dsp::stock::band_param(band_index, 4))
+                                .and_then(ParamValue::as_f64)
+                                .unwrap_or(0.707),
+                        )
+                    };
                     self.eq_drag = Some(EqDrag {
                         device_id: device.id,
-                        band: active,
+                        band: band_index,
                         mode,
                         start_freq: freq,
                         start_gain: gain,
@@ -268,11 +300,37 @@ impl NotwigUi {
         }
         if response.clicked() {
             if let Some(pos) = response.interact_pointer_pos() {
-                for (band_index, point, _) in &point_positions {
-                    if pos.distance(*point) <= 13.0 {
-                        self.eq_band = *band_index;
-                        break;
-                    }
+                let enabled_hit = point_positions
+                    .iter()
+                    .find(|(_, point, enabled)| *enabled && pos.distance(*point) <= 13.0);
+                if let Some((band_index, _, _)) = enabled_hit {
+                    self.eq_band = *band_index;
+                } else if let Some((band_index, _, _)) =
+                    point_positions.iter().find(|(_, _, enabled)| !*enabled)
+                {
+                    self.eq_band = *band_index;
+                    self.emit(UiIntent::SetParam {
+                        device_id: device.id,
+                        param_id: notwig_dsp::stock::band_param(*band_index, 0),
+                        value: ParamValue::Bool(true),
+                    });
+                    self.emit_eq_param(device.id, *band_index, 2, freq_for_x(pos.x));
+                    self.emit_eq_param(device.id, *band_index, 3, db_for_y(pos.y));
+                }
+            }
+        }
+        if response.double_clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                if let Some((band_index, _, _)) = point_positions
+                    .iter()
+                    .find(|(_, point, enabled)| *enabled && pos.distance(*point) <= 13.0)
+                {
+                    self.eq_band = *band_index;
+                    self.emit(UiIntent::SetParam {
+                        device_id: device.id,
+                        param_id: notwig_dsp::stock::band_param(*band_index, 0),
+                        value: ParamValue::Bool(false),
+                    });
                 }
             }
         }
@@ -306,7 +364,6 @@ impl NotwigUi {
         if response.drag_stopped() {
             self.eq_drag = None;
         }
-        ui.add_space(4.0);
     }
     pub(super) fn eq_card_body(
         &mut self,
@@ -314,69 +371,79 @@ impl NotwigUi {
         device: &DeviceInstance,
         sample_rate: f64,
     ) {
+        self.eq_body(ui, device, sample_rate);
+    }
+
+    fn eq_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, sample_rate: f64) {
         let band = self.eq_band.min(3);
         let shift_id = notwig_dsp::stock::p_eq_shift();
         let gain_id = notwig_dsp::stock::p_eq_output_gain();
-        ui.horizontal(|ui| {
-            let mut shift = device
-                .param_values
-                .get(&shift_id)
-                .and_then(ParamValue::as_f64)
-                .unwrap_or(0.0);
-            ui.label(RichText::new("Shift").small().color(theme::TEXT_MUTED));
-            if ui
-                .add(
-                    egui::DragValue::new(&mut shift)
-                        .speed(0.01)
-                        .fixed_decimals(2)
-                        .suffix(" st"),
-                )
-                .changed()
-            {
-                self.emit(UiIntent::SetParam {
-                    device_id: device.id,
-                    param_id: shift_id,
-                    value: ParamValue::F64(shift.clamp(-12.0, 12.0)),
-                });
-            }
-            ui.add_space(6.0);
-            let mut gain = device
-                .param_values
-                .get(&gain_id)
-                .and_then(ParamValue::as_f64)
-                .unwrap_or(0.0);
-            ui.label(RichText::new("Gain").small().color(theme::TEXT_MUTED));
-            if ui
-                .add(
-                    egui::DragValue::new(&mut gain)
-                        .speed(0.1)
-                        .fixed_decimals(1)
-                        .suffix(" dB"),
-                )
-                .changed()
-            {
-                self.emit(UiIntent::SetParam {
-                    device_id: device.id,
-                    param_id: gain_id,
-                    value: ParamValue::F64(gain.clamp(-24.0, 24.0)),
-                });
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                for range in [30.0_f32, 20.0, 10.0] {
-                    if ui
-                        .selectable_label(
-                            (self.eq_range - range).abs() < 0.1,
-                            format!("±{range:.0}"),
-                        )
-                        .clicked()
-                    {
-                        self.eq_range = range;
-                    }
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let curve_height = (ui.available_height() - 56.0).max(60.0);
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width(), 24.0),
+            egui::Layout::left_to_right(Align::Center),
+            |ui| {
+                let mut shift = device
+                    .param_values
+                    .get(&shift_id)
+                    .and_then(ParamValue::as_f64)
+                    .unwrap_or(0.0);
+                ui.label(RichText::new("Shift").small().color(theme::TEXT_MUTED));
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut shift)
+                            .speed(0.01)
+                            .fixed_decimals(2)
+                            .suffix(" st"),
+                    )
+                    .changed()
+                {
+                    self.emit(UiIntent::SetParam {
+                        device_id: device.id,
+                        param_id: shift_id,
+                        value: ParamValue::F64(shift.clamp(-12.0, 12.0)),
+                    });
                 }
-                ui.label(RichText::new("Range").small().color(theme::TEXT_MUTED));
-            });
-        });
-        self.eq_curve(ui, device, sample_rate);
+                ui.add_space(6.0);
+                let mut gain = device
+                    .param_values
+                    .get(&gain_id)
+                    .and_then(ParamValue::as_f64)
+                    .unwrap_or(0.0);
+                ui.label(RichText::new("Gain").small().color(theme::TEXT_MUTED));
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut gain)
+                            .speed(0.1)
+                            .fixed_decimals(1)
+                            .suffix(" dB"),
+                    )
+                    .changed()
+                {
+                    self.emit(UiIntent::SetParam {
+                        device_id: device.id,
+                        param_id: gain_id,
+                        value: ParamValue::F64(gain.clamp(-24.0, 24.0)),
+                    });
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    for range in [30.0_f32, 20.0, 10.0] {
+                        if ui
+                            .selectable_label(
+                                (self.eq_range - range).abs() < 0.1,
+                                format!("±{range:.0}"),
+                            )
+                            .clicked()
+                        {
+                            self.eq_range = range;
+                        }
+                    }
+                    ui.label(RichText::new("Range").small().color(theme::TEXT_MUTED));
+                });
+            },
+        );
+        self.eq_curve(ui, device, sample_rate, curve_height);
         self.eq_band_controls(ui, device, band);
     }
 
@@ -400,106 +467,110 @@ impl NotwigUi {
         let freq_id = notwig_dsp::stock::band_param(band, 2);
         let gain_id = notwig_dsp::stock::band_param(band, 3);
         let q_id = notwig_dsp::stock::band_param(band, 4);
-        ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt(("eq_band", device.id))
-                .selected_text(format!("{}", band + 1))
-                .width(42.0)
-                .show_ui(ui, |ui| {
-                    for index in 0..4usize {
-                        if ui
-                            .selectable_label(self.eq_band == index, format!("{}", index + 1))
-                            .clicked()
-                        {
-                            self.eq_band = index;
-                            ui.close();
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width(), 24.0),
+            egui::Layout::left_to_right(Align::Center),
+            |ui| {
+                egui::ComboBox::from_id_salt(("eq_band", device.id))
+                    .selected_text(format!("{}", band + 1))
+                    .width(42.0)
+                    .show_ui(ui, |ui| {
+                        for index in 0..4usize {
+                            if ui
+                                .selectable_label(self.eq_band == index, format!("{}", index + 1))
+                                .clicked()
+                            {
+                                self.eq_band = index;
+                                ui.close();
+                            }
                         }
+                    });
+                let enabled = !matches!(values.get(&enabled_id), Some(ParamValue::Bool(false)));
+                if crate::icons::icon_button_sized(
+                    ui,
+                    crate::icons::Icon::Power,
+                    Vec2::new(24.0, 20.0),
+                    enabled,
+                    if enabled {
+                        "Disable band"
+                    } else {
+                        "Enable band"
+                    },
+                )
+                .clicked()
+                {
+                    self.emit(UiIntent::SetParam {
+                        device_id: device.id,
+                        param_id: enabled_id,
+                        value: ParamValue::Bool(!enabled),
+                    });
+                }
+                let selected_type = values
+                    .get(&type_id)
+                    .and_then(ParamValue::as_f64)
+                    .unwrap_or(0.0) as u32;
+                egui::ComboBox::from_id_salt(("eq_type", device.id))
+                    .selected_text(eq_type_label(selected_type))
+                    .width(92.0)
+                    .show_ui(ui, |ui| {
+                        for index in 0..5u32 {
+                            if ui
+                                .selectable_label(selected_type == index, eq_type_label(index))
+                                .clicked()
+                            {
+                                self.emit(UiIntent::SetParam {
+                                    device_id: device.id,
+                                    param_id: type_id,
+                                    value: ParamValue::EnumIndex(index),
+                                });
+                                ui.close();
+                            }
+                        }
+                    });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let mut q = values
+                        .get(&q_id)
+                        .and_then(ParamValue::as_f64)
+                        .unwrap_or(0.707);
+                    if ui
+                        .add(egui::DragValue::new(&mut q).speed(0.01).fixed_decimals(2))
+                        .changed()
+                    {
+                        self.emit_eq_param(device.id, band, 4, q.clamp(0.1, 18.0));
+                    }
+                    let mut gain = values
+                        .get(&gain_id)
+                        .and_then(ParamValue::as_f64)
+                        .unwrap_or(0.0);
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut gain)
+                                .speed(0.1)
+                                .fixed_decimals(1)
+                                .suffix(" dB"),
+                        )
+                        .changed()
+                    {
+                        self.emit_eq_param(device.id, band, 3, gain.clamp(-24.0, 24.0));
+                    }
+                    let mut freq = values
+                        .get(&freq_id)
+                        .and_then(ParamValue::as_f64)
+                        .unwrap_or(1_000.0);
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut freq)
+                                .speed(1.0)
+                                .fixed_decimals(0)
+                                .suffix(" Hz"),
+                        )
+                        .changed()
+                    {
+                        self.emit_eq_param(device.id, band, 2, freq.clamp(20.0, 20_000.0));
                     }
                 });
-            let enabled = !matches!(values.get(&enabled_id), Some(ParamValue::Bool(false)));
-            if crate::icons::icon_button_sized(
-                ui,
-                crate::icons::Icon::Power,
-                Vec2::new(24.0, 20.0),
-                enabled,
-                if enabled {
-                    "Disable band"
-                } else {
-                    "Enable band"
-                },
-            )
-            .clicked()
-            {
-                self.emit(UiIntent::SetParam {
-                    device_id: device.id,
-                    param_id: enabled_id,
-                    value: ParamValue::Bool(!enabled),
-                });
-            }
-            let selected_type = values
-                .get(&type_id)
-                .and_then(ParamValue::as_f64)
-                .unwrap_or(0.0) as u32;
-            egui::ComboBox::from_id_salt(("eq_type", device.id))
-                .selected_text(eq_type_label(selected_type))
-                .width(92.0)
-                .show_ui(ui, |ui| {
-                    for index in 0..5u32 {
-                        if ui
-                            .selectable_label(selected_type == index, eq_type_label(index))
-                            .clicked()
-                        {
-                            self.emit(UiIntent::SetParam {
-                                device_id: device.id,
-                                param_id: type_id,
-                                value: ParamValue::EnumIndex(index),
-                            });
-                            ui.close();
-                        }
-                    }
-                });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mut q = values
-                    .get(&q_id)
-                    .and_then(ParamValue::as_f64)
-                    .unwrap_or(0.707);
-                if ui
-                    .add(egui::DragValue::new(&mut q).speed(0.01).fixed_decimals(2))
-                    .changed()
-                {
-                    self.emit_eq_param(device.id, band, 4, q.clamp(0.1, 18.0));
-                }
-                let mut gain = values
-                    .get(&gain_id)
-                    .and_then(ParamValue::as_f64)
-                    .unwrap_or(0.0);
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut gain)
-                            .speed(0.1)
-                            .fixed_decimals(1)
-                            .suffix(" dB"),
-                    )
-                    .changed()
-                {
-                    self.emit_eq_param(device.id, band, 3, gain.clamp(-24.0, 24.0));
-                }
-                let mut freq = values
-                    .get(&freq_id)
-                    .and_then(ParamValue::as_f64)
-                    .unwrap_or(1_000.0);
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut freq)
-                            .speed(1.0)
-                            .fixed_decimals(0)
-                            .suffix(" Hz"),
-                    )
-                    .changed()
-                {
-                    self.emit_eq_param(device.id, band, 2, freq.clamp(20.0, 20_000.0));
-                }
-            });
-        });
+            },
+        );
     }
 
     fn emit_eq_param(&mut self, device_id: DeviceId, band: usize, offset: u128, value: f64) {

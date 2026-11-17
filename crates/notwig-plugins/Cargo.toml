@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = []
-au = []
-vst3 = []
+default = ["vst3", "au"]
+au = ["dep:truce-rack"]
+vst3 = ["dep:truce-rack"]
 vst2 = []
 
 [dependencies]
@@ -18,6 +18,12 @@ notwig-dsp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+uuid.workspace = true
+truce-rack = { version = "1.1.5", default-features = false, features = ["vst3", "au"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
 
 [lints]
 workspace = true

@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use notwig_core::ids::{
     Asset as AssetMarker, Clip as ClipMarker, Device as DeviceMarker, DeviceChain,
-    Note as NoteMarker, Track,
+    Note as NoteMarker, Slice as SliceMarker, Track,
 };
 use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, PlaybackSchedule};
 use notwig_core::sequencer::{
-    AudioClipData, ClipKind, ClipPayload, FadeShape, MidiClipData, NoteEntity,
+    AudioClipData, AudioSlice, ClipKind, ClipPayload, FadeShape, MidiClipData, NoteEntity,
 };
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
@@ -100,6 +100,8 @@ fn add_audio_clip(doc: &mut ProjectDoc, track: TrackId, asset: AssetId, clip_n: 
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
             }),
         }),
     )
@@ -567,4 +569,115 @@ fn mute_silences_track_but_not_master() {
     );
     let output = engine.render_offline(0, 24_000).unwrap();
     assert!(output.iter().all(|sample| sample.abs() < 1e-6));
+}
+
+#[test]
+fn solo_mutes_other_tracks() {
+    let mut doc = base_doc();
+    let (first, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let (second, _) = add_track(&mut doc, 3, TrackKind::Audio);
+    let loud = add_asset(&mut doc, 501, 24_000);
+    let quiet = add_asset(&mut doc, 502, 24_000);
+    add_audio_clip(&mut doc, first, loud, 30, 1);
+    add_audio_clip(&mut doc, second, quiet, 31, 1);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetTrackMixer {
+            id: second,
+            volume_db: None,
+            pan: None,
+            mute: None,
+            solo: Some(true),
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    let mut engine = prepare_engine(
+        &doc,
+        vec![
+            (loud, audio_buffer(24_000, 0.5)),
+            (quiet, audio_buffer(24_000, 0.25)),
+        ],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 24_000).unwrap();
+    let peak = output
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    assert!((peak - 0.125).abs() < 0.01, "soloed track peak was {peak}");
+}
+#[test]
+fn empty_slice_set_renders_silence() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 551, 48_000);
+    add_audio_clip(&mut doc, track, asset, 41, 2);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipSlices {
+            clip_id: id::<ClipMarker>(41),
+            slices: Vec::new(),
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(48_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 48_000).unwrap();
+    let peak = output
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    assert!(peak < 1e-4, "empty slice set should be silent, peak {peak}");
+}
+
+#[test]
+fn audio_slices_render_in_their_clip_local_regions() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 550, 48_000);
+    add_audio_clip(&mut doc, track, asset, 40, 2);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipSlices {
+            clip_id: id::<ClipMarker>(40),
+            slices: vec![
+                AudioSlice {
+                    id: id::<SliceMarker>(1),
+                    start: Rational::zero(),
+                    source_start_sample: 0,
+                    source_end_sample: 8_000,
+                    gain_db: Db(0.0),
+                    asset_id: None,
+                },
+                AudioSlice {
+                    id: id::<SliceMarker>(2),
+                    start: Rational::new(1, 1),
+                    source_start_sample: 40_000,
+                    source_end_sample: 48_000,
+                    gain_db: Db(0.0),
+                    asset_id: None,
+                },
+            ],
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(48_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 48_000).unwrap();
+    assert!(output[1_000 * 2].abs() > 0.05, "first slice should render");
+    assert!(output[16_000 * 2].abs() < 1e-4, "gap should be silent");
+    assert!(
+        output[30_000 * 2].abs() > 0.05,
+        "second slice should render"
+    );
 }

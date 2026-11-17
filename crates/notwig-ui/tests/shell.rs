@@ -1,9 +1,9 @@
-use notwig_core::ids::{Clip, Device, DeviceChain, Track};
+use notwig_core::ids::{Asset, Clip, Device, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload};
-use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData};
+use notwig_core::sequencer::{AudioClipData, ClipKind, ClipPayload, FadeShape, MidiClipData};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_ui::{NotwigUi, RuntimeView, snap_16};
+use notwig_ui::{ClipEditorState, NotwigUi, RuntimeView, snap_16};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -53,6 +53,383 @@ fn doc() -> ProjectDoc {
     )
     .unwrap()
     .doc
+}
+
+fn audio_doc() -> ProjectDoc {
+    let mut doc = doc();
+    let track = id::<Track>(3);
+    let chain = id::<DeviceChain>(103);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: track,
+            chain_id: chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let asset = id::<Asset>(600);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: AssetEntry {
+                id: asset,
+                kind: AssetKind::Audio,
+                uri: "assets/test.wav".into(),
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(48_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        }),
+    )
+    .unwrap()
+    .doc;
+    apply(
+        &doc,
+        &Command::new(CommandPayload::CreateClip {
+            id: id::<Clip>(60),
+            track_id: track,
+            kind: ClipKind::Audio,
+            range: RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+            payload: ClipPayload::Audio(AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 48_000,
+                gain_db: Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: FadeShape::Linear,
+                slices: vec![notwig_core::sequencer::AudioSlice {
+                    id: notwig_core::SliceId::from_uuid(Uuid::from_u128(77)),
+                    start: Rational::zero(),
+                    source_start_sample: 0,
+                    source_end_sample: 48_000,
+                    gain_db: Db(0.0),
+                    asset_id: None,
+                }],
+                slices_enabled: true,
+            }),
+        }),
+    )
+    .unwrap()
+    .doc
+}
+
+#[test]
+fn cutting_clip_editor_bar_selection_from_ui_emits_slices() {
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let mut runtime = RuntimeView::default();
+    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    let mut ui = NotwigUi::default();
+    ui.clip_editor = Some(ClipEditorState::new(clip));
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let run =
+        |ui: &mut NotwigUi, events: Vec<egui::Event>, intents: &mut Vec<notwig_ui::UiIntent>| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    *intents = ui.show(ctx, &doc, &runtime);
+                },
+            );
+        };
+    let mut intents = Vec::new();
+    run(&mut ui, Vec::new(), &mut intents);
+    let content = ui.clip_editor_content_rect;
+    assert!(content.width() > 0.0);
+    let y = content.top() + 80.0;
+    let start = egui::pos2(content.left() + 80.0, y);
+    let end = egui::pos2(content.left() + 160.0, y);
+    run(
+        &mut ui,
+        vec![egui::Event::PointerMoved(start)],
+        &mut intents,
+    );
+    run(
+        &mut ui,
+        vec![
+            egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerMoved(start),
+        ],
+        &mut intents,
+    );
+    run(&mut ui, vec![egui::Event::PointerMoved(end)], &mut intents);
+    run(
+        &mut ui,
+        vec![egui::Event::PointerButton {
+            pos: end,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }],
+        &mut intents,
+    );
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            modifiers: egui::Modifiers {
+                command: true,
+                ..Default::default()
+            },
+            events: vec![egui::Event::Key {
+                key: egui::Key::X,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers {
+                    command: true,
+                    ..Default::default()
+                },
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let slices = intents
+        .iter()
+        .find_map(|intent| match intent {
+            notwig_ui::UiIntent::SetClipSlices { slices, .. } => Some(slices.clone()),
+            _ => None,
+        })
+        .expect("bar cut should emit slices");
+    assert_eq!(slices.len(), 1);
+    assert_eq!(slices[0].start, Rational::zero());
+    assert_eq!(slices[0].source_start_sample, 0);
+    assert_eq!(slices[0].source_end_sample, 24_000);
+}
+
+#[test]
+fn clicking_the_timeline_reclaims_shortcut_focus_from_the_clip_editor() {
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let mut ui = NotwigUi::default();
+    ui.clip_editor = Some(ClipEditorState::new(clip));
+    ui.edit_focus = notwig_ui::EditFocus::ClipEditor;
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let runtime = RuntimeView::default();
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let row = *ui.track_rows.get(&id::<Track>(3)).expect("audio row");
+    let point = egui::pos2(ui.timeline_left + 10.0, row.top() + 10.0);
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert_eq!(ui.edit_focus, notwig_ui::EditFocus::Timeline);
+    assert!(ui.state.selection.clips.contains(&clip));
+    let _ = intents;
+
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            modifiers: egui::Modifiers {
+                command: true,
+                ..Default::default()
+            },
+            events: vec![egui::Event::Copy],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        notwig_ui::UiIntent::CopySelection { clips, .. } if clips.contains(&clip)
+    )));
+}
+
+#[test]
+fn dragging_clip_editor_start_marker_emits_a_range_edit() {
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let mut ui = NotwigUi::default();
+    ui.clip_editor = Some(ClipEditorState::new(clip));
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let runtime = RuntimeView::default();
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let content = ui.clip_editor_content_rect;
+    let start = egui::pos2(content.left(), content.top() + 15.0);
+    let end = egui::pos2(content.left() + 80.0, content.top() + 15.0);
+    let mut run = |events: Vec<egui::Event>, intents: &mut Vec<notwig_ui::UiIntent>| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                *intents = ui.show(ctx, &doc, &runtime);
+            },
+        );
+    };
+    run(vec![egui::Event::PointerMoved(start)], &mut intents);
+    run(
+        vec![
+            egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerMoved(start),
+        ],
+        &mut intents,
+    );
+    run(
+        vec![egui::Event::PointerMoved(egui::pos2(
+            f32::midpoint(start.x, end.x),
+            start.y,
+        ))],
+        &mut intents,
+    );
+    run(vec![egui::Event::PointerMoved(end)], &mut intents);
+    run(
+        vec![egui::Event::PointerButton {
+            pos: end,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        }],
+        &mut intents,
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        notwig_ui::UiIntent::EditClipRange { range, .. }
+            if range.start == Rational::new(1, 1) && range.end == Rational::new(2, 1)
+    )));
+}
+
+#[test]
+fn finder_audio_drop_targets_the_clip_editor() {
+    use notwig_ui::{DropAudioTarget, UiIntent};
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let mut runtime = RuntimeView::default();
+    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    let mut ui = NotwigUi::default();
+    ui.clip_editor = Some(ClipEditorState::new(clip));
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let content = ui.clip_editor_content_rect;
+    let point = egui::pos2(content.left() + 80.0, content.top() + 80.0);
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../notwig-project/tests/fixtures/tone.mp3");
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            hovered_files: vec![egui::HoveredFile {
+                path: Some(fixture),
+                ..Default::default()
+            }],
+            events: vec![egui::Event::PointerMoved(point)],
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let preview = ui.drag_preview.as_ref().expect("clip editor drag preview");
+    assert!(matches!(
+        preview.target,
+        DropAudioTarget::ClipEditor { clip_id } if clip_id == clip
+    ));
+    assert_eq!(preview.at, Rational::new(1, 1));
+
+    let file = std::path::PathBuf::from("/tmp/demo.wav");
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            dropped_files: vec![egui::DroppedFile {
+                path: Some(file),
+                ..Default::default()
+            }],
+            events: vec![egui::Event::PointerMoved(point)],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::DropAudio {
+            target: DropAudioTarget::ClipEditor { clip_id },
+            at,
+            ..
+        } if *clip_id == clip && *at == Rational::new(1, 1)
+    )));
 }
 
 #[test]
@@ -386,4 +763,108 @@ fn copy_and_paste_events_use_the_current_selection() {
             .iter()
             .any(|intent| matches!(intent, UiIntent::PasteClips { at: time } if *time == at))
     );
+}
+#[test]
+fn master_track_is_pinned_below_the_scrolling_lane_list() {
+    let doc = doc();
+    let master = doc.master_track().expect("master");
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let master_rect = *ui.track_rows.get(&master).expect("master row");
+    let track_rect = *ui.track_rows.get(&id::<Track>(2)).expect("instrument row");
+    assert!(
+        master_rect.top() >= track_rect.bottom(),
+        "master should be pinned below scrolling tracks"
+    );
+}
+#[test]
+fn clip_editor_renders_audio_slices_headlessly() {
+    let mut doc = doc();
+    let track = id::<Track>(3);
+    let chain = id::<DeviceChain>(103);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: track,
+            chain_id: chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let asset = id::<Asset>(600);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: AssetEntry {
+                id: asset,
+                kind: AssetKind::Audio,
+                uri: "assets/test.wav".into(),
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(48_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        }),
+    )
+    .unwrap()
+    .doc;
+    let clip = id::<Clip>(60);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateClip {
+            id: clip,
+            track_id: track,
+            kind: ClipKind::Audio,
+            range: RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+            payload: ClipPayload::Audio(AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 48_000,
+                gain_db: Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
+            }),
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut runtime = RuntimeView::default();
+    runtime.waveforms.insert(asset, vec![0.5; 128]);
+    let mut ui = NotwigUi::default();
+    ui.clip_editor = Some(ClipEditorState::new(clip));
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(ui.clip_editor.is_some());
 }

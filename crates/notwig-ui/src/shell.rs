@@ -5,15 +5,16 @@ use egui::{Color32, Rect, RichText};
 use notwig_core::{ProjectDoc, TrackId, TrackKind};
 use notwig_dsp::DeviceRegistry;
 
-use crate::arranger::{BarSelectionDrag, ClipDrag, GroupDrag, TimeDrag};
+use crate::arranger::{BarSelectionDrag, ClipDrag, GroupDrag, TimeDrag, TrackDrop};
+use crate::clip_editor::ClipEditorState;
 use crate::device::{DeviceBrowserState, EqDrag};
 use crate::drop_target::DragPreview;
-use crate::icons::{Icon, icon_button, icon_button_sized};
-use crate::intent::{DropAudioTarget, UiIntent};
+use crate::edit::{DuplicateSpan, EditTarget, duplicate_bar_range, duplicate_plan, paste_target};
+use crate::icons::{Icon, icon_button_sized};
+use crate::intent::{ClipDuplicate, DropAudioTarget, UiIntent};
 use crate::runtime::RuntimeView;
-use crate::state::{NotificationKind, UiState};
+use crate::state::{EditFocus, NotificationKind, UiState};
 use crate::theme;
-use crate::widgets::format_beats;
 
 pub struct NotwigUi {
     pub state: UiState,
@@ -22,6 +23,7 @@ pub struct NotwigUi {
     pub drag: Option<ClipDrag>,
     pub time_drag: Option<TimeDrag>,
     pub track_drag: Option<TrackId>,
+    pub track_drop: Option<TrackDrop>,
     pub group_drag: Option<GroupDrag>,
     pub bar_selection_drag: Option<BarSelectionDrag>,
     pub group_preview: Vec<(notwig_core::ClipId, TrackId, notwig_core::RangeMus)>,
@@ -43,9 +45,16 @@ pub struct NotwigUi {
     pub drag_preview: Option<DragPreview>,
     pub duration_cache: HashMap<PathBuf, Option<f64>>,
     pub expanded_chains: BTreeSet<notwig_core::DeviceChainId>,
+    pub clip_editor: Option<ClipEditorState>,
+    pub clip_editor_content_rect: Rect,
+    pub edit_focus: EditFocus,
+    pub plugin_search: BTreeMap<notwig_core::DeviceId, String>,
+    pub last_touched_param: BTreeMap<notwig_core::DeviceId, notwig_core::ParamId>,
     pub collapsed_devices: BTreeSet<notwig_core::DeviceId>,
     pub device_browser: Option<DeviceBrowserState>,
     pub show_info: bool,
+    pub device_panel_open: bool,
+    device_panel_was_open: bool,
     pub platform_pointer: Option<egui::Pos2>,
     pub analyzer_pre: bool,
     pub analyzer_post: bool,
@@ -65,6 +74,7 @@ impl Default for NotwigUi {
             drag: None,
             time_drag: None,
             track_drag: None,
+            track_drop: None,
             group_drag: None,
             bar_selection_drag: None,
             group_preview: Vec::new(),
@@ -85,9 +95,16 @@ impl Default for NotwigUi {
             drag_preview: None,
             duration_cache: HashMap::new(),
             expanded_chains: BTreeSet::new(),
+            clip_editor: None,
+            clip_editor_content_rect: Rect::NOTHING,
+            edit_focus: EditFocus::Timeline,
+            plugin_search: BTreeMap::new(),
+            last_touched_param: BTreeMap::new(),
             collapsed_devices: BTreeSet::new(),
             device_browser: None,
             show_info: true,
+            device_panel_open: true,
+            device_panel_was_open: true,
             platform_pointer: None,
             analyzer_pre: true,
             analyzer_post: false,
@@ -133,7 +150,11 @@ impl NotwigUi {
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
         self.info_panel(ctx, doc, runtime);
-        self.device_panel(ctx, doc, runtime);
+        if self.clip_editor.is_some() {
+            self.clip_editor_panel(ctx, doc, runtime);
+        } else {
+            self.device_panel(ctx, doc, runtime);
+        }
         self.device_browser_window(ctx, doc, runtime);
         egui::CentralPanel::default()
             .frame(
@@ -159,6 +180,40 @@ impl NotwigUi {
         if !self.intents.contains(&intent) {
             self.intents.push(intent);
         }
+    }
+
+    pub(crate) fn open_clip_editor(&mut self, clip_id: notwig_core::ClipId) {
+        if self.clip_editor.is_none() {
+            self.device_panel_was_open = self.device_panel_open;
+        }
+        self.device_panel_open = false;
+        self.clip_editor = Some(ClipEditorState::new(clip_id));
+        self.edit_focus = EditFocus::ClipEditor;
+    }
+
+    pub(crate) fn close_clip_editor(&mut self) {
+        self.clip_editor = None;
+        self.device_panel_open = self.device_panel_was_open;
+        self.edit_focus = EditFocus::Timeline;
+    }
+
+    fn selected_audio_clip(&self, doc: &ProjectDoc) -> Option<notwig_core::ClipId> {
+        self.state
+            .selection
+            .primary_clip()
+            .filter(|clip_id| {
+                doc.arranger
+                    .clips
+                    .get(clip_id)
+                    .is_some_and(|clip| matches!(clip.payload, notwig_core::ClipPayload::Audio(_)))
+            })
+            .or_else(|| {
+                self.state.selection.clips.iter().copied().find(|clip_id| {
+                    doc.arranger.clips.get(clip_id).is_some_and(|clip| {
+                        matches!(clip.payload, notwig_core::ClipPayload::Audio(_))
+                    })
+                })
+            })
     }
 
     pub fn selected_track(&self, doc: &ProjectDoc) -> Option<TrackId> {
@@ -210,6 +265,8 @@ impl NotwigUi {
         if ctx.wants_keyboard_input() {
             return;
         }
+        let clip_editor_focused =
+            self.edit_focus == EditFocus::ClipEditor && self.clip_editor.is_some();
         let (space, shift, command, escape, delete) = ctx.input(|input| {
             (
                 input.key_pressed(egui::Key::Space),
@@ -226,7 +283,12 @@ impl NotwigUi {
             .as_ref()
             .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
         let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
-        let copy_time = if clips.is_empty() { time.clone() } else { None };
+        let target = EditTarget::active(clips.len(), time.as_ref().map(|(range, _)| *range));
+        let copy_time = if target == Some(EditTarget::Bar) {
+            time.clone()
+        } else {
+            None
+        };
         let (copy_event, cut_event, paste_event) = ctx.input(|input| {
             (
                 input
@@ -243,22 +305,22 @@ impl NotwigUi {
                     .any(|event| matches!(event, egui::Event::Paste(_))),
             )
         });
-        if copy_event {
+        if copy_event && !clip_editor_focused {
+            ctx.copy_text("notwig-clipboard".into());
             self.emit(UiIntent::CopySelection {
                 clips: clips.clone(),
                 time: copy_time.clone(),
             });
         }
-        if cut_event {
+        if cut_event && !clip_editor_focused {
+            ctx.copy_text("notwig-clipboard".into());
             self.emit(UiIntent::CutSelection {
                 clips: clips.clone(),
                 time: copy_time.clone(),
             });
         }
-        if paste_event {
-            let at = time
-                .as_ref()
-                .map_or(runtime.playhead, |(range, _)| range.start);
+        if paste_event && !clip_editor_focused {
+            let at = paste_target(time.as_ref().map(|(range, _)| *range), runtime.playhead);
             self.emit(UiIntent::PasteClips { at });
         }
         if space {
@@ -296,21 +358,65 @@ impl NotwigUi {
                     self.emit(UiIntent::Undo);
                 }
             }
-            if ctx.input(|i| i.key_pressed(egui::Key::D)) {
-                if let Some((range, tracks)) = time.clone() {
-                    self.emit(UiIntent::DuplicateTimeSelection {
-                        range,
-                        tracks: tracks.clone(),
-                    });
-                    if let Ok(next) = notwig_core::RangeMus::new(
-                        range.start + range.length(),
-                        range.end + range.length(),
-                    ) {
-                        self.state.selection.select_time(next, &tracks);
+            if ctx.input(|i| i.key_pressed(egui::Key::G)) {
+                let tracks: Vec<_> = self.state.selection.tracks.iter().copied().collect();
+                if !tracks.is_empty() {
+                    self.emit(UiIntent::GroupTracks { tracks });
+                }
+            }
+            if !clip_editor_focused && ctx.input(|i| i.key_pressed(egui::Key::D)) {
+                match target {
+                    Some(EditTarget::Bar) => {
+                        if let Some((range, tracks)) = time.clone() {
+                            self.emit(UiIntent::DuplicateTimeSelection {
+                                range,
+                                tracks: tracks.clone(),
+                            });
+                            if let Some(next) = duplicate_bar_range(range) {
+                                self.state.selection.select_time(next, &tracks);
+                            }
+                        }
                     }
-                } else {
-                    for clip in &clips {
-                        self.emit(UiIntent::DuplicateClip { clip_id: *clip });
+                    Some(EditTarget::Nodes) => {
+                        let spans: Vec<DuplicateSpan<notwig_core::ClipId>> = clips
+                            .iter()
+                            .filter_map(|clip_id| {
+                                doc.arranger.clips.get(clip_id).map(|clip| DuplicateSpan {
+                                    id: *clip_id,
+                                    range: clip.range,
+                                })
+                            })
+                            .collect();
+                        let plan = duplicate_plan(&spans);
+                        let mut duplicates = Vec::new();
+                        let mut selection = Vec::new();
+                        for span in plan {
+                            let Some(clip) = doc.arranger.clips.get(&span.id) else {
+                                continue;
+                            };
+                            let new_id = notwig_core::ClipId::from_uuid(uuid::Uuid::new_v4());
+                            duplicates.push(ClipDuplicate {
+                                old_id: span.id,
+                                new_id,
+                                range: span.range,
+                            });
+                            selection.push((new_id, clip.track_id));
+                        }
+                        if !duplicates.is_empty() {
+                            self.state.selection.select_clips(&selection);
+                            self.emit(UiIntent::DuplicateClips { clips: duplicates });
+                        }
+                    }
+                    None => {
+                        if let Some(track) = self
+                            .state
+                            .selection
+                            .tracks
+                            .primary()
+                            .or_else(|| self.state.selection.tracks.iter().next().copied())
+                        {
+                            self.emit(UiIntent::DuplicateTrack(track));
+                        }
                     }
                 }
             }
@@ -319,16 +425,22 @@ impl NotwigUi {
             }
         }
         if escape {
-            self.state.selection.clear();
+            if clip_editor_focused {
+                self.close_clip_editor();
+            } else {
+                self.state.selection.clear();
+            }
         }
-        if delete {
+        if delete && !clip_editor_focused {
             let time = self
                 .state
                 .selection
                 .time
                 .as_ref()
                 .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
-            if let Some((range, tracks)) = time {
+            if target == Some(EditTarget::Bar)
+                && let Some((range, tracks)) = time
+            {
                 self.emit(UiIntent::DeleteTimeSelection { range, tracks });
                 self.state.selection.time = None;
                 return;
@@ -373,146 +485,206 @@ impl NotwigUi {
                     .inner_margin(egui::Margin::symmetric(8, 4)),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    self.file_menu(ui);
-                    ui.menu_button("Track", |ui| {
-                        if ui.button("Add Audio Track").clicked() {
-                            self.emit(UiIntent::CreateTrack(TrackKind::Audio));
-                            ui.close();
-                        }
-                        if ui.button("Add Instrument Track").clicked() {
-                            self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
-                            ui.close();
-                        }
-                        if ui.button("Add Group").clicked() {
-                            self.emit(UiIntent::CreateTrack(TrackKind::Group));
-                            ui.close();
-                        }
-                        if ui.button("Add FX Bus").clicked() {
-                            self.emit(UiIntent::CreateTrack(TrackKind::BusFx));
-                            ui.close();
-                        }
-                    });
-                    ui.separator();
-                    let play_icon = if runtime.playing {
-                        Icon::Pause
-                    } else {
-                        Icon::Play
-                    };
-                    if icon_button_sized(
-                        ui,
-                        play_icon,
-                        egui::vec2(28.0, 28.0),
-                        runtime.playing,
-                        if runtime.playing { "Pause" } else { "Play" },
-                    )
-                    .clicked()
-                    {
-                        if runtime.playing {
-                            self.emit(UiIntent::Pause);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), 42.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        self.file_menu(ui);
+                        ui.add_space(4.0);
+                        let play_icon = if runtime.playing {
+                            Icon::Pause
                         } else {
-                            self.emit(UiIntent::Play);
-                        }
-                    }
-                    if icon_button(ui, Icon::Stop, false, "Stop").clicked() {
-                        self.emit(UiIntent::Stop);
-                    }
-                    if icon_button(ui, Icon::Loop, doc.transport.loop_enabled, "Toggle loop")
+                            Icon::Play
+                        };
+                        if icon_button_sized(
+                            ui,
+                            play_icon,
+                            egui::vec2(42.0, 42.0),
+                            runtime.playing,
+                            if runtime.playing { "Pause" } else { "Play" },
+                        )
                         .clicked()
-                    {
-                        self.emit(UiIntent::ToggleLoop);
-                    }
-                    ui.separator();
-                    ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new("TEMPO")
-                                .small()
-                                .monospace()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.label(
-                            RichText::new(format!("{:.2} BPM", doc.meta.tempo_bpm))
-                                .strong()
-                                .monospace(),
-                        );
-                    });
-                    ui.separator();
-                    ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new("SIGNATURE")
-                                .small()
-                                .monospace()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.label(
-                            RichText::new(format!(
-                                "{}/{}",
-                                doc.meta.time_sig_num, doc.meta.time_sig_den
-                            ))
-                            .strong()
-                            .monospace(),
-                        );
-                    });
-                    ui.separator();
-                    ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new("POSITION")
-                                .small()
-                                .monospace()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.label(
-                            RichText::new(format_beats(runtime.playhead, doc.meta.time_sig_num))
-                                .monospace()
-                                .size(17.0)
-                                .color(if runtime.playing {
-                                    theme::ACCENT
-                                } else {
-                                    Color32::WHITE
-                                }),
-                        );
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icon_button(ui, Icon::Info, self.show_info, "Selection info").clicked() {
-                            self.show_info = !self.show_info;
+                        {
+                            if runtime.playing {
+                                self.emit(UiIntent::Pause);
+                            } else {
+                                self.emit(UiIntent::Play);
+                            }
                         }
-                        if icon_button(ui, Icon::Render, false, "Render mixdown").clicked() {
-                            self.emit(UiIntent::RenderMixdown);
+                        if icon_button_sized(ui, Icon::Stop, egui::vec2(42.0, 42.0), false, "Stop")
+                            .clicked()
+                        {
+                            self.emit(UiIntent::Stop);
                         }
-                        if icon_button(ui, Icon::Help, self.show_help, "Keyboard help").clicked() {
-                            self.show_help = !self.show_help;
+                        record_button(ui);
+                        if icon_button_sized(
+                            ui,
+                            Icon::Loop,
+                            egui::vec2(42.0, 42.0),
+                            doc.transport.loop_enabled,
+                            "Toggle loop",
+                        )
+                        .clicked()
+                        {
+                            self.emit(UiIntent::ToggleLoop);
                         }
-                        if icon_button(ui, Icon::Fit, false, "Fit arrangement").clicked() {
-                            self.zoom_to_fit(doc);
-                        }
-                        if icon_button(ui, Icon::Plus, false, "Zoom in").clicked() {
-                            self.state.viewport.zoom_by(1.25);
-                        }
-                        if icon_button(ui, Icon::Minus, false, "Zoom out").clicked() {
-                            self.state.viewport.zoom_by(1.0 / 1.25);
-                        }
-                        ui.label(
-                            RichText::new(format!("xruns {}", runtime.xruns))
-                                .small()
-                                .color(theme::TEXT_MUTED),
+                        let engine_width = 400.0;
+                        let total_width = ui.max_rect().width();
+                        let left_used = ui.cursor().left() - ui.max_rect().left();
+                        ui.add_space(((total_width - engine_width) * 0.5 - left_used).max(0.0));
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(engine_width, 42.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                egui::Frame::new()
+                                    .fill(Color32::from_rgb(16, 17, 21))
+                                    .corner_radius(egui::CornerRadius::same(4))
+                                    .inner_margin(egui::Margin::symmetric(8, 4))
+                                    .show(ui, |ui| {
+                                        ui.set_min_size(egui::vec2(engine_width - 16.0, 34.0));
+                                        ui.horizontal(|ui| {
+                                            cpu_component(ui, runtime.cpu_load.unwrap_or_default());
+                                            ui.separator();
+                                            let mut tempo = doc.meta.tempo_bpm;
+                                            ui.scope(|ui| {
+                                                ui.visuals_mut().override_text_color =
+                                                    Some(Color32::from_rgb(104, 164, 236));
+                                                ui.style_mut().text_styles.insert(
+                                                    egui::TextStyle::Button,
+                                                    egui::FontId::monospace(15.0),
+                                                );
+                                                if ui
+                                                    .add(
+                                                        egui::DragValue::new(&mut tempo)
+                                                            .range(20.0..=400.0)
+                                                            .speed(0.1)
+                                                            .fixed_decimals(2),
+                                                    )
+                                                    .on_hover_text("Tempo (BPM)")
+                                                    .changed()
+                                                {
+                                                    self.emit(UiIntent::SetTempo(tempo));
+                                                }
+                                            });
+                                            ui.separator();
+                                            let mut numerator = doc.meta.time_sig_num;
+                                            ui.scope(|ui| {
+                                                ui.visuals_mut().override_text_color =
+                                                    Some(Color32::from_rgb(104, 164, 236));
+                                                ui.style_mut().text_styles.insert(
+                                                    egui::TextStyle::Button,
+                                                    egui::FontId::monospace(15.0),
+                                                );
+                                                if ui
+                                                    .add(
+                                                        egui::DragValue::new(&mut numerator)
+                                                            .range(1..=32),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    self.emit(UiIntent::SetTimeSignature {
+                                                        numerator,
+                                                        denominator: doc.meta.time_sig_den,
+                                                    });
+                                                }
+                                            });
+                                            ui.label(
+                                                RichText::new("/")
+                                                    .size(15.0)
+                                                    .monospace()
+                                                    .color(theme::TEXT_MUTED),
+                                            );
+                                            let mut denominator = doc.meta.time_sig_den;
+                                            egui::ComboBox::from_id_salt("time-signature-den")
+                                                .selected_text(
+                                                    RichText::new(denominator.to_string())
+                                                        .monospace()
+                                                        .size(15.0)
+                                                        .color(Color32::from_rgb(104, 164, 236)),
+                                                )
+                                                .width(32.0)
+                                                .show_ui(ui, |ui| {
+                                                    for value in [1u8, 2, 4, 8, 16, 32] {
+                                                        if ui
+                                                            .selectable_value(
+                                                                &mut denominator,
+                                                                value,
+                                                                value.to_string(),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            self.emit(UiIntent::SetTimeSignature {
+                                                                numerator: doc.meta.time_sig_num,
+                                                                denominator: value,
+                                                            });
+                                                        }
+                                                    }
+                                                });
+                                            ui.separator();
+                                            ui.scope(|ui| {
+                                                ui.spacing_mut().item_spacing.y = 0.0;
+                                                ui.vertical(|ui| {
+                                                    let blue = Color32::from_rgb(104, 164, 236);
+                                                    ui.label(
+                                                        RichText::new(format_position_bars(
+                                                            runtime.playhead,
+                                                            doc.meta.time_sig_num,
+                                                        ))
+                                                        .monospace()
+                                                        .size(13.0)
+                                                        .color(blue),
+                                                    );
+                                                    ui.label(
+                                                        RichText::new(format_position_time(
+                                                            runtime.playhead,
+                                                            doc.meta.tempo_bpm,
+                                                        ))
+                                                        .monospace()
+                                                        .size(13.0)
+                                                        .color(blue),
+                                                    );
+                                                });
+                                            });
+                                            ui.separator();
+                                            let master = doc
+                                                .master_track()
+                                                .and_then(|id| runtime.meters.get(&id));
+                                            master_meter(ui, master);
+                                        });
+                                    });
+                            },
                         );
-                        let snap = crate::widgets::snap_step(
-                            self.state.viewport.pixels_per_beat,
-                            doc.meta.time_sig_num,
-                        );
-                        ui.label(
-                            RichText::new(crate::widgets::snap_label(snap, doc.meta.time_sig_num))
-                                .small()
-                                .monospace()
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
-                });
+                    },
+                );
             });
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("File", |ui| {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 42.0), egui::Sense::click());
+        let painter = ui.painter();
+        painter.rect_filled(
+            rect,
+            egui::CornerRadius::same(4),
+            if response.hovered() {
+                theme::GRID_STRONG
+            } else {
+                theme::PANEL
+            },
+        );
+        painter.rect_stroke(
+            rect,
+            egui::CornerRadius::same(4),
+            egui::Stroke::new(1.0_f32, theme::GRID),
+            egui::StrokeKind::Inside,
+        );
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "FILE",
+            egui::FontId::monospace(11.0),
+            Color32::WHITE,
+        );
+        egui::Popup::menu(&response).show(|ui| {
             if ui.button("New Project (48 kHz)").clicked() {
                 self.emit(UiIntent::NewProject);
                 ui.close();
@@ -549,62 +721,70 @@ impl NotwigUi {
         });
     }
 
-    fn status_bar(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
+    fn status_bar(&mut self, ctx: &egui::Context, doc: &ProjectDoc, _runtime: &RuntimeView) {
         egui::TopBottomPanel::bottom("notwig_status")
+            .exact_height(40.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL_LIGHT)
-                    .inner_margin(egui::Margin::symmetric(8, 2)),
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!("{} Hz", doc.meta.sample_rate.value()))
-                            .small()
-                            .color(theme::TEXT_MUTED),
-                    );
-                    ui.separator();
-                    let state = if runtime.playing {
-                        "Playing"
-                    } else {
-                        "Stopped"
-                    };
-                    ui.label(RichText::new(state).small().color(theme::TEXT_MUTED));
-                    if let Some(status) = &runtime.status {
-                        ui.separator();
-                        ui.label(RichText::new(status).small().color(theme::ACCENT));
-                    }
-                    if runtime.saving {
-                        ui.separator();
-                        ui.spinner();
-                        ui.label(RichText::new("Saving…").small());
-                    }
-                    ui.separator();
-                    ui.label(
-                        RichText::new(
-                            "Double-click lane: new clip · Drag edges: trim · Shift+drag ruler: loop · Middle-drag: pan/zoom",
-                        )
-                        .small()
-                        .color(theme::TEXT_MUTED),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !self.state.notifications.is_empty()
-                            && ui
-                                .button(format!("Alerts ({})", self.state.notifications.len()))
-                                .clicked()
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), 32.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        if footer_icon(ui, FooterIcon::Info, self.show_info, "Selection info")
+                            .clicked()
                         {
-                            self.show_notifications = !self.show_notifications;
+                            self.show_info = !self.show_info;
                         }
-                        let selected = self.state.selection.clips.len()
-                            + self.state.selection.tracks.len()
-                            + self.state.selection.devices.len();
-                        ui.label(
-                            RichText::new(format!("selected {selected}"))
-                                .small()
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
-                });
+                        ui.separator();
+                        footer_text(ui, "ARRANGE", theme::ACCENT);
+                        footer_text(ui, "MIX", theme::TEXT_MUTED);
+                        footer_text(ui, "EDIT", theme::TEXT_MUTED);
+                        ui.separator();
+                        footer_icon(ui, FooterIcon::Grid, false, "Grid");
+                        footer_icon(ui, FooterIcon::Share, false, "Share");
+                        footer_icon(ui, FooterIcon::Monitor, false, "Monitor");
+                        if footer_icon(
+                            ui,
+                            FooterIcon::Sliders,
+                            self.device_panel_open && self.clip_editor.is_none(),
+                            "Toggle device panel",
+                        )
+                        .clicked()
+                        {
+                            self.close_clip_editor();
+                            self.device_panel_open = !self.device_panel_open;
+                        }
+                        let selected_clip = self.selected_audio_clip(doc);
+                        if footer_icon(
+                            ui,
+                            FooterIcon::Clip,
+                            self.clip_editor.is_some(),
+                            "Toggle clip editor",
+                        )
+                        .clicked()
+                        {
+                            if self.clip_editor.is_some() {
+                                self.close_clip_editor();
+                            } else if let Some(clip_id) = selected_clip {
+                                self.open_clip_editor(clip_id);
+                            }
+                        }
+                        ui.add_space(12.0);
+                        let action = if self.device_panel_open {
+                            "Hide Device Panel"
+                        } else {
+                            "Show Device Panel"
+                        };
+                        let toggle = footer_action(ui, action);
+                        if toggle {
+                            self.device_panel_open = !self.device_panel_open;
+                        }
+                    },
+                );
             });
     }
 
@@ -697,6 +877,32 @@ impl NotwigUi {
         );
     }
 
+    fn clip_editor_drop_point(
+        &self,
+        doc: &ProjectDoc,
+        pointer: egui::Pos2,
+    ) -> Option<(notwig_core::ClipId, notwig_core::TimeMus)> {
+        let state = self.clip_editor.as_ref()?;
+        if !self.clip_editor_content_rect.contains(pointer) {
+            return None;
+        }
+        let clip = doc.arranger.clips.get(&state.clip_id)?;
+        let ppb = state.viewport.pixels_per_beat.clamp(
+            crate::state::Viewport::MIN_PPB,
+            crate::state::Viewport::MAX_PPB,
+        );
+        let grid = crate::widgets::snap_step(ppb, doc.meta.time_sig_num);
+        let absolute = crate::widgets::snap_time(
+            state
+                .viewport
+                .x_to_beat(pointer.x, self.clip_editor_content_rect.left()),
+            grid,
+            false,
+        );
+        let at = (absolute - clip.range.start).max(notwig_core::TimeMus::zero());
+        Some((state.clip_id, at))
+    }
+
     fn update_drag_preview(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
         let hovered: Vec<PathBuf> = ctx.input(|input| {
             input
@@ -717,15 +923,30 @@ impl NotwigUi {
             self.drag_preview = None;
             return;
         };
-        if !self.arranger_rect.contains(pointer) {
-            self.drag_preview = None;
-            return;
-        }
-        let Some(target) =
-            crate::drop_target::resolve_drop_target(doc, &self.last_track_rows, pointer.y)
-        else {
-            self.drag_preview = None;
-            return;
+        let clip_drop = self.clip_editor_drop_point(doc, pointer);
+        let (target, at) = if let Some((clip_id, at)) = clip_drop {
+            (DropAudioTarget::ClipEditor { clip_id }, at)
+        } else {
+            if !self.arranger_rect.contains(pointer) {
+                self.drag_preview = None;
+                return;
+            }
+            let Some(target) =
+                crate::drop_target::resolve_drop_target(doc, &self.last_track_rows, pointer.y)
+            else {
+                self.drag_preview = None;
+                return;
+            };
+            let grid = crate::widgets::snap_step(
+                self.state.viewport.pixels_per_beat,
+                doc.meta.time_sig_num,
+            );
+            let at = crate::widgets::snap_time(
+                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
+                grid,
+                false,
+            );
+            (target, at)
         };
         let seconds = if let Some(cached) = self.duration_cache.get(&path) {
             *cached
@@ -745,16 +966,10 @@ impl NotwigUi {
             (beats.max(1.0 / 16.0) * 1_000_000.0).round() as i64,
             1_000_000,
         );
-        let grid =
-            crate::widgets::snap_step(self.state.viewport.pixels_per_beat, doc.meta.time_sig_num);
         self.drag_preview = Some(DragPreview {
             path,
             target,
-            at: crate::widgets::snap_time(
-                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
-                grid,
-                false,
-            ),
+            at,
             duration,
         });
     }
@@ -776,6 +991,9 @@ impl NotwigUi {
             .last_pointer
             .or_else(|| ctx.input(|input| input.pointer.latest_pos()));
         let from_pointer = pointer.and_then(|pointer| {
+            if let Some((clip_id, at)) = self.clip_editor_drop_point(doc, pointer) {
+                return Some((DropAudioTarget::ClipEditor { clip_id }, at));
+            }
             if !self.arranger_rect.contains(pointer) {
                 return None;
             }
@@ -797,14 +1015,14 @@ impl NotwigUi {
         else {
             self.state.notify(
                 NotificationKind::Warning,
-                "Drop audio files onto the timeline.",
+                "Drop audio files onto the timeline or clip editor.",
             );
             return;
         };
         let order: Vec<TrackId> = doc.track_order.depth_first();
         for (file_index, file) in files.into_iter().enumerate() {
             let target = match (file_index, first_target) {
-                (0, target) => target,
+                (0, target) | (_, target @ DropAudioTarget::ClipEditor { .. }) => target,
                 (_, DropAudioTarget::Track(track_id)) => {
                     let index = order
                         .iter()
@@ -842,6 +1060,269 @@ impl NotwigUi {
     }
 }
 
+#[derive(Clone, Copy)]
+enum FooterIcon {
+    Info,
+    Grid,
+    Share,
+    Monitor,
+    Sliders,
+    Clip,
+}
+
+fn footer_icon(
+    ui: &mut egui::Ui,
+    icon: FooterIcon,
+    selected: bool,
+    tooltip: &str,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
+    let painter = ui.painter();
+    if selected || response.hovered() {
+        painter.rect_filled(
+            rect,
+            egui::CornerRadius::same(3),
+            if selected {
+                theme::ACCENT_DIM
+            } else {
+                theme::GRID_STRONG
+            },
+        );
+    }
+    let color = if selected {
+        theme::ACCENT
+    } else {
+        theme::TEXT_MUTED
+    };
+    let c = rect.center();
+    match icon {
+        FooterIcon::Info => {
+            painter.circle_stroke(c, 6.0, egui::Stroke::new(1.2_f32, color));
+            painter.text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                "i",
+                egui::FontId::monospace(10.0),
+                color,
+            );
+        }
+        FooterIcon::Grid => {
+            for row in 0..3 {
+                for col in 0..3 {
+                    painter.circle_filled(
+                        egui::pos2(c.x - 6.0 + col as f32 * 6.0, c.y - 6.0 + row as f32 * 6.0),
+                        1.4,
+                        color,
+                    );
+                }
+            }
+        }
+        FooterIcon::Share => {
+            painter.circle_stroke(
+                egui::pos2(c.x - 6.0, c.y),
+                3.0,
+                egui::Stroke::new(1.2_f32, color),
+            );
+            painter.circle_stroke(
+                egui::pos2(c.x + 6.0, c.y - 4.0),
+                3.0,
+                egui::Stroke::new(1.2_f32, color),
+            );
+            painter.circle_stroke(
+                egui::pos2(c.x + 6.0, c.y + 4.0),
+                3.0,
+                egui::Stroke::new(1.2_f32, color),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(c.x - 3.2, c.y - 1.0),
+                    egui::pos2(c.x + 3.2, c.y - 3.3),
+                ],
+                egui::Stroke::new(1.0_f32, color),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(c.x - 3.2, c.y + 1.0),
+                    egui::pos2(c.x + 3.2, c.y + 3.3),
+                ],
+                egui::Stroke::new(1.0_f32, color),
+            );
+        }
+        FooterIcon::Monitor => {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::vec2(15.0, 11.0)),
+                egui::CornerRadius::same(1),
+                egui::Stroke::new(1.2_f32, color),
+                egui::StrokeKind::Inside,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(c.x - 4.0, c.y + 8.0),
+                    egui::pos2(c.x + 4.0, c.y + 8.0),
+                ],
+                egui::Stroke::new(1.2_f32, color),
+            );
+        }
+        FooterIcon::Clip => {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::vec2(16.0, 12.0)),
+                egui::CornerRadius::same(2),
+                egui::Stroke::new(1.2_f32, color),
+                egui::StrokeKind::Inside,
+            );
+            for offset in [-4.0_f32, 0.0, 4.0] {
+                painter.line_segment(
+                    [
+                        egui::pos2(c.x + offset, c.y - 4.0),
+                        egui::pos2(c.x + offset, c.y + 4.0),
+                    ],
+                    egui::Stroke::new(1.0_f32, color),
+                );
+            }
+        }
+        FooterIcon::Sliders => {
+            for offset in [-6.0_f32, 0.0, 6.0] {
+                painter.line_segment(
+                    [
+                        egui::pos2(c.x + offset, c.y - 7.0),
+                        egui::pos2(c.x + offset, c.y + 7.0),
+                    ],
+                    egui::Stroke::new(1.2_f32, color),
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(c.x + offset - 2.5, c.y + offset * 0.4),
+                        egui::pos2(c.x + offset + 2.5, c.y + offset * 0.4),
+                    ],
+                    egui::Stroke::new(2.0_f32, color),
+                );
+            }
+        }
+    }
+    response.on_hover_text(tooltip)
+}
+
+fn footer_text(ui: &mut egui::Ui, text: &str, color: Color32) {
+    ui.label(
+        RichText::new(text)
+            .monospace()
+            .size(11.5)
+            .strong()
+            .color(color),
+    );
+}
+
+fn footer_action(ui: &mut egui::Ui, action: &str) -> bool {
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        if ui
+            .add(egui::Button::new(RichText::new("CLICK").strong()).frame(false))
+            .clicked()
+        {
+            clicked = true;
+        }
+        if ui
+            .add(egui::Button::new(RichText::new(action).color(theme::TEXT_MUTED)).frame(false))
+            .clicked()
+        {
+            clicked = true;
+        }
+    });
+    clicked
+}
+
+pub(crate) fn cpu_component(ui: &mut egui::Ui, cpu: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(60.0, 34.0), egui::Sense::hover());
+    let painter = ui.painter();
+    let icon = Rect::from_center_size(
+        egui::pos2(rect.left() + 9.0, rect.center().y),
+        egui::Vec2::splat(10.0),
+    );
+    let blue = Color32::from_rgb(80, 145, 230);
+    painter.rect_stroke(
+        icon,
+        egui::CornerRadius::same(1),
+        egui::Stroke::new(1.0_f32, blue),
+        egui::StrokeKind::Inside,
+    );
+    for offset in [-3.0_f32, 0.0, 3.0] {
+        painter.line_segment(
+            [
+                egui::pos2(icon.left() - 2.0, icon.center().y + offset),
+                egui::pos2(icon.left(), icon.center().y + offset),
+            ],
+            egui::Stroke::new(1.0_f32, blue),
+        );
+        painter.line_segment(
+            [
+                egui::pos2(icon.right(), icon.center().y + offset),
+                egui::pos2(icon.right() + 2.0, icon.center().y + offset),
+            ],
+            egui::Stroke::new(1.0_f32, blue),
+        );
+    }
+    let bar = Rect::from_min_max(
+        egui::pos2(rect.left() + 21.0, rect.center().y - 2.5),
+        egui::pos2(rect.right() - 2.0, rect.center().y + 2.5),
+    );
+    painter.rect_filled(bar, egui::CornerRadius::ZERO, theme::GRID);
+    let fill = Rect::from_min_max(
+        bar.min,
+        egui::pos2(
+            bar.left() + bar.width() * (cpu / 100.0).clamp(0.0, 1.0),
+            bar.bottom(),
+        ),
+    );
+    painter.rect_filled(fill, egui::CornerRadius::ZERO, blue);
+}
+
+fn record_button(ui: &mut egui::Ui) {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(42.0, 42.0), egui::Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::same(4),
+        if response.hovered() {
+            theme::GRID_STRONG
+        } else {
+            theme::PANEL
+        },
+    );
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(4),
+        egui::Stroke::new(1.0_f32, theme::GRID),
+        egui::StrokeKind::Inside,
+    );
+    painter.circle_filled(rect.center(), 9.0, Color32::from_rgb(231, 91, 82));
+    response.on_hover_text("Record (not implemented)");
+}
+
+fn format_position_bars(time: notwig_core::TimeMus, beats_per_bar: u8) -> String {
+    let beats = time.as_f64().max(0.0);
+    let bar_len = f64::from(beats_per_bar.max(1));
+    let bar = (beats / bar_len).floor() as u64 + 1;
+    let beat_pos = beats % bar_len;
+    let beat = beat_pos.floor() as u64 + 1;
+    let sixteenth_pos = beat_pos.fract() * 4.0;
+    let sixteenth = sixteenth_pos.floor() as u64 + 1;
+    let tick = (sixteenth_pos.fract() * 100.0).floor() as u64;
+    format!("{bar}.{beat}.{sixteenth}.{tick:02}")
+}
+
+fn format_position_time(time: notwig_core::TimeMus, tempo_bpm: f64) -> String {
+    let seconds = (time.as_f64() * 60.0 / tempo_bpm.max(1.0)).max(0.0);
+    let minutes = (seconds / 60.0).floor() as u64;
+    let seconds = seconds % 60.0;
+    format!("{minutes}:{seconds:06.3}")
+}
+
+fn master_meter(ui: &mut egui::Ui, meter: Option<&crate::runtime::MeterValues>) {
+    let meter = meter.copied().unwrap_or_default();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 32.0), egui::Sense::hover());
+    crate::widgets::draw_stereo_meter(ui.painter(), rect, meter.peak_l, meter.peak_r);
+}
+
 pub(crate) fn track_depth(doc: &ProjectDoc, id: TrackId) -> usize {
     let mut depth = 0usize;
     let mut seen = BTreeSet::new();
@@ -860,5 +1341,245 @@ pub(crate) fn clip_color(kind: notwig_core::ClipKind) -> Color32 {
     match kind {
         notwig_core::ClipKind::Audio => theme::CLIP_AUDIO,
         notwig_core::ClipKind::Midi => theme::CLIP_MIDI,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    pub(super) fn clip_editor_doc() -> ProjectDoc {
+        let meta = notwig_core::Meta {
+            name: "Shell".into(),
+            created_utc: 0,
+            modified_utc: 0,
+            sample_rate: notwig_core::SampleRate::DEFAULT,
+            tempo_bpm: 120.0,
+            time_sig_num: 4,
+            time_sig_den: 4,
+        };
+        ProjectDoc::new_template(
+            meta,
+            notwig_core::TrackId::nil(),
+            notwig_core::DeviceChainId::nil(),
+        )
+        .unwrap()
+    }
+
+    fn timeline_doc() -> ProjectDoc {
+        let meta = notwig_core::Meta {
+            name: "Timeline".into(),
+            created_utc: 0,
+            modified_utc: 0,
+            sample_rate: notwig_core::SampleRate::DEFAULT,
+            tempo_bpm: 120.0,
+            time_sig_num: 4,
+            time_sig_den: 4,
+        };
+        let mut doc = ProjectDoc::new_template(
+            meta,
+            notwig_core::TrackId::nil(),
+            notwig_core::DeviceChainId::nil(),
+        )
+        .unwrap();
+        let track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
+        let chain = notwig_core::DeviceChainId::from_uuid(uuid::Uuid::from_u128(102));
+        doc = notwig_core::apply(
+            &doc,
+            &notwig_core::protocol::Command::new(
+                notwig_core::protocol::CommandPayload::CreateTrack {
+                    id: track,
+                    chain_id: chain,
+                    kind: TrackKind::Instrument,
+                    name: "Keys".into(),
+                    parent: None,
+                    index: None,
+                    color: None,
+                },
+            ),
+        )
+        .unwrap()
+        .doc;
+        notwig_core::apply(
+            &doc,
+            &notwig_core::protocol::Command::new(
+                notwig_core::protocol::CommandPayload::CreateClip {
+                    id: notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20)),
+                    track_id: track,
+                    kind: notwig_core::ClipKind::Midi,
+                    range: notwig_core::RangeMus::new(
+                        notwig_core::Rational::zero(),
+                        notwig_core::Rational::new(2, 1),
+                    )
+                    .unwrap(),
+                    payload: notwig_core::ClipPayload::Midi(notwig_core::sequencer::MidiClipData {
+                        length: notwig_core::Rational::new(2, 1),
+                        content_start: notwig_core::Rational::zero(),
+                        notes: Vec::new(),
+                    }),
+                },
+            ),
+        )
+        .unwrap()
+        .doc
+    }
+
+    #[test]
+    fn timeline_duplicate_advances_node_selection() {
+        let doc = timeline_doc();
+        let clip = notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20));
+        let track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
+        let runtime = RuntimeView::default();
+        let ctx = egui::Context::default();
+        let mut ui = NotwigUi::default();
+        ui.state.selection.select_clip(clip, track, false);
+        let _ = ctx.run(
+            egui::RawInput {
+                modifiers: egui::Modifiers {
+                    command: true,
+                    ..Default::default()
+                },
+                events: vec![egui::Event::Key {
+                    key: egui::Key::D,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers {
+                        command: true,
+                        ..Default::default()
+                    },
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                ui.handle_shortcuts(ctx, &doc, &runtime);
+            },
+        );
+        assert_eq!(ui.state.selection.clips.len(), 1);
+        assert!(!ui.state.selection.clips.contains(&clip));
+        assert!(
+            ui.intents
+                .iter()
+                .any(|intent| matches!(intent, UiIntent::DuplicateClips { .. }))
+        );
+    }
+
+    fn shortcut_intents(
+        doc: &ProjectDoc,
+        events: Vec<egui::Event>,
+        modifiers: egui::Modifiers,
+    ) -> Vec<UiIntent> {
+        let runtime = RuntimeView::default();
+        let ctx = egui::Context::default();
+        let (clip, track) = doc.arranger.clips.iter().next().map_or(
+            (notwig_core::ClipId::nil(), notwig_core::TrackId::nil()),
+            |(id, clip)| (*id, clip.track_id),
+        );
+        let mut ui = NotwigUi::default();
+        ui.state.selection.select_clip(clip, track, false);
+        ui.clip_editor = Some(ClipEditorState::new(clip));
+        ui.edit_focus = EditFocus::Timeline;
+        let mut intents = Vec::new();
+        let _ = ctx.run(
+            egui::RawInput {
+                modifiers,
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                ui.handle_shortcuts(ctx, doc, &runtime);
+                intents = std::mem::take(&mut ui.intents);
+            },
+        );
+        intents
+    }
+
+    #[test]
+    fn timeline_shortcut_family_still_runs_while_clip_editor_is_open() {
+        let doc = timeline_doc();
+        let command = egui::Modifiers {
+            command: true,
+            ..Default::default()
+        };
+        let copy = shortcut_intents(&doc, vec![egui::Event::Copy], command);
+        assert!(matches!(copy.as_slice(), [UiIntent::CopySelection { .. }]));
+        let cut = shortcut_intents(&doc, vec![egui::Event::Cut], command);
+        assert!(matches!(cut.as_slice(), [UiIntent::CutSelection { .. }]));
+        let paste = shortcut_intents(&doc, vec![egui::Event::Paste(String::new())], command);
+        assert!(matches!(paste.as_slice(), [UiIntent::PasteClips { .. }]));
+        let duplicate = shortcut_intents(
+            &doc,
+            vec![egui::Event::Key {
+                key: egui::Key::D,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: command,
+            }],
+            command,
+        );
+        assert!(
+            duplicate
+                .iter()
+                .any(|intent| matches!(intent, UiIntent::DuplicateClips { .. }))
+        );
+        let delete = shortcut_intents(
+            &doc,
+            vec![egui::Event::Key {
+                key: egui::Key::Delete,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            egui::Modifiers::default(),
+        );
+        assert!(
+            delete
+                .iter()
+                .any(|intent| matches!(intent, UiIntent::DeleteClip(_)))
+        );
+    }
+
+    #[test]
+    fn timeline_shortcuts_still_run_while_clip_editor_is_open() {
+        let doc = clip_editor_doc();
+        let clip = notwig_core::ClipId::nil();
+        let track = notwig_core::TrackId::nil();
+        let runtime = RuntimeView::default();
+        let ctx = egui::Context::default();
+        let mut ui = NotwigUi::default();
+        ui.state.selection.select_clip(clip, track, false);
+        ui.clip_editor = Some(ClipEditorState::new(clip));
+
+        let mut intents = Vec::new();
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![egui::Event::Copy],
+                ..Default::default()
+            },
+            |ctx| {
+                ui.handle_shortcuts(ctx, &doc, &runtime);
+                intents = std::mem::take(&mut ui.intents);
+            },
+        );
+        assert!(intents.iter().any(|intent| matches!(
+            intent,
+            UiIntent::CopySelection { clips, .. } if clips.contains(&clip)
+        )));
+    }
+
+    #[test]
+    fn clip_editor_and_device_panel_are_mutually_exclusive() {
+        let mut ui = NotwigUi {
+            device_panel_open: true,
+            ..NotwigUi::default()
+        };
+        ui.open_clip_editor(notwig_core::ClipId::nil());
+        assert!(ui.clip_editor.is_some());
+        assert!(!ui.device_panel_open);
+        ui.close_clip_editor();
+        assert!(ui.clip_editor.is_none());
+        assert!(ui.device_panel_open);
     }
 }

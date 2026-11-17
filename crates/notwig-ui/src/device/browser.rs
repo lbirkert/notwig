@@ -1,4 +1,4 @@
-use egui::{RichText, Vec2};
+use egui::{Align, Align2, Color32, FontId, Key, RichText, Sense, Vec2};
 use notwig_core::{DeviceChainId, DeviceKind, ProjectDoc, TrackId};
 
 use crate::intent::UiIntent;
@@ -12,6 +12,16 @@ pub struct DeviceBrowserState {
     pub chain_id: DeviceChainId,
     pub index: usize,
     pub search: String,
+    pub selected: usize,
+    pub focus_search: bool,
+}
+
+#[derive(Debug, Clone)]
+struct BrowserEntry {
+    name: String,
+    type_id: String,
+    kind: DeviceKind,
+    stock: bool,
 }
 
 impl NotwigUi {
@@ -26,6 +36,8 @@ impl NotwigUi {
             chain_id,
             index,
             search: String::new(),
+            selected: 0,
+            focus_search: true,
         });
     }
 
@@ -35,11 +47,11 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        let Some(state) = self.device_browser.clone() else {
+        let Some(mut state) = self.device_browser.take() else {
             return;
         };
         let mut open = true;
-        let mut selected: Option<(String, DeviceKind, bool)> = None;
+        let mut chosen: Option<BrowserEntry> = None;
         egui::Window::new("Add Device")
             .open(&mut open)
             .collapsible(false)
@@ -47,118 +59,190 @@ impl NotwigUi {
             .default_width(340.0)
             .default_height(440.0)
             .show(ctx, |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.device_browser.as_mut().unwrap().search)
+                let search = ui.add(
+                    egui::TextEdit::singleline(&mut state.search)
                         .hint_text("Search devices")
                         .desired_width(f32::INFINITY),
                 );
+                if state.focus_search {
+                    search.request_focus();
+                    state.focus_search = false;
+                }
+                if search.changed() {
+                    state.selected = 0;
+                }
                 ui.separator();
-                let search = self
-                    .device_browser
-                    .as_ref()
-                    .map(|state| state.search.to_lowercase())
-                    .unwrap_or_default();
+
+                let needle = state.search.to_lowercase();
+                let stock: Vec<BrowserEntry> = [
+                    ("Tool", notwig_dsp::stock::TOOL_TYPE_ID, DeviceKind::AudioFx),
+                    ("EQ", notwig_dsp::stock::EQ_TYPE_ID, DeviceKind::AudioFx),
+                    (
+                        "Chain",
+                        notwig_dsp::stock::CHAIN_TYPE_ID,
+                        DeviceKind::Container,
+                    ),
+                ]
+                .into_iter()
+                .filter(|(name, type_id, _)| {
+                    needle.is_empty()
+                        || name.to_lowercase().contains(&needle)
+                        || type_id.contains(&needle)
+                })
+                .map(|(name, type_id, kind)| BrowserEntry {
+                    name: name.into(),
+                    type_id: type_id.into(),
+                    kind,
+                    stock: true,
+                })
+                .collect();
+                let plugins: Vec<BrowserEntry> = runtime
+                    .plugins
+                    .iter()
+                    .filter(|plugin| {
+                        needle.is_empty()
+                            || plugin.name.to_lowercase().contains(&needle)
+                            || plugin.vendor.to_lowercase().contains(&needle)
+                            || plugin.type_id.contains(&needle)
+                    })
+                    .map(|plugin| BrowserEntry {
+                        name: plugin.name.clone(),
+                        type_id: plugin.type_id.clone(),
+                        kind: plugin.kind,
+                        stock: false,
+                    })
+                    .collect();
+                let entries: Vec<BrowserEntry> =
+                    stock.iter().chain(plugins.iter()).cloned().collect();
+                if entries.is_empty() {
+                    state.selected = 0;
+                } else {
+                    state.selected = state.selected.min(entries.len() - 1);
+                }
+
+                let mut navigated = false;
+                if !entries.is_empty() {
+                    let (up, down) = ui.input(|input| {
+                        (
+                            input.key_pressed(Key::ArrowUp),
+                            input.key_pressed(Key::ArrowDown),
+                        )
+                    });
+                    if down {
+                        state.selected = (state.selected + 1) % entries.len();
+                        navigated = true;
+                    } else if up {
+                        state.selected = (state.selected + entries.len() - 1) % entries.len();
+                        navigated = true;
+                    }
+                }
+
+                let mut index = 0usize;
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.label(
-                            RichText::new("STOCK")
-                                .small()
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        for (name, type_id, kind) in [
-                            ("Tool", notwig_dsp::stock::TOOL_TYPE_ID, DeviceKind::AudioFx),
-                            ("EQ", notwig_dsp::stock::EQ_TYPE_ID, DeviceKind::AudioFx),
-                            (
-                                "Chain",
-                                notwig_dsp::stock::CHAIN_TYPE_ID,
-                                DeviceKind::Container,
-                            ),
-                        ] {
-                            if !search.is_empty()
-                                && !name.to_lowercase().contains(&search)
-                                && !type_id.contains(&search)
-                            {
-                                continue;
-                            }
-                            let response = ui.add_sized(
-                                Vec2::new(ui.available_width(), 26.0),
-                                egui::Button::new(
-                                    RichText::new(format!("{name}  ·  {}", kind_label(kind)))
-                                        .color(theme::TEXT_MUTED),
-                                )
-                                .frame(false),
+                        if !stock.is_empty() {
+                            ui.label(
+                                RichText::new("STOCK")
+                                    .small()
+                                    .strong()
+                                    .color(theme::TEXT_MUTED),
                             );
-                            if response.clicked() {
-                                selected = Some((type_id.into(), kind, true));
+                            for entry in &stock {
+                                if device_row(ui, &entry.name, index == state.selected, navigated) {
+                                    chosen = Some(entry.clone());
+                                }
+                                index += 1;
                             }
                         }
-                        if !runtime.plugins.is_empty() {
-                            ui.add_space(6.0);
+                        if !plugins.is_empty() {
+                            if !stock.is_empty() {
+                                ui.add_space(6.0);
+                            }
                             ui.label(
                                 RichText::new("PLUGINS")
                                     .small()
                                     .strong()
                                     .color(theme::TEXT_MUTED),
                             );
-                            for plugin in &runtime.plugins {
-                                if !search.is_empty()
-                                    && !plugin.name.to_lowercase().contains(&search)
-                                    && !plugin.vendor.to_lowercase().contains(&search)
-                                    && !plugin.type_id.contains(&search)
-                                {
-                                    continue;
+                            for entry in &plugins {
+                                if device_row(ui, &entry.name, index == state.selected, navigated) {
+                                    chosen = Some(entry.clone());
                                 }
-                                let response = ui.add_sized(
-                                    Vec2::new(ui.available_width(), 26.0),
-                                    egui::Button::new(
-                                        RichText::new(format!(
-                                            "{}  ·  {}",
-                                            plugin.name, plugin.vendor
-                                        ))
-                                        .color(theme::TEXT_MUTED),
-                                    )
-                                    .frame(false),
-                                );
-                                if response.clicked() {
-                                    selected = Some((plugin.type_id.clone(), plugin.kind, false));
-                                }
+                                index += 1;
                             }
                         }
                     });
+
+                if ui.input(|input| input.key_pressed(Key::Enter)) {
+                    if let Some(entry) = entries.get(state.selected) {
+                        chosen = Some(entry.clone());
+                    }
+                }
             });
-        if let Some((type_id, kind, stock)) = selected {
-            if stock {
+        if let Some(entry) = chosen {
+            if entry.stock {
                 self.emit(UiIntent::InsertStockDevice {
                     track_id: state.track_id,
                     chain_id: state.chain_id,
-                    type_id,
-                    kind,
+                    type_id: entry.type_id,
+                    kind: entry.kind,
                     index: Some(state.index),
                 });
             } else {
                 self.emit(UiIntent::InsertPlugin {
                     track_id: state.track_id,
                     chain_id: state.chain_id,
-                    type_id,
-                    kind,
+                    type_id: entry.type_id,
+                    kind: entry.kind,
                     index: Some(state.index),
                 });
             }
             self.device_browser = None;
-        } else if !open {
-            self.device_browser = None;
+        } else if open {
+            self.device_browser = Some(state);
         }
         let _ = doc;
     }
 }
 
-fn kind_label(kind: DeviceKind) -> &'static str {
-    match kind {
-        DeviceKind::Instrument => "INSTRUMENT",
-        DeviceKind::AudioFx => "AUDIO FX",
-        DeviceKind::NoteFx => "NOTE FX",
-        DeviceKind::Container => "CONTAINER",
+fn device_row(ui: &mut egui::Ui, name: &str, selected: bool, navigated: bool) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, egui::CornerRadius::same(4), theme::ACCENT_DIM);
+    } else if response.hovered() {
+        painter.rect_filled(rect, egui::CornerRadius::same(4), theme::GRID_STRONG);
     }
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + 15.0, rect.center().y),
+        Vec2::splat(18.0),
+    );
+    crate::icons::paint(
+        painter,
+        icon_rect,
+        crate::icons::Icon::Device,
+        if selected {
+            theme::ACCENT
+        } else {
+            theme::TEXT_MUTED
+        },
+    );
+    painter.text(
+        egui::pos2(icon_rect.right() + 8.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        name,
+        FontId::proportional(13.0),
+        if selected {
+            Color32::WHITE
+        } else {
+            theme::TEXT_MUTED
+        },
+    );
+    if selected && navigated {
+        response.scroll_to_me(Some(Align::Center));
+    }
+    response.clicked()
 }

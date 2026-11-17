@@ -3,16 +3,27 @@ use notwig_core::{
     ClipId, ClipKind, ClipPayload, ProjectDoc, RangeMus, TimeMus, TrackId, TrackKind,
 };
 
+use crate::edit::{clamp_bar_shift, clamp_node_shift};
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::shell::{NotwigUi, clip_color, track_depth};
 use crate::theme;
+use crate::timeline::TimelineGrid;
 use crate::widgets::{format_db, snap_step, snap_time};
 
 const HEADER_W: f32 = 230.0;
-const ROW_H: f32 = 48.0;
+const ROW_H: f32 = 64.0;
 const RULER_H: f32 = 30.0;
 const SCROLLBAR_H: f32 = 14.0;
+const DB_MIN: f32 = -60.0;
+const DB_MAX: f32 = 6.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TrackDrop {
+    pub parent: Option<TrackId>,
+    pub index: usize,
+    pub y: f32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipDragMode {
@@ -59,6 +70,10 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
+        if ui.rect_contains_pointer(ui.max_rect()) && ui.input(|input| input.pointer.any_pressed())
+        {
+            self.edit_focus = crate::state::EditFocus::Timeline;
+        }
         let ppb = self.state.viewport.pixels_per_beat.clamp(
             crate::state::Viewport::MIN_PPB,
             crate::state::Viewport::MAX_PPB,
@@ -91,36 +106,107 @@ impl NotwigUi {
         );
 
         let rows_top = ui.cursor().top();
+        let master = doc.master_track();
+        let master_h = if master.is_some() { ROW_H } else { 0.0 };
         let rows_height = (ui.available_height() - SCROLLBAR_H - 4.0).max(60.0);
+        let scroll_height = (rows_height - master_h).max(ROW_H);
+        let tree_rect = Rect::from_min_max(
+            egui::pos2(ruler_rect.left(), rows_top),
+            egui::pos2(timeline_left, rows_top + rows_height),
+        );
+        let content_bg = Rect::from_min_max(
+            egui::pos2(timeline_left, rows_top),
+            egui::pos2(ruler_rect.right(), rows_top + rows_height),
+        );
+        let background = ui.painter();
+        background.rect_filled(tree_rect, CornerRadius::ZERO, Color32::BLACK);
+        background.rect_filled(content_bg, CornerRadius::ZERO, theme::LANE);
+        TimelineGrid::new(start, ppb, beats_per_bar).draw(background, content_bg);
         ui.allocate_ui_with_layout(
             Vec2::new(width, rows_height),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("arranger_rows")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        for track_id in doc.track_order.depth_first() {
-                            self.track_row(ui, doc, track_id, header_w, ppb, start, runtime, grid);
-                        }
-                        let (add_rect, add_resp) =
-                            ui.allocate_exact_size(Vec2::new(width, 28.0), Sense::click());
-                        let painter = ui.painter();
-                        painter.rect_filled(add_rect, CornerRadius::ZERO, theme::PANEL);
-                        painter.text(
-                            egui::pos2(add_rect.left() + 14.0, add_rect.center().y),
-                            Align2::LEFT_CENTER,
-                            "+ Add track",
-                            FontId::proportional(11.0),
-                            theme::TEXT_MUTED,
-                        );
-                        if add_resp.clicked() {
-                            self.emit(UiIntent::CreateTrack(TrackKind::Audio));
-                        }
-                    });
+                ui.allocate_ui_with_layout(
+                    Vec2::new(width, scroll_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("arranger_rows")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                for track_id in doc.track_order.depth_first() {
+                                    if Some(track_id) == master {
+                                        continue;
+                                    }
+                                    self.track_row(
+                                        ui, doc, track_id, header_w, ppb, start, runtime, grid,
+                                    );
+                                }
+                                let (add_rect, add_resp) = ui
+                                    .allocate_exact_size(Vec2::new(header_w, 28.0), Sense::click());
+                                let painter = ui.painter();
+                                painter.rect_filled(add_rect, CornerRadius::ZERO, theme::PANEL);
+                                painter.text(
+                                    egui::pos2(add_rect.left() + 14.0, add_rect.center().y),
+                                    Align2::LEFT_CENTER,
+                                    "+ Add track",
+                                    FontId::proportional(11.0),
+                                    theme::TEXT_MUTED,
+                                );
+                                if add_resp.clicked() {
+                                    self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+                                }
+                                add_resp.context_menu(|ui| {
+                                    if ui.button("Add audio track").clicked() {
+                                        self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+                                        ui.close();
+                                    }
+                                    if ui.button("Add instrument track").clicked() {
+                                        self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
+                                        ui.close();
+                                    }
+                                    if ui.button("Add group track").clicked() {
+                                        self.emit(UiIntent::CreateTrack(TrackKind::Group));
+                                        ui.close();
+                                    }
+                                });
+                            });
+                    },
+                );
+                if let Some(master) = master {
+                    self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
+                }
             },
         );
+
+        if self.track_drag.is_some()
+            && let Some(drop) = self.track_drop
+        {
+            let rows_rect = Rect::from_min_max(
+                egui::pos2(ruler_rect.left(), rows_top),
+                egui::pos2(ruler_rect.right(), rows_top + rows_height),
+            );
+            let painter = ui
+                .ctx()
+                .layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    Id::new("track-drop-line"),
+                ))
+                .with_clip_rect(rows_rect);
+            painter.line_segment(
+                [
+                    egui::pos2(rows_rect.left() + 4.0, drop.y),
+                    egui::pos2(rows_rect.right(), drop.y),
+                ],
+                Stroke::new(2.0_f32, Color32::WHITE),
+            );
+            painter.circle_filled(
+                egui::pos2(rows_rect.left() + 4.0, drop.y),
+                3.0,
+                Color32::WHITE,
+            );
+        }
 
         self.bar_selection_interaction(ui, doc, ppb, start, grid);
         let content_rect = Rect::from_min_max(
@@ -252,23 +338,26 @@ impl NotwigUi {
                     .unwrap_or(drag.start_pointer);
                 let alt = ui.input(|i| i.modifiers.alt);
                 let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
-                let new_start = snap_time(
+                let requested = snap_time(
                     TimeMus::new(
                         ((drag.origin.start.as_f64() + delta) * 1_000_000.0).round() as i64,
                         1_000_000,
                     ),
                     grid,
                     alt,
-                );
-                let shift = new_start - drag.origin.start;
-                let new_end = (drag.origin.end + shift).max(new_start);
-                if let Ok(range) = RangeMus::new(new_start.max(TimeMus::zero()), new_end) {
+                ) - drag.origin.start;
+                let starts: Vec<TimeMus> =
+                    drag.clips.iter().map(|(_, _, range)| range.start).collect();
+                let shift = clamp_bar_shift(drag.origin, requested, &starts, None, None);
+                let new_start = drag.origin.start + shift;
+                let new_end = drag.origin.end + shift;
+                if let Ok(range) = RangeMus::new(new_start, new_end) {
                     self.state.selection.select_time(range, &drag.tracks);
                     self.group_preview = drag
                         .clips
                         .iter()
                         .map(|(id, track, origin)| {
-                            let start = (origin.start + shift).max(TimeMus::zero());
+                            let start = origin.start + shift;
                             let range =
                                 RangeMus::new(start, start + origin.length()).unwrap_or(*origin);
                             (*id, *track, range)
@@ -511,12 +600,20 @@ impl NotwigUi {
         let width = ui.available_width().max(320.0);
         let (row_rect, _) = ui.allocate_exact_size(Vec2::new(width, ROW_H), Sense::hover());
         self.track_rows.insert(track_id, row_rect);
-        let header_rect = Rect::from_min_size(
-            row_rect.min,
-            Vec2::new(header_w.min(row_rect.width()), row_rect.height()),
+        let depth = track_depth(doc, track_id) as f32;
+        let header_left = row_rect.left() + (depth * 14.0).min(header_w * 0.35);
+        let header_rect = Rect::from_min_max(
+            egui::pos2(header_left, row_rect.top()),
+            egui::pos2(
+                row_rect.left() + header_w.min(row_rect.width()),
+                row_rect.bottom(),
+            ),
         );
         let lane_rect = Rect::from_min_max(
-            egui::pos2(header_rect.right(), row_rect.top()),
+            egui::pos2(
+                row_rect.left() + header_w.min(row_rect.width()),
+                row_rect.top(),
+            ),
             row_rect.max,
         );
         let selected_track = self.state.selection.tracks.contains(&track_id)
@@ -526,60 +623,64 @@ impl NotwigUi {
             header_rect,
             CornerRadius::ZERO,
             if selected_track {
-                theme::PANEL
+                Color32::from_rgb(38, 40, 46)
             } else {
-                theme::PANEL_LIGHT
+                Color32::BLACK
             },
         );
-        painter.rect_filled(
-            lane_rect,
-            CornerRadius::ZERO,
-            if track.kind == TrackKind::Master {
-                theme::LANE_ALT
-            } else {
-                theme::LANE
-            },
+        let track_color = track.color.map_or_else(
+            || track_color(track.kind),
+            |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
         );
         painter.rect_filled(
             Rect::from_min_size(
                 egui::pos2(header_rect.left(), row_rect.top()),
-                Vec2::new(3.0, row_rect.height()),
+                Vec2::new(4.0, row_rect.height()),
             ),
             CornerRadius::ZERO,
-            track.color.map_or_else(
-                || track_color(track.kind),
-                |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
-            ),
+            track_color,
         );
-        let depth = track_depth(doc, track_id) as f32;
-        let name_x = header_rect.left() + 11.0 + depth * 10.0;
+        draw_track_prefixes(&painter, doc, track, row_rect, depth);
+        let meter_w = 12.0;
+        let content_left = header_rect.left() + 10.0;
+        let content_right = header_rect.right() - meter_w - 8.0;
+        let name_color = if selected_track {
+            Color32::WHITE
+        } else {
+            theme::TEXT_MUTED
+        };
         let name_rect = Rect::from_min_max(
-            egui::pos2(name_x, header_rect.top() + 4.0),
-            egui::pos2(header_rect.right() - 54.0, header_rect.top() + 22.0),
+            egui::pos2(content_left, header_rect.top() + 4.0),
+            egui::pos2(content_right - 68.0, header_rect.top() + 26.0),
         );
         painter.with_clip_rect(name_rect).text(
-            egui::pos2(name_x, header_rect.top() + 6.0),
+            egui::pos2(content_left, header_rect.top() + 6.0),
             Align2::LEFT_TOP,
             &track.name,
-            FontId::proportional(12.5),
-            if selected_track {
+            FontId::proportional(13.0),
+            name_color,
+        );
+
+        let mute_rect = Rect::from_center_size(
+            egui::pos2(content_right - 9.0, header_rect.top() + 16.0),
+            Vec2::splat(18.0),
+        );
+        let solo_rect = mute_rect.translate(Vec2::new(-22.0, 0.0));
+        let record_rect = mute_rect.translate(Vec2::new(-44.0, 0.0));
+        painter.circle_filled(
+            record_rect.center(),
+            7.0,
+            if track.kind == TrackKind::Instrument && selected_track {
                 Color32::WHITE
             } else {
-                theme::TEXT_MUTED
+                theme::GRID_STRONG
             },
         );
-        painter.text(
-            egui::pos2(name_x, header_rect.top() + 23.0),
-            Align2::LEFT_TOP,
-            track.kind.name().to_uppercase(),
-            FontId::monospace(8.5),
-            theme::TEXT_MUTED,
+        painter.circle_stroke(
+            record_rect.center(),
+            7.0,
+            Stroke::new(1.0_f32, theme::TEXT_MUTED),
         );
-        let mute_rect = Rect::from_min_size(
-            egui::pos2(header_rect.right() - 45.0, header_rect.top() + 6.0),
-            Vec2::new(18.0, 16.0),
-        );
-        let solo_rect = mute_rect.translate(Vec2::new(22.0, 0.0));
         painter.rect_filled(
             mute_rect,
             CornerRadius::same(3),
@@ -593,7 +694,7 @@ impl NotwigUi {
             mute_rect.center(),
             Align2::CENTER_CENTER,
             "M",
-            FontId::monospace(9.0),
+            FontId::monospace(9.5),
             if track.mixer.mute {
                 Color32::BLACK
             } else {
@@ -613,7 +714,7 @@ impl NotwigUi {
             solo_rect.center(),
             Align2::CENTER_CENTER,
             "S",
-            FontId::monospace(9.0),
+            FontId::monospace(9.5),
             if track.mixer.solo {
                 Color32::BLACK
             } else {
@@ -621,21 +722,35 @@ impl NotwigUi {
             },
         );
 
-        let volume_rect = Rect::from_min_size(
-            egui::pos2(name_x, header_rect.bottom() - 17.0),
-            Vec2::new(95.0, 14.0),
+        let icon_rect = Rect::from_min_size(
+            egui::pos2(content_left + 1.0, header_rect.top() + 38.0),
+            Vec2::splat(16.0),
         );
-        let mut volume = track.mixer.volume_db.0;
-        let volume_changed = ui
-            .put(
-                volume_rect,
-                egui::Slider::new(&mut volume, -60.0..=6.0)
-                    .show_value(false)
-                    .trailing_fill(true),
-            )
-            .on_hover_text(format_db(notwig_core::Db(volume)))
-            .changed();
-        if volume_changed {
+        draw_track_icon(&painter, icon_rect, track.kind, track_color);
+        let menu_rect = Rect::from_center_size(
+            egui::pos2(content_right - 9.0, header_rect.top() + 45.0),
+            Vec2::new(18.0, 18.0),
+        );
+        painter.rect_filled(menu_rect, CornerRadius::same(3), theme::GRID);
+        for offset in [-4.0_f32, 0.0, 4.0] {
+            painter.line_segment(
+                [
+                    egui::pos2(menu_rect.left() + 5.0, menu_rect.center().y + offset),
+                    egui::pos2(menu_rect.right() - 5.0, menu_rect.center().y + offset),
+                ],
+                Stroke::new(1.0_f32, theme::TEXT_MUTED),
+            );
+        }
+        let fader_rect = Rect::from_min_max(
+            egui::pos2(icon_rect.right() + 8.0, header_rect.top() + 38.0),
+            egui::pos2(menu_rect.left() - 6.0, header_rect.top() + 53.0),
+        );
+        if let Some(volume) = volume_fader(
+            ui,
+            fader_rect,
+            track.mixer.volume_db.0,
+            Id::new(("track-volume", track_id)),
+        ) {
             self.emit(UiIntent::SetTrackMixer {
                 track_id,
                 volume_db: Some(notwig_core::Db(volume)),
@@ -644,56 +759,13 @@ impl NotwigUi {
                 solo: None,
             });
         }
-        let meter_rect = Rect::from_min_size(
-            egui::pos2(header_rect.right() - 24.0, header_rect.bottom() - 17.0),
-            Vec2::new(14.0, 14.0),
+
+        let meter_rect = Rect::from_min_max(
+            egui::pos2(header_rect.right() - meter_w - 3.0, header_rect.top() + 4.0),
+            egui::pos2(header_rect.right() - 3.0, header_rect.bottom() - 4.0),
         );
         let meter = runtime.meters.get(&track_id).copied().unwrap_or_default();
-        painter.rect_filled(meter_rect, CornerRadius::same(2), theme::GRID);
-        let meter_fill = Rect::from_min_max(
-            meter_rect.min,
-            egui::pos2(
-                meter_rect.left()
-                    + meter_rect.width() * meter.peak_l.max(meter.peak_r).clamp(0.0, 1.0),
-                meter_rect.bottom(),
-            ),
-        );
-        painter.rect_filled(meter_fill, CornerRadius::same(2), theme::CLIP_MIDI);
-
-        let beats_per_bar = doc.meta.time_sig_num.max(1);
-        let visible_beats = f64::from((lane_rect.width() / ppb).max(1.0));
-        let step = grid.as_f64().max(1.0 / 256.0);
-        let bar_len = f64::from(beats_per_bar);
-        let first_index = (start.as_f64() / step).floor() as i64;
-        let last_index = ((start.as_f64() + visible_beats) / step).ceil() as i64 + 1;
-        for index in first_index..=last_index {
-            let beat = index as f64 * step;
-            if beat < 0.0 {
-                continue;
-            }
-            let x = lane_rect.left() + (beat - start.as_f64()) as f32 * ppb;
-            if x < lane_rect.left() - 1.0 || x > lane_rect.right() + 1.0 {
-                continue;
-            }
-            let strong = (beat / bar_len).fract().abs() < 1e-6;
-            let beat_line = (beat.fract()).abs() < 1e-6;
-            painter.line_segment(
-                [
-                    egui::pos2(x, lane_rect.top()),
-                    egui::pos2(x, lane_rect.bottom()),
-                ],
-                Stroke::new(
-                    1.0_f32,
-                    if strong {
-                        theme::GRID_STRONG
-                    } else if beat_line {
-                        theme::GRID
-                    } else {
-                        theme::GRID.gamma_multiply(0.55)
-                    },
-                ),
-            );
-        }
+        draw_vertical_meter(&painter, meter_rect, meter.peak_l, meter.peak_r);
 
         let header_resp = ui.interact(
             header_rect,
@@ -705,49 +777,67 @@ impl NotwigUi {
             self.state.selection.select_track(track_id, additive);
             self.emit(UiIntent::SelectTrack(track_id));
         }
-        let drag_rect = Rect::from_min_max(
-            egui::pos2(header_rect.left() + 3.0, header_rect.top()),
-            egui::pos2(header_rect.right() - 52.0, header_rect.bottom() - 19.0),
-        );
-        let drag_resp = ui.interact(drag_rect, Id::new(("track-drag", track_id)), Sense::drag());
-        if drag_resp.hovered() && track.kind != TrackKind::Master {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
-        if drag_resp.drag_started() && track.kind != TrackKind::Master {
-            self.track_drag = Some(track_id);
-            self.state.selection.select_track(track_id, false);
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        }
-        if drag_resp.dragged() {
-            if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
-                let painter = ui.painter();
-                painter.line_segment(
-                    [
-                        egui::pos2(row_rect.left(), pointer.y),
-                        egui::pos2(row_rect.right(), pointer.y),
-                    ],
-                    Stroke::new(2.0_f32, theme::ACCENT),
-                );
+        if track.kind != TrackKind::Master {
+            let drag_rect = Rect::from_min_max(
+                egui::pos2(content_left, header_rect.top() + 2.0),
+                egui::pos2(content_right - 68.0, header_rect.top() + 28.0),
+            );
+            let drag_resp =
+                ui.interact(drag_rect, Id::new(("track-drag", track_id)), Sense::drag());
+            if drag_resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             }
-        }
-        if drag_resp.drag_stopped()
-            && self.track_drag.take().is_some()
-            && let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
-        {
-            let order = doc.track_order.depth_first();
-            let mut index = 0usize;
-            for id in &order {
-                if let Some(row) = self.row_rect(*id) {
-                    if pointer.y > row.center().y {
-                        index += 1;
-                    }
+            if drag_resp.drag_started() {
+                self.track_drag = Some(track_id);
+                self.track_drop = None;
+                self.state.selection.select_track(track_id, false);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            if drag_resp.dragged() {
+                if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
+                    self.track_drop = self.track_drop_target(doc, track_id, pointer.y);
                 }
             }
-            self.emit(UiIntent::MoveTrack {
-                id: track_id,
-                index,
-            });
+            if drag_resp.drag_stopped()
+                && let Some(dragged) = self.track_drag.take()
+            {
+                if let Some(drop) = self.track_drop.take() {
+                    self.emit(UiIntent::MoveTrack {
+                        id: dragged,
+                        parent: drop.parent,
+                        index: drop.index,
+                    });
+                }
+            }
         }
+        let selected_tracks: Vec<TrackId> = self.state.selection.tracks.iter().copied().collect();
+        header_resp.context_menu(|ui| {
+            if ui.button("Group selected tracks").clicked() {
+                let tracks = if selected_tracks.is_empty() {
+                    vec![track_id]
+                } else {
+                    selected_tracks.clone()
+                };
+                self.emit(UiIntent::GroupTracks { tracks });
+                ui.close();
+            }
+            if ui.button("Add audio track").clicked() {
+                self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+                ui.close();
+            }
+            if ui.button("Add instrument track").clicked() {
+                self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
+                ui.close();
+            }
+            if ui.button("Add group track").clicked() {
+                self.emit(UiIntent::CreateTrack(TrackKind::Group));
+                ui.close();
+            }
+            if track.kind != TrackKind::Master && ui.button("Delete track").clicked() {
+                self.emit(UiIntent::DeleteTrack(track_id));
+                ui.close();
+            }
+        });
         if ui
             .interact(mute_rect, Id::new(("mute", track_id)), Sense::click())
             .clicked()
@@ -960,6 +1050,61 @@ impl NotwigUi {
         }
     }
 
+    fn track_drop_target(
+        &self,
+        doc: &ProjectDoc,
+        dragged: TrackId,
+        pointer_y: f32,
+    ) -> Option<TrackDrop> {
+        let descendants = doc.track_order.descendants(dragged);
+        let valid_parent = |parent: Option<TrackId>| {
+            parent.is_none_or(|parent| parent != dragged && !descendants.contains(&parent))
+        };
+        let mut last: Option<(TrackId, Rect)> = None;
+        for id in doc.track_order.depth_first() {
+            let Some(row) = self.row_rect(id) else {
+                continue;
+            };
+            if pointer_y < row.center().y {
+                let parent = doc.tracks.get(&id)?.parent;
+                if !valid_parent(parent) {
+                    return None;
+                }
+                let index = Self::sibling_index(doc, parent, id)?;
+                return Some(TrackDrop {
+                    parent,
+                    index,
+                    y: row.top(),
+                });
+            }
+            last = Some((id, row));
+        }
+        let (last_id, row) = last?;
+        let parent = doc.tracks.get(&last_id)?.parent;
+        if !valid_parent(parent) {
+            return None;
+        }
+        let index = Self::sibling_index(doc, parent, last_id)? + 1;
+        Some(TrackDrop {
+            parent,
+            index,
+            y: row.bottom(),
+        })
+    }
+
+    fn sibling_index(doc: &ProjectDoc, parent: Option<TrackId>, id: TrackId) -> Option<usize> {
+        let siblings = match parent {
+            Some(parent) => doc.track_order.children.get(&parent)?,
+            None => &doc.track_order.roots,
+        };
+        Some(
+            siblings
+                .iter()
+                .position(|sibling| *sibling == id)
+                .unwrap_or(siblings.len()),
+        )
+    }
+
     fn lane_double_click(
         &mut self,
         doc: &ProjectDoc,
@@ -1077,15 +1222,17 @@ impl NotwigUi {
                 draw_midi_preview(&painter, body_rect, clip.range, midi);
             }
             ClipPayload::Audio(audio) => {
-                if let Some(peaks) = runtime.waveforms.get(&audio.asset_id) {
-                    draw_waveform(
-                        &painter,
-                        body_rect,
-                        peaks,
-                        audio.source_start_sample,
-                        audio.source_end_sample,
-                    );
-                }
+                crate::timeline::draw_audio_slices(
+                    &painter,
+                    doc,
+                    clip,
+                    audio,
+                    &runtime.waveforms,
+                    body_rect,
+                    TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1)),
+                    lane_rect.left(),
+                    lane_rect.top(),
+                );
             }
         }
         painter.rect_stroke(
@@ -1136,6 +1283,9 @@ impl NotwigUi {
                 .selection
                 .select_clip(clip_id, track_id, additive);
             self.emit(UiIntent::SelectClip(clip_id));
+        }
+        if name_response.double_clicked() && matches!(clip.payload, ClipPayload::Audio(_)) {
+            self.open_clip_editor(clip_id);
         }
         name_response.context_menu(|ui| {
             if ui
@@ -1292,12 +1442,18 @@ impl NotwigUi {
                     grid,
                     alt,
                 );
-                let shift = primary_start - drag.primary_origin.start;
+                let starts: Vec<TimeMus> = drag
+                    .origins
+                    .iter()
+                    .map(|(_, _, range)| range.start)
+                    .collect();
+                let shift =
+                    clamp_node_shift(primary_start - drag.primary_origin.start, &starts, None);
                 self.group_preview = drag
                     .origins
                     .iter()
                     .map(|(id, track, origin)| {
-                        let start = (origin.start + shift).max(TimeMus::zero());
+                        let start = origin.start + shift;
                         let range =
                             RangeMus::new(start, start + origin.length()).unwrap_or(*origin);
                         (*id, *track, range)
@@ -1387,6 +1543,7 @@ impl NotwigUi {
                     egui::pos2(row.right() - 1.0, row.bottom() - 3.0),
                 )
             }),
+            crate::intent::DropAudioTarget::ClipEditor { .. } => None,
             crate::intent::DropAudioTarget::NewTrack { index } => {
                 let y = order
                     .get(index)
@@ -1511,6 +1668,134 @@ fn compatible_track(doc: &ProjectDoc, kind: ClipKind, track_id: TrackId) -> bool
     })
 }
 
+fn draw_track_prefixes(
+    painter: &egui::Painter,
+    doc: &ProjectDoc,
+    track: &notwig_core::tracks::Track,
+    row_rect: Rect,
+    depth: f32,
+) {
+    let mut ancestor = track.parent;
+    let mut level = depth as usize;
+    while let Some(parent_id) = ancestor {
+        if level == 0 {
+            break;
+        }
+        level -= 1;
+        let Some(parent) = doc.tracks.get(&parent_id) else {
+            break;
+        };
+        let color = parent.color.map_or_else(
+            || track_color(parent.kind),
+            |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
+        );
+        let x = row_rect.left() + level as f32 * 14.0 + 2.0;
+        painter.line_segment(
+            [
+                egui::pos2(x, row_rect.top() + 1.0),
+                egui::pos2(x, row_rect.bottom() - 1.0),
+            ],
+            Stroke::new(3.0_f32, color),
+        );
+        ancestor = parent.parent;
+    }
+}
+
+fn volume_fader(ui: &mut egui::Ui, rect: Rect, db: f32, id: Id) -> Option<f32> {
+    let response = ui
+        .interact(rect, id, Sense::click_and_drag())
+        .on_hover_text(format_db(notwig_core::Db(db)));
+    if response.hovered() || response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    let value = crate::widgets::value_drag(
+        ui,
+        &response,
+        id,
+        f64::from(db),
+        0.0,
+        f64::from(DB_MIN),
+        f64::from(DB_MAX),
+        f64::from(DB_MAX - DB_MIN) / 200.0,
+        false,
+    )
+    .map_or(db, |value| value as f32);
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(3), Color32::from_rgb(15, 16, 20));
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(3),
+        Stroke::new(1.0_f32, theme::GRID),
+        StrokeKind::Inside,
+    );
+    let t = ((db - DB_MIN) / (DB_MAX - DB_MIN)).clamp(0.0, 1.0);
+    let fill = Rect::from_min_max(
+        rect.min,
+        egui::pos2(rect.left() + rect.width() * t, rect.bottom()),
+    );
+    painter.rect_filled(fill, CornerRadius::same(3), Color32::from_rgb(116, 67, 25));
+    if t > 0.0 {
+        painter.line_segment(
+            [
+                egui::pos2(fill.right().max(rect.left() + 1.0), rect.top() + 2.0),
+                egui::pos2(fill.right().max(rect.left() + 1.0), rect.bottom() - 2.0),
+            ],
+            Stroke::new(1.5_f32, Color32::from_rgb(255, 145, 46)),
+        );
+    }
+    let zero_t = (0.0 - DB_MIN) / (DB_MAX - DB_MIN);
+    let zero_x = rect.left() + rect.width() * zero_t;
+    painter.line_segment(
+        [
+            egui::pos2(zero_x, rect.top() + 3.0),
+            egui::pos2(zero_x, rect.bottom() - 3.0),
+        ],
+        Stroke::new(1.0_f32, Color32::from_white_alpha(50)),
+    );
+    (value - db).abs().gt(&1e-9_f32).then_some(value)
+}
+
+fn draw_vertical_meter(painter: &egui::Painter, rect: Rect, peak_l: f32, peak_r: f32) {
+    crate::widgets::draw_stereo_meter(painter, rect, peak_l, peak_r);
+}
+
+fn draw_track_icon(painter: &egui::Painter, rect: Rect, kind: TrackKind, color: Color32) {
+    match kind {
+        TrackKind::Group => {
+            crate::icons::paint(painter, rect, crate::icons::Icon::Folder, color);
+        }
+        TrackKind::Audio => {
+            let mut x = rect.left() + 2.0;
+            for height in [5.0, 10.0, 7.0, 12.0, 4.0] {
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.center().y - height * 0.5),
+                        egui::pos2(x, rect.center().y + height * 0.5),
+                    ],
+                    Stroke::new(1.5_f32, color),
+                );
+                x += 3.0;
+            }
+        }
+        TrackKind::Instrument => {
+            for index in 0..4 {
+                let x = rect.left() + 2.0 + index as f32 * 3.5;
+                let top = if index % 2 == 0 { 3.0 } else { 6.0 };
+                painter.line_segment(
+                    [
+                        egui::pos2(x, rect.top() + top),
+                        egui::pos2(x, rect.bottom() - 3.0),
+                    ],
+                    Stroke::new(1.5_f32, color),
+                );
+            }
+        }
+        TrackKind::BusFx | TrackKind::Master => {
+            crate::icons::paint(painter, rect, crate::icons::Icon::Device, color);
+        }
+    }
+}
+
 fn track_color(kind: TrackKind) -> Color32 {
     match kind {
         TrackKind::Audio => theme::CLIP_AUDIO,
@@ -1553,40 +1838,6 @@ fn draw_midi_preview(
             ),
             CornerRadius::same(1),
             Color32::from_black_alpha(150),
-        );
-    }
-}
-
-fn draw_waveform(
-    painter: &egui::Painter,
-    rect: Rect,
-    peaks: &[f32],
-    source_start: u64,
-    source_end: u64,
-) {
-    if peaks.is_empty() || source_end <= source_start || rect.width() < 2.0 {
-        return;
-    }
-    let duration = (source_end - source_start) as f32;
-    let center = rect.center().y;
-    let half = rect.height() * 0.34;
-    let steps = (rect.width() / 2.0).max(1.0) as usize;
-    for step in 0..steps {
-        let t = step as f32 / steps as f32;
-        let source = source_start as f32 + t * duration;
-        let index = (((source - source_start as f32) / duration) * peaks.len() as f32) as usize;
-        let peak = peaks
-            .get(index.min(peaks.len() - 1))
-            .copied()
-            .unwrap_or(0.0)
-            .clamp(0.0, 1.0);
-        let x = rect.left() + t * rect.width();
-        painter.line_segment(
-            [
-                egui::pos2(x, center - peak * half),
-                egui::pos2(x, center + peak * half),
-            ],
-            Stroke::new(1.0_f32, Color32::from_black_alpha(120)),
         );
     }
 }

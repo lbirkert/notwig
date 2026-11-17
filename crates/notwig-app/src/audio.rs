@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
@@ -17,6 +18,7 @@ pub struct AudioSnapshot {
     pub playing: bool,
     pub meters: BTreeMap<TrackId, MeterValues>,
     pub xruns: u64,
+    pub cpu_load: Option<f32>,
     pub error: Option<String>,
 }
 
@@ -114,6 +116,7 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let channels = usize::from(config.channels.max(1));
+    let sample_rate = config.sample_rate;
     let mut scratch: Vec<f32> = Vec::new();
     let error_snapshot = Arc::clone(&snapshot);
     device
@@ -126,12 +129,15 @@ where
                 }
                 scratch.resize(frames * 2, 0.0);
                 let mut processed = false;
+                let started = Instant::now();
                 if let Ok(mut engine) = engine.try_lock() {
                     if engine.process(&mut scratch[..frames * 2], frames).is_ok() {
                         processed = true;
+                        let block_seconds = frames as f64 / f64::from(sample_rate.max(1));
+                        let load = (started.elapsed().as_secs_f64() / block_seconds) as f32;
                         let mut events = Vec::new();
                         engine.drain_events(&mut events);
-                        update_snapshot(&snapshot, &engine, &events);
+                        update_snapshot(&snapshot, &engine, &events, Some(load * 100.0));
                     }
                 }
                 for (frame_index, frame) in data.chunks_mut(channels).enumerate() {
@@ -165,12 +171,18 @@ where
         .map_err(|err| format!("build audio stream: {err}"))
 }
 
-fn update_snapshot(snapshot: &Arc<Mutex<AudioSnapshot>>, engine: &Engine, events: &[RtEvent]) {
+fn update_snapshot(
+    snapshot: &Arc<Mutex<AudioSnapshot>>,
+    engine: &Engine,
+    events: &[RtEvent],
+    cpu_load: Option<f32>,
+) {
     let Ok(mut snapshot) = snapshot.try_lock() else {
         return;
     };
     snapshot.playhead_samples = engine.playhead_samples();
     snapshot.playing = engine.transport().playing;
+    snapshot.cpu_load = cpu_load;
     for event in events {
         match event {
             RtEvent::Meters {

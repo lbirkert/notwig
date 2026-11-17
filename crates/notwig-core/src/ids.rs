@@ -24,6 +24,8 @@ pub struct DeviceChain;
 pub struct Param;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Send;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Slice;
 
 impl Entity for Asset {}
 impl Entity for Track {}
@@ -33,6 +35,7 @@ impl Entity for Device {}
 impl Entity for DeviceChain {}
 impl Entity for Param {}
 impl Entity for Send {}
+impl Entity for Slice {}
 
 pub type AssetId = Id<Asset>;
 pub type TrackId = Id<Track>;
@@ -42,6 +45,7 @@ pub type DeviceId = Id<Device>;
 pub type DeviceChainId = Id<DeviceChain>;
 pub type ParamId = Id<Param>;
 pub type SendId = Id<Send>;
+pub type SliceId = Id<Slice>;
 
 pub struct Id<T: ?Sized> {
     uuid: Uuid,

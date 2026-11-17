@@ -117,17 +117,13 @@ pub fn eq_spec() -> DeviceSpec {
         params.push(ParamSpec::boolean(
             band_param(band, 0),
             format!("Band {} Enabled", band + 1),
-            true,
+            false,
         ));
         params.push(ParamSpec::enumeration(
             band_param(band, 1),
             format!("Band {} Type", band + 1),
             5,
-            match band {
-                0 => 3,
-                3 => 2,
-                _ => 0,
-            },
+            0,
         ));
         let default_freq = [30.0, 200.0, 2_000.0, 8_000.0][band];
         params.push(ParamSpec::continuous(
@@ -419,9 +415,9 @@ pub fn eq_magnitude_response(
         .unwrap_or(0.0)
         / 12.0;
     for band in 0..4 {
-        let enabled = !matches!(
+        let enabled = matches!(
             values.get(&band_param(band, 0)),
-            Some(ParamValue::Bool(false))
+            Some(ParamValue::Bool(true))
         );
         if !enabled {
             continue;
@@ -657,7 +653,7 @@ impl EqProcessor {
     }
 
     fn update_band(&mut self, band: usize) {
-        let enabled = param_value(&self.values, band_param(band, 0), 1.0) > 0.5;
+        let enabled = param_value(&self.values, band_param(band, 0), 0.0) > 0.5;
         let kind =
             EqBandType::from_index(param_value(&self.values, band_param(band, 1), 0.0) as u32);
         let shift = param_value(&self.values, p_eq_shift(), 0.0) / 12.0;
@@ -917,6 +913,25 @@ mod tests {
             after[47_998].abs() < 0.005,
             "gain should settle to the target"
         );
+    }
+
+    #[test]
+    fn eq_bands_default_to_disabled() {
+        let spec = eq_spec();
+        for band in 0..4 {
+            let enabled = spec
+                .params
+                .iter()
+                .find(|param| param.id == band_param(band, 0))
+                .expect("band enabled parameter");
+            assert_eq!(enabled.default, ParamValue::Bool(false));
+            let band_type = spec
+                .params
+                .iter()
+                .find(|param| param.id == band_param(band, 1))
+                .expect("band type parameter");
+            assert_eq!(band_type.default, ParamValue::EnumIndex(0));
+        }
     }
 
     #[test]

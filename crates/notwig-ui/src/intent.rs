@@ -1,9 +1,16 @@
 use std::path::PathBuf;
 
 use notwig_core::{
-    AssetId, ClipId, Db, DeviceChainId, DeviceId, DeviceKind, Pan, ParamId, ParamValue, RangeMus,
-    TimeMus, TrackId, TrackKind,
+    AssetId, ClipId, Color, Db, DeviceChainId, DeviceId, DeviceKind, Pan, ParamId, ParamValue,
+    RangeMus, TimeMus, TrackId, TrackKind,
 };
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipDuplicate {
+    pub old_id: ClipId,
+    pub new_id: ClipId,
+    pub range: RangeMus,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiIntent {
@@ -12,6 +19,11 @@ pub enum UiIntent {
     Stop,
     ToggleLoop,
     SetPlayhead(TimeMus),
+    SetTempo(f64),
+    SetTimeSignature {
+        numerator: u8,
+        denominator: u8,
+    },
     SetPlayStart(TimeMus),
     SetLoopRange(RangeMus),
     SelectTrack(TrackId),
@@ -19,6 +31,7 @@ pub enum UiIntent {
     SelectDevice(DeviceId),
     CreateTrack(TrackKind),
     DeleteTrack(TrackId),
+    DuplicateTrack(TrackId),
     DeleteClip(ClipId),
     CreateMidiClip {
         track_id: TrackId,
@@ -43,6 +56,9 @@ pub enum UiIntent {
     DuplicateClip {
         clip_id: ClipId,
     },
+    DuplicateClips {
+        clips: Vec<ClipDuplicate>,
+    },
     CopySelection {
         clips: Vec<ClipId>,
         time: Option<(RangeMus, Vec<TrackId>)>,
@@ -64,11 +80,35 @@ pub enum UiIntent {
     },
     MoveTrack {
         id: TrackId,
+        parent: Option<TrackId>,
         index: usize,
+    },
+    SetTrackColor {
+        track_id: TrackId,
+        color: Option<Color>,
+    },
+    SetTrackComment {
+        track_id: TrackId,
+        comment: String,
+    },
+    RenameTrack {
+        track_id: TrackId,
+        name: String,
+    },
+    SetTrackActive {
+        track_id: TrackId,
+        active: bool,
+    },
+    GroupTracks {
+        tracks: Vec<TrackId>,
     },
     SplitClip {
         clip_id: ClipId,
         at: TimeMus,
+    },
+    SetClipSlices {
+        clip_id: ClipId,
+        slices: Vec<notwig_core::sequencer::AudioSlice>,
     },
     SetTrackMixer {
         track_id: TrackId,
@@ -106,6 +146,9 @@ pub enum UiIntent {
         device_id: DeviceId,
         bypass: bool,
     },
+    OpenPluginWindow {
+        device_id: DeviceId,
+    },
     SetParam {
         device_id: DeviceId,
         param_id: ParamId,
@@ -127,4 +170,5 @@ pub enum UiIntent {
 pub enum DropAudioTarget {
     Track(TrackId),
     NewTrack { index: usize },
+    ClipEditor { clip_id: ClipId },
 }

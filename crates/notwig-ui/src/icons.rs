@@ -44,10 +44,6 @@ impl Icon {
     }
 }
 
-pub fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, tooltip: &str) -> Response {
-    icon_button_sized(ui, icon, Vec2::splat(28.0), selected, tooltip)
-}
-
 pub fn icon_button_sized(
     ui: &mut egui::Ui,
     icon: Icon,

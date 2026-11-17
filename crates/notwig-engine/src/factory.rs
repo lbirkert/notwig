@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use notwig_core::{ParamId, ParamValue};
@@ -5,7 +6,7 @@ use notwig_dsp::{
     CompiledPlan, DeviceProcessor, Latency, NoteEvent, PlanDevice, ProcessContext, ProcessStatus,
     RenderConfig,
 };
-use notwig_plugins::{PluginHost, PluginInstance};
+use notwig_plugins::{PluginDescriptor, PluginHost, PluginInstance};
 
 pub trait DeviceFactory: Send + Sync {
     fn create(&self, plan: &CompiledPlan, device: &PlanDevice) -> Option<Box<dyn DeviceProcessor>>;
@@ -26,6 +27,7 @@ impl DeviceFactory for StockDeviceFactory {
 
 pub struct PluginDeviceFactory {
     host: Mutex<PluginHost>,
+    descriptors: BTreeMap<String, PluginDescriptor>,
 }
 
 impl std::fmt::Debug for PluginDeviceFactory {
@@ -36,9 +38,13 @@ impl std::fmt::Debug for PluginDeviceFactory {
 
 impl PluginDeviceFactory {
     #[must_use]
-    pub fn new(host: PluginHost) -> Self {
+    pub fn new(host: PluginHost, descriptors: Vec<PluginDescriptor>) -> Self {
         Self {
             host: Mutex::new(host),
+            descriptors: descriptors
+                .into_iter()
+                .map(|descriptor| (descriptor.type_id.clone(), descriptor))
+                .collect(),
         }
     }
 }
@@ -78,12 +84,8 @@ impl DeviceFactory for PluginDeviceFactory {
             return Some(processor);
         }
         let mut host = self.host.lock().ok()?;
-        let descriptor = host
-            .cache()
-            .descriptors()
-            .into_iter()
-            .find(|descriptor| descriptor.type_id == device.type_id)?;
-        host.load(&descriptor)
+        let descriptor = self.descriptors.get(&device.type_id)?;
+        host.load(descriptor)
             .ok()
             .map(|instance| Box::new(PluginDevice(instance)) as Box<dyn DeviceProcessor>)
     }

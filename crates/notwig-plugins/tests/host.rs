@@ -22,8 +22,8 @@ fn descriptor() -> PluginDescriptor {
 
 #[test]
 fn unavailable_backend_reports_explicit_error() {
-    let host = PluginHost::new();
-    let mut host = host;
+    let mut host = PluginHost::empty();
+    host.register_adapter(Box::new(UnavailableAdapter::new(PluginFormat::Vst3)));
     if let Err(err) = host.load(&descriptor()) {
         assert!(matches!(err, PluginError::BackendUnavailable(_)));
     } else {
@@ -33,7 +33,8 @@ fn unavailable_backend_reports_explicit_error() {
 
 #[test]
 fn cache_blacklists_after_repeated_failures() {
-    let mut host = PluginHost::new();
+    let mut host = PluginHost::empty();
+    host.register_adapter(Box::new(UnavailableAdapter::new(PluginFormat::Vst3)));
     let d = descriptor();
     for _ in 0..3 {
         let _ = host.load(&d);
@@ -65,7 +66,7 @@ fn custom_adapter_scan_merges_and_sorts() {
             Err(PluginError::BackendUnavailable(PluginFormat::Au))
         }
     }
-    let mut host = PluginHost::new();
+    let mut host = PluginHost::empty();
     host.register_adapter(Box::new(TestAdapter));
     let found = host.scan(&[]);
     assert!(found.iter().any(|d| d.type_id == "au.test"));

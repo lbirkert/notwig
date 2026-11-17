@@ -64,17 +64,21 @@ impl Default for PluginHost {
 impl PluginHost {
     #[must_use]
     pub fn new() -> Self {
-        let mut host = Self {
+        #[allow(unused_mut)]
+        let mut host = Self::empty();
+        #[cfg(feature = "vst3")]
+        host.register_adapter(Box::new(crate::adapters::Vst3Adapter));
+        #[cfg(all(feature = "au", target_vendor = "apple"))]
+        host.register_adapter(Box::new(crate::adapters::AuAdapter));
+        host
+    }
+
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
             adapters: Vec::new(),
             cache: PluginCache::default(),
-        };
-        for format in [PluginFormat::Vst3, PluginFormat::Au, PluginFormat::Vst2] {
-            if format.enabled() {
-                host.adapters
-                    .push(Box::new(UnavailableAdapter::new(format)));
-            }
         }
-        host
     }
 
     pub fn register_adapter(&mut self, adapter: Box<dyn HostAdapter>) {

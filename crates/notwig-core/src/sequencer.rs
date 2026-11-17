@@ -88,6 +88,21 @@ pub struct AudioClipData {
     pub fade_in_samples: u64,
     pub fade_out_samples: u64,
     pub fade_shape: FadeShape,
+    #[serde(default)]
+    pub slices: Vec<AudioSlice>,
+    #[serde(default)]
+    pub slices_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioSlice {
+    pub id: crate::ids::SliceId,
+    pub start: TimeMus,
+    pub source_start_sample: u64,
+    pub source_end_sample: u64,
+    pub gain_db: Db,
+    #[serde(default)]
+    pub asset_id: Option<crate::ids::AssetId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +115,11 @@ impl AudioClipData {
     pub fn source_duration(&self) -> u64 {
         self.source_end_sample
             .saturating_sub(self.source_start_sample)
+    }
+
+    #[must_use]
+    pub fn uses_slices(&self) -> bool {
+        self.slices_enabled || !self.slices.is_empty()
     }
 }
 
@@ -230,19 +250,43 @@ impl AudioClipData {
                 reason: "audio clip references missing asset".into(),
             });
         }
-        let duration = self.source_duration();
-        if self.fade_in_samples + self.fade_out_samples > duration {
-            return Err(CoreError::ValidationFailed {
-                reason: "audio fades must not overlap".into(),
-            });
-        }
-        let samples = doc.tempo_map().mus_to_samples(range.length());
-        if samples != duration {
-            return Err(CoreError::ValidationFailed {
-                reason: format!(
-                    "audio clip range maps to {samples} samples but source duration is {duration}"
-                ),
-            });
+        if self.uses_slices() {
+            for slice in &self.slices {
+                if slice.source_end_sample <= slice.source_start_sample {
+                    return Err(CoreError::ValidationFailed {
+                        reason: "audio slice source range must be non-empty".into(),
+                    });
+                }
+                if !doc
+                    .assets
+                    .assets
+                    .contains_key(&slice.asset_id.unwrap_or(self.asset_id))
+                {
+                    return Err(CoreError::ValidationFailed {
+                        reason: "audio slice references missing asset".into(),
+                    });
+                }
+                if slice.start < TimeMus::zero() || slice.start >= range.length() {
+                    return Err(CoreError::ValidationFailed {
+                        reason: "audio slice must lie inside the clip".into(),
+                    });
+                }
+            }
+        } else {
+            let duration = self.source_duration();
+            if self.fade_in_samples + self.fade_out_samples > duration {
+                return Err(CoreError::ValidationFailed {
+                    reason: "audio fades must not overlap".into(),
+                });
+            }
+            let samples = doc.tempo_map().mus_to_samples(range.length());
+            if samples != duration {
+                return Err(CoreError::ValidationFailed {
+                    reason: format!(
+                        "audio clip range maps to {samples} samples but source duration is {duration}"
+                    ),
+                });
+            }
         }
         Ok(())
     }

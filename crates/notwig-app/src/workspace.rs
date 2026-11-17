@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
 use crate::history::History;
 use notwig_core::ids::{
@@ -10,13 +10,13 @@ use notwig_core::ids::{
 use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, PlaybackSchedule};
 use notwig_core::sequencer::MidiClipData;
 use notwig_core::{
-    AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, DeviceChainId, DeviceKind, Id, Meta,
-    ProjectDoc, Rational, SampleRate, SchemaVersion, TrackId, TrackKind, apply,
+    AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, DeviceChainId, DeviceId, DeviceKind, Id,
+    Meta, ProjectDoc, Rational, SampleRate, SchemaVersion, TrackId, TrackKind, apply,
 };
 use notwig_dsp::EngineCaps;
 use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory};
-use notwig_plugins::PluginHost;
-use notwig_ui::PluginEntry;
+use notwig_plugins::{PluginCache, PluginDescriptor, PluginHost};
+use notwig_ui::{ClipboardMode, PluginEntry};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -29,6 +29,16 @@ struct ClipboardEntry {
 #[derive(Debug, Clone, Default)]
 struct Clipboard {
     clips: Vec<ClipboardEntry>,
+    mode: ClipboardMode,
+    time_range: Option<notwig_core::RangeMus>,
+    time_tracks: Vec<TrackId>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PasteResult {
+    pub clip_ids: Vec<ClipId>,
+    pub clip_tracks: Vec<(ClipId, TrackId)>,
+    pub time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
 }
 
 pub struct Workspace {
@@ -39,6 +49,8 @@ pub struct Workspace {
     pub peaks: BTreeMap<AssetId, Vec<f32>>,
     pub engine: Arc<Mutex<Engine>>,
     pub plugins: Vec<PluginEntry>,
+    plugin_descriptors: Vec<PluginDescriptor>,
+    plugin_specs: BTreeMap<String, notwig_dsp::DeviceSpec>,
     pub status: Option<String>,
     pub error: Option<String>,
     pub last_autosave: std::time::Instant,
@@ -90,8 +102,8 @@ impl Workspace {
     }
 
     fn from_doc(doc: ProjectDoc, bundle: Option<PathBuf>, dirty: bool) -> Result<Self, String> {
-        let host = new_plugin_host();
-        let plugins = plugin_entries(&host);
+        let plugin_descriptors = PluginCatalog::global().descriptors();
+        let plugins = plugin_entries(&plugin_descriptors);
         let engine = Arc::new(Mutex::new(Engine::new(EngineConfig::default())));
         let mut workspace = Self {
             doc,
@@ -101,6 +113,8 @@ impl Workspace {
             peaks: BTreeMap::new(),
             engine,
             plugins,
+            plugin_descriptors,
+            plugin_specs: BTreeMap::new(),
             status: None,
             error: None,
             last_autosave: std::time::Instant::now(),
@@ -108,6 +122,7 @@ impl Workspace {
             clipboard: Clipboard::default(),
             history: History::default(),
         };
+        workspace.refresh_plugin_specs();
         workspace.load_assets();
         workspace.rebuild_engine()?;
         Ok(workspace)
@@ -173,10 +188,14 @@ impl Workspace {
             max_block_size: 512,
             channels: 2,
         };
-        let plan = notwig_dsp::compile(&self.doc, &notwig_dsp::stock_registry(), caps)
-            .map_err(|err| err.to_string())?;
+        let registry = self.device_registry();
+        let plan =
+            notwig_dsp::compile(&self.doc, &registry, caps).map_err(|err| err.to_string())?;
         let config = EngineConfig::new(self.doc.meta.sample_rate.value(), 512);
-        let factory = Arc::new(PluginDeviceFactory::new(new_plugin_host()));
+        let factory = Arc::new(PluginDeviceFactory::new(
+            new_plugin_host(),
+            self.plugin_descriptors.clone(),
+        ));
         let mut engine = Engine::with_factory(config, factory);
         engine
             .apply(EngineMsg::UpdateSchedule {
@@ -350,15 +369,27 @@ impl Workspace {
         kind: TrackKind,
         index: Option<usize>,
     ) -> Result<TrackId, String> {
+        self.create_track_with_parent(kind, None, index)
+    }
+
+    fn create_track_with_parent(
+        &mut self,
+        kind: TrackKind,
+        parent: Option<TrackId>,
+        index: Option<usize>,
+    ) -> Result<TrackId, String> {
         let track = Id::<TrackMarker>::from_uuid(Uuid::new_v4());
         let chain = Id::<DeviceChainMarker>::from_uuid(Uuid::new_v4());
-        let name = format!("{} {}", kind.name(), self.doc.tracks.len());
+        let name = match kind {
+            TrackKind::Group => format!("Group {}", self.doc.tracks.len()),
+            _ => format!("{} {}", kind.name(), self.doc.tracks.len()),
+        };
         self.apply(CommandPayload::CreateTrack {
             id: track,
             chain_id: chain,
             kind,
             name,
-            parent: None,
+            parent,
             index,
             color: None,
         })?;
@@ -410,11 +441,21 @@ impl Workspace {
         })
     }
 
-    pub fn duplicate_clip(&mut self, clip_id: ClipId) -> Result<(), String> {
+    pub fn duplicate_clip(&mut self, clip_id: ClipId) -> Result<ClipId, String> {
+        let new_clip = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
+        self.duplicate_clip_to(clip_id, new_clip, None)?;
+        Ok(new_clip)
+    }
+
+    pub fn duplicate_clip_to(
+        &mut self,
+        clip_id: ClipId,
+        new_clip: ClipId,
+        range: Option<notwig_core::RangeMus>,
+    ) -> Result<(), String> {
         let Some(clip) = self.doc.arranger.clips.get(&clip_id) else {
             return Err("clip not found".into());
         };
-        let new_clip = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
         let mut note_map = Vec::new();
         if let ClipPayload::Midi(midi) = &clip.payload {
             for note in &midi.notes {
@@ -426,8 +467,204 @@ impl Workspace {
             new_clip_id: new_clip,
             note_id_map: note_map,
             track_id: None,
-            range: None,
+            range,
         })
+    }
+
+    pub fn group_tracks(&mut self, tracks: &[TrackId]) -> Result<TrackId, String> {
+        let selected: Vec<TrackId> = self
+            .doc
+            .track_order
+            .depth_first()
+            .into_iter()
+            .filter(|id| tracks.contains(id))
+            .filter(|id| {
+                self.doc
+                    .tracks
+                    .get(id)
+                    .is_some_and(|track| track.kind != TrackKind::Master)
+            })
+            .collect();
+        if selected.is_empty() {
+            return Err("select at least one track to group".into());
+        }
+        let first = selected[0];
+        let first_track = self
+            .doc
+            .tracks
+            .get(&first)
+            .ok_or_else(|| "track not found".to_string())?;
+        let parent = first_track.parent;
+        let siblings = match parent {
+            Some(parent) => self
+                .doc
+                .track_order
+                .children
+                .get(&parent)
+                .cloned()
+                .unwrap_or_default(),
+            None => self.doc.track_order.roots.clone(),
+        };
+        let index = siblings
+            .iter()
+            .position(|id| *id == first)
+            .unwrap_or(siblings.len());
+        let group = self.create_track_with_parent(TrackKind::Group, parent, Some(index))?;
+        for track in selected {
+            let next = self
+                .doc
+                .track_order
+                .children
+                .get(&group)
+                .map_or(0, Vec::len);
+            self.apply(CommandPayload::MoveTrack {
+                id: track,
+                parent: Some(group),
+                index: next,
+            })?;
+        }
+        Ok(group)
+    }
+
+    pub fn duplicate_track(&mut self, track_id: TrackId) -> Result<TrackId, String> {
+        let track = self
+            .doc
+            .tracks
+            .get(&track_id)
+            .cloned()
+            .ok_or_else(|| "track not found".to_string())?;
+        if track.kind == TrackKind::Master {
+            return Err("Master track cannot be duplicated".into());
+        }
+        let parent = track.parent;
+        let siblings = match parent {
+            Some(parent) => self
+                .doc
+                .track_order
+                .children
+                .get(&parent)
+                .cloned()
+                .unwrap_or_default(),
+            None => self.doc.track_order.roots.clone(),
+        };
+        let index = siblings
+            .iter()
+            .position(|id| *id == track_id)
+            .map_or(siblings.len(), |index| index + 1);
+        let new_track = self.create_track_with_parent(track.kind, parent, Some(index))?;
+        self.apply(CommandPayload::RenameTrack {
+            id: new_track,
+            name: format!("{} copy", track.name),
+        })?;
+        self.apply(CommandPayload::SetTrackMixer {
+            id: new_track,
+            volume_db: Some(track.mixer.volume_db),
+            pan: Some(track.mixer.pan),
+            mute: Some(track.mixer.mute),
+            solo: Some(track.mixer.solo),
+        })?;
+        if !track.active {
+            self.apply(CommandPayload::SetTrackActive {
+                id: new_track,
+                active: false,
+            })?;
+        }
+        if track.io.audio_out != notwig_core::tracks::TrackOutput::Default {
+            self.apply(CommandPayload::SetTrackRoute {
+                id: new_track,
+                audio_out: track.io.audio_out,
+            })?;
+        }
+        let new_chain = self
+            .doc
+            .tracks
+            .get(&new_track)
+            .ok_or_else(|| "duplicated track missing".to_string())?
+            .main_chain;
+        self.duplicate_chain_devices(track.main_chain, new_chain)?;
+
+        let clips: Vec<notwig_core::ClipEntity> = self
+            .doc
+            .arranger
+            .lanes
+            .get(&track_id)
+            .map(|lane| lane.clips.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|clip_id| self.doc.arranger.clips.get(&clip_id).cloned())
+            .collect();
+        for clip in clips {
+            let mut payload = clip.payload.clone();
+            if let ClipPayload::Midi(midi) = &mut payload {
+                for note in &mut midi.notes {
+                    note.id = Id::<NoteMarker>::from_uuid(Uuid::new_v4());
+                }
+            }
+            self.apply(CommandPayload::CreateClip {
+                id: Id::<ClipMarker>::from_uuid(Uuid::new_v4()),
+                track_id: new_track,
+                kind: clip.kind,
+                range: clip.range,
+                payload,
+            })?;
+        }
+        Ok(new_track)
+    }
+
+    fn duplicate_chain_devices(
+        &mut self,
+        from_chain: DeviceChainId,
+        to_chain: DeviceChainId,
+    ) -> Result<(), String> {
+        let devices = self
+            .doc
+            .chains
+            .get(&from_chain)
+            .map(|chain| chain.devices.clone())
+            .unwrap_or_default();
+        for (index, device_id) in devices.into_iter().enumerate() {
+            let Some(device) = self.doc.devices.get(&device_id).cloned() else {
+                continue;
+            };
+            let new_device = Id::<DeviceMarker>::from_uuid(Uuid::new_v4());
+            let child_chains: Vec<DeviceChainId> = device
+                .child_chains
+                .iter()
+                .map(|_| Id::<DeviceChainMarker>::from_uuid(Uuid::new_v4()))
+                .collect();
+            self.apply(CommandPayload::InsertDevice {
+                id: new_device,
+                type_id: device.type_id.clone(),
+                version: Some(device.version),
+                kind: device.kind,
+                target_chain: to_chain,
+                index: Some(index),
+                child_chain_ids: child_chains.clone(),
+                name: device.name.clone(),
+            })?;
+            for (old_child, new_child) in device.child_chains.iter().zip(&child_chains) {
+                self.duplicate_chain_devices(*old_child, *new_child)?;
+            }
+            if device.bypass {
+                self.apply(CommandPayload::SetDeviceBypass {
+                    device_id: new_device,
+                    bypass: true,
+                })?;
+            }
+            self.apply(CommandPayload::SetDeviceState {
+                device_id: new_device,
+                state_ref: device.state_ref.clone(),
+            })?;
+            for (param_id, value) in device.param_values {
+                self.apply(CommandPayload::SetParam {
+                    device_id: new_device,
+                    param_id,
+                    value,
+                    ramp: None,
+                })?;
+            }
+        }
+        Ok(())
     }
 
     pub fn insert_stock(
@@ -455,14 +692,114 @@ impl Workspace {
         })
     }
 
+    pub fn plugin_descriptor(&self, device_id: DeviceId) -> Option<PluginDescriptor> {
+        let type_id = &self.doc.devices.get(&device_id)?.type_id;
+        self.plugin_descriptors
+            .iter()
+            .find(|descriptor| descriptor.type_id == *type_id)
+            .cloned()
+    }
+
+    pub fn poll_plugin_catalog(&mut self) -> bool {
+        if !PluginCatalog::global().poll() {
+            return false;
+        }
+        self.plugin_descriptors = PluginCatalog::global().descriptors();
+        self.plugins = plugin_entries(&self.plugin_descriptors);
+        self.refresh_plugin_specs();
+        if self
+            .doc
+            .devices
+            .values()
+            .any(|device| device.type_id.starts_with("vst3.") || device.type_id.starts_with("au."))
+        {
+            let _ = self.rebuild_engine();
+        }
+        true
+    }
+
+    pub fn plugin_specs(&self) -> impl Iterator<Item = &notwig_dsp::DeviceSpec> {
+        self.plugin_specs.values()
+    }
+
+    fn device_registry(&self) -> notwig_dsp::DeviceRegistry {
+        let mut registry = notwig_dsp::stock_registry();
+        for spec in self.plugin_specs.values() {
+            registry.register(spec.clone());
+        }
+        registry
+    }
+
+    fn refresh_plugin_specs(&mut self) {
+        let type_ids: Vec<String> = self
+            .doc
+            .devices
+            .values()
+            .filter(|device| {
+                device.type_id.starts_with("vst3.") || device.type_id.starts_with("au.")
+            })
+            .map(|device| device.type_id.clone())
+            .collect();
+        for type_id in type_ids {
+            self.ensure_plugin_spec(&type_id);
+        }
+    }
+
+    fn ensure_plugin_spec(&mut self, type_id: &str) {
+        if self.plugin_specs.contains_key(type_id) {
+            return;
+        }
+        let Some(descriptor) = self
+            .plugin_descriptors
+            .iter()
+            .find(|descriptor| descriptor.type_id == type_id)
+            .cloned()
+        else {
+            return;
+        };
+        let mut host = new_plugin_host();
+        let Ok(instance) = host.load(&descriptor) else {
+            return;
+        };
+        let params = instance.describe_parameters();
+        tracing::info!(
+            plugin = %descriptor.name,
+            params = params.len(),
+            "loaded plugin parameter metadata"
+        );
+        self.plugin_specs.insert(
+            type_id.to_owned(),
+            notwig_dsp::DeviceSpec {
+                type_id: type_id.to_owned(),
+                version: notwig_core::SchemaVersion::V0,
+                kind: if descriptor.is_instrument {
+                    DeviceKind::Instrument
+                } else {
+                    DeviceKind::AudioFx
+                },
+                ports: Vec::new(),
+                params,
+                latency_samples: 0,
+                name: descriptor.name,
+                vendor: descriptor.vendor,
+            },
+        );
+    }
+
     pub fn insert_plugin(
         &mut self,
         chain_id: DeviceChainId,
         type_id: &str,
         kind: DeviceKind,
         index: Option<usize>,
-    ) -> Result<(), String> {
+    ) -> Result<DeviceId, String> {
         let id = Id::<DeviceMarker>::from_uuid(Uuid::new_v4());
+        self.ensure_plugin_spec(type_id);
+        let name = self
+            .plugin_descriptors
+            .iter()
+            .find(|descriptor| descriptor.type_id == type_id)
+            .map(|descriptor| descriptor.name.clone());
         self.apply(CommandPayload::InsertDevice {
             id,
             type_id: type_id.into(),
@@ -471,8 +808,9 @@ impl Workspace {
             target_chain: chain_id,
             index,
             child_chain_ids: Vec::new(),
-            name: None,
-        })
+            name,
+        })?;
+        Ok(id)
     }
 
     pub fn set_mixer(
@@ -526,6 +864,82 @@ impl Workspace {
         self.insert_audio_clip_at(track_id, asset_id, start)
     }
 
+    pub fn import_audio_slice(
+        &mut self,
+        source: &Path,
+        clip_id: ClipId,
+        at: notwig_core::TimeMus,
+    ) -> Result<(), String> {
+        let asset_id = self.import_audio(source)?;
+        self.add_audio_slice(clip_id, asset_id, at)
+    }
+
+    pub fn add_audio_slice(
+        &mut self,
+        clip_id: ClipId,
+        asset_id: AssetId,
+        at: notwig_core::TimeMus,
+    ) -> Result<(), String> {
+        let clip = self
+            .doc
+            .arranger
+            .clips
+            .get(&clip_id)
+            .cloned()
+            .ok_or_else(|| "clip not found".to_string())?;
+        let ClipPayload::Audio(audio) = &clip.payload else {
+            return Err("clip is not an audio clip".into());
+        };
+        let duration = self
+            .doc
+            .assets
+            .assets
+            .get(&asset_id)
+            .ok_or_else(|| "asset not found".to_string())?
+            .duration_samples
+            .ok_or_else(|| "asset has no duration".to_string())?;
+        let length = self.doc.tempo_map().samples_to_mus(duration);
+        let entering_slice_mode = !audio.uses_slices();
+        let mut slices = if entering_slice_mode {
+            vec![notwig_core::sequencer::AudioSlice {
+                id: notwig_core::SliceId::from_uuid(Uuid::new_v4()),
+                start: notwig_core::TimeMus::zero(),
+                source_start_sample: audio.source_start_sample,
+                source_end_sample: audio.source_end_sample,
+                gain_db: audio.gain_db,
+                asset_id: None,
+            }]
+        } else {
+            audio.slices.clone()
+        };
+        if entering_slice_mode {
+            self.apply(CommandPayload::SetClipSlices {
+                clip_id,
+                slices: slices.clone(),
+            })?;
+        }
+        let start = at.max(notwig_core::TimeMus::zero());
+        let required_end = start + length;
+        if required_end > clip.range.length() {
+            self.edit_clip_range(
+                clip_id,
+                notwig_core::RangeMus::new(clip.range.start, clip.range.start + required_end)
+                    .map_err(|err| err.to_string())?,
+            )?;
+        }
+        slices.push(notwig_core::sequencer::AudioSlice {
+            id: notwig_core::SliceId::from_uuid(Uuid::new_v4()),
+            start,
+            source_start_sample: 0,
+            source_end_sample: duration,
+            gain_db: Db(0.0),
+            asset_id: Some(asset_id),
+        });
+        self.apply(CommandPayload::SetClipSlices { clip_id, slices })?;
+        self.status = Some("Added audio slice.".into());
+        Ok(())
+    }
+
     pub fn insert_audio_clip(
         &mut self,
         track_id: TrackId,
@@ -567,6 +981,8 @@ impl Workspace {
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
             }),
         })
     }
@@ -603,14 +1019,14 @@ impl Workspace {
         Ok(())
     }
 
-    pub fn copy_clips(&mut self, clip_ids: &[ClipId]) {
+    pub fn copy_clips(&mut self, clip_ids: &[ClipId]) -> usize {
         let mut clips: Vec<notwig_core::ClipEntity> = clip_ids
             .iter()
             .filter_map(|id| self.doc.arranger.clips.get(id).cloned())
             .collect();
         clips.sort_by_key(|clip| clip.range.start);
         let Some(base) = clips.first().map(|clip| clip.range.start) else {
-            return;
+            return 0;
         };
         self.clipboard.clips = clips
             .into_iter()
@@ -620,10 +1036,14 @@ impl Workspace {
                 clip,
             })
             .collect();
+        self.clipboard.mode = ClipboardMode::Nodes;
+        self.clipboard.time_range = None;
+        self.clipboard.time_tracks.clear();
         self.status = Some("Copied selection.".into());
+        self.clipboard.clips.len()
     }
 
-    pub fn copy_time_range(&mut self, range: notwig_core::RangeMus, tracks: &[TrackId]) {
+    pub fn copy_time_range(&mut self, range: notwig_core::RangeMus, tracks: &[TrackId]) -> usize {
         let track_set: std::collections::BTreeSet<TrackId> = tracks.iter().copied().collect();
         self.clipboard.clips = self
             .doc
@@ -640,7 +1060,11 @@ impl Workspace {
                     })
             })
             .collect();
+        self.clipboard.mode = ClipboardMode::Time;
+        self.clipboard.time_range = Some(range);
+        self.clipboard.time_tracks = tracks.to_vec();
         self.status = Some("Copied time selection.".into());
+        self.clipboard.clips.len()
     }
 
     fn trim_clip_to_range(
@@ -679,23 +1103,49 @@ impl Workspace {
             }
             ClipPayload::Audio(audio) => {
                 let map = self.doc.tempo_map();
-                let left = map.samples_delta(start - clip.range.start);
-                let source_start =
-                    u64::try_from(i128::from(audio.source_start_sample) + i128::from(left)).ok()?;
-                let duration = map.mus_to_samples(end - start);
-                let source_end = source_start.saturating_add(duration);
-                if source_end <= source_start {
-                    return None;
+                if audio.uses_slices() {
+                    let left_trim = start - clip.range.start;
+                    let window_end = left_trim + (end - start);
+                    let slices = audio
+                        .slices
+                        .iter()
+                        .filter_map(|slice| {
+                            trim_slice_window(map, slice, left_trim, window_end, left_trim)
+                        })
+                        .collect();
+                    ClipPayload::Audio(notwig_core::AudioClipData {
+                        asset_id: audio.asset_id,
+                        source_start_sample: audio.source_start_sample,
+                        source_end_sample: audio.source_end_sample,
+                        gain_db: audio.gain_db,
+                        fade_in_samples: 0,
+                        fade_out_samples: 0,
+                        fade_shape: audio.fade_shape,
+                        slices,
+                        slices_enabled: true,
+                    })
+                } else {
+                    let left = map.samples_delta(start - clip.range.start);
+                    let source_start =
+                        u64::try_from(i128::from(audio.source_start_sample) + i128::from(left))
+                            .ok()?;
+                    let duration = map.mus_to_samples(end - start);
+                    let source_end = source_start.saturating_add(duration);
+                    if source_end <= source_start {
+                        return None;
+                    }
+                    ClipPayload::Audio(notwig_core::AudioClipData {
+                        asset_id: audio.asset_id,
+                        source_start_sample: source_start,
+                        source_end_sample: source_end,
+                        gain_db: audio.gain_db,
+                        fade_in_samples: 0,
+                        fade_out_samples: 0,
+                        fade_shape: audio.fade_shape,
+                        slices: audio.slices.clone(),
+                        slices_enabled: audio.slices_enabled,
+                    })
                 }
-                ClipPayload::Audio(notwig_core::AudioClipData {
-                    asset_id: audio.asset_id,
-                    source_start_sample: source_start,
-                    source_end_sample: source_end,
-                    gain_db: audio.gain_db,
-                    fade_in_samples: 0,
-                    fade_out_samples: 0,
-                    fade_shape: audio.fade_shape,
-                })
             }
         };
         Some(trimmed)
@@ -705,11 +1155,11 @@ impl Workspace {
         &mut self,
         clip_ids: &[ClipId],
         time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
-    ) {
+    ) -> usize {
         if let Some((range, tracks)) = time {
-            self.copy_time_range(range, &tracks);
+            self.copy_time_range(range, &tracks)
         } else {
-            self.copy_clips(clip_ids);
+            self.copy_clips(clip_ids)
         }
     }
 
@@ -717,23 +1167,26 @@ impl Workspace {
         &mut self,
         clip_ids: &[ClipId],
         time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
-    ) {
+    ) -> usize {
         if let Some((range, tracks)) = time.clone() {
-            self.copy_time_range(range, &tracks);
+            let count = self.copy_time_range(range, &tracks);
             let _ = self.delete_time_range(range, &tracks);
+            count
         } else {
-            self.copy_clips(clip_ids);
+            let count = self.copy_clips(clip_ids);
             for clip in clip_ids {
                 let _ = self.apply(CommandPayload::DeleteClip { clip_id: *clip });
             }
+            count
         }
     }
 
-    pub fn paste_clips(&mut self, at: notwig_core::TimeMus) -> Result<(), String> {
+    pub fn paste_clips(&mut self, at: notwig_core::TimeMus) -> Result<PasteResult, String> {
         let entries = self.clipboard.clips.clone();
         if entries.is_empty() {
-            return Ok(());
+            return Ok(PasteResult::default());
         }
+        let mut result = PasteResult::default();
         for entry in entries {
             if !self.doc.tracks.contains_key(&entry.track_id) {
                 continue;
@@ -770,9 +1223,31 @@ impl Workspace {
                 range,
                 payload,
             })?;
+            result.clip_ids.push(clip_id);
+            result.clip_tracks.push((clip_id, entry.track_id));
+        }
+        if self.clipboard.mode == ClipboardMode::Time {
+            let range = self
+                .clipboard
+                .clips
+                .iter()
+                .map(|entry| entry.offset + entry.clip.range.length())
+                .max();
+            if let Some(length) = range
+                && let Ok(pasted_range) = notwig_core::RangeMus::new(at, at + length)
+            {
+                let tracks = self
+                    .clipboard
+                    .time_tracks
+                    .iter()
+                    .copied()
+                    .filter(|track| self.doc.tracks.contains_key(track))
+                    .collect();
+                result.time = Some((pasted_range, tracks));
+            }
         }
         self.status = Some("Pasted selection.".into());
-        Ok(())
+        Ok(result)
     }
 
     pub fn delete_time_range(
@@ -842,8 +1317,8 @@ impl Workspace {
         range: notwig_core::RangeMus,
         tracks: &[TrackId],
     ) -> Result<(), String> {
-        self.copy_time_range(range, tracks);
-        self.paste_clips(range.start + range.length())
+        let _ = self.copy_time_range(range, tracks);
+        self.paste_clips(range.start + range.length()).map(|_| ())
     }
 
     fn edit_clip_range(
@@ -912,6 +1387,41 @@ impl Workspace {
     }
 }
 
+fn trim_slice_window(
+    map: notwig_core::TempoMap,
+    slice: &notwig_core::sequencer::AudioSlice,
+    from: notwig_core::TimeMus,
+    to: notwig_core::TimeMus,
+    new_origin: notwig_core::TimeMus,
+) -> Option<notwig_core::sequencer::AudioSlice> {
+    let duration = map.samples_to_mus(
+        slice
+            .source_end_sample
+            .saturating_sub(slice.source_start_sample),
+    );
+    let start = slice.start;
+    let end = start + duration;
+    let window_start = from.max(start);
+    let window_end = to.min(end);
+    if window_end <= window_start {
+        return None;
+    }
+    let base = i128::from(slice.source_start_sample);
+    let max_end = i128::from(slice.source_end_sample);
+    let source_start = base + i128::from(map.samples_delta(window_start - start));
+    let source_end = base + i128::from(map.samples_delta(window_end - start));
+    let source_start = source_start.clamp(0, max_end.saturating_sub(1));
+    let source_end = source_end.clamp(source_start.saturating_add(1), max_end);
+    if source_end <= source_start {
+        return None;
+    }
+    let mut segment = slice.clone();
+    segment.start = window_start - new_origin;
+    segment.source_start_sample = u64::try_from(source_start).ok()?;
+    segment.source_end_sample = u64::try_from(source_end).ok()?;
+    Some(segment)
+}
+
 fn compute_peaks(buffer: &AudioAssetBuffer, buckets: usize) -> Vec<f32> {
     let frames = buffer.frame_count().max(1) as usize;
     let channels = usize::from(buffer.channels.max(1));
@@ -930,27 +1440,104 @@ fn compute_peaks(buffer: &AudioAssetBuffer, buckets: usize) -> Vec<f32> {
 }
 
 fn new_plugin_host() -> PluginHost {
-    let mut host = PluginHost::new();
-    let mut paths = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        paths.push(home.join("Library/Audio/Plug-Ins/VST3"));
-        paths.push(home.join("Library/Audio/Plug-Ins/Components"));
-    }
-    paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST3"));
-    paths.push(PathBuf::from("/Library/Audio/Plug-Ins/Components"));
-    host.scan(&paths);
-    host
+    PluginHost::new()
 }
 
-fn plugin_entries(host: &PluginHost) -> Vec<PluginEntry> {
-    host.cache()
-        .descriptors()
-        .into_iter()
+struct PluginCatalog {
+    descriptors: Mutex<Vec<PluginDescriptor>>,
+    scan: Mutex<Option<mpsc::Receiver<Vec<PluginDescriptor>>>>,
+}
+
+impl PluginCatalog {
+    fn global() -> &'static Self {
+        static CATALOG: OnceLock<PluginCatalog> = OnceLock::new();
+        CATALOG.get_or_init(|| {
+            if cfg!(test) {
+                return Self {
+                    descriptors: Mutex::new(Vec::new()),
+                    scan: Mutex::new(None),
+                };
+            }
+            let cache = plugin_cache_path()
+                .and_then(|path| PluginCache::load(&path).ok())
+                .map(|cache| cache.descriptors())
+                .unwrap_or_default();
+            tracing::info!(count = cache.len(), "loaded cached audio plugin registry");
+            let (tx, rx) = mpsc::channel();
+            let cache_path = plugin_cache_path();
+            std::thread::spawn(move || {
+                if let Some(path) = cache_path {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let status = std::process::Command::new(exe)
+                            .arg("scan-plugins")
+                            .arg(&path)
+                            .status();
+                        if !status.is_ok_and(|status| status.success()) {
+                            tracing::warn!("plugin scanner process failed");
+                        }
+                    }
+                    let descriptors = PluginCache::load(&path)
+                        .ok()
+                        .map(|cache| cache.descriptors())
+                        .unwrap_or_default();
+                    tracing::info!(count = descriptors.len(), "scanned audio plugins");
+                    let _ = tx.send(descriptors);
+                }
+            });
+            Self {
+                descriptors: Mutex::new(cache),
+                scan: Mutex::new(Some(rx)),
+            }
+        })
+    }
+
+    fn descriptors(&self) -> Vec<PluginDescriptor> {
+        self.descriptors
+            .lock()
+            .map_or_else(|_| Vec::new(), |descriptors| descriptors.clone())
+    }
+
+    fn poll(&self) -> bool {
+        let Ok(mut scan) = self.scan.lock() else {
+            return false;
+        };
+        let Some(receiver) = scan.as_ref() else {
+            return false;
+        };
+        match receiver.try_recv() {
+            Ok(descriptors) => {
+                if let Ok(mut current) = self.descriptors.lock() {
+                    *current = descriptors;
+                }
+                *scan = None;
+                true
+            }
+            Err(mpsc::TryRecvError::Empty) => false,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                *scan = None;
+                false
+            }
+        }
+    }
+}
+
+fn plugin_cache_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let home = PathBuf::from(home);
+    #[cfg(target_os = "macos")]
+    let path = home.join("Library/Caches/notwig/plugin-cache.json");
+    #[cfg(not(target_os = "macos"))]
+    let path = home.join(".cache/notwig/plugin-cache.json");
+    Some(path)
+}
+
+fn plugin_entries(descriptors: &[PluginDescriptor]) -> Vec<PluginEntry> {
+    descriptors
+        .iter()
         .map(|descriptor| PluginEntry {
-            type_id: descriptor.type_id,
-            name: descriptor.name,
-            vendor: descriptor.vendor,
+            type_id: descriptor.type_id.clone(),
+            name: descriptor.name.clone(),
+            vendor: descriptor.vendor.clone(),
             is_instrument: descriptor.is_instrument,
             kind: if descriptor.is_instrument {
                 DeviceKind::Instrument
@@ -964,6 +1551,7 @@ fn plugin_entries(host: &PluginHost) -> Vec<PluginEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notwig_core::ids::Asset as AssetMarker;
     use notwig_core::sequencer::NoteEntity;
     use notwig_core::{ClipKind, Norm01};
 
@@ -1181,8 +1769,423 @@ mod tests {
             .unwrap();
         let clip = *workspace.doc.arranger.clips.keys().next().unwrap();
         workspace.copy_clips(&[clip]);
-        workspace.paste_clips(Rational::new(4, 1)).unwrap();
+        let result = workspace.paste_clips(Rational::new(4, 1)).unwrap();
         assert_eq!(workspace.doc.arranger.clips.len(), 2);
+        assert_eq!(result.clip_ids.len(), 1);
+        assert!(result.time.is_none());
+    }
+
+    #[test]
+    fn node_duplicate_places_a_copy_after_the_source_clip() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+            )
+            .unwrap();
+        let clip = *workspace.doc.arranger.clips.keys().next().unwrap();
+        workspace.duplicate_clip(clip).unwrap();
+        let starts: Vec<_> = workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .map(|clip| clip.range.start)
+            .collect();
+        assert!(starts.contains(&Rational::zero()));
+        assert!(starts.contains(&Rational::new(2, 1)));
+    }
+
+    #[test]
+    fn delete_time_range_splits_multiple_audio_slices() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .id;
+        let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(600));
+        workspace
+            .apply(CommandPayload::RegisterAsset {
+                asset_id: asset,
+                entry: notwig_core::AssetEntry {
+                    id: asset,
+                    kind: notwig_core::AssetKind::Audio,
+                    uri: "assets/test.wav".into(),
+                    hash: None,
+                    format: "wav".into(),
+                    sample_rate: Some(48_000),
+                    channels: Some(2),
+                    duration_samples: Some(96_000),
+                    original_sample_rate: Some(48_000),
+                    original_channels: Some(2),
+                },
+            })
+            .unwrap();
+        let clip = Id::<ClipMarker>::from_uuid(Uuid::from_u128(700));
+        workspace
+            .apply(CommandPayload::CreateClip {
+                id: clip,
+                track_id: track,
+                kind: ClipKind::Audio,
+                range: notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+                payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                    asset_id: asset,
+                    source_start_sample: 0,
+                    source_end_sample: 96_000,
+                    gain_db: Db(0.0),
+                    fade_in_samples: 0,
+                    fade_out_samples: 0,
+                    fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                    slices: vec![
+                        notwig_core::sequencer::AudioSlice {
+                            id: notwig_core::SliceId::from_uuid(Uuid::from_u128(1)),
+                            start: Rational::zero(),
+                            source_start_sample: 0,
+                            source_end_sample: 48_000,
+                            gain_db: Db(0.0),
+                            asset_id: None,
+                        },
+                        notwig_core::sequencer::AudioSlice {
+                            id: notwig_core::SliceId::from_uuid(Uuid::from_u128(2)),
+                            start: Rational::new(2, 1),
+                            source_start_sample: 48_000,
+                            source_end_sample: 96_000,
+                            gain_db: Db(0.0),
+                            asset_id: None,
+                        },
+                    ],
+                    slices_enabled: true,
+                }),
+            })
+            .unwrap();
+
+        workspace
+            .delete_time_range(
+                notwig_core::RangeMus::new(Rational::new(1, 1), Rational::new(2, 1)).unwrap(),
+                &[track],
+            )
+            .unwrap();
+
+        let clips: Vec<_> = workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter(|clip| clip.track_id == track)
+            .collect();
+        assert_eq!(clips.len(), 2);
+        let left = clips
+            .iter()
+            .find(|clip| clip.range.start == Rational::zero())
+            .unwrap();
+        let right = clips
+            .iter()
+            .find(|clip| clip.range.start == Rational::new(2, 1))
+            .unwrap();
+        let ClipPayload::Audio(left_audio) = &left.payload else {
+            panic!("left audio");
+        };
+        let ClipPayload::Audio(right_audio) = &right.payload else {
+            panic!("right audio");
+        };
+        assert_eq!(left_audio.slices.len(), 1);
+        assert_eq!(left_audio.slices[0].source_end_sample, 24_000);
+        assert_eq!(right_audio.slices.len(), 1);
+        assert_eq!(right_audio.slices[0].start, Rational::zero());
+        assert_eq!(right_audio.slices[0].source_start_sample, 48_000);
+    }
+
+    #[test]
+    fn adding_an_audio_slice_extends_the_clip_and_references_its_asset() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .id;
+        let register = |workspace: &mut Workspace, asset: Id<AssetMarker>, duration: u64| {
+            workspace
+                .apply(CommandPayload::RegisterAsset {
+                    asset_id: asset,
+                    entry: notwig_core::AssetEntry {
+                        id: asset,
+                        kind: notwig_core::AssetKind::Audio,
+                        uri: format!("assets/{asset}.wav"),
+                        hash: None,
+                        format: "wav".into(),
+                        sample_rate: Some(48_000),
+                        channels: Some(2),
+                        duration_samples: Some(duration),
+                        original_sample_rate: Some(48_000),
+                        original_channels: Some(2),
+                    },
+                })
+                .unwrap();
+        };
+        let base = Id::<AssetMarker>::from_uuid(Uuid::from_u128(700));
+        let dropped = Id::<AssetMarker>::from_uuid(Uuid::from_u128(701));
+        register(&mut workspace, base, 48_000);
+        register(&mut workspace, dropped, 48_000);
+        let clip = Id::<ClipMarker>::from_uuid(Uuid::from_u128(702));
+        workspace
+            .apply(CommandPayload::CreateClip {
+                id: clip,
+                track_id: track,
+                kind: ClipKind::Audio,
+                range: notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+                payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                    asset_id: base,
+                    source_start_sample: 0,
+                    source_end_sample: 48_000,
+                    gain_db: Db(0.0),
+                    fade_in_samples: 0,
+                    fade_out_samples: 0,
+                    fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                    slices: Vec::new(),
+                    slices_enabled: false,
+                }),
+            })
+            .unwrap();
+
+        workspace
+            .add_audio_slice(clip, dropped, Rational::new(1, 1))
+            .unwrap();
+        let clip = &workspace.doc.arranger.clips[&clip];
+        assert_eq!(clip.range.end, Rational::new(3, 1));
+        let ClipPayload::Audio(audio) = &clip.payload else {
+            panic!("audio clip");
+        };
+        assert_eq!(audio.slices.len(), 2);
+        let added = audio
+            .slices
+            .iter()
+            .find(|slice| slice.asset_id == Some(dropped))
+            .expect("dropped slice");
+        assert_eq!(added.start, Rational::new(1, 1));
+        assert_eq!(added.source_end_sample, 48_000);
+    }
+
+    #[test]
+    fn duplicate_clears_the_destination_range_before_inserting() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+            )
+            .unwrap();
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::new(2, 1), Rational::new(6, 1)).unwrap(),
+            )
+            .unwrap();
+        let source = workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .find(|clip| clip.range.start == Rational::zero())
+            .unwrap()
+            .id;
+        let new_id = Id::<ClipMarker>::from_uuid(Uuid::from_u128(1001));
+        workspace
+            .duplicate_clip_to(
+                source,
+                new_id,
+                Some(notwig_core::RangeMus::new(Rational::new(3, 1), Rational::new(5, 1)).unwrap()),
+            )
+            .unwrap();
+
+        let mut ranges: Vec<_> = workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter(|clip| clip.track_id == track)
+            .map(|clip| (clip.range.start, clip.range.end))
+            .collect();
+        ranges.sort();
+        assert_eq!(
+            ranges,
+            vec![
+                (Rational::zero(), Rational::new(2, 1)),
+                (Rational::new(2, 1), Rational::new(3, 1)),
+                (Rational::new(3, 1), Rational::new(5, 1)),
+                (Rational::new(5, 1), Rational::new(6, 1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn copying_a_time_range_trims_audio_slice_windows() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .id;
+        let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(800));
+        workspace
+            .apply(CommandPayload::RegisterAsset {
+                asset_id: asset,
+                entry: notwig_core::AssetEntry {
+                    id: asset,
+                    kind: notwig_core::AssetKind::Audio,
+                    uri: "assets/copy.wav".into(),
+                    hash: None,
+                    format: "wav".into(),
+                    sample_rate: Some(48_000),
+                    channels: Some(2),
+                    duration_samples: Some(96_000),
+                    original_sample_rate: Some(48_000),
+                    original_channels: Some(2),
+                },
+            })
+            .unwrap();
+        workspace
+            .apply(CommandPayload::CreateClip {
+                id: Id::<ClipMarker>::from_uuid(Uuid::from_u128(801)),
+                track_id: track,
+                kind: ClipKind::Audio,
+                range: notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+                payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                    asset_id: asset,
+                    source_start_sample: 0,
+                    source_end_sample: 96_000,
+                    gain_db: Db(0.0),
+                    fade_in_samples: 0,
+                    fade_out_samples: 0,
+                    fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                    slices: vec![
+                        notwig_core::sequencer::AudioSlice {
+                            id: notwig_core::SliceId::from_uuid(Uuid::from_u128(1)),
+                            start: Rational::zero(),
+                            source_start_sample: 0,
+                            source_end_sample: 48_000,
+                            gain_db: Db(0.0),
+                            asset_id: None,
+                        },
+                        notwig_core::sequencer::AudioSlice {
+                            id: notwig_core::SliceId::from_uuid(Uuid::from_u128(2)),
+                            start: Rational::new(2, 1),
+                            source_start_sample: 48_000,
+                            source_end_sample: 96_000,
+                            gain_db: Db(0.0),
+                            asset_id: None,
+                        },
+                    ],
+                    slices_enabled: true,
+                }),
+            })
+            .unwrap();
+        workspace.copy_time_range(
+            notwig_core::RangeMus::new(Rational::new(1, 1), Rational::new(3, 1)).unwrap(),
+            &[track],
+        );
+        let result = workspace.paste_clips(Rational::new(4, 1)).unwrap();
+        let pasted = &workspace.doc.arranger.clips[&result.clip_ids[0]];
+        let ClipPayload::Audio(audio) = &pasted.payload else {
+            panic!("pasted audio");
+        };
+        assert_eq!(audio.slices.len(), 2);
+        assert_eq!(audio.slices[0].start, Rational::zero());
+        assert_eq!(audio.slices[0].source_start_sample, 24_000);
+        assert_eq!(audio.slices[0].source_end_sample, 48_000);
+        assert_eq!(audio.slices[1].start, Rational::new(1, 1));
+        assert_eq!(audio.slices[1].source_start_sample, 48_000);
+        assert_eq!(audio.slices[1].source_end_sample, 72_000);
+    }
+
+    #[test]
+    fn paste_clears_the_destination_range_before_inserting() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+            )
+            .unwrap();
+        let source = *workspace.doc.arranger.clips.keys().next().unwrap();
+        workspace.copy_clips(&[source]);
+        workspace.paste_clips(Rational::new(1, 1)).unwrap();
+        let mut ranges: Vec<_> = workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter(|clip| clip.track_id == track)
+            .map(|clip| (clip.range.start, clip.range.end))
+            .collect();
+        ranges.sort();
+        assert_eq!(
+            ranges,
+            vec![
+                (Rational::zero(), Rational::new(1, 1)),
+                (Rational::new(1, 1), Rational::new(3, 1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn duplicate_clip_to_uses_the_requested_id_and_range() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+            )
+            .unwrap();
+        let clip = *workspace.doc.arranger.clips.keys().next().unwrap();
+        let new_id = Id::<ClipMarker>::from_uuid(Uuid::from_u128(999));
+        let range = notwig_core::RangeMus::new(Rational::new(5, 1), Rational::new(7, 1)).unwrap();
+        workspace
+            .duplicate_clip_to(clip, new_id, Some(range))
+            .unwrap();
+        assert_eq!(workspace.doc.arranger.clips[&new_id].range, range);
     }
 
     #[test]
@@ -1249,7 +2252,7 @@ mod tests {
                 vec![track],
             )),
         );
-        workspace.paste_clips(Rational::new(8, 1)).unwrap();
+        let result = workspace.paste_clips(Rational::new(8, 1)).unwrap();
         assert!(
             workspace
                 .doc
@@ -1258,6 +2261,130 @@ mod tests {
                 .values()
                 .any(|clip| clip.range.start == Rational::new(8, 1))
         );
+        let (range, tracks) = result.time.expect("bar selection should be selected");
+        assert_eq!(range.start, Rational::new(8, 1));
+        assert_eq!(range.end, Rational::new(10, 1));
+        assert_eq!(tracks, vec![track]);
+    }
+
+    #[test]
+    fn grouping_tracks_moves_them_under_a_group_bus() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let tracks: Vec<_> = workspace
+            .doc
+            .tracks
+            .values()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .map(|track| track.id)
+            .collect();
+        let group = workspace.group_tracks(&tracks).unwrap();
+        let group_track = workspace.doc.tracks.get(&group).unwrap();
+        assert_eq!(group_track.kind, TrackKind::Group);
+        for track in &tracks {
+            assert_eq!(workspace.doc.tracks[track].parent, Some(group));
+        }
+        let children = workspace
+            .doc
+            .track_order
+            .children
+            .get(&group)
+            .expect("group children");
+        assert_eq!(children.len(), tracks.len());
+        for track in &tracks {
+            assert!(children.contains(track));
+        }
+    }
+
+    #[test]
+    fn track_color_and_comment_round_trip() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .id;
+        let color = notwig_core::Color {
+            r: 64,
+            g: 128,
+            b: 192,
+            a: 255,
+        };
+        workspace
+            .apply(CommandPayload::SetTrackColor {
+                id: track,
+                color: Some(color),
+            })
+            .unwrap();
+        workspace
+            .apply(CommandPayload::SetTrackComment {
+                id: track,
+                comment: "Lead bus".into(),
+            })
+            .unwrap();
+        assert_eq!(workspace.doc.tracks[&track].color, Some(color));
+        assert_eq!(workspace.doc.tracks[&track].comment, "Lead bus");
+    }
+
+    #[test]
+    fn duplicating_a_track_copies_clips_and_devices() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )
+            .unwrap();
+        workspace
+            .insert_stock(
+                workspace.doc.tracks[&track].main_chain,
+                notwig_dsp::stock::TOOL_TYPE_ID,
+                DeviceKind::AudioFx,
+                None,
+            )
+            .unwrap();
+        let copy = workspace.duplicate_track(track).unwrap();
+        assert_eq!(workspace.doc.tracks[&copy].parent, None);
+        assert_eq!(
+            workspace.doc.arranger.lanes[&copy].clips.len(),
+            workspace.doc.arranger.lanes[&track].clips.len()
+        );
+        assert_eq!(
+            workspace.doc.chains[&workspace.doc.tracks[&copy].main_chain]
+                .devices
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn grouping_a_group_keeps_the_track_forest_valid() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let tracks: Vec<_> = workspace
+            .doc
+            .tracks
+            .values()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .map(|track| track.id)
+            .collect();
+        let inner = workspace.group_tracks(&tracks).unwrap();
+        let outer = workspace.group_tracks(&[inner]).unwrap();
+        assert_eq!(workspace.doc.tracks[&inner].parent, Some(outer));
+        workspace.doc.validate().unwrap();
     }
 
     #[test]

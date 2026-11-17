@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
-use notwig_core::{DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
+use notwig_core::{DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
+use notwig_plugins::NativePluginWindow;
 use notwig_ui::{DropAudioTarget, MeterValues, NotificationKind, NotwigUi, RuntimeView, UiIntent};
 
 use crate::audio::AudioService;
@@ -45,6 +46,7 @@ struct NotwigApp {
     last_tick: Instant,
     dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
     pending_drops: Vec<(PathBuf, DropAudioTarget, TimeMus)>,
+    plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
 }
 
 impl NotwigApp {
@@ -70,6 +72,7 @@ impl NotwigApp {
             last_tick: Instant::now(),
             dialog_rx: None,
             pending_drops: Vec::new(),
+            plugin_editors: Vec::new(),
         };
         app.restart_audio();
         app
@@ -126,7 +129,7 @@ impl NotwigApp {
             waveforms: self.workspace.peaks.clone(),
             meters,
             xruns: snapshot.xruns,
-            cpu_load: None,
+            cpu_load: snapshot.cpu_load,
             status,
             plugins: self.workspace.plugins.clone(),
             bundle_path: self.workspace.bundle.clone(),
@@ -192,6 +195,32 @@ impl NotwigApp {
         self.workspace.status = Some(message);
     }
 
+    fn open_plugin_window(&mut self, device_id: DeviceId) {
+        if let Some((_, window)) = self.plugin_editors.iter().find(|(id, _)| *id == device_id) {
+            window.focus();
+            return;
+        }
+        let Some(descriptor) = self.workspace.plugin_descriptor(device_id) else {
+            self.notify_error("Plugin is not installed or was not found.".into());
+            return;
+        };
+        match NativePluginWindow::open(&descriptor) {
+            Ok(mut window) => {
+                if let Some(device) = self.workspace.doc.devices.get(&device_id) {
+                    for (param_id, value) in &device.param_values {
+                        if let Some(value) = value.as_f64() {
+                            window.set_parameter((*param_id).into_uuid().as_u128() as u32, value);
+                        }
+                    }
+                }
+                self.plugin_editors.push((device_id, window));
+            }
+            Err(err) => {
+                self.notify_error(format!("Could not open plugin window: {err}"));
+            }
+        }
+    }
+
     fn handle_intent(&mut self, intent: UiIntent) {
         match intent {
             UiIntent::Play => {
@@ -214,6 +243,22 @@ impl NotwigApp {
             }
             UiIntent::ToggleLoop => {
                 if let Err(err) = self.workspace.toggle_loop() {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::SetTempo(tempo_bpm) => {
+                if let Err(err) = self.workspace.apply(CommandPayload::SetTempo { tempo_bpm }) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::SetTimeSignature {
+                numerator,
+                denominator,
+            } => {
+                if let Err(err) = self.workspace.apply(CommandPayload::SetTimeSignature {
+                    numerator,
+                    denominator,
+                }) {
                     self.notify_error(err);
                 }
             }
@@ -258,6 +303,13 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
+            UiIntent::DuplicateTrack(track_id) => match self.workspace.duplicate_track(track_id) {
+                Ok(track) => {
+                    self.ui.state.selection.select_track(track, false);
+                    self.notify_info("Duplicated track.".into());
+                }
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::DeleteClip(clip_id) => {
                 if let Err(err) = self.workspace.apply(CommandPayload::DeleteClip { clip_id }) {
                     self.notify_error(err);
@@ -313,21 +365,63 @@ impl NotwigApp {
                 }
             }
             UiIntent::DuplicateClip { clip_id } => {
-                if let Err(err) = self.workspace.duplicate_clip(clip_id) {
-                    self.notify_error(err);
+                let track = self
+                    .workspace
+                    .doc
+                    .arranger
+                    .clips
+                    .get(&clip_id)
+                    .map(|clip| clip.track_id);
+                match self.workspace.duplicate_clip(clip_id) {
+                    Ok(new_id) => {
+                        if let Some(track) = track {
+                            self.ui.state.selection.select_clip(new_id, track, false);
+                        }
+                    }
+                    Err(err) => self.notify_error(err),
+                }
+            }
+            UiIntent::DuplicateClips { clips } => {
+                for clip in clips {
+                    if let Err(err) =
+                        self.workspace
+                            .duplicate_clip_to(clip.old_id, clip.new_id, Some(clip.range))
+                    {
+                        self.notify_error(err);
+                    }
                 }
             }
             UiIntent::CopySelection { clips, time } => {
-                self.workspace.copy_selection(&clips, time);
-            }
-            UiIntent::CutSelection { clips, time } => {
-                self.workspace.cut_selection(&clips, time);
-            }
-            UiIntent::PasteClips { at } => {
-                if let Err(err) = self.workspace.paste_clips(at) {
-                    self.notify_error(err);
+                let count = self.workspace.copy_selection(&clips, time);
+                if count > 0 {
+                    tracing::info!(count, "copied selection");
+                    self.notify_info(format!("Copied {count} clip(s)."));
+                } else {
+                    self.notify_error("Nothing to copy.".into());
                 }
             }
+            UiIntent::CutSelection { clips, time } => {
+                let count = self.workspace.cut_selection(&clips, time);
+                if count > 0 {
+                    tracing::info!(count, "cut selection");
+                    self.notify_info(format!("Cut {count} clip(s)."));
+                } else {
+                    self.notify_error("Nothing to cut.".into());
+                }
+            }
+            UiIntent::PasteClips { at } => match self.workspace.paste_clips(at) {
+                Ok(result) if !result.clip_ids.is_empty() => {
+                    tracing::info!(count = result.clip_ids.len(), "pasted selection");
+                    self.notify_info(format!("Pasted {} clip(s).", result.clip_ids.len()));
+                    if let Some((range, tracks)) = result.time {
+                        self.ui.state.selection.select_time(range, &tracks);
+                    } else {
+                        self.ui.state.selection.select_clips(&result.clip_tracks);
+                    }
+                }
+                Ok(_) => self.notify_error("Clipboard is empty.".into()),
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::DeleteTimeSelection { range, tracks } => {
                 if let Err(err) = self.workspace.delete_time_range(range, &tracks) {
                     self.notify_error(err);
@@ -338,12 +432,58 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
-            UiIntent::MoveTrack { id, index } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::MoveTrack {
-                    id,
-                    parent: None,
-                    index,
+            UiIntent::SetTrackColor { track_id, color } => {
+                if let Err(err) = self.workspace.apply(CommandPayload::SetTrackColor {
+                    id: track_id,
+                    color,
                 }) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::RenameTrack { track_id, name } => {
+                if let Err(err) = self
+                    .workspace
+                    .apply(CommandPayload::RenameTrack { id: track_id, name })
+                {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::SetTrackActive { track_id, active } => {
+                if let Err(err) = self.workspace.apply(CommandPayload::SetTrackActive {
+                    id: track_id,
+                    active,
+                }) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::SetTrackComment { track_id, comment } => {
+                if let Err(err) = self.workspace.apply(CommandPayload::SetTrackComment {
+                    id: track_id,
+                    comment,
+                }) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::MoveTrack { id, parent, index } => {
+                if let Err(err) =
+                    self.workspace
+                        .apply(CommandPayload::MoveTrack { id, parent, index })
+                {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::GroupTracks { tracks } => match self.workspace.group_tracks(&tracks) {
+                Ok(group) => {
+                    self.ui.state.selection.select_track(group, false);
+                    self.notify_info("Grouped tracks.".into());
+                }
+                Err(err) => self.notify_error(err),
+            },
+            UiIntent::SetClipSlices { clip_id, slices } => {
+                if let Err(err) = self
+                    .workspace
+                    .apply(CommandPayload::SetClipSlices { clip_id, slices })
+                {
                     self.notify_error(err);
                 }
             }
@@ -383,14 +523,13 @@ impl NotwigApp {
                 kind,
                 index,
                 ..
-            } => {
-                if let Err(err) = self
-                    .workspace
-                    .insert_plugin(chain_id, &type_id, kind, index)
-                {
-                    self.notify_error(err);
-                }
-            }
+            } => match self
+                .workspace
+                .insert_plugin(chain_id, &type_id, kind, index)
+            {
+                Ok(device_id) => self.open_plugin_window(device_id),
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::ImportAudio => {
                 if self.workspace.bundle.is_none() {
                     self.notify_error("Save the project before importing audio.".into());
@@ -419,6 +558,7 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
+            UiIntent::OpenPluginWindow { device_id } => self.open_plugin_window(device_id),
             UiIntent::SetDeviceBypass { device_id, bypass } => {
                 if let Err(err) = self
                     .workspace
@@ -432,6 +572,7 @@ impl NotwigApp {
                 param_id,
                 value,
             } => {
+                let raw_value = value.as_f64();
                 if let Err(err) = self.workspace.apply(CommandPayload::SetParam {
                     device_id,
                     param_id,
@@ -439,6 +580,14 @@ impl NotwigApp {
                     ramp: None,
                 }) {
                     self.notify_error(err);
+                }
+                if let Some(value) = raw_value
+                    && let Some((_, window)) = self
+                        .plugin_editors
+                        .iter_mut()
+                        .find(|(id, _)| *id == device_id)
+                {
+                    window.set_parameter(param_id.into_uuid().as_u128() as u32, value);
                 }
             }
             UiIntent::RelinkAsset(asset_id) => {
@@ -615,7 +764,14 @@ impl NotwigApp {
     }
 
     fn perform_drop(&mut self, path: PathBuf, target: DropAudioTarget, at: TimeMus) {
+        if let DropAudioTarget::ClipEditor { clip_id } = target {
+            if let Err(err) = self.workspace.import_audio_slice(&path, clip_id, at) {
+                self.notify_error(err);
+            }
+            return;
+        }
         let track_id = match target {
+            DropAudioTarget::ClipEditor { .. } => None,
             DropAudioTarget::Track(track_id) => Some(track_id),
             DropAudioTarget::NewTrack { index } => {
                 match self
@@ -641,6 +797,28 @@ impl NotwigApp {
 impl eframe::App for NotwigApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_dialog();
+        self.workspace.poll_plugin_catalog();
+        let mut editor_changes = Vec::new();
+        for (device_id, window) in &mut self.plugin_editors {
+            window.pump();
+            for (param_id, value) in window.poll_changes() {
+                editor_changes.push((*device_id, param_id, value));
+            }
+        }
+        self.plugin_editors.retain(|(_, window)| window.is_open());
+        for (device_id, raw_id, value) in editor_changes {
+            let param_id =
+                notwig_core::ParamId::from_uuid(uuid::Uuid::from_u128(u128::from(raw_id)));
+            self.ui.last_touched_param.insert(device_id, param_id);
+            if let Err(err) = self.workspace.apply(CommandPayload::SetParam {
+                device_id,
+                param_id,
+                value: notwig_core::ParamValue::F64(value),
+                ramp: None,
+            }) {
+                self.notify_error(err);
+            }
+        }
         let dialog_open = self.dialog_rx.is_some();
         let dirty = if self.workspace.dirty { "*" } else { "" };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
@@ -667,6 +845,9 @@ impl eframe::App for NotwigApp {
         }
         let runtime = self.runtime_view(&snapshot);
         self.ui.set_platform_pointer(platform_pointer(ctx));
+        for spec in self.workspace.plugin_specs() {
+            self.ui.registry.register(spec.clone());
+        }
         let intents = self.ui.show(ctx, &self.workspace.doc, &runtime);
         for intent in intents {
             self.handle_intent(intent);

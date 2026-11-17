@@ -3,16 +3,18 @@ use std::sync::Arc;
 
 use crate::CoreError;
 use crate::domain::{DeviceChain, DeviceInstance, DeviceKind, ProjectDoc};
-use crate::ids::{ClipId, DeviceChainId, DeviceId, NoteId, TrackId};
+use crate::ids::{ClipId, DeviceChainId, DeviceId, NoteId, SliceId, TrackId};
 use crate::protocol::{
     AffectedSet, AudioEdit, Command, CommandPayload, DocChange, EngineMsg, PlaybackSchedule,
     StateDelta,
 };
 use crate::sequencer::{
-    ClipEntity, ClipKind, ClipPayload, Lane, MidiClipData, NoteEntity, sort_lane,
+    AudioClipData, AudioSlice, ClipEntity, ClipKind, ClipPayload, Lane, MidiClipData, NoteEntity,
+    sort_lane,
 };
 use crate::time::{RangeMus, TimeMus};
 use crate::tracks::{TrackKind, TrackOutput};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplyResult {
@@ -96,6 +98,22 @@ fn apply_payload(
             changes.push(DocChange::Transport(doc.transport.clone()));
             Ok(vec![transport_msg(doc)])
         }
+        CommandPayload::SetTempo { tempo_bpm } => {
+            doc.meta.tempo_bpm = *tempo_bpm;
+            doc.validate()?;
+            changes.push(DocChange::Meta(doc.meta.clone()));
+            Ok(Vec::new())
+        }
+        CommandPayload::SetTimeSignature {
+            numerator,
+            denominator,
+        } => {
+            doc.meta.time_sig_num = *numerator;
+            doc.meta.time_sig_den = *denominator;
+            doc.validate()?;
+            changes.push(DocChange::Meta(doc.meta.clone()));
+            Ok(Vec::new())
+        }
         CommandPayload::Pause => {
             doc.transport.playing = false;
             changes.push(DocChange::Transport(doc.transport.clone()));
@@ -155,6 +173,24 @@ fn apply_payload(
             changes.push(DocChange::TrackOrder(doc.track_order.clone()));
             Ok(Vec::new())
         }
+        CommandPayload::SetTrackColor { id, color } => {
+            let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
+            track.color = *color;
+            changes.track(doc, *id);
+            Ok(Vec::new())
+        }
+        CommandPayload::SetTrackComment { id, comment } => {
+            let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
+            track.comment.clone_from(comment);
+            changes.track(doc, *id);
+            Ok(Vec::new())
+        }
+        CommandPayload::SetTrackActive { id, active } => {
+            let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
+            track.active = *active;
+            changes.track(doc, *id);
+            Ok(Vec::new())
+        }
         CommandPayload::SetTrackMixer {
             id,
             volume_db,
@@ -176,14 +212,17 @@ fn apply_payload(
                 track.mixer.solo = *value;
             }
             changes.track(doc, *id);
-            let solo_effective = effective_solo(doc, *id);
-            Ok(vec![EngineMsg::SetTrackState {
-                track_id: *id,
-                mute: doc.tracks[id].mixer.mute,
-                solo_effective,
-                gain_db: doc.tracks[id].mixer.volume_db,
-                pan: doc.tracks[id].mixer.pan,
-            }])
+            Ok(doc
+                .tracks
+                .values()
+                .map(|track| EngineMsg::SetTrackState {
+                    track_id: track.id,
+                    mute: track.mixer.mute,
+                    solo_effective: effective_solo(doc, track.id),
+                    gain_db: track.mixer.volume_db,
+                    pan: track.mixer.pan,
+                })
+                .collect())
         }
         CommandPayload::SetTrackRoute { id, audio_out } => {
             let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
@@ -355,6 +394,26 @@ fn apply_payload(
             changes.device(*device_id);
             Ok(Vec::new())
         }
+        CommandPayload::SetClipSlices { clip_id, slices } => {
+            let clip = doc
+                .arranger
+                .clips
+                .get_mut(clip_id)
+                .ok_or_else(|| not_found(clip_id))?;
+            let ClipPayload::Audio(audio) = &mut clip.payload else {
+                return Err(CoreError::ValidationFailed {
+                    reason: "clip is not an audio clip".into(),
+                });
+            };
+            audio.slices.clone_from(slices);
+            audio.slices_enabled = true;
+            changes.affected.clips.insert(*clip_id);
+            changes.push(DocChange::ClipUpserted(*clip_id));
+            doc.validate().map_err(|err| CoreError::ValidationFailed {
+                reason: err.to_string(),
+            })?;
+            Ok(Vec::new())
+        }
         CommandPayload::SetDeviceState {
             device_id,
             state_ref,
@@ -497,6 +556,8 @@ pub fn create_track(
         kind,
         name,
         color,
+        comment: String::new(),
+        active: true,
         parent,
         mixer: crate::tracks::MixerState::default(),
         io: crate::tracks::TrackIO {
@@ -646,17 +707,26 @@ fn effective_solo(doc: &ProjectDoc, id: TrackId) -> bool {
     if !any_solo {
         return true;
     }
-    let mut current = Some(id);
+    let Some(track) = doc.tracks.get(&id) else {
+        return false;
+    };
+    if track.kind == TrackKind::Master || track.mixer.solo {
+        return true;
+    }
+    let mut current = track.parent;
     while let Some(track_id) = current {
-        let Some(track) = doc.tracks.get(&track_id) else {
+        let Some(parent) = doc.tracks.get(&track_id) else {
             break;
         };
-        if track.mixer.solo {
+        if parent.mixer.solo {
             return true;
         }
-        current = track.parent;
+        current = parent.parent;
     }
-    false
+    doc.track_order
+        .descendants(id)
+        .into_iter()
+        .any(|child| doc.tracks.get(&child).is_some_and(|track| track.mixer.solo))
 }
 
 fn create_clip(
@@ -691,20 +761,74 @@ fn create_clip(
         payload,
     };
     clip.validate(doc)?;
+    clear_range(doc, track_id, range, None, changes)?;
     doc.arranger.clips.insert(id, clip);
     let lane = doc.arranger.lanes.entry(track_id).or_default();
     lane.clips.push(id);
-    resolve_overlaps(doc, track_id, id, range, changes)?;
     changes.affected.clips.insert(id);
     changes.push(DocChange::ClipUpserted(id));
     doc.validate()
 }
 
-fn resolve_overlaps(
+fn audio_slice_window(
+    map: crate::time::TempoMap,
+    slice: &AudioSlice,
+    from: TimeMus,
+    to: TimeMus,
+    new_origin: TimeMus,
+    new_id: bool,
+) -> Option<AudioSlice> {
+    let duration = map.samples_to_mus(
+        slice
+            .source_end_sample
+            .saturating_sub(slice.source_start_sample),
+    );
+    let start = slice.start;
+    let end = start + duration;
+    let window_start = from.max(start);
+    let window_end = to.min(end);
+    if window_end <= window_start {
+        return None;
+    }
+    let base = i128::from(slice.source_start_sample);
+    let max_end = i128::from(slice.source_end_sample);
+    let source_start = base + i128::from(map.samples_delta(window_start - start));
+    let source_end = base + i128::from(map.samples_delta(window_end - start));
+    let source_start = source_start.clamp(0, max_end.saturating_sub(1));
+    let source_end = source_end.clamp(source_start.saturating_add(1), max_end);
+    if source_end <= source_start {
+        return None;
+    }
+    let mut segment = slice.clone();
+    if new_id {
+        segment.id = SliceId::from_uuid(Uuid::new_v4());
+    }
+    segment.start = window_start - new_origin;
+    segment.source_start_sample = u64::try_from(source_start).unwrap_or(0);
+    segment.source_end_sample = u64::try_from(source_end).unwrap_or(0);
+    Some(segment)
+}
+
+fn audio_slice_window_set(
+    map: crate::time::TempoMap,
+    audio: &AudioClipData,
+    from: TimeMus,
+    to: TimeMus,
+    new_origin: TimeMus,
+    new_ids: bool,
+) -> Vec<AudioSlice> {
+    audio
+        .slices
+        .iter()
+        .filter_map(|slice| audio_slice_window(map, slice, from, to, new_origin, new_ids))
+        .collect()
+}
+
+fn clear_range(
     doc: &mut ProjectDoc,
     track_id: TrackId,
-    authoritative: ClipId,
     range: RangeMus,
+    exclude: Option<ClipId>,
     changes: &mut Changes,
 ) -> Result<(), CoreError> {
     let Some(lane) = doc.arranger.lanes.get(&track_id).cloned() else {
@@ -712,7 +836,7 @@ fn resolve_overlaps(
     };
     let mut remove = Vec::new();
     for other in lane.clips {
-        if other == authoritative {
+        if exclude == Some(other) {
             continue;
         }
         let Some(existing) = doc.arranger.clips.get(&other).cloned() else {
@@ -721,12 +845,15 @@ fn resolve_overlaps(
         if !existing.range.intersects(range) {
             continue;
         }
-        if existing.range.start < range.start && existing.range.end > range.end {
-            trim_clip_start(doc, &existing, range.end)?;
-            changes.affected.clips.insert(other);
-            changes.push(DocChange::ClipUpserted(other));
-        } else if existing.range.start >= range.start && existing.range.end <= range.end {
+        if existing.range.start >= range.start && existing.range.end <= range.end {
             remove.push(other);
+        } else if existing.range.start < range.start && existing.range.end > range.end {
+            let right_id = ClipId::from_uuid(Uuid::new_v4());
+            let new_note_ids = crossing_note_ids(&existing, range.start);
+            split_clip(doc, other, range.start, right_id, &new_note_ids, changes)?;
+            trim_clip_start(doc, &doc.arranger.clips[&right_id].clone(), range.end)?;
+            changes.affected.clips.insert(right_id);
+            changes.push(DocChange::ClipUpserted(right_id));
         } else if existing.range.start < range.start {
             trim_clip_end(doc, &existing, range.start)?;
             changes.affected.clips.insert(other);
@@ -744,6 +871,18 @@ fn resolve_overlaps(
         sort_lane(lane, &doc.arranger.clips);
     }
     Ok(())
+}
+
+fn crossing_note_ids(clip: &ClipEntity, at: TimeMus) -> Vec<NoteId> {
+    let ClipPayload::Midi(midi) = &clip.payload else {
+        return Vec::new();
+    };
+    let split = midi.content_start + (at - clip.range.start);
+    midi.notes
+        .iter()
+        .filter(|note| note.start < split && note.start + note.length > split)
+        .map(|_| NoteId::from_uuid(Uuid::new_v4()))
+        .collect()
 }
 
 fn remove_clip_internal(doc: &mut ProjectDoc, id: ClipId, changes: &mut Changes) {
@@ -769,10 +908,23 @@ fn trim_clip_start(
             midi.content_start = midi.content_start + delta;
         }
         ClipPayload::Audio(audio) => {
-            let samples = doc.tempo_map().samples_delta(delta);
-            audio.source_start_sample = audio
-                .source_start_sample
-                .saturating_add(u64::try_from(samples.max(0)).unwrap_or(0));
+            if audio.uses_slices() {
+                let map = doc.tempo_map();
+                audio.slices = audio_slice_window_set(
+                    map,
+                    audio,
+                    delta,
+                    delta + next.range.length(),
+                    delta,
+                    false,
+                );
+                audio.slices_enabled = true;
+            } else {
+                let samples = doc.tempo_map().samples_delta(delta);
+                audio.source_start_sample = audio
+                    .source_start_sample
+                    .saturating_add(u64::try_from(samples.max(0)).unwrap_or(0));
+            }
         }
     }
     if next.range.is_empty() {
@@ -793,11 +945,24 @@ fn trim_clip_end(
     match &mut next.payload {
         ClipPayload::Midi(_) => {}
         ClipPayload::Audio(audio) => {
-            let delta = clip.range.end - new_end;
-            let samples = doc.tempo_map().samples_delta(delta);
-            audio.source_end_sample = audio
-                .source_end_sample
-                .saturating_sub(u64::try_from(samples.max(0)).unwrap_or(0));
+            if audio.uses_slices() {
+                let map = doc.tempo_map();
+                audio.slices = audio_slice_window_set(
+                    map,
+                    audio,
+                    TimeMus::zero(),
+                    next.range.length(),
+                    TimeMus::zero(),
+                    false,
+                );
+                audio.slices_enabled = true;
+            } else {
+                let delta = clip.range.end - new_end;
+                let samples = doc.tempo_map().samples_delta(delta);
+                audio.source_end_sample = audio
+                    .source_end_sample
+                    .saturating_sub(u64::try_from(samples.max(0)).unwrap_or(0));
+            }
         }
     }
     if next.range.is_empty() {
@@ -836,19 +1001,33 @@ fn edit_clip(
     if let Some(new_range) = range {
         if let ClipPayload::Audio(data) = &mut next.payload {
             let old = existing.range;
-            let left_mus = new_range.start - old.start;
-            let right_mus = old.end - new_range.end;
-            let left_samples = doc.tempo_map().samples_delta(left_mus);
-            let right_samples = doc.tempo_map().samples_delta(right_mus);
-            let new_start = i128::from(data.source_start_sample) + i128::from(left_samples);
-            let new_end = i128::from(data.source_end_sample) - i128::from(right_samples);
-            if new_start < 0 || new_end <= new_start {
-                return Err(CoreError::ValidationFailed {
-                    reason: "audio trim exceeds source material".into(),
-                });
+            if data.uses_slices() {
+                let map = doc.tempo_map();
+                let left_trim = new_range.start - old.start;
+                data.slices = audio_slice_window_set(
+                    map,
+                    data,
+                    left_trim,
+                    left_trim + new_range.length(),
+                    left_trim,
+                    false,
+                );
+                data.slices_enabled = true;
+            } else {
+                let left_mus = new_range.start - old.start;
+                let right_mus = old.end - new_range.end;
+                let left_samples = doc.tempo_map().samples_delta(left_mus);
+                let right_samples = doc.tempo_map().samples_delta(right_mus);
+                let new_start = i128::from(data.source_start_sample) + i128::from(left_samples);
+                let new_end = i128::from(data.source_end_sample) - i128::from(right_samples);
+                if new_start < 0 || new_end <= new_start {
+                    return Err(CoreError::ValidationFailed {
+                        reason: "audio trim exceeds source material".into(),
+                    });
+                }
+                data.source_start_sample = u64::try_from(new_start).unwrap_or(0);
+                data.source_end_sample = u64::try_from(new_end).unwrap_or(0);
             }
-            data.source_start_sample = u64::try_from(new_start).unwrap_or(0);
-            data.source_end_sample = u64::try_from(new_end).unwrap_or(0);
         }
         next.range = new_range;
     }
@@ -890,8 +1069,8 @@ fn edit_clip(
     }
     next.validate(doc)?;
     let range = next.range;
+    clear_range(doc, existing.track_id, range, Some(clip_id), changes)?;
     doc.arranger.clips.insert(clip_id, next);
-    resolve_overlaps(doc, existing.track_id, clip_id, range, changes)?;
     changes.affected.clips.insert(clip_id);
     changes.push(DocChange::ClipUpserted(clip_id));
     doc.validate()
@@ -911,11 +1090,17 @@ fn move_clip(
         .cloned()
         .ok_or_else(|| not_found(&clip_id))?;
     let target_track = track_id.unwrap_or(existing.track_id);
+    if target_track != existing.track_id
+        && let Some(lane) = doc.arranger.lanes.get_mut(&existing.track_id)
+    {
+        lane.clips.retain(|id| *id != clip_id);
+    }
+    let mut next = existing.clone();
+    next.track_id = target_track;
+    next.range = range;
+    next.validate(doc)?;
+    clear_range(doc, target_track, range, Some(clip_id), changes)?;
     if target_track != existing.track_id {
-        let old_lane = doc.arranger.lanes.get_mut(&existing.track_id);
-        if let Some(lane) = old_lane {
-            lane.clips.retain(|id| *id != clip_id);
-        }
         doc.arranger
             .lanes
             .entry(target_track)
@@ -923,12 +1108,7 @@ fn move_clip(
             .clips
             .push(clip_id);
     }
-    let mut next = existing.clone();
-    next.track_id = target_track;
-    next.range = range;
-    next.validate(doc)?;
     doc.arranger.clips.insert(clip_id, next);
-    resolve_overlaps(doc, target_track, clip_id, range, changes)?;
     changes.affected.clips.insert(clip_id);
     changes.push(DocChange::ClipUpserted(clip_id));
     doc.validate()
@@ -959,8 +1139,8 @@ fn split_clip(
         });
     }
     let split_offset = at - existing.range.start;
-    let split_samples =
-        u64::try_from(doc.tempo_map().samples_delta(split_offset).max(0)).unwrap_or(0);
+    let map = doc.tempo_map();
+    let split_samples = u64::try_from(map.samples_delta(split_offset).max(0)).unwrap_or(0);
     let mut right = existing.clone();
     right.id = new_clip_id;
     right.range = RangeMus::new(at, existing.range.end)?;
@@ -1020,13 +1200,36 @@ fn split_clip(
             right.payload = ClipPayload::Midi(right_data);
         }
         (ClipPayload::Audio(left_audio), ClipPayload::Audio(orig)) => {
-            let split_sample = orig.source_start_sample.saturating_add(split_samples);
-            left_audio.source_end_sample = split_sample;
-            let mut right_audio = orig.clone();
-            right_audio.source_start_sample = split_sample;
-            right_audio.fade_in_samples = 0;
-            left_audio.fade_out_samples = 0;
-            right.payload = ClipPayload::Audio(right_audio);
+            if orig.uses_slices() {
+                left_audio.slices = audio_slice_window_set(
+                    map,
+                    orig,
+                    TimeMus::zero(),
+                    split_offset,
+                    TimeMus::zero(),
+                    false,
+                );
+                left_audio.slices_enabled = true;
+                let mut right_audio = orig.clone();
+                right_audio.slices = audio_slice_window_set(
+                    map,
+                    orig,
+                    split_offset,
+                    existing.range.length(),
+                    split_offset,
+                    true,
+                );
+                right_audio.slices_enabled = true;
+                right.payload = ClipPayload::Audio(right_audio);
+            } else {
+                let split_sample = orig.source_start_sample.saturating_add(split_samples);
+                left_audio.source_end_sample = split_sample;
+                let mut right_audio = orig.clone();
+                right_audio.source_start_sample = split_sample;
+                right_audio.fade_in_samples = 0;
+                left_audio.fade_out_samples = 0;
+                right.payload = ClipPayload::Audio(right_audio);
+            }
         }
         _ => unreachable!("validated clip kind"),
     }
@@ -1101,6 +1304,7 @@ fn duplicate_clip(
         }
     }
     next.validate(doc)?;
+    clear_range(doc, next.track_id, next.range, None, changes)?;
     doc.arranger.clips.insert(new_clip_id, next.clone());
     doc.arranger
         .lanes
@@ -1108,7 +1312,6 @@ fn duplicate_clip(
         .or_default()
         .clips
         .push(new_clip_id);
-    resolve_overlaps(doc, next.track_id, new_clip_id, next.range, changes)?;
     changes.affected.clips.insert(new_clip_id);
     changes.push(DocChange::ClipUpserted(new_clip_id));
     doc.validate()

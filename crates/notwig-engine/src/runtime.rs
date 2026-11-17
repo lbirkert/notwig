@@ -99,7 +99,7 @@ impl ActivePlan {
         let mut processors = Vec::new();
         let mut processor_index = BTreeMap::new();
         let mut roots = BTreeSet::new();
-        for track in plan.tracks.values() {
+        for track in plan.tracks.values().filter(|track| track.active) {
             if let Some(chain) = plan.chains.get(&track.main_chain) {
                 roots.extend(chain.iter().copied());
             }
@@ -246,13 +246,18 @@ impl ActivePlan {
                 if track.plan.sends.iter().any(|send| send.pre_fader) {
                     track.pre_fader[..frames * 2].copy_from_slice(&track.buffer[..frames * 2]);
                 }
-                for device_id in device_ids {
-                    let Some(index) = self.processor_index.get(&device_id).copied() else {
-                        continue;
-                    };
-                    if let Some(processor) = self.processors[index].as_mut() {
-                        let _ =
-                            processor.process(&ctx, &mut track.buffer[..frames * 2], &track_events);
+                if track.plan.active {
+                    for device_id in device_ids {
+                        let Some(index) = self.processor_index.get(&device_id).copied() else {
+                            continue;
+                        };
+                        if let Some(processor) = self.processors[index].as_mut() {
+                            let _ = processor.process(
+                                &ctx,
+                                &mut track.buffer[..frames * 2],
+                                &track_events,
+                            );
+                        }
                     }
                 }
             }
@@ -281,48 +286,65 @@ impl ActivePlan {
             let Some(track) = self.tracks.get_mut(track_id) else {
                 continue;
             };
+            if !track.plan.active {
+                continue;
+            }
             for clip in clips {
                 let ClipPayload::Audio(audio) = &clip.payload else {
                     continue;
                 };
-                let Some(asset) = self.assets.get(&audio.asset_id) else {
-                    continue;
-                };
-                if asset.channels == 0 {
-                    continue;
-                }
                 let clip_start = map.mus_to_samples(clip.range.start);
                 let clip_end = map.mus_to_samples(clip.range.end);
                 if clip_end <= start_sample || clip_start >= start_sample + frames as u64 {
                     continue;
                 }
-                let gain = audio.gain_db.to_gain().0;
-                let source_start = audio.source_start_sample;
-                let source_end = audio.source_end_sample;
-                for i in 0..frames {
-                    let absolute = start_sample + i as u64;
-                    if absolute < clip_start || absolute >= clip_end {
+                if audio.uses_slices() {
+                    for slice in &audio.slices {
+                        let Some(asset) =
+                            self.assets.get(&slice.asset_id.unwrap_or(audio.asset_id))
+                        else {
+                            continue;
+                        };
+                        if asset.channels == 0 {
+                            continue;
+                        }
+                        let slice_start = map
+                            .mus_to_samples(clip.range.start + slice.start)
+                            .min(clip_end);
+                        render_audio_region(
+                            track,
+                            asset,
+                            slice_start,
+                            clip_end,
+                            slice.source_start_sample,
+                            slice.source_end_sample,
+                            slice.gain_db.to_gain().0,
+                            0,
+                            0,
+                            start_sample,
+                            frames,
+                        );
+                    }
+                } else {
+                    let Some(asset) = self.assets.get(&audio.asset_id) else {
+                        continue;
+                    };
+                    if asset.channels == 0 {
                         continue;
                     }
-                    let source = source_start + (absolute - clip_start);
-                    if source >= source_end {
-                        continue;
-                    }
-                    let fade_in = if audio.fade_in_samples == 0 {
-                        1.0
-                    } else {
-                        ((source - source_start) as f32 / audio.fade_in_samples as f32).min(1.0)
-                    };
-                    let fade_out = if audio.fade_out_samples == 0 {
-                        1.0
-                    } else {
-                        ((source_end - source) as f32 / audio.fade_out_samples as f32).min(1.0)
-                    };
-                    let envelope = fade_in.min(fade_out) * gain;
-                    let (left, right) = sample_frame(asset, source);
-                    let idx = i * 2;
-                    track.buffer[idx] += left * envelope;
-                    track.buffer[idx + 1] += right * envelope;
+                    render_audio_region(
+                        track,
+                        asset,
+                        clip_start,
+                        clip_end,
+                        audio.source_start_sample,
+                        audio.source_end_sample,
+                        audio.gain_db.to_gain().0,
+                        audio.fade_in_samples,
+                        audio.fade_out_samples,
+                        start_sample,
+                        frames,
+                    );
                 }
             }
         }
@@ -356,6 +378,13 @@ impl ActivePlan {
         }
         let block_end = start_sample + frames as u64;
         for (track_id, clips) in &self.schedule.tracks {
+            if !self
+                .tracks
+                .get(track_id)
+                .is_some_and(|track| track.plan.active)
+            {
+                continue;
+            }
             for clip in clips {
                 let ClipPayload::Midi(midi) = &clip.payload else {
                     continue;
@@ -557,6 +586,47 @@ fn kind_rank(kind: NoteKind) -> u8 {
     match kind {
         NoteKind::Off => 0,
         NoteKind::On => 1,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_audio_region(
+    track: &mut TrackRuntime,
+    asset: &AudioAssetBuffer,
+    region_start: u64,
+    region_end: u64,
+    source_start: u64,
+    source_end: u64,
+    gain: f32,
+    fade_in_samples: u64,
+    fade_out_samples: u64,
+    start_sample: u64,
+    frames: usize,
+) {
+    for i in 0..frames {
+        let absolute = start_sample + i as u64;
+        if absolute < region_start || absolute >= region_end {
+            continue;
+        }
+        let source = source_start + (absolute - region_start);
+        if source >= source_end {
+            continue;
+        }
+        let fade_in = if fade_in_samples == 0 {
+            1.0
+        } else {
+            ((source - source_start) as f32 / fade_in_samples as f32).min(1.0)
+        };
+        let fade_out = if fade_out_samples == 0 {
+            1.0
+        } else {
+            ((source_end - source) as f32 / fade_out_samples as f32).min(1.0)
+        };
+        let envelope = fade_in.min(fade_out) * gain;
+        let (left, right) = sample_frame(asset, source);
+        let idx = i * 2;
+        track.buffer[idx] += left * envelope;
+        track.buffer[idx + 1] += right * envelope;
     }
 }
 
