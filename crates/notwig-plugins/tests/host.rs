@@ -24,8 +24,11 @@ fn descriptor() -> PluginDescriptor {
 fn unavailable_backend_reports_explicit_error() {
     let host = PluginHost::new();
     let mut host = host;
-    let err = host.load(&descriptor()).unwrap_err();
-    assert!(matches!(err, PluginError::BackendUnavailable(_)));
+    if let Err(err) = host.load(&descriptor()) {
+        assert!(matches!(err, PluginError::BackendUnavailable(_)));
+    } else {
+        panic!("expected an unavailable backend error");
+    }
 }
 
 #[test]
