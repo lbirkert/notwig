@@ -329,6 +329,58 @@ impl DeviceProcessor for ToolProcessor {
     }
 }
 
+#[must_use]
+pub fn eq_magnitude_response(
+    values: &BTreeMap<ParamId, ParamValue>,
+    sample_rate: f64,
+    frequency: f64,
+) -> f64 {
+    let mut magnitude = 1.0_f64;
+    for band in 0..4 {
+        let enabled = !matches!(
+            values.get(&band_param(band, 0)),
+            Some(ParamValue::Bool(false))
+        );
+        if !enabled {
+            continue;
+        }
+        let kind = EqBandType::from_index(
+            values
+                .get(&band_param(band, 1))
+                .and_then(ParamValue::as_f64)
+                .unwrap_or(0.0) as u32,
+        );
+        let freq = values
+            .get(&band_param(band, 2))
+            .and_then(ParamValue::as_f64)
+            .unwrap_or(1_000.0);
+        let gain = values
+            .get(&band_param(band, 3))
+            .and_then(ParamValue::as_f64)
+            .unwrap_or(0.0);
+        let q = values
+            .get(&band_param(band, 4))
+            .and_then(ParamValue::as_f64)
+            .unwrap_or(0.707);
+        let mut coeffs = Biquad::default();
+        coeffs.set(kind, freq, gain, q, sample_rate);
+        let w = 2.0 * std::f64::consts::PI * frequency / sample_rate;
+        let (sin_w, cos_w) = w.sin_cos();
+        let cos_two_w = (2.0 * w).cos();
+        let sin_two_w = (2.0 * w).sin();
+        let num_re = coeffs.b0 + coeffs.b1 * cos_w + coeffs.b2 * cos_two_w;
+        let num_im = -(coeffs.b1 * sin_w + coeffs.b2 * sin_two_w);
+        let den_re = 1.0 + coeffs.a1 * cos_w + coeffs.a2 * cos_two_w;
+        let den_im = -(coeffs.a1 * sin_w + coeffs.a2 * sin_two_w);
+        let num = (num_re * num_re + num_im * num_im).sqrt();
+        let den = (den_re * den_re + den_im * den_im).sqrt();
+        if den > 1e-12 {
+            magnitude *= num / den;
+        }
+    }
+    magnitude
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EqBandType {
     Bell,

@@ -1,13 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use egui::{Color32, RichText};
-use notwig_core::{DeviceId, ProjectDoc, TrackId, TrackKind};
+use egui::{Color32, Rect, RichText};
+use notwig_core::{ProjectDoc, TrackId, TrackKind};
 use notwig_dsp::DeviceRegistry;
 
 use crate::arranger::ClipDrag;
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
-use crate::state::{NotificationKind, UiState, ViewId};
+use crate::state::{NotificationKind, UiState};
 use crate::theme;
 use crate::widgets::{format_beats, small_toggle};
 
@@ -17,10 +17,11 @@ pub struct NotwigUi {
     pub registry: DeviceRegistry,
     pub drag: Option<ClipDrag>,
     pub clip_preview: Option<(notwig_core::ClipId, notwig_core::RangeMus, TrackId)>,
-    pub show_browser: bool,
-    pub show_inspector: bool,
     pub show_notifications: bool,
     pub show_help: bool,
+    pub track_rows: BTreeMap<TrackId, Rect>,
+    pub timeline_width: f32,
+    pub loop_drag_start: Option<notwig_core::TimeMus>,
     initialized: bool,
 }
 
@@ -32,10 +33,11 @@ impl Default for NotwigUi {
             registry: notwig_dsp::stock_registry(),
             drag: None,
             clip_preview: None,
-            show_browser: true,
-            show_inspector: true,
             show_notifications: false,
             show_help: false,
+            track_rows: BTreeMap::new(),
+            timeline_width: 800.0,
+            loop_drag_start: None,
             initialized: false,
         }
     }
@@ -53,29 +55,19 @@ impl NotwigUi {
             self.initialized = true;
         }
         self.intents.clear();
+        self.track_rows.clear();
         self.sanitize(doc);
-        self.handle_shortcuts(ctx, doc);
+        self.handle_shortcuts(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
-        if self.show_browser {
-            self.browser_panel(ctx, doc, runtime);
-        }
-        if self.show_inspector {
-            self.inspector_panel(ctx, doc, runtime);
-        }
         self.status_bar(ctx, doc, runtime);
+        self.device_panel(ctx, doc, runtime);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL)
                     .inner_margin(egui::Margin::same(0)),
             )
-            .show(ctx, |ui| match self.state.active_view {
-                ViewId::Arranger => self.arranger_view(ui, doc, runtime),
-                ViewId::Mixer => self.mixer_view(ui, doc, runtime),
-                ViewId::Device => self.device_central(ui, doc),
-                ViewId::Browser => self.browser_central(ui, doc, runtime),
-                ViewId::Settings => self.settings_central(ui),
-            });
+            .show(ctx, |ui| self.arranger_view(ui, doc, runtime));
         if self.show_notifications {
             self.notifications_window(ctx);
         }
@@ -142,7 +134,7 @@ impl NotwigUi {
         }
     }
 
-    fn handle_shortcuts(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
+    fn handle_shortcuts(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
         if ctx.wants_keyboard_input() {
             return;
         }
@@ -183,8 +175,8 @@ impl NotwigUi {
                     self.emit(UiIntent::DuplicateClip { clip_id: clip });
                 }
             }
-            if ctx.input(|i| i.key_pressed(egui::Key::B)) {
-                self.emit(UiIntent::ToggleBrowser);
+            if ctx.input(|i| i.key_pressed(egui::Key::Num0)) {
+                self.zoom_to_fit(doc);
             }
         }
         if escape {
@@ -215,6 +207,7 @@ impl NotwigUi {
                 }
             }
         }
+        let _ = runtime;
     }
 
     fn top_bar(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
@@ -227,6 +220,24 @@ impl NotwigUi {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     self.file_menu(ui);
+                    ui.menu_button("Track", |ui| {
+                        if ui.button("Add Audio Track").clicked() {
+                            self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+                            ui.close();
+                        }
+                        if ui.button("Add Instrument Track").clicked() {
+                            self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
+                            ui.close();
+                        }
+                        if ui.button("Add Group").clicked() {
+                            self.emit(UiIntent::CreateTrack(TrackKind::Group));
+                            ui.close();
+                        }
+                        if ui.button("Add FX Bus").clicked() {
+                            self.emit(UiIntent::CreateTrack(TrackKind::BusFx));
+                            ui.close();
+                        }
+                    });
                     ui.separator();
                     let title = if runtime.dirty {
                         format!("{} *", doc.meta.name)
@@ -242,38 +253,28 @@ impl NotwigUi {
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .selectable_label(
-                                self.state.active_view == ViewId::Settings,
-                                "Settings",
-                            )
-                            .clicked()
-                        {
-                            self.set_view(ViewId::Settings);
+                        if ui.button("Render").clicked() {
+                            self.emit(UiIntent::RenderMixdown);
                         }
-                        if ui
-                            .selectable_label(self.state.active_view == ViewId::Device, "Device")
-                            .clicked()
-                        {
-                            self.set_view(ViewId::Device);
+                        if ui.button("Help").clicked() {
+                            self.show_help = !self.show_help;
                         }
-                        if ui
-                            .selectable_label(self.state.active_view == ViewId::Mixer, "Mixer")
-                            .clicked()
-                        {
-                            self.set_view(ViewId::Mixer);
+                        if ui.button("Fit").clicked() {
+                            self.zoom_to_fit(doc);
                         }
-                        if ui
-                            .selectable_label(
-                                self.state.active_view == ViewId::Arranger,
-                                "Arranger",
-                            )
-                            .clicked()
-                        {
-                            self.set_view(ViewId::Arranger);
+                        if ui.button("+").clicked() {
+                            self.state.viewport.pixels_per_beat =
+                                (self.state.viewport.pixels_per_beat * 1.25).clamp(4.0, 400.0);
                         }
-                        ui.toggle_value(&mut self.show_inspector, "Inspector");
-                        ui.toggle_value(&mut self.show_browser, "Browser");
+                        if ui.button("−").clicked() {
+                            self.state.viewport.pixels_per_beat =
+                                (self.state.viewport.pixels_per_beat / 1.25).clamp(4.0, 400.0);
+                        }
+                        ui.label(
+                            RichText::new(format!("xruns {}", runtime.xruns))
+                                .small()
+                                .color(theme::TEXT_MUTED),
+                        );
                     });
                 });
                 ui.add_space(2.0);
@@ -292,18 +293,20 @@ impl NotwigUi {
                     if ui.button("Stop").clicked() {
                         self.emit(UiIntent::Stop);
                     }
-                    let loop_on = doc.transport.loop_enabled;
-                    let mut loop_value = loop_on;
+                    let mut loop_value = doc.transport.loop_enabled;
                     if small_toggle(ui, "L", &mut loop_value, theme::ACCENT) {
                         self.emit(UiIntent::ToggleLoop);
                     }
                     ui.separator();
-                    let beats = format_beats(runtime.playhead, doc.meta.time_sig_num);
-                    ui.label(RichText::new(beats).monospace().color(if runtime.playing {
-                        theme::ACCENT
-                    } else {
-                        Color32::WHITE
-                    }));
+                    ui.label(
+                        RichText::new(format_beats(runtime.playhead, doc.meta.time_sig_num))
+                            .monospace()
+                            .color(if runtime.playing {
+                                theme::ACCENT
+                            } else {
+                                Color32::WHITE
+                            }),
+                    );
                     ui.separator();
                     ui.label(
                         RichText::new(format!("{:.2} BPM", doc.meta.tempo_bpm))
@@ -316,18 +319,15 @@ impl NotwigUi {
                         ))
                         .color(theme::TEXT_MUTED),
                     );
+                    ui.separator();
+                    ui.label(
+                        RichText::new(
+                            "Double-click lane: new clip · Drag edges: trim · Right-click: actions",
+                        )
+                        .small()
+                        .color(theme::TEXT_MUTED),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Render").clicked() {
-                            self.emit(UiIntent::RenderMixdown);
-                        }
-                        if ui.button("Help").clicked() {
-                            self.show_help = !self.show_help;
-                        }
-                        ui.label(
-                            RichText::new(format!("xruns {}", runtime.xruns))
-                                .small()
-                                .color(theme::TEXT_MUTED),
-                        );
                         if let Some(cpu) = runtime.cpu_load {
                             ui.label(
                                 RichText::new(format!("cpu {:.1}%", cpu * 100.0))
@@ -335,6 +335,8 @@ impl NotwigUi {
                                     .color(theme::TEXT_MUTED),
                             );
                         }
+                        let snap = "1/16 snap";
+                        ui.label(RichText::new(snap).small().color(theme::TEXT_MUTED));
                     });
                 });
             });
@@ -359,34 +361,15 @@ impl NotwigUi {
                 ui.close();
             }
             ui.separator();
+            if ui.button("Import Audio…").clicked() {
+                self.emit(UiIntent::ImportAudio);
+                ui.close();
+            }
             if ui.button("Render Mixdown…").clicked() {
                 self.emit(UiIntent::RenderMixdown);
                 ui.close();
             }
         });
-        ui.menu_button("Track", |ui| {
-            if ui.button("Add Audio Track").clicked() {
-                self.emit(UiIntent::CreateTrack(TrackKind::Audio));
-                ui.close();
-            }
-            if ui.button("Add Instrument Track").clicked() {
-                self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
-                ui.close();
-            }
-            if ui.button("Add Group").clicked() {
-                self.emit(UiIntent::CreateTrack(TrackKind::Group));
-                ui.close();
-            }
-            if ui.button("Add FX Bus").clicked() {
-                self.emit(UiIntent::CreateTrack(TrackKind::BusFx));
-                ui.close();
-            }
-        });
-    }
-
-    fn set_view(&mut self, view: ViewId) {
-        self.state.active_view = view;
-        self.emit(UiIntent::SetActiveView(view));
     }
 
     fn status_bar(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
@@ -449,7 +432,6 @@ impl NotwigUi {
                 if self.state.notifications.is_empty() {
                     ui.label("No notifications.");
                 }
-                let mut clear = false;
                 for note in &self.state.notifications {
                     let color = match note.kind {
                         NotificationKind::Info => theme::TEXT_MUTED,
@@ -459,9 +441,6 @@ impl NotwigUi {
                     ui.label(RichText::new(&note.message).color(color));
                 }
                 if ui.button("Clear").clicked() {
-                    clear = true;
-                }
-                if clear {
                     self.emit(UiIntent::ClearNotifications);
                 }
             });
@@ -472,7 +451,7 @@ impl NotwigUi {
         let mut open = self.show_help;
         egui::Window::new("Keyboard & workflow")
             .open(&mut open)
-            .default_width(380.0)
+            .default_width(420.0)
             .show(ctx, |ui| {
                 for (key, action) in [
                     ("Space", "Play / pause"),
@@ -481,11 +460,13 @@ impl NotwigUi {
                     ("Cmd+N / Cmd+O", "New / open project"),
                     ("Cmd+D", "Duplicate selected clip"),
                     ("Delete", "Delete selected clip or track"),
-                    ("Cmd+B", "Toggle browser"),
+                    ("Cmd+0", "Fit arrangement"),
                     ("Alt while dragging", "Bypass 1/16 snapping"),
                     ("Double-click empty lane", "Create 4-beat MIDI clip"),
-                    ("Drag clip edges", "Trim clip"),
+                    ("Drag clip body / edges", "Move or trim clip"),
+                    ("Right-click clip", "Mute, duplicate, delete"),
                     ("Wheel over ruler", "Zoom arrangement"),
+                    ("Shift+drag ruler", "Set loop range"),
                 ] {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(key).monospace().color(theme::ACCENT));
@@ -496,18 +477,24 @@ impl NotwigUi {
         self.show_help = open;
     }
 
-    #[allow(clippy::unused_self)]
-    fn settings_central(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(16.0);
-        ui.heading("Settings");
-        ui.label(
-            RichText::new("Audio device configuration is managed by the application shell.")
-                .color(theme::TEXT_MUTED),
-        );
-        ui.add_space(8.0);
-        ui.label("Notwig v0 keeps tempo and time signature fixed for the project lifetime.");
-        ui.label("Recording, live input, metronome, and clip launcher are deferred.");
-        ui.label("Plugin scan paths and device selection live in the app configuration.");
+    pub(crate) fn zoom_to_fit(&mut self, doc: &ProjectDoc) {
+        let end = doc
+            .arranger
+            .clips
+            .values()
+            .map(|clip| clip.range.end.as_f64())
+            .fold(8.0_f64, f64::max)
+            + 1.0;
+        self.state.viewport.start = notwig_core::TimeMus::zero();
+        self.state.viewport.pixels_per_beat =
+            ((self.timeline_width - 4.0) / end as f32).clamp(4.0, 400.0);
+    }
+
+    pub(crate) fn track_at(&self, y: f32) -> Option<TrackId> {
+        self.track_rows
+            .iter()
+            .find(|(_, rect)| y >= rect.top() && y < rect.bottom())
+            .map(|(id, _)| *id)
     }
 }
 
@@ -530,13 +517,4 @@ pub(crate) fn clip_color(kind: notwig_core::ClipKind) -> Color32 {
         notwig_core::ClipKind::Audio => theme::CLIP_AUDIO,
         notwig_core::ClipKind::Midi => theme::CLIP_MIDI,
     }
-}
-
-pub(crate) fn selected_device(doc: &ProjectDoc, ui: &NotwigUi) -> Option<DeviceId> {
-    ui.state
-        .selection
-        .devices
-        .iter()
-        .copied()
-        .find(|id| doc.devices.contains_key(id))
 }

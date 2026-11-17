@@ -1,139 +1,184 @@
-use egui::{Color32, RichText, Vec2};
+use std::collections::BTreeMap;
+
+use egui::{Align, Align2, Color32, CornerRadius, FontId, Layout, RichText, Sense, Stroke, Vec2};
 use notwig_core::{
     DeviceId, DeviceInstance, DeviceKind, Norm01, ParamId, ParamValue, ProjectDoc, TrackId,
 };
-
 use notwig_dsp::ParamSpec;
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
-use crate::shell::{NotwigUi, selected_device};
+use crate::shell::NotwigUi;
 use crate::theme;
 use crate::widgets::format_param;
 
 impl NotwigUi {
-    pub(crate) fn inspector_panel(
+    pub(crate) fn device_panel(
         &mut self,
         ctx: &egui::Context,
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        egui::SidePanel::right("notwig_inspector")
+        egui::TopBottomPanel::bottom("notwig_devices")
             .resizable(true)
-            .default_width(310.0)
-            .min_width(230.0)
+            .default_height(285.0)
+            .min_height(150.0)
+            .max_height(520.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL_LIGHT)
-                    .inner_margin(egui::Margin::same(8)),
+                    .inner_margin(egui::Margin::symmetric(8, 6)),
             )
             .show(ctx, |ui| {
+                let Some(track_id) = self.selected_track(doc) else {
+                    ui.label(
+                        RichText::new("Select a track to inspect its device chain.")
+                            .color(theme::TEXT_MUTED),
+                    );
+                    return;
+                };
+                let Some(track) = doc.tracks.get(&track_id) else {
+                    return;
+                };
                 ui.horizontal(|ui| {
-                    ui.heading("Device");
+                    ui.label(
+                        RichText::new("DEVICES")
+                            .small()
+                            .strong()
+                            .color(theme::TEXT_MUTED),
+                    );
+                    ui.separator();
+                    ui.label(RichText::new(&track.name).strong().size(14.0));
+                    ui.label(
+                        RichText::new(track.kind.name().to_uppercase())
+                            .small()
+                            .color(theme::TEXT_MUTED),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("×").clicked() {
-                            self.show_inspector = false;
-                        }
+                        ui.push_id(("device-add", "header"), |ui| {
+                            self.device_add_menu(ui, doc, runtime, track_id);
+                        });
                     });
                 });
                 ui.separator();
-                self.device_content(ui, doc, runtime, false);
+                let device_ids = doc
+                    .chains
+                    .get(&track.main_chain)
+                    .map(|chain| chain.devices.clone())
+                    .unwrap_or_default();
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.horizontal_top(|ui| {
+                            if device_ids.is_empty() {
+                                ui.vertical(|ui| {
+                                    ui.add_space(14.0);
+                                    ui.label(
+                                        RichText::new(
+                                            "No devices in this chain. Add Tool, EQ, Chain, or a hosted plugin.",
+                                        )
+                                        .color(theme::TEXT_MUTED),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        if ui.button("+ Tool").clicked() {
+                                            self.insert_stock(track_id, track.main_chain, notwig_dsp::stock::TOOL_TYPE_ID, DeviceKind::AudioFx);
+                                        }
+                                        if ui.button("+ EQ").clicked() {
+                                            self.insert_stock(track_id, track.main_chain, notwig_dsp::stock::EQ_TYPE_ID, DeviceKind::AudioFx);
+                                        }
+                                        if ui.button("+ Chain").clicked() {
+                                            self.insert_stock(track_id, track.main_chain, notwig_dsp::stock::CHAIN_TYPE_ID, DeviceKind::Container);
+                                        }
+                                    });
+                                });
+                            } else {
+                                for device_id in &device_ids {
+                                    self.device_card(ui, doc, *device_id, track_id);
+                                }
+                                ui.vertical(|ui| {
+                                    ui.add_space(8.0);
+                                    ui.push_id(("device-add", "trailing"), |ui| {
+                                        self.device_add_menu(ui, doc, runtime, track_id);
+                                    });
+                                });
+                            }
+                        });
+                    });
             });
     }
 
-    pub(crate) fn device_central(&mut self, ui: &mut egui::Ui, doc: &ProjectDoc) {
-        ui.add_space(8.0);
-        ui.heading("Device");
-        ui.separator();
-        self.device_content(ui, doc, &RuntimeView::default(), true);
-    }
-
-    fn device_content(
+    fn device_add_menu(
         &mut self,
         ui: &mut egui::Ui,
         doc: &ProjectDoc,
-        _runtime: &RuntimeView,
-        wide: bool,
+        runtime: &RuntimeView,
+        track_id: TrackId,
     ) {
-        let Some(track_id) = self.selected_track(doc) else {
-            ui.label(
-                RichText::new("Select a track to view its device chain.").color(theme::TEXT_MUTED),
-            );
-            return;
-        };
         let Some(track) = doc.tracks.get(&track_id) else {
             return;
         };
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(&track.name).strong().size(15.0));
-            ui.label(
-                RichText::new(track.kind.name().to_uppercase())
-                    .small()
-                    .color(theme::TEXT_MUTED),
-            );
+        let chain_id = track.main_chain;
+        ui.menu_button("+ Device", |ui| {
+            if ui.button("Tool").clicked() {
+                self.insert_stock(
+                    track_id,
+                    chain_id,
+                    notwig_dsp::stock::TOOL_TYPE_ID,
+                    DeviceKind::AudioFx,
+                );
+                ui.close();
+            }
+            if ui.button("EQ").clicked() {
+                self.insert_stock(
+                    track_id,
+                    chain_id,
+                    notwig_dsp::stock::EQ_TYPE_ID,
+                    DeviceKind::AudioFx,
+                );
+                ui.close();
+            }
+            if ui.button("Chain").clicked() {
+                self.insert_stock(
+                    track_id,
+                    chain_id,
+                    notwig_dsp::stock::CHAIN_TYPE_ID,
+                    DeviceKind::Container,
+                );
+                ui.close();
+            }
+            if !runtime.plugins.is_empty() {
+                ui.separator();
+                for plugin in &runtime.plugins {
+                    if ui.button(&plugin.name).clicked() {
+                        self.emit(UiIntent::InsertPlugin {
+                            track_id,
+                            chain_id,
+                            type_id: plugin.type_id.clone(),
+                            kind: plugin.kind,
+                        });
+                        ui.close();
+                    }
+                }
+            }
         });
-        ui.add_space(4.0);
-        if let Some(chain) = doc.chains.get(&track.main_chain) {
-            let device_ids = chain.devices.clone();
-            ui.label(
-                RichText::new(format!("{} device(s)", device_ids.len()))
-                    .small()
-                    .color(theme::TEXT_MUTED),
-            );
-            ui.add_space(2.0);
-            for device_id in &device_ids {
-                self.device_row(ui, doc, *device_id, track_id);
-            }
-            if device_ids.is_empty() {
-                ui.label(
-                    RichText::new("No devices. Insert from the browser or use the buttons below.")
-                        .small()
-                        .color(theme::TEXT_MUTED),
-                );
-            }
-            ui.separator();
-            if let Some(device_id) = selected_device(doc, self)
-                .filter(|id| device_ids.contains(id))
-                .or_else(|| device_ids.first().copied())
-            {
-                self.param_editor(ui, doc, device_id, wide);
-            } else {
-                ui.label(
-                    RichText::new("Select or insert a device to edit parameters.")
-                        .color(theme::TEXT_MUTED),
-                );
-            }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("+ Tool").clicked() {
-                    self.emit(UiIntent::InsertStockDevice {
-                        track_id,
-                        chain_id: track.main_chain,
-                        type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
-                        kind: DeviceKind::AudioFx,
-                    });
-                }
-                if ui.button("+ EQ").clicked() {
-                    self.emit(UiIntent::InsertStockDevice {
-                        track_id,
-                        chain_id: track.main_chain,
-                        type_id: notwig_dsp::stock::EQ_TYPE_ID.into(),
-                        kind: DeviceKind::AudioFx,
-                    });
-                }
-                if ui.button("+ Chain").clicked() {
-                    self.emit(UiIntent::InsertStockDevice {
-                        track_id,
-                        chain_id: track.main_chain,
-                        type_id: notwig_dsp::stock::CHAIN_TYPE_ID.into(),
-                        kind: DeviceKind::Container,
-                    });
-                }
-            });
-        }
     }
 
-    fn device_row(
+    fn insert_stock(
+        &mut self,
+        track_id: TrackId,
+        chain_id: notwig_core::DeviceChainId,
+        type_id: &str,
+        kind: DeviceKind,
+    ) {
+        self.emit(UiIntent::InsertStockDevice {
+            track_id,
+            chain_id,
+            type_id: type_id.into(),
+            kind,
+        });
+    }
+
+    fn device_card(
         &mut self,
         ui: &mut egui::Ui,
         doc: &ProjectDoc,
@@ -144,122 +189,219 @@ impl NotwigUi {
             return;
         };
         let selected = self.state.selection.devices.contains(&device_id);
-        let frame = egui::Frame::new()
-            .fill(if selected {
-                theme::ACCENT_DIM
-            } else {
-                theme::PANEL
-            })
-            .inner_margin(egui::Margin::symmetric(6, 4))
-            .corner_radius(egui::CornerRadius::same(4));
-        frame.show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let label = device
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| device.type_id.clone());
-                if ui
-                    .add(
-                        egui::Label::new(RichText::new(label).strong().color(if selected {
-                            Color32::WHITE
-                        } else {
-                            theme::TEXT_MUTED
-                        }))
-                        .sense(egui::Sense::click()),
-                    )
-                    .clicked()
-                {
-                    self.state.selection.devices.clear();
-                    self.state.selection.devices.insert(device_id);
-                    self.state.selection.select_only_track(track_id);
-                    self.emit(UiIntent::SelectDevice(device_id));
-                }
-                ui.label(
-                    RichText::new(device_kind_label(device.kind))
-                        .small()
-                        .color(theme::TEXT_MUTED),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("×").clicked() {
-                        self.emit(UiIntent::RemoveDevice(device_id));
-                    }
-                    let mut bypass = device.bypass;
-                    if ui.checkbox(&mut bypass, "Bypass").changed() {
-                        self.emit(UiIntent::SetDeviceBypass { device_id, bypass });
-                    }
+        let width = card_width(&device.type_id);
+        egui::Frame::new()
+            .fill(theme::PANEL)
+            .stroke(Stroke::new(
+                1.0_f32,
+                if selected { theme::ACCENT } else { theme::GRID },
+            ))
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                ui.push_id(("device-card", device_id), |ui| {
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(width, ui.available_height().max(180.0)),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            ui.set_width(width);
+                            ui.horizontal(|ui| {
+                                let mut bypass = device.bypass;
+                                let power = if bypass { "OFF" } else { "ON" };
+                                let color = if bypass {
+                                    theme::TEXT_MUTED
+                                } else {
+                                    theme::ACCENT
+                                };
+                                if ui
+                                    .add(
+                                        egui::Button::new(RichText::new(power).small().strong())
+                                            .fill(theme::PANEL_LIGHT)
+                                            .min_size(Vec2::new(34.0, 20.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    bypass = !bypass;
+                                    self.emit(UiIntent::SetDeviceBypass { device_id, bypass });
+                                }
+                                let name = device
+                                    .name
+                                    .clone()
+                                    .unwrap_or_else(|| spec_name(self, device));
+                                if ui
+                                    .add(
+                                        egui::Label::new(RichText::new(name).strong().color(
+                                            if bypass {
+                                                theme::TEXT_MUTED
+                                            } else {
+                                                Color32::WHITE
+                                            },
+                                        ))
+                                        .sense(Sense::click()),
+                                    )
+                                    .clicked()
+                                {
+                                    self.state.selection.devices.clear();
+                                    self.state.selection.devices.insert(device_id);
+                                    self.state.selection.select_only_track(track_id);
+                                    self.emit(UiIntent::SelectDevice(device_id));
+                                }
+                                ui.label(
+                                    RichText::new(device_kind_label(device.kind))
+                                        .small()
+                                        .color(color)
+                                        .monospace(),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui.small_button("×").clicked() {
+                                            self.emit(UiIntent::RemoveDevice(device_id));
+                                        }
+                                    },
+                                );
+                            });
+                            ui.separator();
+                            egui::ScrollArea::vertical()
+                                .id_salt("device-params")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
+                                        self.eq_curve(ui, device);
+                                    }
+                                    self.param_editor(ui, device);
+                                });
+                        },
+                    );
                 });
             });
-        });
-        ui.add_space(2.0);
+        ui.add_space(6.0);
     }
 
-    fn param_editor(
-        &mut self,
-        ui: &mut egui::Ui,
-        doc: &ProjectDoc,
-        device_id: DeviceId,
-        wide: bool,
-    ) {
-        let Some(device) = doc.devices.get(&device_id) else {
-            return;
+    #[allow(clippy::unused_self)]
+    fn eq_curve(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
+        let height = 122.0;
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width().max(200.0), height),
+            Sense::hover(),
+        );
+        let painter = ui.painter();
+        painter.rect_filled(rect, CornerRadius::same(4), Color32::from_rgb(17, 19, 23));
+        let min_f = 20.0_f64;
+        let max_f = 20_000.0_f64;
+        let log_min = min_f.log10();
+        let log_max = max_f.log10();
+        let x_for_freq = |freq: f64| {
+            rect.left()
+                + ((freq.max(min_f).min(max_f).log10() - log_min) / (log_max - log_min)) as f32
+                    * rect.width()
         };
+        let y_for_db = |db: f64| {
+            rect.center().y - (db.clamp(-24.0, 24.0) / 24.0) as f32 * rect.height() * 0.42
+        };
+        for (freq, label) in [
+            (20.0, "20"),
+            (100.0, "100"),
+            (1_000.0, "1k"),
+            (10_000.0, "10k"),
+        ] {
+            let x = x_for_freq(freq);
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                Stroke::new(1.0_f32, theme::GRID),
+            );
+            painter.text(
+                egui::pos2(x + 3.0, rect.bottom() - 2.0),
+                Align2::LEFT_BOTTOM,
+                label,
+                FontId::monospace(8.0),
+                theme::TEXT_MUTED,
+            );
+        }
+        for db in [-12.0, 0.0, 12.0] {
+            let y = y_for_db(db);
+            painter.line_segment(
+                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                Stroke::new(
+                    1.0_f32,
+                    if db == 0.0 {
+                        theme::GRID_STRONG
+                    } else {
+                        theme::GRID
+                    },
+                ),
+            );
+        }
+        let values: BTreeMap<ParamId, ParamValue> = device
+            .param_values
+            .iter()
+            .map(|(id, value)| (*id, value.clone()))
+            .collect();
+        let sample_rate = 48_000.0;
+        let mut points = Vec::with_capacity(180);
+        for index in 0..=180u32 {
+            let t = f64::from(index) / 180.0;
+            let freq = 10.0_f64.powf(log_min + t * (log_max - log_min));
+            let magnitude = notwig_dsp::stock::eq_magnitude_response(&values, sample_rate, freq);
+            let db = 20.0 * magnitude.max(1e-9).log10();
+            points.push(egui::pos2(x_for_freq(freq), y_for_db(db)));
+        }
+        painter.add(egui::Shape::line(
+            points,
+            Stroke::new(1.8_f32, theme::CLIP_MIDI),
+        ));
+        for band in 0..4 {
+            let enabled = !matches!(
+                values.get(&notwig_dsp::stock::band_param(band, 0)),
+                Some(ParamValue::Bool(false))
+            );
+            if !enabled {
+                continue;
+            }
+            let freq = values
+                .get(&notwig_dsp::stock::band_param(band, 2))
+                .and_then(ParamValue::as_f64)
+                .unwrap_or(1_000.0);
+            let kind = values
+                .get(&notwig_dsp::stock::band_param(band, 1))
+                .and_then(ParamValue::as_f64)
+                .unwrap_or(0.0) as u32;
+            let gain = if kind == 3 || kind == 4 {
+                0.0
+            } else {
+                values
+                    .get(&notwig_dsp::stock::band_param(band, 3))
+                    .and_then(ParamValue::as_f64)
+                    .unwrap_or(0.0)
+            };
+            painter.circle_filled(
+                egui::pos2(x_for_freq(freq), y_for_db(gain)),
+                4.0,
+                theme::SELECTION,
+            );
+        }
+        ui.add_space(4.0);
+    }
+
+    fn param_editor(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
         let Some(spec) = self
             .registry
             .resolve(&device.type_id, device.version)
             .cloned()
         else {
-            ui.vertical_centered(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    RichText::new("No parameter metadata")
-                        .strong()
-                        .color(theme::TEXT_MUTED),
-                );
-                ui.label(
-                    RichText::new(
-                        "This device is unresolved. Relink or install the plugin, or insert a stock device.",
-                    )
+            ui.label(
+                RichText::new("No parameter metadata. Relink or install the plugin.")
                     .small()
                     .color(theme::TEXT_MUTED),
-                );
-            });
+            );
             return;
         };
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new(format!("{} · parameters", spec.name))
-                .strong()
-                .color(theme::ACCENT),
-        );
-        ui.add_space(2.0);
-        let columns = if wide { 3 } else { 1 };
-        let params = spec.params.clone();
-        if columns == 1 {
-            for param in &params {
-                self.param_control(ui, device, param, 0);
-            }
-        } else {
-            egui::Grid::new(("device_params", device_id))
-                .num_columns(3)
-                .spacing(Vec2::new(16.0, 4.0))
-                .show(ui, |ui| {
-                    for (index, param) in params.iter().enumerate() {
-                        self.param_control(ui, device, param, index);
-                        if (index + 1) % 3 == 0 {
-                            ui.end_row();
-                        }
-                    }
-                });
+        for param in &spec.params {
+            self.param_control(ui, device, param);
         }
     }
 
-    fn param_control(
-        &mut self,
-        ui: &mut egui::Ui,
-        device: &DeviceInstance,
-        param: &ParamSpec,
-        _index: usize,
-    ) {
+    fn param_control(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, param: &ParamSpec) {
         let current = device
             .param_values
             .get(&param.id)
@@ -282,29 +424,31 @@ impl NotwigUi {
                     .as_f64()
                     .map_or(0, |value| value.round().max(0.0) as u32)
                     .min(values.saturating_sub(1));
-                let label = param_text(&param.name, &current, param);
-                egui::ComboBox::from_id_salt(("enum", device.id, param.id))
-                    .selected_text(label)
-                    .width(ui.available_width().min(150.0))
-                    .show_ui(ui, |ui| {
-                        for index in 0..values {
-                            if ui
-                                .selectable_value(
-                                    &mut selected,
-                                    index,
-                                    enum_label(&param.name, index),
-                                )
-                                .clicked()
-                            {
-                                self.emit(UiIntent::SetParam {
-                                    device_id: device.id,
-                                    param_id: param.id,
-                                    value: ParamValue::EnumIndex(index),
-                                });
+                let label = enum_text(&param.name, &current);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(&param.name).small().color(theme::TEXT_MUTED));
+                    egui::ComboBox::from_id_salt(("enum", device.id, param.id))
+                        .selected_text(label)
+                        .width(120.0)
+                        .show_ui(ui, |ui| {
+                            for index in 0..values {
+                                if ui
+                                    .selectable_value(
+                                        &mut selected,
+                                        index,
+                                        enum_label(&param.name, index),
+                                    )
+                                    .clicked()
+                                {
+                                    self.emit(UiIntent::SetParam {
+                                        device_id: device.id,
+                                        param_id: param.id,
+                                        value: ParamValue::EnumIndex(index),
+                                    });
+                                }
                             }
-                        }
-                    });
-                ui.label(RichText::new(&param.name).small().color(theme::TEXT_MUTED));
+                        });
+                });
             }
             notwig_dsp::ParamKind::Continuous => {
                 let mut norm = param.norm(&current).0;
@@ -338,6 +482,20 @@ impl NotwigUi {
     }
 }
 
+fn spec_name(ui: &NotwigUi, device: &DeviceInstance) -> String {
+    ui.registry
+        .resolve(&device.type_id, device.version)
+        .map_or_else(|| device.type_id.clone(), |spec| spec.name.clone())
+}
+
+fn card_width(type_id: &str) -> f32 {
+    if type_id == notwig_dsp::stock::EQ_TYPE_ID {
+        360.0
+    } else {
+        280.0
+    }
+}
+
 fn device_kind_label(kind: DeviceKind) -> &'static str {
     match kind {
         DeviceKind::Instrument => "INSTRUMENT",
@@ -347,26 +505,12 @@ fn device_kind_label(kind: DeviceKind) -> &'static str {
     }
 }
 
-fn param_text(name: &str, value: &ParamValue, param: &ParamSpec) -> String {
-    if param.kind == notwig_dsp::ParamKind::Bool {
-        return if matches!(value, ParamValue::Bool(true)) {
-            format!("{name}: on")
-        } else {
-            format!("{name}: off")
-        };
-    }
+fn enum_text(name: &str, value: &ParamValue) -> String {
     let index = value.as_f64().unwrap_or(0.0).round() as u32;
     if name.to_ascii_lowercase().contains("type") {
-        match index {
-            0 => "Bell".into(),
-            1 => "Low Shelf".into(),
-            2 => "High Shelf".into(),
-            3 => "High Pass".into(),
-            4 => "Low Pass".into(),
-            other => format!("Mode {other}"),
-        }
+        enum_label(name, index)
     } else {
-        format!("{name}: {index}")
+        index.to_string()
     }
 }
 
@@ -386,4 +530,4 @@ fn enum_label(name: &str, index: u32) -> String {
 }
 
 #[allow(dead_code)]
-fn _keep(_: ParamId) {}
+fn _keep(_: &NotwigUi, _: &ProjectDoc, _: &RuntimeView, _: &DeviceInstance) {}

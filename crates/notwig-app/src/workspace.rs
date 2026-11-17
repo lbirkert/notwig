@@ -23,6 +23,7 @@ pub struct Workspace {
     pub bundle: Option<PathBuf>,
     pub dirty: bool,
     pub assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
+    pub peaks: BTreeMap<AssetId, Vec<f32>>,
     pub engine: Arc<Mutex<Engine>>,
     pub plugins: Vec<PluginEntry>,
     pub status: Option<String>,
@@ -77,6 +78,7 @@ impl Workspace {
             bundle,
             dirty,
             assets: BTreeMap::new(),
+            peaks: BTreeMap::new(),
             engine,
             plugins,
             status: None,
@@ -90,6 +92,7 @@ impl Workspace {
 
     fn load_assets(&mut self) {
         self.assets.clear();
+        self.peaks.clear();
         let Some(bundle) = self.bundle.clone() else {
             return;
         };
@@ -100,6 +103,7 @@ impl Workspace {
             let path = bundle.join(&entry.uri);
             match notwig_project::decode_audio(&path) {
                 Ok(buffer) => {
+                    self.peaks.insert(entry.id, compute_peaks(&buffer, 2048));
                     self.assets.insert(entry.id, Arc::new(buffer));
                 }
                 Err(err) => {
@@ -321,6 +325,32 @@ impl Workspace {
         })
     }
 
+    pub fn split_clip(&mut self, clip_id: ClipId, at: notwig_core::TimeMus) -> Result<(), String> {
+        let Some(clip) = self.doc.arranger.clips.get(&clip_id).cloned() else {
+            return Err("clip not found".into());
+        };
+        if at <= clip.range.start || at >= clip.range.end {
+            return Err("split position must lie inside the clip".into());
+        }
+        let new_clip = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
+        let mut new_note_ids = Vec::new();
+        if let ClipPayload::Midi(midi) = &clip.payload {
+            let split_offset = at - clip.range.start;
+            let split_content = midi.content_start + split_offset;
+            for note in &midi.notes {
+                if note.start < split_content && note.start + note.length > split_content {
+                    new_note_ids.push(Id::<NoteMarker>::from_uuid(Uuid::new_v4()));
+                }
+            }
+        }
+        self.apply(CommandPayload::SplitClip {
+            clip_id,
+            at,
+            new_clip_id: new_clip,
+            new_note_ids,
+        })
+    }
+
     pub fn duplicate_clip(&mut self, clip_id: ClipId) -> Result<(), String> {
         let Some(clip) = self.doc.arranger.clips.get(&clip_id) else {
             return Err("clip not found".into());
@@ -414,6 +444,8 @@ impl Workspace {
             self.doc.meta.sample_rate.value(),
         )
         .map_err(|err| err.to_string())?;
+        self.peaks
+            .insert(asset_id, compute_peaks(&imported.buffer, 2048));
         self.assets.insert(asset_id, Arc::new(imported.buffer));
         self.apply(CommandPayload::RegisterAsset {
             asset_id,
@@ -465,6 +497,7 @@ impl Workspace {
         self.apply(CommandPayload::RelinkAsset { asset_id, uri })?;
         match notwig_project::decode_audio(path) {
             Ok(buffer) => {
+                self.peaks.insert(asset_id, compute_peaks(&buffer, 2048));
                 self.assets.insert(asset_id, Arc::new(buffer));
                 self.rebuild_engine()?;
                 self.status = Some(format!("Relinked asset to {}", path.display()));
@@ -509,6 +542,23 @@ impl Workspace {
     }
 }
 
+fn compute_peaks(buffer: &AudioAssetBuffer, buckets: usize) -> Vec<f32> {
+    let frames = buffer.frame_count().max(1) as usize;
+    let channels = usize::from(buffer.channels.max(1));
+    let mut peaks = vec![0.0_f32; buckets.max(1)];
+    for index in 0..frames {
+        let bucket = index * peaks.len() / frames;
+        let mut peak = 0.0_f32;
+        for channel in 0..channels {
+            if let Some(sample) = buffer.samples.get(index * channels + channel) {
+                peak = peak.max(sample.abs());
+            }
+        }
+        peaks[bucket] = peaks[bucket].max(peak);
+    }
+    peaks
+}
+
 fn new_plugin_host() -> PluginHost {
     let mut host = PluginHost::new();
     let mut paths = Vec::new();
@@ -544,7 +594,8 @@ fn plugin_entries(host: &PluginHost) -> Vec<PluginEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use notwig_core::ClipKind;
+    use notwig_core::sequencer::NoteEntity;
+    use notwig_core::{ClipKind, Norm01};
 
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("notwig-workspace-{}", Uuid::new_v4()));
@@ -582,6 +633,54 @@ mod tests {
         let reopened = Workspace::open(&bundle).unwrap();
         assert_eq!(reopened.doc.tracks.len(), workspace.doc.tracks.len());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn split_clip_generates_new_note_ids() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )
+            .unwrap();
+        let clip = *workspace.doc.arranger.clips.keys().next().unwrap();
+        let note_id = Id::<NoteMarker>::from_uuid(Uuid::new_v4());
+        workspace
+            .apply(CommandPayload::SetNote {
+                clip_id: clip,
+                note: NoteEntity {
+                    id: note_id,
+                    pitch: 60,
+                    start: Rational::zero(),
+                    length: Rational::new(2, 1),
+                    velocity: Norm01::clamped(0.8),
+                    release_velocity: None,
+                    expression: std::collections::BTreeMap::default(),
+                },
+            })
+            .unwrap();
+        workspace.split_clip(clip, Rational::new(1, 1)).unwrap();
+        assert_eq!(workspace.doc.arranger.clips.len(), 2);
+        let notes = workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter_map(|clip| match &clip.payload {
+                ClipPayload::Midi(midi) => Some(midi.notes.len()),
+                ClipPayload::Audio(_) => None,
+            })
+            .sum::<usize>();
+        assert_eq!(notes, 2);
     }
 
     #[test]

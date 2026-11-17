@@ -1,10 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod arranger;
-mod browser;
 mod device;
 mod intent;
-mod mixer;
 mod projection;
 mod runtime;
 mod settings;
@@ -22,5 +20,5 @@ pub use projection::{
 pub use runtime::{MeterValues, PluginEntry, RuntimeView};
 pub use settings::{AudioSettingsSnapshot, SettingsIntent, SettingsSnapshot};
 pub use shell::NotwigUi;
-pub use state::{Notification, NotificationKind, PanelSizes, Selection, UiState, ViewId, Viewport};
+pub use state::{Notification, NotificationKind, PanelSizes, Selection, UiState, Viewport};
 pub use widgets::{format_beats, format_db, format_param, snap_16};

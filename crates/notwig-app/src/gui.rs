@@ -105,6 +105,7 @@ impl NotwigApp {
         RuntimeView {
             playing: self.workspace.doc.transport.playing,
             playhead,
+            waveforms: self.workspace.peaks.clone(),
             meters,
             xruns: snapshot.xruns,
             cpu_load: None,
@@ -214,10 +215,7 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
-            UiIntent::SetActiveView(_)
-            | UiIntent::SelectTrack(_)
-            | UiIntent::SelectClip(_)
-            | UiIntent::SelectDevice(_) => {}
+            UiIntent::SelectTrack(_) | UiIntent::SelectClip(_) | UiIntent::SelectDevice(_) => {}
             UiIntent::CreateTrack(kind) => {
                 if let Err(err) = self.workspace.create_track(kind) {
                     self.notify_error(err);
@@ -282,6 +280,11 @@ impl NotwigApp {
             }
             UiIntent::DuplicateClip { clip_id } => {
                 if let Err(err) = self.workspace.duplicate_clip(clip_id) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::SplitClip { clip_id, at } => {
+                if let Err(err) = self.workspace.split_clip(clip_id, at) {
                     self.notify_error(err);
                 }
             }
@@ -431,8 +434,6 @@ impl NotwigApp {
                     }
                 }
             }
-            UiIntent::ToggleBrowser => self.ui.show_browser = !self.ui.show_browser,
-            UiIntent::ToggleInspector => self.ui.show_inspector = !self.ui.show_inspector,
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
         }
     }

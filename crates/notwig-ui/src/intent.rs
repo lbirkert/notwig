@@ -3,8 +3,6 @@ use notwig_core::{
     TimeMus, TrackId, TrackKind,
 };
 
-use crate::state::ViewId;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiIntent {
     Play,
@@ -13,7 +11,6 @@ pub enum UiIntent {
     ToggleLoop,
     SetPlayhead(TimeMus),
     SetLoopRange(RangeMus),
-    SetActiveView(ViewId),
     SelectTrack(TrackId),
     SelectClip(ClipId),
     SelectDevice(DeviceId),
@@ -39,6 +36,10 @@ pub enum UiIntent {
     },
     DuplicateClip {
         clip_id: ClipId,
+    },
+    SplitClip {
+        clip_id: ClipId,
+        at: TimeMus,
     },
     SetTrackMixer {
         track_id: TrackId,
@@ -80,7 +81,5 @@ pub enum UiIntent {
     Save,
     SaveAs,
     RenderMixdown,
-    ToggleBrowser,
-    ToggleInspector,
     ClearNotifications,
 }

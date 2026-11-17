@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use notwig_core::{DeviceKind, TimeMus, TrackId};
+use notwig_core::{AssetId, DeviceKind, TimeMus, TrackId};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MeterValues {
@@ -25,6 +25,7 @@ pub struct RuntimeView {
     pub playing: bool,
     pub playhead: TimeMus,
     pub meters: BTreeMap<TrackId, MeterValues>,
+    pub waveforms: BTreeMap<AssetId, Vec<f32>>,
     pub xruns: u64,
     pub cpu_load: Option<f32>,
     pub status: Option<String>,
@@ -40,6 +41,7 @@ impl Default for RuntimeView {
             playing: false,
             playhead: TimeMus::zero(),
             meters: BTreeMap::new(),
+            waveforms: BTreeMap::new(),
             xruns: 0,
             cpu_load: None,
             status: None,

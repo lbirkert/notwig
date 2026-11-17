@@ -1,8 +1,7 @@
-use egui::{Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Color32, CornerRadius, Ui};
 use notwig_core::{Db, TimeMus};
 use notwig_dsp::Unit;
 
-use crate::runtime::MeterValues;
 use crate::theme;
 
 pub fn snap_16(time: TimeMus, bypass: bool) -> TimeMus {
@@ -47,52 +46,6 @@ pub fn format_param(unit: Unit, value: f64) -> String {
         Unit::Semitones => format!("{value:+.1} st"),
         Unit::None => format!("{value:.2}"),
     }
-}
-
-pub fn meter(ui: &mut Ui, values: MeterValues, vertical: bool) {
-    let size = if vertical {
-        Vec2::new(8.0, 64.0)
-    } else {
-        Vec2::new(80.0, 7.0)
-    };
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(2), Color32::from_rgb(16, 17, 20));
-    let peak = values.peak_l.max(values.peak_r).clamp(0.0, 1.0);
-    let rms = values.rms_l.max(values.rms_r).clamp(0.0, 1.0);
-    let fill = if vertical {
-        Rect::from_min_max(
-            egui::pos2(rect.left(), rect.bottom() - rect.height() * peak),
-            rect.right_bottom(),
-        )
-    } else {
-        Rect::from_min_max(
-            rect.left_top(),
-            egui::pos2(rect.left() + rect.width() * peak, rect.bottom()),
-        )
-    };
-    painter.rect_filled(fill, CornerRadius::same(2), theme::CLIP_MIDI);
-    let rms_fill = if vertical {
-        Rect::from_min_max(
-            egui::pos2(rect.left(), rect.bottom() - rect.height() * rms),
-            rect.right_bottom(),
-        )
-    } else {
-        Rect::from_min_max(
-            rect.left_top(),
-            egui::pos2(
-                rect.left() + rect.width() * rms,
-                rect.top() + rect.height() * 0.5,
-            ),
-        )
-    };
-    painter.rect_filled(rms_fill, CornerRadius::same(2), theme::ACCENT);
-    painter.rect_stroke(
-        rect,
-        CornerRadius::same(2),
-        Stroke::new(1.0_f32, theme::GRID),
-        StrokeKind::Inside,
-    );
 }
 
 pub fn small_toggle(ui: &mut Ui, label: &str, active: &mut bool, color: Color32) -> bool {

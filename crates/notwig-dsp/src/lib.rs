@@ -16,4 +16,6 @@ pub use params::{
     NormMap, ParamFlags, ParamKind, ParamSet, ParamSpec, RangeSpec, SmoothingSpec, Unit, Value,
 };
 pub use registry::DeviceRegistry;
-pub use stock::{instantiate_stock, instantiate_stock_params, stock_registry};
+pub use stock::{
+    eq_magnitude_response, instantiate_stock, instantiate_stock_params, stock_registry,
+};

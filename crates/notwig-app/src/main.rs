@@ -188,6 +188,53 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
         }),
     )?
     .doc;
+    let eq_id = Id::<notwig_core::ids::Device>::from_uuid(Uuid::new_v4());
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: eq_id,
+            type_id: notwig_dsp::stock::EQ_TYPE_ID.into(),
+            version: Some(notwig_core::SchemaVersion::V0),
+            kind: notwig_core::DeviceKind::AudioFx,
+            target_chain: chain_id,
+            index: None,
+            child_chain_ids: Vec::new(),
+            name: None,
+        }),
+    )?
+    .doc;
+    for (param, value) in [
+        (notwig_dsp::stock::band_param(1, 2), 180.0),
+        (notwig_dsp::stock::band_param(1, 3), -5.0),
+        (notwig_dsp::stock::band_param(2, 2), 3_500.0),
+        (notwig_dsp::stock::band_param(2, 3), 4.0),
+    ] {
+        doc = apply(
+            &doc,
+            &Command::new(CommandPayload::SetParam {
+                device_id: eq_id,
+                param_id: param,
+                value: notwig_core::ParamValue::F64(value),
+                ramp: None,
+            }),
+        )?
+        .doc;
+    }
+    let tool_id = Id::<notwig_core::ids::Device>::from_uuid(Uuid::new_v4());
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: tool_id,
+            type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
+            version: Some(notwig_core::SchemaVersion::V0),
+            kind: notwig_core::DeviceKind::AudioFx,
+            target_chain: chain_id,
+            index: None,
+            child_chain_ids: Vec::new(),
+            name: None,
+        }),
+    )?
+    .doc;
     let clip_id = Id::<notwig_core::ids::Clip>::from_uuid(Uuid::new_v4());
     doc = apply(
         &doc,
