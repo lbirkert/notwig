@@ -193,7 +193,7 @@ pub fn compile(
     let mut memo = BTreeMap::new();
     let mut total_latency = 0;
     for id in tracks.keys().copied().collect::<Vec<_>>() {
-        let latency = path_latency(doc, &tracks, id, master, &mut memo, &mut BTreeSet::new())?;
+        let latency = path_latency(&tracks, id, master, &mut memo, &mut BTreeSet::new())?;
         total_latency = total_latency.max(latency);
         if let Some(track) = tracks.get_mut(&id) {
             track.latency_to_master = latency;
@@ -257,7 +257,6 @@ fn solo_effective(doc: &ProjectDoc, id: TrackId, any_solo: bool) -> bool {
 }
 
 fn path_latency(
-    doc: &ProjectDoc,
     tracks: &BTreeMap<TrackId, PlanTrack>,
     id: TrackId,
     master: TrackId,
@@ -281,7 +280,7 @@ fn path_latency(
         if target == id {
             return Err(GraphError::Cycle);
         }
-        own.saturating_add(path_latency(doc, tracks, target, master, memo, visiting)?)
+        own.saturating_add(path_latency(tracks, target, master, memo, visiting)?)
     } else {
         own
     };

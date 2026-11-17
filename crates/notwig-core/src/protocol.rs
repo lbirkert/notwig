@@ -370,7 +370,6 @@ pub enum RtEvent {
 }
 
 impl PlaybackSchedule {
-    #[must_use]
     pub fn midi_clips(&self, track: TrackId) -> impl Iterator<Item = &ClipEntity> {
         self.tracks
             .get(&track)
@@ -379,7 +378,6 @@ impl PlaybackSchedule {
             .filter(|clip| matches!(clip.payload, ClipPayload::Midi(_)))
     }
 
-    #[must_use]
     pub fn audio_clips(&self, track: TrackId) -> impl Iterator<Item = &ClipEntity> {
         self.tracks
             .get(&track)

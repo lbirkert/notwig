@@ -331,7 +331,7 @@ fn instrument_receives_notes_and_stops_at_note_off() {
                     length: Rational::new(1, 2),
                     velocity: Norm01::clamped(1.0),
                     release_velocity: None,
-                    expression: Default::default(),
+                    expression: std::collections::BTreeMap::default(),
                 }],
             }),
         }),

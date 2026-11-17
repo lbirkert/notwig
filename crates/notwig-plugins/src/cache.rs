@@ -19,7 +19,6 @@ pub struct PluginCache {
 }
 
 impl PluginCache {
-    #[must_use]
     pub fn load(path: &Path) -> Result<Self, PluginError> {
         match std::fs::read_to_string(path) {
             Ok(contents) => serde_json::from_str(&contents)

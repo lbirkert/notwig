@@ -137,7 +137,7 @@ pub fn eq_spec() -> DeviceSpec {
             Unit::Decibels,
             -24.0,
             24.0,
-            if band == 0 { 0.0 } else { 0.0 },
+            0.0,
         ));
         params.push(ParamSpec::continuous(
             band_param(band, 4),
@@ -300,7 +300,7 @@ impl DeviceProcessor for ToolProcessor {
 
         let (pan_l, pan_r) = notwig_core::Pan(pan).gains();
         for frame in audio.chunks_exact_mut(2) {
-            if self.wet != target_wet {
+            if (self.wet - target_wet).abs() > f32::EPSILON {
                 self.wet = if self.wet < target_wet {
                     (self.wet + dry_wet_step).min(target_wet)
                 } else {
@@ -317,7 +317,7 @@ impl DeviceProcessor for ToolProcessor {
             if polarity_r {
                 r = -r;
             }
-            let mid = (l + r) * 0.5;
+            let mid = f32::midpoint(l, r);
             let side = (l - r) * 0.5 * width;
             l = (mid + side) * pan_l;
             r = (mid - side) * pan_r;
@@ -403,17 +403,17 @@ impl Biquad {
                 )
             }
             EqBandType::HighPass => (
-                (1.0 + cos_w0) / 2.0,
+                f64::midpoint(1.0, cos_w0),
                 -(1.0 + cos_w0),
-                (1.0 + cos_w0) / 2.0,
+                f64::midpoint(1.0, cos_w0),
                 1.0 + alpha,
                 -2.0 * cos_w0,
                 1.0 - alpha,
             ),
             EqBandType::LowPass => (
-                (1.0 - cos_w0) / 2.0,
+                f64::midpoint(1.0, -cos_w0),
                 1.0 - cos_w0,
-                (1.0 - cos_w0) / 2.0,
+                f64::midpoint(1.0, -cos_w0),
                 1.0 + alpha,
                 -2.0 * cos_w0,
                 1.0 - alpha,
@@ -638,7 +638,7 @@ mod tests {
         tool.process(&ctx(config()), &mut audio, &[]);
         assert!(audio[0] < 0.0);
         assert!(audio[1] > 0.0);
-        assert!((audio[0].abs() - 0.7071).abs() < 0.01);
+        assert!((audio[0].abs() - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.01);
     }
 
     #[test]

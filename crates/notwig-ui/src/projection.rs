@@ -171,7 +171,6 @@ pub fn project_mixer(doc: &ProjectDoc, meters: &[RtEvent]) -> MixerView {
     MixerView { strips }
 }
 
-#[must_use]
 pub fn project_devices(
     doc: &ProjectDoc,
     track: TrackId,

@@ -62,8 +62,8 @@ fn arranger_projects_tracks_and_clips() {
     assert_eq!(row.clips.len(), 1);
     assert_eq!(row.clips[0].range.end, Rational::new(2, 1));
     assert_eq!(scene_summary(&doc).clips, 1);
-    assert!(project_devices(&doc, track).unwrap().is_empty());
-    assert!(!project_mixer(&doc, &[]).strips.is_empty());
+    assert_eq!(project_devices(&doc, track).unwrap().len(), 0);
+    assert_ne!(project_mixer(&doc, &[]).strips.len(), 0);
 }
 
 #[test]

@@ -40,7 +40,7 @@ fn save_and_open_roundtrip_normalizes_transport() {
     let loaded = open(&bundle).unwrap();
     assert!(!loaded.doc.transport.playing);
     assert_eq!(loaded.doc.tracks.len(), doc.tracks.len());
-    assert!(loaded.issues.is_empty());
+    assert_eq!(loaded.issues.len(), 0);
     assert!(bundle.join("project.json").exists());
     assert!(bundle.join("assets").is_dir());
     std::fs::remove_dir_all(dir).unwrap();
@@ -92,7 +92,9 @@ fn aiff_decoder_reads_pcm() {
     let mut sound = Vec::new();
     for frame in 0..frames {
         for channel in 0..channels {
-            let value = ((frame as u16 * 2 + channel) as i16) * 1000;
+            let value = i16::try_from(i32::try_from(frame).unwrap() * 2 + i32::from(channel))
+                .unwrap()
+                * 1000;
             sound.extend_from_slice(&value.to_be_bytes());
         }
     }
@@ -130,8 +132,7 @@ fn extended_80(value: f64) -> [u8; 10] {
     let exponent = if value == 0.0 {
         0
     } else {
-        let exp = value.abs().log2().floor() as i32 + 16383;
-        exp
+        value.abs().log2().floor() as i32 + 16383
     };
     bytes[0] = ((exponent >> 8) as u8) & 0x7f;
     bytes[1] = exponent as u8;

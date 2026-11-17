@@ -119,12 +119,12 @@ fn decode_aiff(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
         let start = index * bytes_per_sample;
         let raw = &data[start..start + bytes_per_sample];
         let value = if float && bytes_per_sample == 4 {
-            f32::from_bits(read_u32(raw, little_endian)) as f64
+            f64::from(f32::from_bits(read_u32(raw, little_endian)))
         } else if double && bytes_per_sample == 8 {
             f64::from_bits(read_u64(raw, little_endian))
         } else {
             match bits {
-                8 => f64::from(raw[0] as i8) / 128.0,
+                8 => f64::from(i8::from_ne_bytes([raw[0]])) / 128.0,
                 16 => {
                     let value = if little_endian {
                         i16::from_le_bytes(raw.try_into().unwrap())
@@ -185,7 +185,7 @@ fn read_u64(bytes: &[u8], little_endian: bool) -> u64 {
 
 fn read_extended_80(bytes: &[u8]) -> f64 {
     let sign = if bytes[0] & 0x80 != 0 { -1.0 } else { 1.0 };
-    let exponent = (((bytes[0] & 0x7f) as i32) << 8) | i32::from(bytes[1]);
+    let exponent = (i32::from(bytes[0] & 0x7f) << 8) | i32::from(bytes[1]);
     let mantissa = u64::from_be_bytes([
         bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
     ]);
@@ -316,7 +316,7 @@ pub fn import_asset(
     };
     let assets_dir = bundle.join("assets");
     std::fs::create_dir_all(&assets_dir)?;
-    let temporary = assets_dir.join(format!("{}.wav.tmp", asset_id));
+    let temporary = assets_dir.join(format!("{asset_id}.wav.tmp"));
     write_wav_f32(&temporary, project_rate, channels, &buffer.samples)?;
     let hash = hash_file(&temporary)?;
     let file_name = format!("{hash}.wav");

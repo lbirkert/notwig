@@ -36,13 +36,14 @@ enum AppError {
 }
 
 fn main() {
-    if let Err(err) = run(std::env::args().skip(1).collect()) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Err(err) = run(&args) {
         eprintln!("error: {err}");
         std::process::exit(1);
     }
 }
 
-fn run(args: Vec<String>) -> Result<(), AppError> {
+fn run(args: &[String]) -> Result<(), AppError> {
     let Some(command) = args.first().map(String::as_str) else {
         print_help();
         return Ok(());

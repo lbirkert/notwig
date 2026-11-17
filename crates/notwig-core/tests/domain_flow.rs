@@ -183,7 +183,7 @@ fn group_delete_removes_descendants_clips_and_devices() {
     assert!(!result.doc.tracks.contains_key(&group_id));
     assert!(!result.doc.tracks.contains_key(&child));
     assert!(result.doc.arranger.clips.is_empty());
-    assert!(result.doc.chains.get(&child_chain).is_none());
+    assert!(!result.doc.chains.contains_key(&child_chain));
 }
 
 #[test]

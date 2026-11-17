@@ -80,7 +80,7 @@ impl ActivePlan {
         schedule: &Arc<PlaybackSchedule>,
         assets: &BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
         engine_config: EngineConfig,
-        factory: Arc<dyn DeviceFactory>,
+        factory: &dyn DeviceFactory,
     ) -> Result<Self, EngineError> {
         let config = RenderConfig {
             sample_rate: plan.config.sample_rate,
@@ -240,11 +240,9 @@ impl ActivePlan {
                 }
             }
 
+            self.apply_track_gain_and_pan(*id, frames);
             if !is_master {
-                self.apply_track_gain_and_pan(*id, frames);
                 self.route_track(*id, frames);
-            } else {
-                self.apply_track_gain_and_pan(*id, frames);
             }
             self.update_meters(*id, frames);
         }

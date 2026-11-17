@@ -208,7 +208,7 @@ impl ParamSpec {
             unit: Unit::None,
             range: RangeSpec::enumeration(values),
             default: ParamValue::EnumIndex(default.min(values.saturating_sub(1))),
-            norm_map: NormMap::linear(0.0, (values.saturating_sub(1)) as f64),
+            norm_map: NormMap::linear(0.0, f64::from(values.saturating_sub(1))),
             smoothing: None,
             flags: ParamFlags::default(),
         }

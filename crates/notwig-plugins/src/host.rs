@@ -100,15 +100,12 @@ impl PluginHost {
     pub fn scan(&mut self, paths: &[std::path::PathBuf]) -> Vec<PluginDescriptor> {
         let mut discovered = Vec::new();
         for adapter in &self.adapters {
-            match adapter.scan(paths) {
-                Ok(descriptors) => {
-                    for descriptor in descriptors {
-                        if !self.cache.is_blacklisted(&descriptor.type_id) {
-                            discovered.push(descriptor);
-                        }
+            if let Ok(descriptors) = adapter.scan(paths) {
+                for descriptor in descriptors {
+                    if !self.cache.is_blacklisted(&descriptor.type_id) {
+                        discovered.push(descriptor);
                     }
                 }
-                Err(_) => {}
             }
         }
         for descriptor in &discovered {

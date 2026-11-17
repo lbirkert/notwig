@@ -102,19 +102,10 @@ pub struct NoteEvent {
     pub velocity: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ProcessStatus {
     pub overloaded: bool,
     pub produced_silence: bool,
-}
-
-impl Default for ProcessStatus {
-    fn default() -> Self {
-        Self {
-            overloaded: false,
-            produced_silence: false,
-        }
-    }
 }
 
 pub trait DeviceProcessor: Send {

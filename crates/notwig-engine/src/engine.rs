@@ -205,7 +205,7 @@ impl Engine {
             schedule,
             &self.assets,
             self.config,
-            Arc::clone(&self.factory),
+            self.factory.as_ref(),
         )?;
         let latency = plan.total_latency;
         self.runtime = Some(runtime);

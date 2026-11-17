@@ -145,7 +145,7 @@ fn apply_payload(
                 });
             }
             let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
-            track.name = name.clone();
+            track.name.clone_from(name);
             changes.track(doc, *id);
             Ok(Vec::new())
         }
@@ -363,7 +363,7 @@ fn apply_payload(
                 .devices
                 .get_mut(device_id)
                 .ok_or_else(|| not_found(device_id))?;
-            device.state_ref = state_ref.clone();
+            device.state_ref.clone_from(state_ref);
             changes.device(*device_id);
             Ok(Vec::new())
         }
@@ -408,7 +408,7 @@ fn apply_payload(
                 .assets
                 .get_mut(asset_id)
                 .ok_or_else(|| not_found(asset_id))?;
-            entry.uri = uri.clone();
+            entry.uri.clone_from(uri);
             changes.affected.assets.insert(*asset_id);
             changes.push(DocChange::AssetUpserted(*asset_id));
             Ok(Vec::new())
@@ -1142,14 +1142,15 @@ fn set_note(
             reason: "notes can only be edited in MIDI clips".into(),
         });
     };
+    let note_id = note.id;
     if let Some(existing) = midi.notes.iter_mut().find(|n| n.id == note.id) {
-        *existing = note.clone();
+        *existing = note;
     } else {
-        midi.notes.push(note.clone());
+        midi.notes.push(note);
     }
     midi.validate()?;
     changes.affected.clips.insert(clip_id);
-    changes.affected.notes.insert(note.id);
+    changes.affected.notes.insert(note_id);
     changes.push(DocChange::ClipUpserted(clip_id));
     Ok(())
 }
