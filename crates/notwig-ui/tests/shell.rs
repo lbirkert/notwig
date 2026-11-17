@@ -1,4 +1,4 @@
-use notwig_core::ids::{Clip, DeviceChain, Track};
+use notwig_core::ids::{Clip, Device, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData};
 use notwig_core::tracks::TrackKind;
@@ -159,5 +159,177 @@ fn audio_drop_uses_existing_lane_or_creates_track_at_boundary() {
             target: DropAudioTarget::NewTrack { .. },
             ..
         }
+    )));
+}
+
+#[test]
+fn hovering_an_audio_file_previews_its_real_length() {
+    use notwig_ui::DropAudioTarget;
+    let doc = doc();
+    let audio_track = id::<Track>(3);
+    let audio_chain = id::<DeviceChain>(103);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: audio_track,
+            chain_id: audio_chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let runtime = RuntimeView::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let row = *ui.track_rows.get(&audio_track).expect("audio row");
+    let point = egui::pos2(ui.timeline_left + 90.0, row.center().y);
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../notwig-project/tests/fixtures/tone.mp3");
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            hovered_files: vec![egui::HoveredFile {
+                path: Some(fixture),
+                ..Default::default()
+            }],
+            events: vec![egui::Event::PointerMoved(point)],
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let preview = ui.drag_preview.as_ref().expect("drag preview");
+    assert!(preview.duration.as_f64() > 0.0);
+    assert!(matches!(
+        preview.target,
+        DropAudioTarget::Track(track) if track == audio_track
+    ));
+}
+
+#[test]
+fn selecting_a_device_renders_its_info_panel() {
+    use notwig_ui::NotwigUi as Ui;
+    let doc = doc();
+    let audio_track = id::<Track>(3);
+    let audio_chain = id::<DeviceChain>(103);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: audio_track,
+            chain_id: audio_chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let eq = id::<Device>(400);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: eq,
+            type_id: notwig_dsp::stock::EQ_TYPE_ID.into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::AudioFx,
+            target_chain: audio_chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut ui = Ui::default();
+    ui.state.selection.select_device(eq, audio_track, false);
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1280.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert_eq!(ui.state.selection.primary_device(), Some(eq));
+}
+
+#[test]
+fn drop_works_from_platform_pointer_without_cursor_events() {
+    use notwig_ui::{DropAudioTarget, UiIntent};
+    let doc = doc();
+    let audio_track = id::<Track>(3);
+    let audio_chain = id::<DeviceChain>(103);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: audio_track,
+            chain_id: audio_chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let runtime = RuntimeView::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let row = *ui.track_rows.get(&audio_track).expect("audio row");
+    ui.set_platform_pointer(Some(egui::pos2(ui.timeline_left + 120.0, row.center().y)));
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            dropped_files: vec![egui::DroppedFile {
+                path: Some(std::path::PathBuf::from("/tmp/demo.mp3")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::DropAudio {
+            target: DropAudioTarget::Track(track),
+            ..
+        } if *track == audio_track
     )));
 }

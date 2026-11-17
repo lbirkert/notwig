@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use notwig_core::{DeviceInstance, DeviceKind, ParamId, ParamValue, SchemaVersion};
+use notwig_core::{DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue, SchemaVersion};
 use uuid::Uuid;
 
 use crate::devices::{
@@ -9,6 +9,7 @@ use crate::devices::{
 use crate::graph::GraphError;
 use crate::params::{ParamSpec, Unit};
 use crate::registry::DeviceRegistry;
+use crate::smoothing::SmoothedValue;
 
 pub const TOOL_TYPE_ID: &str = "notwig.tool";
 pub const EQ_TYPE_ID: &str = "notwig.eq";
@@ -264,35 +265,101 @@ fn store_value(values: &mut BTreeMap<ParamId, f64>, id: ParamId, value: &ParamVa
 }
 
 #[derive(Debug, Clone)]
-pub struct ToolProcessor {
-    values: BTreeMap<ParamId, f64>,
+struct ToolSmoothing {
+    input_gain: SmoothedValue,
+    output_gain: SmoothedValue,
+    pan: SmoothedValue,
+    width: SmoothedValue,
+    dry_wet: SmoothedValue,
+    polarity_l: SmoothedValue,
+    polarity_r: SmoothedValue,
     sample_rate: f64,
-    wet: f32,
+}
+
+impl ToolSmoothing {
+    fn new(sample_rate: f64) -> Self {
+        Self {
+            input_gain: SmoothedValue::new(1.0, sample_rate, 15.0),
+            output_gain: SmoothedValue::new(1.0, sample_rate, 15.0),
+            pan: SmoothedValue::new(0.0, sample_rate, 15.0),
+            width: SmoothedValue::new(1.0, sample_rate, 15.0),
+            dry_wet: SmoothedValue::new(1.0, sample_rate, 15.0),
+            polarity_l: SmoothedValue::new(1.0, sample_rate, 8.0),
+            polarity_r: SmoothedValue::new(1.0, sample_rate, 8.0),
+            sample_rate,
+        }
+    }
+
+    fn set_sample_rate(&mut self, sample_rate: f64) {
+        self.sample_rate = sample_rate.max(1.0);
+        self.input_gain.set_sample_rate(self.sample_rate, 15.0);
+        self.output_gain.set_sample_rate(self.sample_rate, 15.0);
+        self.pan.set_sample_rate(self.sample_rate, 15.0);
+        self.width.set_sample_rate(self.sample_rate, 15.0);
+        self.dry_wet.set_sample_rate(self.sample_rate, 15.0);
+        self.polarity_l.set_sample_rate(self.sample_rate, 8.0);
+        self.polarity_r.set_sample_rate(self.sample_rate, 8.0);
+    }
+
+    fn snap(&mut self) {
+        self.input_gain.snap();
+        self.output_gain.snap();
+        self.pan.snap();
+        self.width.snap();
+        self.dry_wet.snap();
+        self.polarity_l.snap();
+        self.polarity_r.snap();
+    }
+
+    fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
+        let value = value.as_f64().unwrap_or(0.0);
+        if param_id == p_input_gain() {
+            self.input_gain.set_target(10.0_f64.powf(value / 20.0));
+        } else if param_id == p_output_gain() {
+            self.output_gain.set_target(10.0_f64.powf(value / 20.0));
+        } else if param_id == p_pan() {
+            self.pan.set_target(value.clamp(-1.0, 1.0));
+        } else if param_id == p_width() {
+            self.width.set_target(value.clamp(0.0, 2.0));
+        } else if param_id == p_polarity_l() {
+            self.polarity_l
+                .set_target(if value > 0.5 { -1.0 } else { 1.0 });
+        } else if param_id == p_polarity_r() {
+            self.polarity_r
+                .set_target(if value > 0.5 { -1.0 } else { 1.0 });
+        } else if param_id == p_dry_wet() {
+            self.dry_wet.set_target(value.clamp(0.0, 1.0));
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolProcessor {
+    smooth: ToolSmoothing,
 }
 
 impl ToolProcessor {
     #[must_use]
     pub fn new(_spec: &DeviceSpec) -> Self {
         Self {
-            values: BTreeMap::new(),
-            sample_rate: 48_000.0,
-            wet: 1.0,
+            smooth: ToolSmoothing::new(48_000.0),
         }
     }
 }
 
 impl DeviceProcessor for ToolProcessor {
     fn prepare(&mut self, config: crate::devices::RenderConfig) -> Result<(), GraphError> {
-        self.sample_rate = f64::from(config.sample_rate);
+        self.smooth.set_sample_rate(f64::from(config.sample_rate));
+        self.smooth.snap();
         Ok(())
     }
 
     fn reset(&mut self) {
-        self.wet = 1.0;
+        self.smooth.snap();
     }
 
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
-        store_value(&mut self.values, param_id, value);
+        self.smooth.set_param(param_id, value);
     }
 
     fn process(
@@ -301,44 +368,26 @@ impl DeviceProcessor for ToolProcessor {
         audio: &mut [f32],
         _events: &[crate::devices::NoteEvent],
     ) -> ProcessStatus {
-        let input_gain =
-            10.0_f32.powf(param_value(&self.values, p_input_gain(), 0.0) as f32 / 20.0);
-        let output_gain =
-            10.0_f32.powf(param_value(&self.values, p_output_gain(), 0.0) as f32 / 20.0);
-        let pan = param_value(&self.values, p_pan(), 0.0) as f32;
-        let width = param_value(&self.values, p_width(), 1.0) as f32;
-        let polarity_l = param_value(&self.values, p_polarity_l(), 0.0) > 0.5;
-        let polarity_r = param_value(&self.values, p_polarity_r(), 0.0) > 0.5;
-        let target_wet = param_value(&self.values, p_dry_wet(), 1.0) as f32;
-        let dry_wet_step = ((target_wet - self.wet) / audio.len().max(2) as f32).abs();
-
-        let (pan_l, pan_r) = notwig_core::Pan(pan).gains();
         for frame in audio.chunks_exact_mut(2) {
-            if (self.wet - target_wet).abs() > f32::EPSILON {
-                self.wet = if self.wet < target_wet {
-                    (self.wet + dry_wet_step).min(target_wet)
-                } else {
-                    (self.wet - dry_wet_step).max(target_wet)
-                };
-            }
+            let input_gain = self.smooth.input_gain.next() as f32;
+            let output_gain = self.smooth.output_gain.next() as f32;
+            let pan = self.smooth.pan.next() as f32;
+            let width = self.smooth.width.next() as f32;
+            let wet = self.smooth.dry_wet.next() as f32;
+            let polarity_l = self.smooth.polarity_l.next() as f32;
+            let polarity_r = self.smooth.polarity_r.next() as f32;
+            let (pan_l, pan_r) = notwig_core::Pan(pan).gains();
             let dry_l = frame[0];
             let dry_r = frame[1];
-            let mut l = dry_l * input_gain;
-            let mut r = dry_r * input_gain;
-            if polarity_l {
-                l = -l;
-            }
-            if polarity_r {
-                r = -r;
-            }
+            let mut l = dry_l * input_gain * polarity_l;
+            let mut r = dry_r * input_gain * polarity_r;
             let mid = f32::midpoint(l, r);
             let side = (l - r) * 0.5 * width;
             l = (mid + side) * pan_l;
             r = (mid - side) * pan_r;
-            frame[0] = (dry_l * (1.0 - self.wet) + l * self.wet) * output_gain;
-            frame[1] = (dry_r * (1.0 - self.wet) + r * self.wet) * output_gain;
+            frame[0] = (dry_l * (1.0 - wet) + l * wet) * output_gain;
+            frame[1] = (dry_r * (1.0 - wet) + r * wet) * output_gain;
         }
-        let _ = self.sample_rate;
         ProcessStatus::default()
     }
 }
@@ -422,7 +471,7 @@ impl EqBandType {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Biquad {
     b0: f64,
     b1: f64,
@@ -432,6 +481,26 @@ struct Biquad {
 }
 
 impl Biquad {
+    fn identity() -> Self {
+        Self {
+            b0: 1.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
+        }
+    }
+
+    fn lerp(self, other: Self, t: f64) -> Self {
+        Self {
+            b0: self.b0 + (other.b0 - self.b0) * t,
+            b1: self.b1 + (other.b1 - self.b1) * t,
+            b2: self.b2 + (other.b2 - self.b2) * t,
+            a1: self.a1 + (other.a1 - self.a1) * t,
+            a2: self.a2 + (other.a2 - self.a2) * t,
+        }
+    }
+
     fn set(&mut self, kind: EqBandType, freq: f64, gain_db: f64, q: f64, sample_rate: f64) {
         let freq = freq.clamp(10.0, sample_rate * 0.49);
         let w0 = 2.0 * std::f64::consts::PI * freq / sample_rate;
@@ -509,30 +578,45 @@ impl Biquad {
 
 #[derive(Debug, Clone)]
 struct EqBand {
-    kind: EqBandType,
-    enabled: bool,
-    freq: f64,
-    gain_db: f64,
-    q: f64,
-    coeffs: Biquad,
+    current: Biquad,
+    target: Biquad,
+    ramp_remaining: u32,
     state: [[f64; 2]; 2],
+    enabled_mix: SmoothedValue,
 }
 
 impl EqBand {
-    fn new() -> Self {
+    fn new(sample_rate: f64) -> Self {
         Self {
-            kind: EqBandType::Bell,
-            enabled: true,
-            freq: 1_000.0,
-            gain_db: 0.0,
-            q: 0.707,
-            coeffs: Biquad::default(),
+            current: Biquad::identity(),
+            target: Biquad::identity(),
+            ramp_remaining: 0,
             state: [[0.0; 2]; 2],
+            enabled_mix: SmoothedValue::new(1.0, sample_rate, 10.0),
         }
     }
 
     fn reset(&mut self) {
         self.state = [[0.0; 2]; 2];
+        self.enabled_mix.snap();
+    }
+
+    fn set_target(&mut self, target: Biquad, enabled: bool, ramp_samples: u32) {
+        if target != self.target {
+            self.target = target;
+            self.ramp_remaining = ramp_samples.max(1);
+        }
+        self.enabled_mix.set_target(if enabled { 1.0 } else { 0.0 });
+    }
+
+    #[inline]
+    fn next_coefficients(&mut self) -> Biquad {
+        if self.ramp_remaining > 0 {
+            let step = 1.0 / f64::from(self.ramp_remaining);
+            self.current = self.current.lerp(self.target, step);
+            self.ramp_remaining -= 1;
+        }
+        self.current
     }
 }
 
@@ -541,15 +625,20 @@ pub struct EqProcessor {
     values: BTreeMap<ParamId, f64>,
     bands: [EqBand; 4],
     sample_rate: f64,
+    ramp_samples: u32,
+    output_gain: SmoothedValue,
 }
 
 impl EqProcessor {
     #[must_use]
     pub fn new(_spec: &DeviceSpec) -> Self {
+        let sample_rate = 48_000.0;
         Self {
             values: BTreeMap::new(),
-            bands: std::array::from_fn(|_| EqBand::new()),
-            sample_rate: 48_000.0,
+            bands: std::array::from_fn(|_| EqBand::new(sample_rate)),
+            sample_rate,
+            ramp_samples: 480,
+            output_gain: SmoothedValue::new(1.0, sample_rate, 15.0),
         }
     }
 
@@ -557,24 +646,31 @@ impl EqProcessor {
         let enabled = param_value(&self.values, band_param(band, 0), 1.0) > 0.5;
         let kind =
             EqBandType::from_index(param_value(&self.values, band_param(band, 1), 0.0) as u32);
-        let freq = param_value(&self.values, band_param(band, 2), 1_000.0);
+        let shift = param_value(&self.values, p_eq_shift(), 0.0) / 12.0;
+        let freq = param_value(&self.values, band_param(band, 2), 1_000.0) * 2.0_f64.powf(shift);
         let gain = param_value(&self.values, band_param(band, 3), 0.0);
         let q = param_value(&self.values, band_param(band, 4), 0.707);
-        let b = &mut self.bands[band];
-        b.enabled = enabled;
-        b.kind = kind;
-        b.freq = freq;
-        b.gain_db = gain;
-        b.q = q;
-        b.coeffs.set(kind, freq, gain, q, self.sample_rate);
+        let mut target = Biquad::default();
+        target.set(kind, freq, gain, q, self.sample_rate);
+        self.bands[band].set_target(target, enabled, self.ramp_samples);
     }
 }
 
 impl DeviceProcessor for EqProcessor {
     fn prepare(&mut self, config: crate::devices::RenderConfig) -> Result<(), GraphError> {
-        self.sample_rate = f64::from(config.sample_rate);
+        self.sample_rate = f64::from(config.sample_rate).max(1.0);
+        self.ramp_samples = ((self.sample_rate * 0.010).round() as u32).max(1);
+        self.output_gain.set_sample_rate(self.sample_rate, 15.0);
+        self.output_gain.snap();
+        for band in 0..4 {
+            self.update_band(band);
+        }
         for band in &mut self.bands {
-            band.reset();
+            band.enabled_mix.set_sample_rate(self.sample_rate, 10.0);
+            band.current = band.target;
+            band.ramp_remaining = 0;
+            band.enabled_mix.snap();
+            band.state = [[0.0; 2]; 2];
         }
         Ok(())
     }
@@ -583,10 +679,15 @@ impl DeviceProcessor for EqProcessor {
         for band in &mut self.bands {
             band.reset();
         }
+        self.output_gain.snap();
     }
 
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
         store_value(&mut self.values, param_id, value);
+        if param_id == p_eq_output_gain() {
+            let gain = value.as_f64().unwrap_or(0.0);
+            self.output_gain.set_target(10.0_f64.powf(gain / 20.0));
+        }
     }
 
     fn process(
@@ -598,17 +699,17 @@ impl DeviceProcessor for EqProcessor {
         for band in 0..4 {
             self.update_band(band);
         }
-        let output_gain =
-            10.0_f32.powf(param_value(&self.values, p_eq_output_gain(), 0.0) as f32 / 20.0);
         for frame in audio.chunks_exact_mut(2) {
+            let output_gain = self.output_gain.next() as f32;
             let mut l = f64::from(frame[0]);
             let mut r = f64::from(frame[1]);
             for band in &mut self.bands {
-                if !band.enabled {
-                    continue;
-                }
-                l = band.coeffs.process(l, &mut band.state[0]);
-                r = band.coeffs.process(r, &mut band.state[1]);
+                let coefficients = band.next_coefficients();
+                let mix = band.enabled_mix.next();
+                let filtered_l = coefficients.process(l, &mut band.state[0]);
+                let filtered_r = coefficients.process(r, &mut band.state[1]);
+                l += (filtered_l - l) * mix;
+                r += (filtered_r - r) * mix;
             }
             frame[0] = l as f32 * output_gain;
             frame[1] = r as f32 * output_gain;
@@ -617,55 +718,126 @@ impl DeviceProcessor for EqProcessor {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct ChainProcessor {
-    values: BTreeMap<ParamId, f64>,
+    wet_gain: SmoothedValue,
+    output_gain: SmoothedValue,
+    dry_wet: SmoothedValue,
+    sample_rate: f64,
+    dry: Vec<f32>,
+    children: Vec<(DeviceId, Box<dyn DeviceProcessor>)>,
 }
 
 impl ChainProcessor {
     #[must_use]
     pub fn new(_spec: &DeviceSpec) -> Self {
+        let sample_rate = 48_000.0;
         Self {
-            values: BTreeMap::new(),
+            wet_gain: SmoothedValue::new(1.0, sample_rate, 15.0),
+            output_gain: SmoothedValue::new(1.0, sample_rate, 15.0),
+            dry_wet: SmoothedValue::new(1.0, sample_rate, 15.0),
+            sample_rate,
+            dry: Vec::new(),
+            children: Vec::new(),
         }
+    }
+
+    pub fn add_child(&mut self, device_id: DeviceId, processor: Box<dyn DeviceProcessor>) {
+        self.children.push((device_id, processor));
+    }
+
+    fn set_sample_rate(&mut self, sample_rate: f64) {
+        self.sample_rate = sample_rate.max(1.0);
+        self.wet_gain.set_sample_rate(self.sample_rate, 15.0);
+        self.output_gain.set_sample_rate(self.sample_rate, 15.0);
+        self.dry_wet.set_sample_rate(self.sample_rate, 15.0);
     }
 }
 
 impl DeviceProcessor for ChainProcessor {
-    fn prepare(&mut self, _config: crate::devices::RenderConfig) -> Result<(), GraphError> {
+    fn prepare(&mut self, config: crate::devices::RenderConfig) -> Result<(), GraphError> {
+        self.set_sample_rate(f64::from(config.sample_rate));
+        self.wet_gain.snap();
+        self.output_gain.snap();
+        self.dry_wet.snap();
+        self.dry.resize(config.max_block_size.max(1) * 2, 0.0);
+        for (_, child) in &mut self.children {
+            child.prepare(config)?;
+        }
         Ok(())
     }
 
-    fn reset(&mut self) {}
+    fn reset(&mut self) {
+        self.wet_gain.snap();
+        self.output_gain.snap();
+        self.dry_wet.snap();
+        self.dry.fill(0.0);
+        for (_, child) in &mut self.children {
+            child.reset();
+        }
+    }
 
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
-        store_value(&mut self.values, param_id, value);
+        let db = value.as_f64().unwrap_or(0.0);
+        if param_id == p_input_gain() {
+            self.wet_gain.set_target(10.0_f64.powf(db / 20.0));
+        } else if param_id == p_output_gain() {
+            self.output_gain.set_target(10.0_f64.powf(db / 20.0));
+        } else if param_id == p_dry_wet() {
+            self.dry_wet.set_target(db.clamp(0.0, 1.0));
+        }
+    }
+
+    fn set_nested_param(
+        &mut self,
+        device_id: DeviceId,
+        param_id: ParamId,
+        value: &ParamValue,
+    ) -> bool {
+        for (child_id, child) in &mut self.children {
+            if *child_id == device_id {
+                child.set_param(param_id, value);
+                return true;
+            }
+            if child.set_nested_param(device_id, param_id, value) {
+                return true;
+            }
+        }
+        false
     }
 
     fn process(
         &mut self,
-        _ctx: &ProcessContext<'_>,
+        ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        _events: &[crate::devices::NoteEvent],
+        events: &[crate::devices::NoteEvent],
     ) -> ProcessStatus {
-        let input_gain =
-            10.0_f32.powf(param_value(&self.values, p_input_gain(), 0.0) as f32 / 20.0);
-        let output_gain =
-            10.0_f32.powf(param_value(&self.values, p_output_gain(), 0.0) as f32 / 20.0);
-        let wet = param_value(&self.values, p_dry_wet(), 1.0) as f32;
-        for frame in audio.chunks_exact_mut(2) {
-            let dry_l = frame[0];
-            let dry_r = frame[1];
-            let out_l = dry_l * input_gain * output_gain;
-            let out_r = dry_r * input_gain * output_gain;
-            frame[0] = dry_l * (1.0 - wet) + out_l * wet;
-            frame[1] = dry_r * (1.0 - wet) + out_r * wet;
+        if self.dry.len() < audio.len() {
+            self.dry.resize(audio.len(), 0.0);
+        }
+        self.dry[..audio.len()].copy_from_slice(audio);
+        for (_, child) in &mut self.children {
+            child.process(ctx, audio, events);
+        }
+        for (frame, dry) in audio.chunks_exact_mut(2).zip(self.dry.chunks_exact(2)) {
+            let wet_gain = self.wet_gain.next() as f32;
+            let output = self.output_gain.next() as f32;
+            let mix = self.dry_wet.next() as f32;
+            for channel in 0..2 {
+                let dry = dry[channel];
+                let wet = frame[channel] * wet_gain;
+                frame[channel] = (dry * (1.0 - mix) + wet * mix) * output;
+            }
         }
         ProcessStatus::default()
     }
 
     fn latency(&self) -> Latency {
-        Latency { samples: 0 }
+        let samples = self
+            .children
+            .iter()
+            .map(|(_, child)| child.latency().samples)
+            .fold(0u32, u32::saturating_add);
+        Latency { samples }
     }
 }
 
@@ -706,11 +878,31 @@ mod tests {
         tool.prepare(config()).unwrap();
         tool.set_param(p_input_gain(), &ParamValue::F64(6.0));
         tool.set_param(p_polarity_l(), &ParamValue::Bool(true));
-        let mut audio = vec![0.5, 0.5, 0.5, 0.5];
+        let mut audio = vec![0.5; 16384];
         tool.process(&ctx(config()), &mut audio, &[]);
-        assert!(audio[0] < 0.0);
-        assert!(audio[1] > 0.0);
-        assert!((audio[0].abs() - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.01);
+        assert!(audio[0] > 0.0);
+        assert!(audio[16382] < 0.0);
+        assert!(audio[16383] > 0.0);
+        assert!((audio[16382].abs() - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.01);
+    }
+
+    #[test]
+    fn tool_gain_changes_are_smoothed() {
+        let spec = tool_spec();
+        let mut tool = ToolProcessor::new(&spec);
+        tool.prepare(config()).unwrap();
+        let mut settle = vec![0.5_f32; 2048];
+        tool.process(&ctx(config()), &mut settle, &[]);
+        tool.set_param(p_output_gain(), &ParamValue::F64(-60.0));
+        let mut first = vec![0.5_f32; 2];
+        tool.process(&ctx(config()), &mut first, &[]);
+        assert!(first[0].abs() > 0.3, "gain change should fade, not jump");
+        let mut after = vec![0.5_f32; 48_000];
+        tool.process(&ctx(config()), &mut after, &[]);
+        assert!(
+            after[47_998].abs() < 0.005,
+            "gain should settle to the target"
+        );
     }
 
     #[test]

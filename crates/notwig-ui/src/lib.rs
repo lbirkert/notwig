@@ -3,6 +3,8 @@
 mod arranger;
 mod device;
 mod drop_target;
+mod icons;
+mod info;
 mod intent;
 mod runtime;
 mod shell;
@@ -12,6 +14,7 @@ mod theme;
 mod widgets;
 
 pub use arranger::ClipDrag;
+pub use icons::Icon;
 pub use intent::{DropAudioTarget, UiIntent};
 pub use runtime::{MeterValues, PluginEntry, RuntimeView};
 pub use shell::NotwigUi;

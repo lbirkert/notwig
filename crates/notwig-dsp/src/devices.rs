@@ -1,4 +1,4 @@
-use notwig_core::{DeviceKind, NoteId, ParamId, ParamValue, SchemaVersion, TimeMus};
+use notwig_core::{DeviceId, DeviceKind, NoteId, ParamId, ParamValue, SchemaVersion, TimeMus};
 
 pub use notwig_core::tracks::SignalType;
 
@@ -120,5 +120,14 @@ pub trait DeviceProcessor: Send {
     ) -> ProcessStatus;
     fn latency(&self) -> Latency {
         Latency { samples: 0 }
+    }
+
+    fn set_nested_param(
+        &mut self,
+        _device_id: DeviceId,
+        _param_id: ParamId,
+        _value: &ParamValue,
+    ) -> bool {
+        false
     }
 }

@@ -4,6 +4,7 @@ pub mod devices;
 pub mod graph;
 pub mod params;
 pub mod registry;
+pub mod smoothing;
 pub mod stock;
 
 pub use devices::{

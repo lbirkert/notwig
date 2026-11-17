@@ -24,6 +24,7 @@ pub struct PluginEntry {
 pub struct RuntimeView {
     pub playing: bool,
     pub playhead: TimeMus,
+    pub play_start: TimeMus,
     pub meters: BTreeMap<TrackId, MeterValues>,
     pub waveforms: BTreeMap<AssetId, Vec<f32>>,
     pub xruns: u64,
@@ -40,6 +41,7 @@ impl Default for RuntimeView {
         Self {
             playing: false,
             playhead: TimeMus::zero(),
+            play_start: TimeMus::zero(),
             meters: BTreeMap::new(),
             waveforms: BTreeMap::new(),
             xruns: 0,

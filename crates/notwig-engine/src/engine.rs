@@ -197,12 +197,20 @@ impl Engine {
                 }
             }
             EngineMsg::UpdateSchedule { schedule } => {
-                self.schedule = Some(schedule);
-                self.prepare()?;
+                self.schedule = Some(Arc::clone(&schedule));
+                if let Some(runtime) = &mut self.runtime {
+                    runtime.set_schedule(schedule);
+                } else {
+                    self.prepare()?;
+                }
             }
             EngineMsg::PrepareAudioAsset { asset_id, buffer } => {
-                self.assets.insert(asset_id, buffer);
-                self.prepare()?;
+                self.assets.insert(asset_id, Arc::clone(&buffer));
+                if let Some(runtime) = &mut self.runtime {
+                    runtime.set_asset(asset_id, buffer);
+                } else {
+                    self.prepare()?;
+                }
             }
             EngineMsg::AllNotesOff => {
                 self.all_notes_off = true;

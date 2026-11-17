@@ -34,11 +34,15 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new_empty() -> Result<Self, String> {
+        Self::new_empty_at(48_000)
+    }
+
+    pub fn new_empty_at(sample_rate: u32) -> Result<Self, String> {
         let meta = Meta {
             name: "Untitled".into(),
             created_utc: 0,
             modified_utc: 0,
-            sample_rate: SampleRate::DEFAULT,
+            sample_rate: SampleRate::new(sample_rate).map_err(|err| err.to_string())?,
             tempo_bpm: 120.0,
             time_sig_num: 4,
             time_sig_den: 4,
@@ -384,6 +388,7 @@ impl Workspace {
         chain_id: DeviceChainId,
         type_id: &str,
         kind: DeviceKind,
+        index: Option<usize>,
     ) -> Result<(), String> {
         let id = Id::<DeviceMarker>::from_uuid(Uuid::new_v4());
         let child_chains = if kind == DeviceKind::Container {
@@ -397,7 +402,7 @@ impl Workspace {
             version: Some(SchemaVersion::V0),
             kind,
             target_chain: chain_id,
-            index: None,
+            index,
             child_chain_ids: child_chains,
             name: None,
         })
@@ -408,6 +413,7 @@ impl Workspace {
         chain_id: DeviceChainId,
         type_id: &str,
         kind: DeviceKind,
+        index: Option<usize>,
     ) -> Result<(), String> {
         let id = Id::<DeviceMarker>::from_uuid(Uuid::new_v4());
         self.apply(CommandPayload::InsertDevice {
@@ -416,7 +422,7 @@ impl Workspace {
             version: None,
             kind,
             target_chain: chain_id,
-            index: None,
+            index,
             child_chain_ids: Vec::new(),
             name: None,
         })
@@ -771,6 +777,7 @@ mod tests {
                 track.main_chain,
                 notwig_dsp::stock::TOOL_TYPE_ID,
                 DeviceKind::AudioFx,
+                None,
             )
             .unwrap();
         let device = *workspace.doc.devices.keys().next().unwrap();
@@ -794,6 +801,30 @@ mod tests {
     }
 
     #[test]
+    fn imports_and_renders_mp3() {
+        let dir = temp_dir();
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .id;
+        workspace.save(Some(&dir.join("Mp3.notwig"))).unwrap();
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../notwig-project/tests/fixtures/tone.mp3");
+        workspace
+            .import_audio_at(&source, track, Rational::zero())
+            .unwrap();
+        assert_eq!(workspace.doc.assets.assets.len(), 1);
+        let out = dir.join("mp3.wav");
+        assert!(workspace.render_to(&out).unwrap() > 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn inserting_stock_device_rebuilds_engine() {
         let mut workspace = Workspace::new_empty().unwrap();
         workspace.create_track(TrackKind::Audio).unwrap();
@@ -809,6 +840,7 @@ mod tests {
                 track.main_chain,
                 notwig_dsp::stock::TOOL_TYPE_ID,
                 DeviceKind::AudioFx,
+                None,
             )
             .unwrap();
         assert_eq!(workspace.doc.devices.len(), 1);

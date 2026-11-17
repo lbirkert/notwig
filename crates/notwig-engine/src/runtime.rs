@@ -98,17 +98,20 @@ impl ActivePlan {
         }
         let mut processors = Vec::new();
         let mut processor_index = BTreeMap::new();
-        for device in plan.devices.values() {
-            if device.bypass {
-                continue;
+        let mut roots = BTreeSet::new();
+        for track in plan.tracks.values() {
+            if let Some(chain) = plan.chains.get(&track.main_chain) {
+                roots.extend(chain.iter().copied());
             }
-            if let Some(mut processor) = factory.create(plan, device) {
+        }
+        for device_id in roots {
+            if let Some(mut processor) = build_processor(plan, device_id, factory) {
                 processor
                     .prepare(config)
                     .map_err(|err| EngineError::Device {
                         reason: err.to_string(),
                     })?;
-                processor_index.insert(device.id, processors.len());
+                processor_index.insert(device_id, processors.len());
                 processors.push(Some(processor));
             }
         }
@@ -144,6 +147,14 @@ impl ActivePlan {
         }
     }
 
+    pub(crate) fn set_schedule(&mut self, schedule: Arc<PlaybackSchedule>) {
+        self.schedule = schedule;
+    }
+
+    pub(crate) fn set_asset(&mut self, asset_id: AssetId, buffer: Arc<AudioAssetBuffer>) {
+        self.assets.insert(asset_id, buffer);
+    }
+
     pub fn initiate_all_notes_off(&mut self) {
         self.panic_pending = true;
     }
@@ -157,6 +168,12 @@ impl ActivePlan {
         if let Some(index) = self.processor_index.get(&device_id).copied() {
             if let Some(processor) = self.processors[index].as_mut() {
                 processor.set_param(param_id, value);
+            }
+            return;
+        }
+        for processor in self.processors.iter_mut().flatten() {
+            if processor.set_nested_param(device_id, param_id, value) {
+                break;
             }
         }
     }
@@ -617,4 +634,39 @@ fn processing_order(plan: &CompiledPlan) -> Result<Vec<TrackId>, EngineError> {
         return Err(EngineError::Cycle);
     }
     Ok(order)
+}
+
+fn build_processor(
+    plan: &CompiledPlan,
+    device_id: DeviceId,
+    factory: &dyn DeviceFactory,
+) -> Option<Box<dyn DeviceProcessor>> {
+    let device = plan.devices.get(&device_id)?;
+    if device.bypass {
+        return None;
+    }
+    if device.type_id == notwig_dsp::stock::CHAIN_TYPE_ID {
+        let mut chain = notwig_dsp::stock::ChainProcessor::new(&device.spec);
+        for param in &device.spec.params {
+            chain.set_param(param.id, &param.default);
+        }
+        for (id, value) in &device.param_values {
+            chain.set_param(*id, value);
+        }
+        for child_chain in &device.child_chains {
+            if let Some(children) = plan.chains.get(child_chain) {
+                for child_id in children {
+                    if let Some(child) = build_processor(plan, *child_id, factory) {
+                        chain.add_child(*child_id, child);
+                    }
+                }
+            }
+        }
+        return Some(Box::new(chain));
+    }
+    let mut processor = factory.create(plan, device)?;
+    for (id, value) in &device.param_values {
+        processor.set_param(*id, value);
+    }
+    Some(processor)
 }

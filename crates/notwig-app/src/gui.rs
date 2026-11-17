@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
+use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
 use notwig_core::{DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
 use notwig_ui::{MeterValues, NotificationKind, NotwigUi, RuntimeView, UiIntent};
@@ -105,6 +106,10 @@ impl NotwigApp {
         RuntimeView {
             playing: self.workspace.doc.transport.playing,
             playhead,
+            play_start: self
+                .workspace
+                .play_start
+                .unwrap_or(self.workspace.doc.transport.playhead),
             waveforms: self.workspace.peaks.clone(),
             meters,
             xruns: snapshot.xruns,
@@ -205,6 +210,17 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
+            UiIntent::SetPlayStart(time) => {
+                if self.workspace.doc.transport.playing {
+                    self.workspace.play_start = Some(time);
+                } else {
+                    self.workspace.play_start = Some(time);
+                    self.fallback_playhead = time.as_f64();
+                    if let Err(err) = self.workspace.set_playhead(time) {
+                        self.notify_error(err);
+                    }
+                }
+            }
             UiIntent::SetLoopRange(range) => {
                 if let Err(err) = self.workspace.apply(CommandPayload::SetTransport {
                     playing: None,
@@ -278,6 +294,29 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
+            UiIntent::SetClipFades {
+                clip_id,
+                fade_in_samples,
+                fade_out_samples,
+            } => {
+                if let Err(err) = self.workspace.apply(CommandPayload::EditClip {
+                    clip_id,
+                    range: None,
+                    name: None,
+                    muted: None,
+                    content_start: None,
+                    content_length: None,
+                    audio: Some(notwig_core::protocol::AudioEdit {
+                        source_start_sample: None,
+                        source_end_sample: None,
+                        gain_db: None,
+                        fade_in_samples: Some(fade_in_samples),
+                        fade_out_samples: Some(fade_out_samples),
+                    }),
+                }) {
+                    self.notify_error(err);
+                }
+            }
             UiIntent::DuplicateClip { clip_id } => {
                 if let Err(err) = self.workspace.duplicate_clip(clip_id) {
                     self.notify_error(err);
@@ -306,9 +345,10 @@ impl NotwigApp {
                 chain_id,
                 type_id,
                 kind,
+                index,
                 ..
             } => {
-                if let Err(err) = self.workspace.insert_stock(chain_id, &type_id, kind) {
+                if let Err(err) = self.workspace.insert_stock(chain_id, &type_id, kind, index) {
                     self.notify_error(err);
                 }
             }
@@ -316,9 +356,13 @@ impl NotwigApp {
                 chain_id,
                 type_id,
                 kind,
+                index,
                 ..
             } => {
-                if let Err(err) = self.workspace.insert_plugin(chain_id, &type_id, kind) {
+                if let Err(err) = self
+                    .workspace
+                    .insert_plugin(chain_id, &type_id, kind, index)
+                {
                     self.notify_error(err);
                 }
             }
@@ -326,7 +370,12 @@ impl NotwigApp {
                 if self.workspace.bundle.is_none() {
                     self.notify_error("Save the project before importing audio.".into());
                 } else if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Audio", &["wav", "wave", "aif", "aiff", "aifc"])
+                    .add_filter(
+                        "Audio",
+                        &[
+                            "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
+                        ],
+                    )
                     .set_title("Import audio")
                     .pick_file()
                 {
@@ -401,7 +450,12 @@ impl NotwigApp {
             }
             UiIntent::RelinkAsset(asset_id) => {
                 if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Audio", &["wav", "wave", "aif", "aiff", "aifc"])
+                    .add_filter(
+                        "Audio",
+                        &[
+                            "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
+                        ],
+                    )
                     .set_title("Relink audio asset")
                     .pick_file()
                 {
@@ -410,15 +464,21 @@ impl NotwigApp {
                     }
                 }
             }
-            UiIntent::NewProject => match Workspace::new_empty() {
-                Ok(workspace) => {
-                    self.workspace = workspace;
-                    self.fallback_playhead = 0.0;
-                    self.restart_audio();
-                    self.notify_info("New project created.".into());
+            UiIntent::NewProject | UiIntent::NewProjectAtRate(_) => {
+                let rate = match intent {
+                    UiIntent::NewProjectAtRate(rate) => rate,
+                    _ => 48_000,
+                };
+                match Workspace::new_empty_at(rate) {
+                    Ok(workspace) => {
+                        self.workspace = workspace;
+                        self.fallback_playhead = 0.0;
+                        self.restart_audio();
+                        self.notify_info("New project created.".into());
+                    }
+                    Err(err) => self.notify_error(err),
                 }
-                Err(err) => self.notify_error(err),
-            },
+            }
             UiIntent::OpenProject => {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_title("Open Notwig project bundle")
@@ -511,6 +571,7 @@ impl eframe::App for NotwigApp {
             }
         }
         let runtime = self.runtime_view(&snapshot);
+        self.ui.set_platform_pointer(platform_pointer(ctx));
         let intents = self.ui.show(ctx, &self.workspace.doc, &runtime);
         for intent in intents {
             self.handle_intent(intent);
@@ -532,3 +593,18 @@ fn f64_to_time(value: f64) -> TimeMus {
 
 #[allow(dead_code)]
 fn _keep(_: &ProjectDoc, _: Rational, _: DeviceKind, _: TrackKind) {}
+
+fn platform_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
+    let inner = ctx.input(|input| input.viewport().inner_rect)?;
+    match Mouse::get_mouse_position() {
+        Mouse::Position { x, y } => {
+            let position = egui::pos2(x as f32, y as f32);
+            if inner.contains(position) {
+                Some(position - inner.min.to_vec2())
+            } else {
+                None
+            }
+        }
+        Mouse::Error => None,
+    }
+}

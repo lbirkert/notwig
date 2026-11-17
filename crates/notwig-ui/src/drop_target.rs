@@ -1,9 +1,19 @@
 use std::collections::BTreeMap;
 
 use egui::Rect;
-use notwig_core::{ProjectDoc, TrackId, TrackKind};
+use std::path::PathBuf;
+
+use notwig_core::{ProjectDoc, TimeMus, TrackId, TrackKind};
 
 use crate::intent::DropAudioTarget;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragPreview {
+    pub path: PathBuf,
+    pub target: DropAudioTarget,
+    pub at: TimeMus,
+    pub duration: TimeMus,
+}
 
 pub(crate) fn resolve_drop_target(
     doc: &ProjectDoc,

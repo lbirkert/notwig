@@ -271,6 +271,69 @@ fn live_param_updates_change_processing() {
 }
 
 #[test]
+fn nested_chain_processes_child_devices() {
+    let mut doc = base_doc();
+    let (track, chain) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 500, 24_000);
+    add_audio_clip(&mut doc, track, asset, 20, 1);
+    let child_chain = id::<DeviceChain>(400);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<DeviceMarker>(300),
+            type_id: notwig_dsp::stock::CHAIN_TYPE_ID.into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::Container,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![child_chain],
+            name: None,
+        }),
+    )
+    .unwrap();
+    let result = apply(
+        &result.doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<DeviceMarker>(301),
+            type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::AudioFx,
+            target_chain: child_chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: None,
+        }),
+    )
+    .unwrap();
+    let doc = result.doc;
+
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(24_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    engine
+        .apply(EngineMsg::SetParam {
+            device_id: id::<DeviceMarker>(301),
+            param_id: notwig_dsp::stock::p_output_gain(),
+            value: ParamValue::F64(-60.0),
+            ramp: None,
+        })
+        .unwrap();
+    engine
+        .apply(EngineMsg::UpdateSchedule {
+            schedule: Arc::new(PlaybackSchedule::from_doc(&doc)),
+        })
+        .unwrap();
+    let output = engine.render_offline(0, 24_000).unwrap();
+    let peak = output
+        .iter()
+        .fold(0.0_f32, |acc, value| acc.max(value.abs()));
+    assert!(peak < 0.01, "nested device should attenuate, peak={peak}");
+}
+
+#[test]
 fn block_size_does_not_change_stock_audio() {
     let mut doc = base_doc();
     let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);

@@ -26,6 +26,7 @@ eframe.workspace = true
 egui.workspace = true
 cpal.workspace = true
 rfd.workspace = true
+mouse_position.workspace = true
 wgpu.workspace = true
 
 [lints]

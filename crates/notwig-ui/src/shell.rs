@@ -1,24 +1,28 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use egui::{Color32, Rect, RichText};
 use notwig_core::{ProjectDoc, TrackId, TrackKind};
 use notwig_dsp::DeviceRegistry;
 
-use crate::arranger::ClipDrag;
-use crate::device::EqDrag;
+use crate::arranger::{ClipDrag, TimeDrag};
+use crate::device::{DeviceBrowserState, EqDrag};
+use crate::drop_target::DragPreview;
+use crate::icons::{Icon, icon_button, icon_button_sized};
 use crate::intent::{DropAudioTarget, UiIntent};
 use crate::runtime::RuntimeView;
 use crate::state::{NotificationKind, UiState};
 use crate::theme;
-use crate::widgets::{format_beats, small_toggle};
+use crate::widgets::format_beats;
 
 pub struct NotwigUi {
     pub state: UiState,
     pub intents: Vec<UiIntent>,
     pub registry: DeviceRegistry,
     pub drag: Option<ClipDrag>,
+    pub time_drag: Option<TimeDrag>,
     pub clip_preview: Option<(notwig_core::ClipId, notwig_core::RangeMus, TrackId)>,
+    pub fade_preview: Option<(notwig_core::ClipId, u64, u64)>,
     pub show_notifications: bool,
     pub show_help: bool,
     pub track_rows: BTreeMap<TrackId, Rect>,
@@ -30,6 +34,18 @@ pub struct NotwigUi {
     pub eq_band: usize,
     pub eq_range: f32,
     pub eq_drag: Option<EqDrag>,
+    pub drag_preview: Option<DragPreview>,
+    pub duration_cache: HashMap<PathBuf, Option<f64>>,
+    pub expanded_chains: BTreeSet<notwig_core::DeviceChainId>,
+    pub device_browser: Option<DeviceBrowserState>,
+    pub show_info: bool,
+    pub platform_pointer: Option<egui::Pos2>,
+    pub analyzer_pre: bool,
+    pub analyzer_post: bool,
+    pub analyzer_resolution: usize,
+    pub analyzer_speed: usize,
+    pub analyzer_tilt: f32,
+    pub analyzer_range: (f32, f32),
     initialized: bool,
 }
 
@@ -40,7 +56,9 @@ impl Default for NotwigUi {
             intents: Vec::new(),
             registry: notwig_dsp::stock_registry(),
             drag: None,
+            time_drag: None,
             clip_preview: None,
+            fade_preview: None,
             show_notifications: false,
             show_help: false,
             track_rows: BTreeMap::new(),
@@ -52,6 +70,18 @@ impl Default for NotwigUi {
             eq_band: 1,
             eq_range: 10.0,
             eq_drag: None,
+            drag_preview: None,
+            duration_cache: HashMap::new(),
+            expanded_chains: BTreeSet::new(),
+            device_browser: None,
+            show_info: true,
+            platform_pointer: None,
+            analyzer_pre: true,
+            analyzer_post: false,
+            analyzer_resolution: 1,
+            analyzer_speed: 1,
+            analyzer_tilt: 4.5,
+            analyzer_range: (-100.0, 0.0),
             initialized: false,
         }
     }
@@ -72,13 +102,19 @@ impl NotwigUi {
         if let Some(pos) = ctx.input(|input| input.pointer.hover_pos()) {
             self.last_pointer = Some(pos);
         }
+        if let Some(pos) = self.platform_pointer {
+            self.last_pointer = Some(pos);
+        }
         self.sanitize(doc);
         self.handle_dropped_files(ctx, doc);
+        self.update_drag_preview(ctx, doc);
         self.track_rows.clear();
         self.handle_shortcuts(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
         self.device_panel(ctx, doc, runtime);
+        self.device_browser_window(ctx, doc, runtime);
+        self.info_panel(ctx, doc, runtime);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -95,6 +131,10 @@ impl NotwigUi {
         std::mem::take(&mut self.intents)
     }
 
+    pub fn set_platform_pointer(&mut self, pointer: Option<egui::Pos2>) {
+        self.platform_pointer = pointer;
+    }
+
     pub(crate) fn emit(&mut self, intent: UiIntent) {
         if !self.intents.contains(&intent) {
             self.intents.push(intent);
@@ -104,7 +144,7 @@ impl NotwigUi {
     pub fn selected_track(&self, doc: &ProjectDoc) -> Option<TrackId> {
         self.state
             .selection
-            .primary_track
+            .primary_track()
             .filter(|id| doc.tracks.contains_key(id))
             .or_else(|| {
                 self.state
@@ -135,12 +175,6 @@ impl NotwigUi {
             .selection
             .devices
             .retain(|id| doc.devices.contains_key(id));
-        if let Some(primary) = self.state.selection.primary_track {
-            if !doc.tracks.contains_key(&primary) {
-                self.state.selection.primary_track =
-                    self.state.selection.tracks.iter().next().copied();
-            }
-        }
         self.state.selection.notes.clear();
         if self
             .drag
@@ -187,7 +221,8 @@ impl NotwigUi {
                 self.emit(UiIntent::OpenProject);
             }
             if ctx.input(|i| i.key_pressed(egui::Key::D)) {
-                if let Some(clip) = self.state.selection.clips.iter().next().copied() {
+                let clip = self.state.selection.clips.iter().next().copied();
+                if let Some(clip) = clip {
                     self.emit(UiIntent::DuplicateClip { clip_id: clip });
                 }
             }
@@ -255,22 +290,32 @@ impl NotwigUi {
                         }
                     });
                     ui.separator();
-                    let play_label = if runtime.playing { "Stop" } else { "Play" };
-                    let play = egui::Button::new(play_label)
-                        .fill(theme::ACCENT)
-                        .corner_radius(egui::CornerRadius::same(4));
-                    if ui.add(play).clicked() {
+                    let play_icon = if runtime.playing {
+                        Icon::Pause
+                    } else {
+                        Icon::Play
+                    };
+                    if icon_button_sized(
+                        ui,
+                        play_icon,
+                        egui::vec2(28.0, 28.0),
+                        runtime.playing,
+                        if runtime.playing { "Pause" } else { "Play" },
+                    )
+                    .clicked()
+                    {
                         if runtime.playing {
-                            self.emit(UiIntent::Stop);
+                            self.emit(UiIntent::Pause);
                         } else {
                             self.emit(UiIntent::Play);
                         }
                     }
-                    if ui.button("Stop").clicked() {
+                    if icon_button(ui, Icon::Stop, false, "Stop").clicked() {
                         self.emit(UiIntent::Stop);
                     }
-                    let mut loop_value = doc.transport.loop_enabled;
-                    if small_toggle(ui, "L", &mut loop_value, theme::ACCENT) {
+                    if icon_button(ui, Icon::Loop, doc.transport.loop_enabled, "Toggle loop")
+                        .clicked()
+                    {
                         self.emit(UiIntent::ToggleLoop);
                     }
                     ui.separator();
@@ -287,6 +332,7 @@ impl NotwigUi {
                                 .monospace(),
                         );
                     });
+                    ui.separator();
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new("SIGNATURE")
@@ -323,19 +369,22 @@ impl NotwigUi {
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Render").clicked() {
+                        if icon_button(ui, Icon::Info, self.show_info, "Selection info").clicked() {
+                            self.show_info = !self.show_info;
+                        }
+                        if icon_button(ui, Icon::Render, false, "Render mixdown").clicked() {
                             self.emit(UiIntent::RenderMixdown);
                         }
-                        if ui.button("Help").clicked() {
+                        if icon_button(ui, Icon::Help, self.show_help, "Keyboard help").clicked() {
                             self.show_help = !self.show_help;
                         }
-                        if ui.button("Fit").clicked() {
+                        if icon_button(ui, Icon::Fit, false, "Fit arrangement").clicked() {
                             self.zoom_to_fit(doc);
                         }
-                        if ui.small_button("+").clicked() {
+                        if icon_button(ui, Icon::Plus, false, "Zoom in").clicked() {
                             self.state.viewport.zoom_by(1.25);
                         }
-                        if ui.small_button("−").clicked() {
+                        if icon_button(ui, Icon::Minus, false, "Zoom out").clicked() {
                             self.state.viewport.zoom_by(1.0 / 1.25);
                         }
                         ui.label(
@@ -356,8 +405,16 @@ impl NotwigUi {
 
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("File", |ui| {
-            if ui.button("New Project").clicked() {
+            if ui.button("New Project (48 kHz)").clicked() {
                 self.emit(UiIntent::NewProject);
+                ui.close();
+            }
+            if ui.button("New Project (44.1 kHz)").clicked() {
+                self.emit(UiIntent::NewProjectAtRate(44_100));
+                ui.close();
+            }
+            if ui.button("New Project (96 kHz)").clicked() {
+                self.emit(UiIntent::NewProjectAtRate(96_000));
                 ui.close();
             }
             if ui.button("Open Project…").clicked() {
@@ -485,6 +542,14 @@ impl NotwigUi {
                     ("Double-click empty lane", "Create 4-beat MIDI clip"),
                     ("Drag clip body / edges", "Move or trim clip"),
                     ("Right-click clip", "Mute, duplicate, delete"),
+                    (
+                        "Click ruler",
+                        "Set play start (does not move the playhead while playing)",
+                    ),
+                    (
+                        "Drag lower half of a lane",
+                        "Select a time range across lanes (Shift bypasses snap)",
+                    ),
                     ("Shift+drag ruler", "Set loop range"),
                     ("Middle-drag", "Pan timeline horizontally / zoom vertically"),
                     ("Pinch / two-finger swipe", "Zoom / pan the whole timeline"),
@@ -518,6 +583,65 @@ impl NotwigUi {
         );
     }
 
+    fn update_drag_preview(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
+        let hovered: Vec<PathBuf> = ctx.input(|input| {
+            input
+                .raw
+                .hovered_files
+                .iter()
+                .filter_map(|file| file.path.clone())
+                .collect()
+        });
+        let Some(path) = hovered.first().cloned() else {
+            self.drag_preview = None;
+            return;
+        };
+        let Some(pointer) = self
+            .last_pointer
+            .or_else(|| ctx.input(|input| input.pointer.latest_pos()))
+        else {
+            self.drag_preview = None;
+            return;
+        };
+        if !self.arranger_rect.contains(pointer) {
+            self.drag_preview = None;
+            return;
+        }
+        let Some(target) =
+            crate::drop_target::resolve_drop_target(doc, &self.track_rows, pointer.y)
+        else {
+            self.drag_preview = None;
+            return;
+        };
+        let seconds = if let Some(cached) = self.duration_cache.get(&path) {
+            *cached
+        } else {
+            let duration = notwig_project::decode_audio(&path)
+                .ok()
+                .map(|buffer| buffer.frame_count() as f64 / f64::from(buffer.sample_rate.max(1)));
+            self.duration_cache.insert(path.clone(), duration);
+            duration
+        };
+        let Some(seconds) = seconds else {
+            self.drag_preview = None;
+            return;
+        };
+        let beats = seconds * doc.meta.tempo_bpm / 60.0;
+        let duration = notwig_core::TimeMus::new(
+            (beats.max(1.0 / 16.0) * 1_000_000.0).round() as i64,
+            1_000_000,
+        );
+        self.drag_preview = Some(DragPreview {
+            path,
+            target,
+            at: crate::widgets::snap_16(
+                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
+                false,
+            ),
+            duration,
+        });
+    }
+
     fn handle_dropped_files(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
         let files: Vec<PathBuf> = ctx.input(|input| {
             input
@@ -530,33 +654,31 @@ impl NotwigUi {
         if files.is_empty() {
             return;
         }
-        let Some(pointer) = self
+        let preview = self.drag_preview.clone();
+        let pointer = self
             .last_pointer
-            .or_else(|| ctx.input(|input| input.pointer.latest_pos()))
+            .or_else(|| ctx.input(|input| input.pointer.latest_pos()));
+        let from_pointer = pointer.and_then(|pointer| {
+            if !self.arranger_rect.contains(pointer) {
+                return None;
+            }
+            let target = crate::drop_target::resolve_drop_target(doc, &self.track_rows, pointer.y)?;
+            let at = crate::widgets::snap_16(
+                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
+                false,
+            );
+            Some((target, at))
+        });
+        let Some((first_target, at)) =
+            from_pointer.or_else(|| preview.map(|preview| (preview.target, preview.at)))
         else {
-            return;
-        };
-        if !self.arranger_rect.contains(pointer) {
             self.state.notify(
                 NotificationKind::Warning,
                 "Drop audio files onto the timeline.",
             );
             return;
-        }
-        let Some(first_target) =
-            crate::drop_target::resolve_drop_target(doc, &self.track_rows, pointer.y)
-        else {
-            self.state.notify(
-                NotificationKind::Warning,
-                "Drop audio on an audio lane or between tracks to create one.",
-            );
-            return;
         };
         let order: Vec<TrackId> = doc.track_order.depth_first();
-        let at = crate::widgets::snap_16(
-            self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
-            false,
-        );
         for (file_index, file) in files.into_iter().enumerate() {
             let target = match (file_index, first_target) {
                 (0, target) => target,

@@ -144,3 +144,67 @@ fn extended_80(value: f64) -> [u8; 10] {
     bytes[2..10].copy_from_slice(&mantissa.to_be_bytes());
     bytes
 }
+
+#[test]
+fn decodes_mp3_at_its_own_sample_rate() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.mp3");
+    let decoded = notwig_project::decode_audio(&path).unwrap();
+    assert_eq!(decoded.sample_rate, 44_100);
+    assert_eq!(decoded.channels, 1);
+    assert!(decoded.frame_count() > 1000);
+}
+
+#[test]
+fn imports_mp3_and_resamples_to_project_rate() {
+    let dir = temp_dir();
+    let bundle = dir.join("Mp3.notwig");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.mp3");
+    let imported = import_asset(&source, &bundle, id::<Asset>(501), 48_000).unwrap();
+    assert_eq!(imported.entry.sample_rate, Some(48_000));
+    assert_eq!(imported.entry.original_sample_rate, Some(44_100));
+    assert_eq!(imported.entry.channels, Some(2));
+    assert!(imported.buffer.frame_count() > 1000);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn decodes_integer_and_float_wav() {
+    let dir = temp_dir();
+    let int_path = dir.join("int.wav");
+    let float_path = dir.join("float.wav");
+    let int_spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 44_100,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut int_writer = hound::WavWriter::create(&int_path, int_spec).unwrap();
+    for sample in [0i16, 1000, -1000, 2000] {
+        int_writer.write_sample(sample).unwrap();
+    }
+    int_writer.finalize().unwrap();
+
+    let float_spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: 48_000,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut float_writer = hound::WavWriter::create(&float_path, float_spec).unwrap();
+    for sample in [0.0_f32, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1.0] {
+        float_writer.write_sample(sample).unwrap();
+    }
+    float_writer.finalize().unwrap();
+
+    let int_decoded = notwig_project::decode_audio(&int_path).unwrap();
+    assert_eq!(int_decoded.sample_rate, 44_100);
+    assert_eq!(int_decoded.channels, 1);
+    assert_eq!(int_decoded.frame_count(), 4);
+
+    let float_decoded = notwig_project::decode_audio(&float_path).unwrap();
+    assert_eq!(float_decoded.sample_rate, 48_000);
+    assert_eq!(float_decoded.channels, 2);
+    assert_eq!(float_decoded.frame_count(), 4);
+    std::fs::remove_dir_all(dir).unwrap();
+}

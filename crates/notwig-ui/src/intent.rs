@@ -12,6 +12,7 @@ pub enum UiIntent {
     Stop,
     ToggleLoop,
     SetPlayhead(TimeMus),
+    SetPlayStart(TimeMus),
     SetLoopRange(RangeMus),
     SelectTrack(TrackId),
     SelectClip(ClipId),
@@ -36,6 +37,11 @@ pub enum UiIntent {
         clip_id: ClipId,
         muted: bool,
     },
+    SetClipFades {
+        clip_id: ClipId,
+        fade_in_samples: u64,
+        fade_out_samples: u64,
+    },
     DuplicateClip {
         clip_id: ClipId,
     },
@@ -55,12 +61,14 @@ pub enum UiIntent {
         chain_id: DeviceChainId,
         type_id: String,
         kind: DeviceKind,
+        index: Option<usize>,
     },
     InsertPlugin {
         track_id: TrackId,
         chain_id: DeviceChainId,
         type_id: String,
         kind: DeviceKind,
+        index: Option<usize>,
     },
     ImportAudio,
     DropAudio {
@@ -84,6 +92,7 @@ pub enum UiIntent {
     },
     RelinkAsset(AssetId),
     NewProject,
+    NewProjectAtRate(u32),
     OpenProject,
     Save,
     SaveAs,

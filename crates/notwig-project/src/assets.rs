@@ -24,175 +24,98 @@ pub fn decode_audio(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
         .unwrap_or("")
         .to_ascii_lowercase();
     match extension.as_str() {
-        "wav" | "wave" => decode_wav(path),
-        "aif" | "aiff" | "aifc" => decode_aiff(path),
+        "wav" | "wave" | "aif" | "aiff" | "aifc" | "mp3" | "flac" | "ogg" | "oga" => {
+            decode_symphonia(path)
+        }
         other => Err(ProjectError::UnsupportedAudio(format!(
             "unsupported extension '{other}'"
         ))),
     }
 }
 
-fn decode_wav(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
-    let mut reader = hound::WavReader::open(path)
-        .map_err(|err| ProjectError::Decode(format!("wav open: {err}")))?;
-    let spec = reader.spec();
-    let channels = spec.channels;
-    let samples: Vec<f32> = reader
-        .samples::<f32>()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| ProjectError::Decode(format!("wav samples: {err}")))?;
-    Ok(AudioAssetBuffer {
-        sample_rate: spec.sample_rate,
-        channels,
-        samples,
-    })
-}
+fn decode_symphonia(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
+    use symphonia::core::audio::SampleBuffer;
+    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::errors::Error as SymphoniaError;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
 
-fn decode_aiff(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
-    let bytes = std::fs::read(path)?;
-    if bytes.len() < 12 || &bytes[0..4] != b"FORM" {
-        return Err(ProjectError::Decode("not an AIFF file".into()));
+    let file = Box::new(std::fs::File::open(path)?);
+    let stream = MediaSourceStream::new(file, MediaSourceStreamOptions::default());
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
+        hint.with_extension(extension);
     }
-    let form = &bytes[8..12];
-    let is_aifc = form == b"AIFC";
-    if form != b"AIFF" && !is_aifc {
-        return Err(ProjectError::Decode("unsupported AIFF form".into()));
-    }
-    let mut offset = 12usize;
-    let mut channels = 0u16;
-    let mut frames = 0u32;
-    let mut bits = 0u16;
-    let mut sample_rate = 0u32;
-    let mut compression = *b"NONE";
-    let mut sound_data: Option<&[u8]> = None;
-    while offset + 8 <= bytes.len() {
-        let id = &bytes[offset..offset + 4];
-        let size = u32::from_be_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
-        let data_start = offset + 8;
-        let data_end = data_start.saturating_add(size).min(bytes.len());
-        let data = &bytes[data_start..data_end];
-        match id {
-            b"COMM" => {
-                if data.len() < 18 {
-                    return Err(ProjectError::Decode("short COMM chunk".into()));
-                }
-                channels = u16::from_be_bytes(data[0..2].try_into().unwrap());
-                frames = u32::from_be_bytes(data[2..6].try_into().unwrap());
-                bits = u16::from_be_bytes(data[6..8].try_into().unwrap());
-                let rate = read_extended_80(&data[8..18]);
-                sample_rate = rate.round() as u32;
-                if is_aifc && data.len() >= 22 {
-                    compression.copy_from_slice(&data[18..22]);
-                }
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            stream,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|err| ProjectError::Decode(format!("probe: {err}")))?;
+    let mut format = probed.format;
+    let track = format
+        .default_track()
+        .ok_or_else(|| ProjectError::Decode("no audio track".into()))?;
+    let track_id = track.id;
+    let params = track.codec_params.clone();
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&params, &DecoderOptions::default())
+        .map_err(|err| ProjectError::Decode(format!("decoder: {err}")))?;
+    let mut samples = Vec::new();
+    let mut sample_rate = params.sample_rate.unwrap_or(0);
+    let mut channels = params
+        .channels
+        .map_or(0, symphonia::core::audio::Channels::count);
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(SymphoniaError::IoError(error))
+                if error.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
             }
-            b"SSND" => {
-                if data.len() < 8 {
-                    return Err(ProjectError::Decode("short SSND chunk".into()));
-                }
-                let data_offset = u32::from_be_bytes(data[0..4].try_into().unwrap()) as usize;
-                let start = 8usize.saturating_add(data_offset);
-                if start < data.len() {
-                    sound_data = Some(&data[start..]);
-                }
+            Err(SymphoniaError::ResetRequired) => {
+                return Err(ProjectError::Decode(
+                    "decoder reset required; chained streams are unsupported".into(),
+                ));
             }
-            _ => {}
-        }
-        offset = data_end + (size & 1);
-    }
-    let data = sound_data.ok_or_else(|| ProjectError::Decode("missing SSND chunk".into()))?;
-    if channels == 0 || sample_rate == 0 || bits == 0 {
-        return Err(ProjectError::Decode("invalid COMM chunk".into()));
-    }
-    let little_endian = is_aifc && &compression == b"sowt";
-    let float = is_aifc && (&compression == b"fl32" || &compression == b"FL32");
-    let double = is_aifc && (&compression == b"fl64" || &compression == b"FL64");
-    let bytes_per_sample = usize::from(bits / 8);
-    if bytes_per_sample == 0 {
-        return Err(ProjectError::Decode("invalid sample width".into()));
-    }
-    let expected = frames as usize * channels as usize * bytes_per_sample;
-    if data.len() < expected {
-        return Err(ProjectError::Decode("truncated sound data".into()));
-    }
-    let mut samples = Vec::with_capacity(frames as usize * channels as usize);
-    for index in 0..frames as usize * channels as usize {
-        let start = index * bytes_per_sample;
-        let raw = &data[start..start + bytes_per_sample];
-        let value = if float && bytes_per_sample == 4 {
-            f64::from(f32::from_bits(read_u32(raw, little_endian)))
-        } else if double && bytes_per_sample == 8 {
-            f64::from_bits(read_u64(raw, little_endian))
-        } else {
-            match bits {
-                8 => f64::from(i8::from_ne_bytes([raw[0]])) / 128.0,
-                16 => {
-                    let value = if little_endian {
-                        i16::from_le_bytes(raw.try_into().unwrap())
-                    } else {
-                        i16::from_be_bytes(raw.try_into().unwrap())
-                    };
-                    f64::from(value) / 32_768.0
-                }
-                24 => {
-                    let mut bytes3 = [0u8; 3];
-                    bytes3.copy_from_slice(raw);
-                    let value = if little_endian {
-                        i32::from_le_bytes([bytes3[0], bytes3[1], bytes3[2], 0]) >> 8
-                    } else {
-                        i32::from_be_bytes([0, bytes3[0], bytes3[1], bytes3[2]]) >> 8
-                    };
-                    f64::from(value) / 8_388_608.0
-                }
-                32 => {
-                    let value = if little_endian {
-                        i32::from_le_bytes(raw.try_into().unwrap())
-                    } else {
-                        i32::from_be_bytes(raw.try_into().unwrap())
-                    };
-                    f64::from(value) / 2_147_483_648.0
-                }
-                _ => {
-                    return Err(ProjectError::UnsupportedAudio(format!(
-                        "unsupported AIFF sample width {bits}"
-                    )));
-                }
-            }
+            Err(err) => return Err(ProjectError::Decode(format!("packet: {err}"))),
         };
-        samples.push(value as f32);
+        if packet.track_id() != track_id {
+            continue;
+        }
+        let frame = match decoder.decode(&packet) {
+            Ok(frame) => frame,
+            Err(SymphoniaError::DecodeError(_)) => continue,
+            Err(SymphoniaError::IoError(error))
+                if error.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
+            Err(err) => return Err(ProjectError::Decode(format!("decode: {err}"))),
+        };
+        let spec = *frame.spec();
+        sample_rate = spec.rate;
+        channels = spec.channels.count();
+        let mut buffer = SampleBuffer::<f32>::new(frame.capacity() as u64, spec);
+        buffer.copy_interleaved_ref(frame);
+        samples.extend_from_slice(buffer.samples());
+    }
+    if sample_rate == 0 || channels == 0 {
+        return Err(ProjectError::Decode(
+            "empty or unsupported audio stream".into(),
+        ));
     }
     Ok(AudioAssetBuffer {
         sample_rate,
-        channels,
+        channels: u16::try_from(channels)
+            .map_err(|_| ProjectError::UnsupportedAudio("too many channels".into()))?,
         samples,
     })
-}
-
-fn read_u32(bytes: &[u8], little_endian: bool) -> u32 {
-    if little_endian {
-        u32::from_le_bytes(bytes.try_into().unwrap())
-    } else {
-        u32::from_be_bytes(bytes.try_into().unwrap())
-    }
-}
-
-fn read_u64(bytes: &[u8], little_endian: bool) -> u64 {
-    if little_endian {
-        u64::from_le_bytes(bytes.try_into().unwrap())
-    } else {
-        u64::from_be_bytes(bytes.try_into().unwrap())
-    }
-}
-
-fn read_extended_80(bytes: &[u8]) -> f64 {
-    let sign = if bytes[0] & 0x80 != 0 { -1.0 } else { 1.0 };
-    let exponent = (i32::from(bytes[0] & 0x7f) << 8) | i32::from(bytes[1]);
-    let mantissa = u64::from_be_bytes([
-        bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-    ]);
-    if exponent == 0 && mantissa == 0 {
-        return 0.0;
-    }
-    sign * (mantissa as f64 / 2.0_f64.powi(63)) * 2.0_f64.powi(exponent - 16383)
 }
 
 pub fn resample(

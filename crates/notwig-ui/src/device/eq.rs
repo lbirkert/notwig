@@ -380,7 +380,7 @@ impl NotwigUi {
         self.eq_band_controls(ui, device, band);
     }
 
-    fn device_values(&self, device: &DeviceInstance) -> BTreeMap<ParamId, ParamValue> {
+    pub(crate) fn device_values(&self, device: &DeviceInstance) -> BTreeMap<ParamId, ParamValue> {
         let mut values = BTreeMap::new();
         if let Some(spec) = self.registry.resolve(&device.type_id, device.version) {
             for param in &spec.params {
@@ -416,17 +416,18 @@ impl NotwigUi {
                     }
                 });
             let enabled = !matches!(values.get(&enabled_id), Some(ParamValue::Bool(false)));
-            let power = if enabled { "⏻" } else { "○" };
-            if ui
-                .add(
-                    egui::Button::new(RichText::new(power).color(if enabled {
-                        theme::ACCENT
-                    } else {
-                        theme::TEXT_MUTED
-                    }))
-                    .frame(false),
-                )
-                .clicked()
+            if crate::icons::icon_button_sized(
+                ui,
+                crate::icons::Icon::Power,
+                Vec2::new(24.0, 20.0),
+                enabled,
+                if enabled {
+                    "Disable band"
+                } else {
+                    "Enable band"
+                },
+            )
+            .clicked()
             {
                 self.emit(UiIntent::SetParam {
                     device_id: device.id,

@@ -1,8 +1,5 @@
-use egui::{Color32, CornerRadius, Ui};
 use notwig_core::{Db, TimeMus};
 use notwig_dsp::Unit;
-
-use crate::theme;
 
 pub fn snap_16(time: TimeMus, bypass: bool) -> TimeMus {
     const GRID: f64 = 16.0;
@@ -46,21 +43,4 @@ pub fn format_param(unit: Unit, value: f64) -> String {
         Unit::Semitones => format!("{value:+.1} st"),
         Unit::None => format!("{value:.2}"),
     }
-}
-
-pub fn small_toggle(ui: &mut Ui, label: &str, active: &mut bool, color: Color32) -> bool {
-    let mut changed = false;
-    let text = egui::RichText::new(label).color(if *active {
-        Color32::BLACK
-    } else {
-        theme::TEXT_MUTED
-    });
-    let button = egui::Button::new(text)
-        .fill(if *active { color } else { theme::PANEL_LIGHT })
-        .corner_radius(CornerRadius::same(3));
-    if ui.add_sized([18.0, 16.0], button).clicked() {
-        *active = !*active;
-        changed = true;
-    }
-    changed
 }

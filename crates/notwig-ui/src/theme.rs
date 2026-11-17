@@ -1,4 +1,6 @@
-use egui::{Color32, CornerRadius, Stroke};
+use egui::{
+    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle,
+};
 
 pub const ACCENT: Color32 = Color32::from_rgb(255, 166, 66);
 pub const ACCENT_DIM: Color32 = Color32::from_rgb(138, 86, 32);
@@ -15,6 +17,7 @@ pub const CLIP_MIDI: Color32 = Color32::from_rgb(126, 170, 96);
 pub const SELECTION: Color32 = Color32::from_rgb(255, 210, 120);
 
 pub fn apply(ctx: &egui::Context) {
+    install_fonts(ctx);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = PANEL;
     visuals.window_fill = PANEL_LIGHT;
@@ -34,5 +37,44 @@ pub fn apply(ctx: &egui::Context) {
     style.spacing.button_padding = egui::vec2(8.0, 3.0);
     style.spacing.slider_width = 120.0;
     style.spacing.interact_size.y = 22.0;
+    style
+        .text_styles
+        .insert(TextStyle::Small, FontId::new(10.0, FontFamily::Monospace));
+    style
+        .text_styles
+        .insert(TextStyle::Body, FontId::new(12.5, FontFamily::Proportional));
+    style.text_styles.insert(
+        TextStyle::Button,
+        FontId::new(12.0, FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        TextStyle::Monospace,
+        FontId::new(12.0, FontFamily::Monospace),
+    );
+    style
+        .text_styles
+        .insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Monospace));
     ctx.set_style(style);
+}
+
+fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+    fonts.font_data.insert(
+        "jetbrains_mono".into(),
+        FontData::from_static(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")).into(),
+    );
+    fonts.font_data.insert(
+        "jetbrains_mono_bold".into(),
+        FontData::from_static(include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")).into(),
+    );
+    fonts.font_data.insert(
+        "lucide".into(),
+        FontData::from_static(include_bytes!("../assets/fonts/lucide.ttf")).into(),
+    );
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        let family_fonts = fonts.families.entry(family).or_default();
+        family_fonts.insert(0, "jetbrains_mono".into());
+        family_fonts.push("lucide".into());
+    }
+    ctx.set_fonts(fonts);
 }
