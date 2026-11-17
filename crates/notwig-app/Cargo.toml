@@ -1,0 +1,27 @@
+[package]
+name = "notwig-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "notwig"
+path = "src/main.rs"
+
+[dependencies]
+notwig-core.workspace = true
+notwig-project.workspace = true
+notwig-dsp.workspace = true
+notwig-engine.workspace = true
+notwig-plugins.workspace = true
+notwig-ui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+hound.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

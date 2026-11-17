@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/notwig-core",
+    "crates/notwig-project",
+    "crates/notwig-dsp",
+    "crates/notwig-engine",
+    "crates/notwig-plugins",
+    "crates/notwig-ui",
+    "crates/notwig-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MPL-2.0"
+repository = "https://github.com/anomalyco/notwig"
+
+[workspace.dependencies]
+notwig-core = { path = "crates/notwig-core" }
+notwig-project = { path = "crates/notwig-project" }
+notwig-dsp = { path = "crates/notwig-dsp" }
+notwig-engine = { path = "crates/notwig-engine" }
+notwig-plugins = { path = "crates/notwig-plugins" }
+notwig-ui = { path = "crates/notwig-ui" }
+
+crossbeam-queue = "0.3"
+hound = "3.5"
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+many_single_char_names = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
