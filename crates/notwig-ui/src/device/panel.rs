@@ -114,7 +114,8 @@ impl NotwigUi {
                 continue;
             };
             self.device_card(ui, doc, runtime, &device, track_id, depth);
-            if device.kind == DeviceKind::Container {
+            if !self.collapsed_devices.contains(&device.id) && device.kind == DeviceKind::Container
+            {
                 if let Some(child_chain) = device.child_chains.first().copied() {
                     if self.expanded_chains.contains(&child_chain) {
                         self.device_chain(ui, doc, runtime, track_id, child_chain, depth + 1);
@@ -157,28 +158,36 @@ impl NotwigUi {
         depth: usize,
     ) {
         let selected = self.state.selection.devices.contains(&device.id);
-        let width = card_width(device);
+        let collapsed = self.collapsed_devices.contains(&device.id);
+        let expanded_width = card_width(device);
+        let width = if collapsed {
+            HANDLE_WIDTH + 2.0
+        } else {
+            expanded_width
+        };
         let bar_space = 2.0 + (depth + 1) as f32 * 4.0;
-        egui::Frame::new()
-            .fill(theme::PANEL)
-            .stroke(Stroke::new(
-                1.0_f32,
-                if selected { theme::ACCENT } else { theme::GRID },
-            ))
-            .corner_radius(CornerRadius::same(6))
-            .inner_margin(egui::Margin::symmetric(6, 6))
-            .show(ui, |ui| {
-                ui.push_id(("device-card", device.id), |ui| {
-                    ui.set_width(width);
-                    ui.set_min_height(DEVICE_CARD_HEIGHT - 12.0);
-                    nest_bars(ui, width, depth, bar_space);
-                    let body_height = DEVICE_CARD_HEIGHT - 12.0 - bar_space;
-                    ui.horizontal_top(|ui| {
-                        self.device_handle(ui, device, track_id, body_height, selected);
-                        self.device_body(ui, doc, runtime, device, body_height);
+        let body_height = DEVICE_CARD_HEIGHT - bar_space - 2.0;
+        ui.vertical(|ui| {
+            ui.set_width(width);
+            nest_bars(ui, width, depth, bar_space);
+            egui::Frame::new()
+                .fill(theme::PANEL)
+                .stroke(Stroke::new(1.0_f32, theme::GRID))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(egui::Margin::ZERO)
+                .show(ui, |ui| {
+                    ui.push_id(("device-card", device.id), |ui| {
+                        ui.set_width(width);
+                        ui.set_min_height(body_height);
+                        ui.horizontal_top(|ui| {
+                            self.device_handle(ui, device, track_id, body_height, selected);
+                            if !collapsed {
+                                self.device_body(ui, doc, runtime, device, body_height);
+                            }
+                        });
                     });
                 });
-            });
+        });
         ui.add_space(2.0);
     }
 
@@ -254,12 +263,24 @@ impl NotwigUi {
             Vec2::splat(13.0),
         );
         crate::icons::paint(painter, info_rect, Icon::Info, theme::TEXT_MUTED);
-        if response.clicked() && !power.clicked() {
+        if response.double_clicked() && !power.clicked() {
+            if self.collapsed_devices.contains(&device.id) {
+                self.collapsed_devices.remove(&device.id);
+            } else {
+                self.collapsed_devices.insert(device.id);
+            }
+        } else if response.clicked() && !power.clicked() {
             let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
             self.state
                 .selection
                 .select_device(device.id, track_id, additive);
         }
+        response.context_menu(|ui| {
+            if ui.button("Remove device").clicked() {
+                self.emit(UiIntent::RemoveDevice(device.id));
+                ui.close();
+            }
+        });
     }
 
     fn device_body(
@@ -270,52 +291,43 @@ impl NotwigUi {
         device: &DeviceInstance,
         height: f32,
     ) {
-        ui.allocate_ui_with_layout(
-            Vec2::new(card_width(device) - HANDLE_WIDTH - 14.0, height),
-            Layout::top_down(Align::Min),
-            |ui| {
-                ui.spacing_mut().interact_size.y = 16.0;
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.horizontal(|ui| {
-                    if device.kind == DeviceKind::Container {
-                        let expanded = device
-                            .child_chains
-                            .first()
-                            .is_some_and(|chain| self.expanded_chains.contains(chain));
-                        if ui.selectable_label(expanded, "CHAIN").clicked() {
-                            if let Some(child_chain) = device.child_chains.first().copied() {
-                                if expanded {
-                                    self.expanded_chains.remove(&child_chain);
-                                } else {
-                                    self.expanded_chains.insert(child_chain);
+        let body_width = card_width(device) - HANDLE_WIDTH - 2.0;
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(6, 4))
+            .show(ui, |ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(body_width - 12.0, height - 8.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.spacing_mut().interact_size.y = 16.0;
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        if device.kind == DeviceKind::Container {
+                            let expanded = device
+                                .child_chains
+                                .first()
+                                .is_some_and(|chain| self.expanded_chains.contains(chain));
+                            if chain_tab(ui, expanded) {
+                                if let Some(child_chain) = device.child_chains.first().copied() {
+                                    if expanded {
+                                        self.expanded_chains.remove(&child_chain);
+                                    } else {
+                                        self.expanded_chains.insert(child_chain);
+                                    }
                                 }
                             }
+                            ui.add_space(4.0);
                         }
-                    } else {
-                        ui.label(RichText::new(self.device_name(device)).strong());
-                    }
-                    ui.label(
-                        RichText::new(device_kind_label(device.kind))
-                            .small()
-                            .color(theme::TEXT_MUTED),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("×").clicked() {
-                            self.emit(UiIntent::RemoveDevice(device.id));
+                        if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
+                            self.eq_card_body(ui, device, f64::from(doc.meta.sample_rate.value()));
+                        } else if device.kind == DeviceKind::Container {
+                            self.chain_body(ui, device);
+                        } else {
+                            self.param_editor(ui, device);
                         }
-                    });
-                });
-                ui.separator();
-                if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
-                    self.eq_card_body(ui, device, f64::from(doc.meta.sample_rate.value()));
-                } else if device.kind == DeviceKind::Container {
-                    self.chain_body(ui, device);
-                } else {
-                    self.param_editor(ui, device);
-                }
-                let _ = runtime;
-            },
-        );
+                        let _ = runtime;
+                    },
+                );
+            });
     }
 
     fn chain_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
@@ -400,13 +412,55 @@ fn nesting_color(depth: usize) -> Color32 {
     COLORS[depth.min(COLORS.len() - 1)]
 }
 
-fn device_kind_label(kind: DeviceKind) -> &'static str {
-    match kind {
-        DeviceKind::Instrument => "INSTRUMENT",
-        DeviceKind::AudioFx => "AUDIO FX",
-        DeviceKind::NoteFx => "NOTE FX",
-        DeviceKind::Container => "CONTAINER",
+fn chain_tab(ui: &mut egui::Ui, expanded: bool) -> bool {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(84.0, 24.0), Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 0,
+            se: 0,
+        },
+        if response.hovered() {
+            theme::GRID_STRONG
+        } else {
+            Color32::from_rgb(20, 21, 25)
+        },
+    );
+    painter.rect_stroke(
+        rect,
+        CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 0,
+            se: 0,
+        },
+        Stroke::new(1.0_f32, theme::GRID),
+        StrokeKind::Inside,
+    );
+    if expanded {
+        painter.line_segment(
+            [
+                egui::pos2(rect.left() + 1.0, rect.bottom() - 1.0),
+                egui::pos2(rect.right() - 1.0, rect.bottom() - 1.0),
+            ],
+            Stroke::new(2.0_f32, theme::ACCENT),
+        );
     }
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "CHAIN",
+        FontId::monospace(10.0),
+        if expanded {
+            Color32::WHITE
+        } else {
+            theme::TEXT_MUTED
+        },
+    );
+    response.clicked()
 }
 
 fn knob(ui: &mut egui::Ui, norm: &mut f32, label: &str, value: &str) -> bool {

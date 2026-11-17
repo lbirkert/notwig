@@ -37,6 +37,7 @@ pub struct NotwigUi {
     pub drag_preview: Option<DragPreview>,
     pub duration_cache: HashMap<PathBuf, Option<f64>>,
     pub expanded_chains: BTreeSet<notwig_core::DeviceChainId>,
+    pub collapsed_devices: BTreeSet<notwig_core::DeviceId>,
     pub device_browser: Option<DeviceBrowserState>,
     pub show_info: bool,
     pub platform_pointer: Option<egui::Pos2>,
@@ -73,6 +74,7 @@ impl Default for NotwigUi {
             drag_preview: None,
             duration_cache: HashMap::new(),
             expanded_chains: BTreeSet::new(),
+            collapsed_devices: BTreeSet::new(),
             device_browser: None,
             show_info: true,
             platform_pointer: None,
@@ -234,8 +236,17 @@ impl NotwigUi {
             self.state.selection.clear();
         }
         if delete {
+            let devices: Vec<_> = self.state.selection.devices.iter().copied().collect();
             let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
-            if clips.is_empty() {
+            if !devices.is_empty() {
+                for device in devices {
+                    self.emit(UiIntent::RemoveDevice(device));
+                }
+            } else if !clips.is_empty() {
+                for clip in clips {
+                    self.emit(UiIntent::DeleteClip(clip));
+                }
+            } else {
                 for track in self
                     .state
                     .selection
@@ -251,10 +262,6 @@ impl NotwigUi {
                     {
                         self.emit(UiIntent::DeleteTrack(track));
                     }
-                }
-            } else {
-                for clip in clips {
-                    self.emit(UiIntent::DeleteClip(clip));
                 }
             }
         }
