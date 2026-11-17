@@ -140,6 +140,9 @@ impl PluginHost {
         else {
             return Err(PluginError::BackendUnavailable(descriptor.format));
         };
+        if !self.cache.records().contains_key(&descriptor.type_id) {
+            self.cache.record(descriptor.clone());
+        }
         match adapter.load(descriptor) {
             Ok(instance) => Ok(instance),
             Err(err) => {
