@@ -251,13 +251,6 @@ impl NotwigUi {
                         }
                     });
                     ui.separator();
-                    let title = if runtime.dirty {
-                        format!("{} *", doc.meta.name)
-                    } else {
-                        doc.meta.name.clone()
-                    };
-                    ui.label(RichText::new(title).strong());
-                    ui.separator();
                     let play_label = if runtime.playing { "Pause" } else { "Play" };
                     let play = egui::Button::new(play_label)
                         .fill(theme::ACCENT)

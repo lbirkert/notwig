@@ -27,6 +27,7 @@ pub struct ClipDrag {
     pub track_id: TrackId,
     pub mode: ClipDragMode,
     pub origin: RangeMus,
+    pub start_pointer: egui::Pos2,
 }
 
 impl NotwigUi {
@@ -770,6 +771,7 @@ impl NotwigUi {
                     track_id,
                     mode,
                     origin: clip.range,
+                    start_pointer: pos,
                 });
                 self.state.selection.clips.clear();
                 self.state.selection.clips.insert(clip_id);
@@ -779,7 +781,11 @@ impl NotwigUi {
         if response.dragged() {
             if let Some(drag) = self.drag {
                 let alt = ui.input(|i| i.modifiers.alt);
-                let delta = f64::from(response.drag_delta().x) / f64::from(ppb);
+                let current = response
+                    .interact_pointer_pos()
+                    .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                    .unwrap_or(drag.start_pointer);
+                let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
                 let range = drag_range(drag, delta, alt);
                 let target = if drag.mode == ClipDragMode::Move {
                     ui.input(|i| i.pointer.hover_pos())
@@ -1005,5 +1011,33 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool) -> RangeMus {
                 drag.origin
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_keeps_pointer_beat_stable() {
+        let mut ui = NotwigUi::default();
+        ui.timeline_left = 230.0;
+        ui.state.viewport.pixels_per_beat = 64.0;
+        ui.state.viewport.start = TimeMus::zero();
+        ui.zoom_at(430.0, 2.0);
+        assert!((ui.state.viewport.pixels_per_beat - 128.0).abs() < 1e-3);
+        let beat = ui.state.viewport.start.as_f64()
+            + f64::from((430.0 - ui.timeline_left) / ui.state.viewport.pixels_per_beat);
+        assert!((beat - 3.125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn panning_clamps_at_zero() {
+        let mut ui = NotwigUi::default();
+        ui.state.viewport.start = TimeMus::new(10, 1);
+        ui.pan_beats(-4.0);
+        assert_eq!(ui.state.viewport.start, TimeMus::new(6, 1));
+        ui.pan_beats(-100.0);
+        assert_eq!(ui.state.viewport.start, TimeMus::zero());
     }
 }

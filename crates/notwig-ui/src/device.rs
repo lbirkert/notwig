@@ -28,6 +28,7 @@ pub struct EqDrag {
     start_freq: f64,
     start_gain: f64,
     start_q: f64,
+    start_pointer: egui::Pos2,
 }
 
 impl NotwigUi {
@@ -282,7 +283,11 @@ impl NotwigUi {
                             });
                             ui.separator();
                             if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
-                                self.eq_card_body(ui, device);
+                                self.eq_card_body(
+                                    ui,
+                                    device,
+                                    f64::from(doc.meta.sample_rate.value()),
+                                );
                             } else {
                                 self.param_editor(ui, device);
                             }
@@ -293,7 +298,7 @@ impl NotwigUi {
         ui.add_space(6.0);
     }
 
-    fn eq_curve(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
+    fn eq_curve(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, sample_rate: f64) {
         let height = 150.0;
         let (rect, response) = ui.allocate_exact_size(
             Vec2::new(ui.available_width().max(220.0), height),
@@ -370,12 +375,7 @@ impl NotwigUi {
                 );
             }
         }
-        let values: BTreeMap<ParamId, ParamValue> = device
-            .param_values
-            .iter()
-            .map(|(id, value)| (*id, value.clone()))
-            .collect();
-        let sample_rate = 48_000.0;
+        let values = self.device_values(device);
         let mut points = Vec::with_capacity(240);
         for index in 0..=240u32 {
             let t = f64::from(index) / 240.0;
@@ -431,9 +431,17 @@ impl NotwigUi {
                 enabled,
             ));
         }
-        let mut handle_rect = None;
+        let hover_pos = response.hover_pos();
+        let hovered_band = hover_pos.and_then(|pos| {
+            point_positions
+                .iter()
+                .find(|(_, point, _)| pos.distance(*point) <= 14.0)
+                .map(|(band_index, _, _)| *band_index)
+        });
+        let mut handles = Vec::new();
         for (band_index, pos, enabled) in &point_positions {
             let active = *band_index == band;
+            let show_handle = active || Some(*band_index) == hovered_band;
             let fill = if !enabled {
                 Color32::from_gray(95)
             } else if active {
@@ -461,12 +469,20 @@ impl NotwigUi {
                 FontId::proportional(10.0),
                 Color32::from_black_alpha(220),
             );
-            if active {
+            if show_handle {
                 let handle = Rect::from_center_size(
                     egui::pos2(pos.x, (pos.y - 22.0).max(rect.top() + 8.0)),
                     Vec2::new(22.0, 13.0),
                 );
-                painter.rect_filled(handle, CornerRadius::same(6), Color32::WHITE);
+                painter.rect_filled(
+                    handle,
+                    CornerRadius::same(6),
+                    if active {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_gray(225)
+                    },
+                );
                 painter.text(
                     handle.center(),
                     Align2::CENTER_CENTER,
@@ -474,13 +490,16 @@ impl NotwigUi {
                     FontId::proportional(10.0),
                     Color32::from_black_alpha(190),
                 );
-                handle_rect = Some(handle);
+                handles.push((*band_index, handle));
             }
         }
         if response.drag_started() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let mut started = None;
-                if handle_rect.is_some_and(|handle| handle.contains(pos)) {
+                if let Some((band_index, _)) =
+                    handles.iter().find(|(_, handle)| handle.contains(pos))
+                {
+                    self.eq_band = *band_index;
                     started = Some(EqDragMode::Q);
                 } else {
                     for (band_index, point, _) in &point_positions {
@@ -512,6 +531,7 @@ impl NotwigUi {
                         start_freq: freq,
                         start_gain: gain,
                         start_q: q,
+                        start_pointer: pos,
                     });
                 }
             }
@@ -528,7 +548,10 @@ impl NotwigUi {
         }
         if response.dragged() {
             if let Some(drag) = self.eq_drag {
-                let delta = response.drag_delta();
+                let Some(current) = response.interact_pointer_pos() else {
+                    return;
+                };
+                let delta = current - drag.start_pointer;
                 let width = rect.width().max(1.0);
                 let frequency_factor =
                     (f64::from(delta.x) / f64::from(width)) * (max_f / min_f).ln();
@@ -575,14 +598,7 @@ impl NotwigUi {
         });
     }
 
-    fn eq_card_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
-        let Some(spec) = self
-            .registry
-            .resolve(&device.type_id, device.version)
-            .cloned()
-        else {
-            return;
-        };
+    fn eq_card_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, sample_rate: f64) {
         let band = self.eq_band.min(3);
         let shift_id = notwig_dsp::stock::p_eq_shift();
         let gain_id = notwig_dsp::stock::p_eq_output_gain();
@@ -645,12 +661,25 @@ impl NotwigUi {
                 ui.label(RichText::new("Range").small().color(theme::TEXT_MUTED));
             });
         });
-        self.eq_curve(ui, device);
+        self.eq_curve(ui, device, sample_rate);
         self.eq_band_controls(ui, device, band);
-        let _ = spec;
+    }
+
+    fn device_values(&self, device: &DeviceInstance) -> BTreeMap<ParamId, ParamValue> {
+        let mut values = BTreeMap::new();
+        if let Some(spec) = self.registry.resolve(&device.type_id, device.version) {
+            for param in &spec.params {
+                values.insert(param.id, param.default.clone());
+            }
+        }
+        for (id, value) in &device.param_values {
+            values.insert(*id, value.clone());
+        }
+        values
     }
 
     fn eq_band_controls(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, band: usize) {
+        let values = self.device_values(device);
         let enabled_id = notwig_dsp::stock::band_param(band, 0);
         let type_id = notwig_dsp::stock::band_param(band, 1);
         let freq_id = notwig_dsp::stock::band_param(band, 2);
@@ -667,13 +696,11 @@ impl NotwigUi {
                             .clicked()
                         {
                             self.eq_band = index;
+                            ui.close();
                         }
                     }
                 });
-            let enabled = !matches!(
-                device.param_values.get(&enabled_id),
-                Some(ParamValue::Bool(false))
-            );
+            let enabled = !matches!(values.get(&enabled_id), Some(ParamValue::Bool(false)));
             let power = if enabled { "⏻" } else { "○" };
             if ui
                 .add(
@@ -692,8 +719,7 @@ impl NotwigUi {
                     value: ParamValue::Bool(!enabled),
                 });
             }
-            let selected_type = device
-                .param_values
+            let selected_type = values
                 .get(&type_id)
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(0.0) as u32;
@@ -711,12 +737,12 @@ impl NotwigUi {
                                 param_id: type_id,
                                 value: ParamValue::EnumIndex(index),
                             });
+                            ui.close();
                         }
                     }
                 });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mut q = device
-                    .param_values
+                let mut q = values
                     .get(&q_id)
                     .and_then(ParamValue::as_f64)
                     .unwrap_or(0.707);
@@ -726,8 +752,7 @@ impl NotwigUi {
                 {
                     self.emit_eq_param(device.id, band, 4, q.clamp(0.1, 18.0));
                 }
-                let mut gain = device
-                    .param_values
+                let mut gain = values
                     .get(&gain_id)
                     .and_then(ParamValue::as_f64)
                     .unwrap_or(0.0);
@@ -742,8 +767,7 @@ impl NotwigUi {
                 {
                     self.emit_eq_param(device.id, band, 3, gain.clamp(-24.0, 24.0));
                 }
-                let mut freq = device
-                    .param_values
+                let mut freq = values
                     .get(&freq_id)
                     .and_then(ParamValue::as_f64)
                     .unwrap_or(1_000.0);
