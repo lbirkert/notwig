@@ -12,7 +12,7 @@ use notwig_core::{
     SampleRate, TrackId, apply,
 };
 use notwig_dsp::EngineCaps;
-use notwig_engine::{Engine, EngineConfig};
+use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory};
 use notwig_project::{ProjectError, import_asset, open, save, write_wav_f32};
 use notwig_ui::scene_summary;
 use uuid::Uuid;
@@ -249,7 +249,8 @@ fn render_doc(
     };
     let plan = notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps)?;
     let config = EngineConfig::new(sample_rate, 512);
-    let mut engine = Engine::new(config);
+    let plugins = notwig_plugins::PluginHost::new();
+    let mut engine = Engine::with_factory(config, Arc::new(PluginDeviceFactory::new(plugins)));
     engine.apply(EngineMsg::UpdateSchedule {
         schedule: Arc::new(PlaybackSchedule::from_doc(doc)),
     })?;
