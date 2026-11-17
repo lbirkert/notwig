@@ -18,7 +18,8 @@ use crate::theme;
 use crate::widgets::format_param;
 
 const DEVICE_CARD_HEIGHT: f32 = 286.0;
-const DEVICE_PANEL_HEIGHT: f32 = 340.0;
+const DEVICE_PANEL_HEIGHT: f32 = 356.0;
+const OVERLINE_SPACE: f32 = 16.0;
 const HANDLE_WIDTH: f32 = 38.0;
 
 impl NotwigUi {
@@ -77,8 +78,11 @@ impl NotwigUi {
                     .id_salt("device_chain")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.horizontal_top(|ui| {
-                            self.device_chain(ui, doc, runtime, track_id, main_chain, 0);
+                        ui.vertical(|ui| {
+                            ui.add_space(OVERLINE_SPACE);
+                            ui.horizontal_top(|ui| {
+                                self.device_chain(ui, doc, runtime, track_id, main_chain, 0);
+                            });
                         });
                     });
             });
@@ -92,7 +96,7 @@ impl NotwigUi {
         track_id: TrackId,
         chain_id: DeviceChainId,
         depth: usize,
-    ) {
+    ) -> bool {
         let devices = doc
             .chains
             .get(&chain_id)
@@ -108,22 +112,36 @@ impl NotwigUi {
                 );
             });
         }
+        let mut first_card: Option<Rect> = None;
+        let mut last_card: Option<Rect> = None;
+        let mut deeper_bracket = false;
         for (index, device_id) in devices.iter().enumerate() {
             self.insertion_point(ui, track_id, chain_id, index);
             let Some(device) = doc.devices.get(device_id).cloned() else {
                 continue;
             };
-            self.device_card(ui, doc, runtime, &device, track_id, depth);
+            let card_rect = self.device_card(ui, doc, runtime, &device, track_id, depth);
+            first_card.get_or_insert(card_rect);
+            last_card = Some(card_rect);
             if !self.collapsed_devices.contains(&device.id) && device.kind == DeviceKind::Container
             {
                 if let Some(child_chain) = device.child_chains.first().copied() {
-                    if self.expanded_chains.contains(&child_chain) {
-                        self.device_chain(ui, doc, runtime, track_id, child_chain, depth + 1);
+                    if self.expanded_chains.contains(&child_chain)
+                        && self.device_chain(ui, doc, runtime, track_id, child_chain, depth + 1)
+                    {
+                        deeper_bracket = true;
                     }
                 }
             }
         }
         self.insertion_point(ui, track_id, chain_id, devices.len());
+        if depth > 0 && !deeper_bracket {
+            if let (Some(first), Some(last)) = (first_card, last_card) {
+                draw_bracket(ui, first.left(), last.right(), first.top() - 10.0, depth);
+                return true;
+            }
+        }
+        deeper_bracket
     }
 
     fn insertion_point(
@@ -155,8 +173,8 @@ impl NotwigUi {
         runtime: &RuntimeView,
         device: &DeviceInstance,
         track_id: TrackId,
-        depth: usize,
-    ) {
+        _depth: usize,
+    ) -> Rect {
         let selected = self.state.selection.devices.contains(&device.id);
         let collapsed = self.collapsed_devices.contains(&device.id);
         let expanded_width = card_width(device);
@@ -165,30 +183,32 @@ impl NotwigUi {
         } else {
             expanded_width
         };
-        let bar_space = 2.0 + (depth + 1) as f32 * 4.0;
-        let body_height = DEVICE_CARD_HEIGHT - bar_space - 2.0;
-        ui.vertical(|ui| {
-            ui.set_width(width);
-            nest_bars(ui, width, depth, bar_space);
-            egui::Frame::new()
-                .fill(theme::PANEL)
-                .stroke(Stroke::new(1.0_f32, theme::GRID))
-                .corner_radius(CornerRadius::same(6))
-                .inner_margin(egui::Margin::ZERO)
-                .show(ui, |ui| {
-                    ui.push_id(("device-card", device.id), |ui| {
-                        ui.set_width(width);
-                        ui.set_min_height(body_height);
-                        ui.horizontal_top(|ui| {
-                            self.device_handle(ui, device, track_id, body_height, selected);
-                            if !collapsed {
-                                self.device_body(ui, doc, runtime, device, body_height);
-                            }
+        let body_height = DEVICE_CARD_HEIGHT - 2.0;
+        let response = ui
+            .vertical(|ui| {
+                ui.set_width(width);
+                egui::Frame::new()
+                    .fill(theme::PANEL)
+                    .stroke(Stroke::new(1.0_f32, theme::GRID))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(egui::Margin::ZERO)
+                    .show(ui, |ui| {
+                        ui.push_id(("device-card", device.id), |ui| {
+                            ui.set_width(width);
+                            ui.set_min_height(body_height);
+                            ui.horizontal_top(|ui| {
+                                self.device_handle(ui, device, track_id, body_height, selected);
+                                if !collapsed {
+                                    self.device_body(ui, doc, runtime, device, body_height);
+                                }
+                            });
                         });
                     });
-                });
-        });
+            })
+            .response
+            .rect;
         ui.add_space(2.0);
+        response
     }
 
     fn device_handle(
@@ -388,17 +408,23 @@ fn card_width(device: &DeviceInstance) -> f32 {
     }
 }
 
-fn nest_bars(ui: &mut egui::Ui, width: f32, depth: usize, bar_space: f32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, bar_space), Sense::hover());
+fn draw_bracket(ui: &egui::Ui, left: f32, right: f32, y: f32, depth: usize) {
     let painter = ui.painter();
-    for level in 0..=depth {
-        let y = rect.top() + 2.0 + level as f32 * 4.0;
-        painter.rect_filled(
-            Rect::from_min_size(egui::pos2(rect.left(), y), Vec2::new(width, 3.0)),
-            CornerRadius::same(1),
-            nesting_color(level),
-        );
-    }
+    let stroke = Stroke::new(2.0_f32, nesting_color(depth));
+    let left = left + 2.0;
+    let right = right - 2.0;
+    painter.line_segment(
+        [egui::pos2(left, y + 7.0), egui::pos2(left, y + 2.0)],
+        stroke,
+    );
+    painter.line_segment(
+        [egui::pos2(left, y + 2.0), egui::pos2(right, y + 2.0)],
+        stroke,
+    );
+    painter.line_segment(
+        [egui::pos2(right, y + 2.0), egui::pos2(right, y + 7.0)],
+        stroke,
+    );
 }
 
 fn nesting_color(depth: usize) -> Color32 {
