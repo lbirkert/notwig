@@ -22,6 +22,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 hound.workspace = true
 uuid.workspace = true
+eframe.workspace = true
+egui.workspace = true
+cpal.workspace = true
+rfd.workspace = true
+wgpu.workspace = true
 
 [lints]
 workspace = true

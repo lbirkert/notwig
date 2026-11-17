@@ -10,6 +10,7 @@ repository.workspace = true
 notwig-core.workspace = true
 notwig-project.workspace = true
 notwig-dsp.workspace = true
+egui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

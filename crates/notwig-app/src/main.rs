@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod audio;
+mod gui;
+mod workspace;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -33,6 +37,8 @@ enum AppError {
     Io(#[from] std::io::Error),
     #[error("invalid argument: {0}")]
     Argument(String),
+    #[error("gui error: {0}")]
+    Gui(String),
 }
 
 fn main() {
@@ -45,10 +51,13 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), AppError> {
     let Some(command) = args.first().map(String::as_str) else {
-        print_help();
-        return Ok(());
+        return gui::run(None).map_err(AppError::Gui);
     };
     match command {
+        "ui" => {
+            let initial = args.get(1).map(PathBuf::from);
+            gui::run(initial).map_err(AppError::Gui)
+        }
         "new" => {
             let path = args
                 .get(1)
@@ -109,6 +118,7 @@ fn run(args: &[String]) -> Result<(), AppError> {
 fn print_help() {
     println!("notwig {}", env!("CARGO_PKG_VERSION"));
     println!("usage:");
+    println!("  notwig ui [bundle.notwig]");
     println!("  notwig new <bundle.notwig>");
     println!("  notwig demo [dir]");
     println!("  notwig render <bundle.notwig> <out.wav> [--start beats] [--end beats]");
