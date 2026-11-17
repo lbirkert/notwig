@@ -234,17 +234,26 @@ fn solo_effective(doc: &ProjectDoc, id: TrackId, any_solo: bool) -> bool {
     if !any_solo {
         return true;
     }
-    let mut current = Some(id);
+    let Some(track) = doc.tracks.get(&id) else {
+        return false;
+    };
+    if track.kind == TrackKind::Master || track.mixer.solo {
+        return true;
+    }
+    let mut current = track.parent;
     while let Some(track_id) = current {
-        let Some(track) = doc.tracks.get(&track_id) else {
+        let Some(parent) = doc.tracks.get(&track_id) else {
             break;
         };
-        if track.mixer.solo {
+        if parent.mixer.solo {
             return true;
         }
-        current = track.parent;
+        current = parent.parent;
     }
-    false
+    doc.track_order
+        .descendants(id)
+        .into_iter()
+        .any(|child| doc.tracks.get(&child).is_some_and(|t| t.mixer.solo))
 }
 
 fn path_latency(

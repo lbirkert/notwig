@@ -210,20 +210,34 @@ pub fn stock_registry() -> DeviceRegistry {
 }
 
 #[must_use]
-pub fn instantiate_stock(
-    instance: &DeviceInstance,
+pub fn instantiate_stock_params(
+    type_id: &str,
     spec: &DeviceSpec,
+    param_values: &BTreeMap<ParamId, ParamValue>,
 ) -> Option<Box<dyn DeviceProcessor>> {
-    let mut processor: Box<dyn DeviceProcessor> = match spec.type_id.as_str() {
+    let mut processor: Box<dyn DeviceProcessor> = match type_id {
         TOOL_TYPE_ID => Box::new(ToolProcessor::new(spec)),
         EQ_TYPE_ID => Box::new(EqProcessor::new(spec)),
         CHAIN_TYPE_ID => Box::new(ChainProcessor::new(spec)),
         _ => return None,
     };
-    for (id, value) in &instance.param_values {
+    for (id, value) in param_values {
         processor.set_param(*id, value);
     }
     Some(processor)
+}
+
+#[must_use]
+pub fn instantiate_stock(
+    instance: &DeviceInstance,
+    spec: &DeviceSpec,
+) -> Option<Box<dyn DeviceProcessor>> {
+    let params: BTreeMap<ParamId, ParamValue> = instance
+        .param_values
+        .iter()
+        .map(|(id, value)| (*id, value.clone()))
+        .collect();
+    instantiate_stock_params(&instance.type_id, spec, &params)
 }
 
 fn param_value(values: &BTreeMap<ParamId, f64>, id: ParamId, default: f64) -> f64 {

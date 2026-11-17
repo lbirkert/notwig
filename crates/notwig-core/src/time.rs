@@ -20,7 +20,7 @@ impl SchemaVersion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "RawRational", into = "RawRational")]
 pub struct Rational {
     num: i64,
@@ -133,6 +133,19 @@ impl Sub for Rational {
         let den = self.den * rhs.den;
         let num = self.num * i64::from(rhs.den) - rhs.num * i64::from(self.den);
         Self::new(num, den)
+    }
+}
+
+impl PartialOrd for Rational {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Rational {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (i128::from(self.num) * i128::from(other.den))
+            .cmp(&(i128::from(other.num) * i128::from(self.den)))
     }
 }
 
