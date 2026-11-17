@@ -65,7 +65,7 @@ pub enum UiIntent {
     ImportAudio,
     DropAudio {
         path: PathBuf,
-        track_id: TrackId,
+        target: DropAudioTarget,
         at: TimeMus,
     },
     InsertAudioClip {
@@ -89,4 +89,10 @@ pub enum UiIntent {
     SaveAs,
     RenderMixdown,
     ClearNotifications,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropAudioTarget {
+    Track(TrackId),
+    NewTrack { index: usize },
 }

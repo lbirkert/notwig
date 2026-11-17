@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use egui::{Color32, Rect, RichText};
 use notwig_core::{ProjectDoc, TrackId, TrackKind};
@@ -6,7 +7,7 @@ use notwig_dsp::DeviceRegistry;
 
 use crate::arranger::ClipDrag;
 use crate::device::EqDrag;
-use crate::intent::UiIntent;
+use crate::intent::{DropAudioTarget, UiIntent};
 use crate::runtime::RuntimeView;
 use crate::state::{NotificationKind, UiState};
 use crate::theme;
@@ -24,6 +25,7 @@ pub struct NotwigUi {
     pub timeline_width: f32,
     pub timeline_left: f32,
     pub arranger_rect: Rect,
+    pub last_pointer: Option<egui::Pos2>,
     pub loop_drag_start: Option<notwig_core::TimeMus>,
     pub eq_band: usize,
     pub eq_range: f32,
@@ -45,6 +47,7 @@ impl Default for NotwigUi {
             timeline_width: 800.0,
             timeline_left: 230.0,
             arranger_rect: Rect::NOTHING,
+            last_pointer: None,
             loop_drag_start: None,
             eq_band: 1,
             eq_range: 10.0,
@@ -66,9 +69,12 @@ impl NotwigUi {
             self.initialized = true;
         }
         self.intents.clear();
-        self.track_rows.clear();
+        if let Some(pos) = ctx.input(|input| input.pointer.hover_pos()) {
+            self.last_pointer = Some(pos);
+        }
         self.sanitize(doc);
         self.handle_dropped_files(ctx, doc);
+        self.track_rows.clear();
         self.handle_shortcuts(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
@@ -160,10 +166,8 @@ impl NotwigUi {
             )
         });
         if space {
-            if shift {
+            if shift || doc.transport.playing {
                 self.emit(UiIntent::Stop);
-            } else if doc.transport.playing {
-                self.emit(UiIntent::Pause);
             } else {
                 self.emit(UiIntent::Play);
             }
@@ -251,13 +255,13 @@ impl NotwigUi {
                         }
                     });
                     ui.separator();
-                    let play_label = if runtime.playing { "Pause" } else { "Play" };
+                    let play_label = if runtime.playing { "Stop" } else { "Play" };
                     let play = egui::Button::new(play_label)
                         .fill(theme::ACCENT)
                         .corner_radius(egui::CornerRadius::same(4));
                     if ui.add(play).clicked() {
                         if runtime.playing {
-                            self.emit(UiIntent::Pause);
+                            self.emit(UiIntent::Stop);
                         } else {
                             self.emit(UiIntent::Play);
                         }
@@ -472,7 +476,7 @@ impl NotwigUi {
             .default_width(420.0)
             .show(ctx, |ui| {
                 for (key, action) in [
-                    ("Space", "Play / pause"),
+                    ("Space", "Play / stop (returns to play start)"),
                     ("Shift+Space", "Stop"),
                     ("Cmd+S / Cmd+Shift+S", "Save / save as"),
                     ("Cmd+N / Cmd+O", "New / open project"),
@@ -515,25 +519,76 @@ impl NotwigUi {
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
-        let (files, pointer) =
-            ctx.input(|input| (input.raw.dropped_files.clone(), input.pointer.hover_pos()));
-        let Some(pointer) = pointer else {
+        let files: Vec<PathBuf> = ctx.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .filter_map(|file| file.path.clone())
+                .collect()
+        });
+        if files.is_empty() {
+            return;
+        }
+        let Some(pointer) = self
+            .last_pointer
+            .or_else(|| ctx.input(|input| input.pointer.latest_pos()))
+        else {
             return;
         };
         if !self.arranger_rect.contains(pointer) {
+            self.state.notify(
+                NotificationKind::Warning,
+                "Drop audio files onto the timeline.",
+            );
             return;
         }
-        let Some(track_id) = self.track_at(pointer.y) else {
-            return;
-        };
-        let Some(track) = doc.tracks.get(&track_id) else {
-            return;
-        };
-        if track.kind != TrackKind::Audio {
-            return;
+        let order: Vec<TrackId> = doc.track_order.depth_first();
+        let mut boundary = None;
+        let mut over_track = None;
+        for (index, track_id) in order.iter().enumerate() {
+            let Some(rect) = self.track_rows.get(track_id) else {
+                continue;
+            };
+            if (pointer.y - rect.top()).abs() <= 7.0 {
+                boundary = Some(index);
+                break;
+            }
+            if (pointer.y - rect.bottom()).abs() <= 7.0 {
+                boundary = Some(index + 1);
+                break;
+            }
+            if pointer.y > rect.top() && pointer.y < rect.bottom() {
+                over_track = Some((*track_id, index));
+            }
         }
-        let Some(file) = files.into_iter().find_map(|file| file.path) else {
-            return;
+        let first_target = if let Some(index) = boundary {
+            DropAudioTarget::NewTrack { index }
+        } else if let Some((track_id, index)) = over_track {
+            if doc
+                .tracks
+                .get(&track_id)
+                .is_some_and(|track| track.kind == TrackKind::Audio)
+            {
+                DropAudioTarget::Track(track_id)
+            } else {
+                DropAudioTarget::NewTrack { index: index + 1 }
+            }
+        } else {
+            let last_bottom = self
+                .track_rows
+                .values()
+                .map(egui::Rect::bottom)
+                .fold(f32::NEG_INFINITY, f32::max);
+            if pointer.y > last_bottom {
+                DropAudioTarget::NewTrack { index: order.len() }
+            } else {
+                self.state.notify(
+                    NotificationKind::Warning,
+                    "Drop audio on an audio lane or between tracks to create one.",
+                );
+                return;
+            }
         };
         let ppb = self.state.viewport.pixels_per_beat.max(4.0);
         let beat =
@@ -542,11 +597,28 @@ impl NotwigUi {
             notwig_core::TimeMus::new((beat.max(0.0) * 1_000_000.0).round() as i64, 1_000_000),
             false,
         );
-        self.emit(UiIntent::DropAudio {
-            path: file,
-            track_id,
-            at,
-        });
+        for (file_index, file) in files.into_iter().enumerate() {
+            let target = match (file_index, first_target) {
+                (0, target) => target,
+                (_, DropAudioTarget::Track(track_id)) => {
+                    let index = order
+                        .iter()
+                        .position(|id| *id == track_id)
+                        .map_or(order.len(), |index| index + 1);
+                    DropAudioTarget::NewTrack {
+                        index: index + file_index - 1,
+                    }
+                }
+                (_, DropAudioTarget::NewTrack { index }) => DropAudioTarget::NewTrack {
+                    index: index + file_index,
+                },
+            };
+            self.emit(UiIntent::DropAudio {
+                path: file,
+                target,
+                at,
+            });
+        }
     }
 
     pub(crate) fn track_at(&self, y: f32) -> Option<TrackId> {

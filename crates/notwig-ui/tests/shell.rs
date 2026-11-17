@@ -78,3 +78,86 @@ fn snapping_uses_sixteenth_grid_and_alt_bypasses() {
     assert_eq!(snap_16(time, false), Rational::new(5, 16));
     assert_eq!(snap_16(time, true), time);
 }
+
+#[test]
+fn audio_drop_uses_existing_lane_or_creates_track_at_boundary() {
+    use notwig_ui::{DropAudioTarget, UiIntent};
+
+    let doc = doc();
+    let audio_track = id::<Track>(3);
+    let audio_chain = id::<DeviceChain>(103);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: audio_track,
+            chain_id: audio_chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let runtime = RuntimeView::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let row = *ui.track_rows.get(&audio_track).expect("audio row");
+    let file = || egui::DroppedFile {
+        path: Some(std::path::PathBuf::from("/tmp/demo.wav")),
+        ..Default::default()
+    };
+
+    let lane_point = egui::pos2(ui.timeline_left + 90.0, row.center().y);
+    let mut lane_intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            dropped_files: vec![file()],
+            events: vec![egui::Event::PointerMoved(lane_point)],
+            ..Default::default()
+        },
+        |ctx| {
+            lane_intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(lane_intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::DropAudio {
+            target: DropAudioTarget::Track(track),
+            ..
+        } if *track == audio_track
+    )));
+
+    let boundary_point = egui::pos2(ui.timeline_left + 90.0, row.top() + 2.0);
+    let mut boundary_intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            dropped_files: vec![file()],
+            events: vec![egui::Event::PointerMoved(boundary_point)],
+            ..Default::default()
+        },
+        |ctx| {
+            boundary_intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(boundary_intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::DropAudio {
+            target: DropAudioTarget::NewTrack { .. },
+            ..
+        }
+    )));
+}

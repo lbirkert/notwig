@@ -29,6 +29,7 @@ pub struct Workspace {
     pub status: Option<String>,
     pub error: Option<String>,
     pub last_autosave: std::time::Instant,
+    pub play_start: Option<notwig_core::TimeMus>,
 }
 
 impl Workspace {
@@ -84,6 +85,7 @@ impl Workspace {
             status: None,
             error: None,
             last_autosave: std::time::Instant::now(),
+            play_start: None,
         };
         workspace.load_assets();
         workspace.rebuild_engine()?;
@@ -257,6 +259,9 @@ impl Workspace {
     }
 
     pub fn play(&mut self) -> Result<(), String> {
+        if !self.doc.transport.playing {
+            self.play_start = Some(self.doc.transport.playhead);
+        }
         self.apply(CommandPayload::SetTransport {
             playing: Some(true),
             playhead: Some(self.doc.transport.playhead),
@@ -270,7 +275,16 @@ impl Workspace {
     }
 
     pub fn stop(&mut self) -> Result<(), String> {
-        self.apply(CommandPayload::Stop)
+        let start = self
+            .play_start
+            .take()
+            .unwrap_or(self.doc.transport.playhead);
+        self.apply(CommandPayload::SetTransport {
+            playing: Some(false),
+            playhead: Some(start),
+            loop_enabled: None,
+            loop_range: None,
+        })
     }
 
     pub fn toggle_loop(&mut self) -> Result<(), String> {
@@ -292,6 +306,14 @@ impl Workspace {
     }
 
     pub fn create_track(&mut self, kind: TrackKind) -> Result<(), String> {
+        self.create_track_at(kind, None).map(|_| ())
+    }
+
+    pub fn create_track_at(
+        &mut self,
+        kind: TrackKind,
+        index: Option<usize>,
+    ) -> Result<TrackId, String> {
         let track = Id::<TrackMarker>::from_uuid(Uuid::new_v4());
         let chain = Id::<DeviceChainMarker>::from_uuid(Uuid::new_v4());
         let name = format!("{} {}", kind.name(), self.doc.tracks.len());
@@ -301,9 +323,10 @@ impl Workspace {
             kind,
             name,
             parent: None,
-            index: None,
+            index,
             color: None,
-        })
+        })?;
+        Ok(track)
     }
 
     pub fn create_midi_clip(
@@ -702,6 +725,18 @@ mod tests {
     }
 
     #[test]
+    fn stop_returns_to_play_start() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.set_playhead(Rational::new(2, 1)).unwrap();
+        workspace.play().unwrap();
+        assert_eq!(workspace.play_start, Some(Rational::new(2, 1)));
+        workspace.set_playhead(Rational::new(5, 1)).unwrap();
+        workspace.stop().unwrap();
+        assert!(!workspace.doc.transport.playing);
+        assert_eq!(workspace.doc.transport.playhead, Rational::new(2, 1));
+    }
+
+    #[test]
     fn import_audio_at_places_clip_on_track() {
         let dir = temp_dir();
         let mut workspace = Workspace::new_empty().unwrap();
@@ -724,6 +759,52 @@ mod tests {
         let clip = workspace.doc.arranger.clips.values().next().unwrap();
         assert_eq!(clip.range.start, Rational::new(2, 1));
         assert_eq!(workspace.assets.len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn device_parameters_affect_offline_render() {
+        let dir = temp_dir();
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .clone();
+        workspace.save(Some(&dir.join("Devices.notwig"))).unwrap();
+        let source = dir.join("tone.wav");
+        let samples: Vec<f32> = (0..24_000).map(|_| 0.5).collect();
+        notwig_project::write_wav_f32(&source, 48_000, 1, &samples).unwrap();
+        workspace
+            .import_audio_at(&source, track.id, Rational::zero())
+            .unwrap();
+        workspace
+            .insert_stock(
+                track.main_chain,
+                notwig_dsp::stock::TOOL_TYPE_ID,
+                DeviceKind::AudioFx,
+            )
+            .unwrap();
+        let device = *workspace.doc.devices.keys().next().unwrap();
+        workspace
+            .apply(CommandPayload::SetParam {
+                device_id: device,
+                param_id: notwig_dsp::stock::p_output_gain(),
+                value: notwig_core::ParamValue::F64(-60.0),
+                ramp: None,
+            })
+            .unwrap();
+        let out = dir.join("device.wav");
+        workspace.render_to(&out).unwrap();
+        let rendered = notwig_project::decode_audio(&out).unwrap();
+        let peak = rendered
+            .samples
+            .iter()
+            .fold(0.0_f32, |acc, value| acc.max(value.abs()));
+        assert!(peak < 0.01, "device gain should apply, peak={peak}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

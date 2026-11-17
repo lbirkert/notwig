@@ -335,11 +335,33 @@ impl NotwigApp {
                     }
                 }
             }
-            UiIntent::DropAudio { path, track_id, at } => {
+            UiIntent::DropAudio { path, target, at } => {
+                if self.workspace.bundle.is_none() {
+                    self.handle_save_as();
+                }
                 if self.workspace.bundle.is_none() {
                     self.notify_error("Save the project before importing audio.".into());
-                } else if let Err(err) = self.workspace.import_audio_at(&path, track_id, at) {
-                    self.notify_error(err);
+                    return;
+                }
+                let track_id = match target {
+                    notwig_ui::DropAudioTarget::Track(track_id) => Some(track_id),
+                    notwig_ui::DropAudioTarget::NewTrack { index } => {
+                        match self
+                            .workspace
+                            .create_track_at(notwig_core::TrackKind::Audio, Some(index))
+                        {
+                            Ok(track_id) => Some(track_id),
+                            Err(err) => {
+                                self.notify_error(err);
+                                None
+                            }
+                        }
+                    }
+                };
+                if let Some(track_id) = track_id {
+                    if let Err(err) = self.workspace.import_audio_at(&path, track_id, at) {
+                        self.notify_error(err);
+                    }
                 }
             }
             UiIntent::InsertAudioClip { track_id, asset_id } => {

@@ -166,6 +166,12 @@ impl Engine {
                 value,
                 ..
             } => {
+                if let Some(plan) = &mut self.plan {
+                    let plan = Arc::make_mut(plan);
+                    if let Some(device) = plan.devices.get_mut(&device_id) {
+                        device.param_values.insert(param_id, value.clone());
+                    }
+                }
                 if let Some(runtime) = &mut self.runtime {
                     runtime.set_param(device_id, param_id, &value);
                 }
@@ -177,6 +183,15 @@ impl Engine {
                 gain_db,
                 pan,
             } => {
+                if let Some(plan) = &mut self.plan {
+                    let plan = Arc::make_mut(plan);
+                    if let Some(track) = plan.tracks.get_mut(&track_id) {
+                        track.mute = mute;
+                        track.solo_effective = solo_effective;
+                        track.volume_db = gain_db;
+                        track.pan = pan;
+                    }
+                }
                 if let Some(runtime) = &mut self.runtime {
                     runtime.set_track_state(track_id, mute, solo_effective, gain_db, pan);
                 }

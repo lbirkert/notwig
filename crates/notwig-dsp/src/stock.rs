@@ -232,6 +232,9 @@ pub fn instantiate_stock_params(
         CHAIN_TYPE_ID => Box::new(ChainProcessor::new(spec)),
         _ => return None,
     };
+    for param in &spec.params {
+        processor.set_param(param.id, &param.default);
+    }
     for (id, value) in param_values {
         processor.set_param(*id, value);
     }

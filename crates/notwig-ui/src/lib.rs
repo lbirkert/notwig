@@ -12,7 +12,7 @@ mod theme;
 mod widgets;
 
 pub use arranger::ClipDrag;
-pub use intent::UiIntent;
+pub use intent::{DropAudioTarget, UiIntent};
 pub use projection::{
     ArrangerRow, ArrangerView, ClipView, DeviceSlot, MixerStrip, MixerView, ProjectionError,
     SceneSummary, project_arranger, project_devices, project_mixer, scene_summary,
