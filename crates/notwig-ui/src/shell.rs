@@ -333,12 +333,10 @@ impl NotwigUi {
                             self.zoom_to_fit(doc);
                         }
                         if ui.small_button("+").clicked() {
-                            self.state.viewport.pixels_per_beat =
-                                (self.state.viewport.pixels_per_beat * 1.25).clamp(4.0, 800.0);
+                            self.state.viewport.zoom_by(1.25);
                         }
                         if ui.small_button("−").clicked() {
-                            self.state.viewport.pixels_per_beat =
-                                (self.state.viewport.pixels_per_beat / 1.25).clamp(4.0, 800.0);
+                            self.state.viewport.zoom_by(1.0 / 1.25);
                         }
                         ui.label(
                             RichText::new(format!("xruns {}", runtime.xruns))
@@ -514,8 +512,10 @@ impl NotwigUi {
             .fold(8.0_f64, f64::max)
             + 1.0;
         self.state.viewport.start = notwig_core::TimeMus::zero();
-        self.state.viewport.pixels_per_beat =
-            ((self.timeline_width - 4.0) / end as f32).clamp(4.0, 800.0);
+        self.state.viewport.pixels_per_beat = ((self.timeline_width - 4.0) / end as f32).clamp(
+            crate::state::Viewport::MIN_PPB,
+            crate::state::Viewport::MAX_PPB,
+        );
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
@@ -543,58 +543,18 @@ impl NotwigUi {
             );
             return;
         }
-        let order: Vec<TrackId> = doc.track_order.depth_first();
-        let mut boundary = None;
-        let mut over_track = None;
-        for (index, track_id) in order.iter().enumerate() {
-            let Some(rect) = self.track_rows.get(track_id) else {
-                continue;
-            };
-            if (pointer.y - rect.top()).abs() <= 7.0 {
-                boundary = Some(index);
-                break;
-            }
-            if (pointer.y - rect.bottom()).abs() <= 7.0 {
-                boundary = Some(index + 1);
-                break;
-            }
-            if pointer.y > rect.top() && pointer.y < rect.bottom() {
-                over_track = Some((*track_id, index));
-            }
-        }
-        let first_target = if let Some(index) = boundary {
-            DropAudioTarget::NewTrack { index }
-        } else if let Some((track_id, index)) = over_track {
-            if doc
-                .tracks
-                .get(&track_id)
-                .is_some_and(|track| track.kind == TrackKind::Audio)
-            {
-                DropAudioTarget::Track(track_id)
-            } else {
-                DropAudioTarget::NewTrack { index: index + 1 }
-            }
-        } else {
-            let last_bottom = self
-                .track_rows
-                .values()
-                .map(egui::Rect::bottom)
-                .fold(f32::NEG_INFINITY, f32::max);
-            if pointer.y > last_bottom {
-                DropAudioTarget::NewTrack { index: order.len() }
-            } else {
-                self.state.notify(
-                    NotificationKind::Warning,
-                    "Drop audio on an audio lane or between tracks to create one.",
-                );
-                return;
-            }
+        let Some(first_target) =
+            crate::drop_target::resolve_drop_target(doc, &self.track_rows, pointer.y)
+        else {
+            self.state.notify(
+                NotificationKind::Warning,
+                "Drop audio on an audio lane or between tracks to create one.",
+            );
+            return;
         };
-        let ppb = self.state.viewport.pixels_per_beat.max(4.0);
-        let beat =
-            self.state.viewport.start.as_f64() + f64::from((pointer.x - self.timeline_left) / ppb);
+        let order: Vec<TrackId> = doc.track_order.depth_first();
         let at = crate::widgets::snap_16(
-            notwig_core::TimeMus::new((beat.max(0.0) * 1_000_000.0).round() as i64, 1_000_000),
+            self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
             false,
         );
         for (file_index, file) in files.into_iter().enumerate() {

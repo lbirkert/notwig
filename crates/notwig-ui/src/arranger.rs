@@ -37,7 +37,10 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 800.0);
+        let ppb = self.state.viewport.pixels_per_beat.clamp(
+            crate::state::Viewport::MIN_PPB,
+            crate::state::Viewport::MAX_PPB,
+        );
         let start = self.state.viewport.start;
         let beats_per_bar = doc.meta.time_sig_num.max(1);
         let width = ui.available_width().max(320.0);
@@ -228,7 +231,10 @@ impl NotwigUi {
         if !self.arranger_rect.contains(pos) {
             return;
         }
-        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 800.0);
+        let ppb = self.state.viewport.pixels_per_beat.clamp(
+            crate::state::Viewport::MIN_PPB,
+            crate::state::Viewport::MAX_PPB,
+        );
         let zoom_delta = ui.input(egui::InputState::zoom_delta);
         if (zoom_delta - 1.0).abs() > 1e-4 {
             self.zoom_at(pos.x, zoom_delta);
@@ -250,7 +256,10 @@ impl NotwigUi {
     }
 
     fn zoom_at(&mut self, pointer_x: f32, factor: f32) {
-        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 800.0);
+        let ppb = self.state.viewport.pixels_per_beat.clamp(
+            crate::state::Viewport::MIN_PPB,
+            crate::state::Viewport::MAX_PPB,
+        );
         let start = self.state.viewport.start.as_f64();
         let beat_under = start + f64::from((pointer_x - self.timeline_left) / ppb);
         let new_ppb = (ppb * factor).clamp(4.0, 800.0);
@@ -1027,7 +1036,7 @@ mod tests {
         ui.timeline_left = 230.0;
         ui.state.viewport.pixels_per_beat = 64.0;
         ui.state.viewport.start = TimeMus::zero();
-        ui.zoom_at(430.0, 2.0);
+        ui.state.viewport.zoom_at(430.0, ui.timeline_left, 2.0);
         assert!((ui.state.viewport.pixels_per_beat - 128.0).abs() < 1e-3);
         let beat = ui.state.viewport.start.as_f64()
             + f64::from((430.0 - ui.timeline_left) / ui.state.viewport.pixels_per_beat);
@@ -1038,9 +1047,9 @@ mod tests {
     fn panning_clamps_at_zero() {
         let mut ui = NotwigUi::default();
         ui.state.viewport.start = TimeMus::new(10, 1);
-        ui.pan_beats(-4.0);
+        ui.state.viewport.pan_beats(-4.0);
         assert_eq!(ui.state.viewport.start, TimeMus::new(6, 1));
-        ui.pan_beats(-100.0);
+        ui.state.viewport.pan_beats(-100.0);
         assert_eq!(ui.state.viewport.start, TimeMus::zero());
     }
 }

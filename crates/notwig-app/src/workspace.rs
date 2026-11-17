@@ -179,22 +179,7 @@ impl Workspace {
     }
 
     pub fn apply(&mut self, payload: CommandPayload) -> Result<(), String> {
-        let structural = matches!(
-            payload,
-            CommandPayload::CreateTrack { .. }
-                | CommandPayload::DeleteTrack { .. }
-                | CommandPayload::MoveTrack { .. }
-                | CommandPayload::SetTrackRoute { .. }
-                | CommandPayload::SetSend { .. }
-                | CommandPayload::RemoveSend { .. }
-                | CommandPayload::InsertDevice { .. }
-                | CommandPayload::RemoveDevice { .. }
-                | CommandPayload::MoveDevice { .. }
-                | CommandPayload::SetDeviceBypass { .. }
-                | CommandPayload::SetDeviceState { .. }
-                | CommandPayload::RegisterAsset { .. }
-                | CommandPayload::RelinkAsset { .. }
-        );
+        let structural = payload.requires_plan_rebuild();
         match apply(&self.doc, &Command::new(payload)) {
             Ok(result) => {
                 self.doc = result.doc;

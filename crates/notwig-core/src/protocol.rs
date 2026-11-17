@@ -180,6 +180,28 @@ pub struct AudioEdit {
     pub fade_out_samples: Option<u64>,
 }
 
+impl CommandPayload {
+    #[must_use]
+    pub fn requires_plan_rebuild(&self) -> bool {
+        matches!(
+            self,
+            Self::CreateTrack { .. }
+                | Self::DeleteTrack { .. }
+                | Self::MoveTrack { .. }
+                | Self::SetTrackRoute { .. }
+                | Self::SetSend { .. }
+                | Self::RemoveSend { .. }
+                | Self::InsertDevice { .. }
+                | Self::RemoveDevice { .. }
+                | Self::MoveDevice { .. }
+                | Self::SetDeviceBypass { .. }
+                | Self::SetDeviceState { .. }
+                | Self::RegisterAsset { .. }
+                | Self::RelinkAsset { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RampSpec {
     pub duration_ms: f32,

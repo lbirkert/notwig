@@ -2,23 +2,19 @@
 
 mod arranger;
 mod device;
+mod drop_target;
 mod intent;
-mod projection;
 mod runtime;
-mod settings;
 mod shell;
 mod state;
+mod summary;
 mod theme;
 mod widgets;
 
 pub use arranger::ClipDrag;
 pub use intent::{DropAudioTarget, UiIntent};
-pub use projection::{
-    ArrangerRow, ArrangerView, ClipView, DeviceSlot, MixerStrip, MixerView, ProjectionError,
-    SceneSummary, project_arranger, project_devices, project_mixer, scene_summary,
-};
 pub use runtime::{MeterValues, PluginEntry, RuntimeView};
-pub use settings::{AudioSettingsSnapshot, SettingsIntent, SettingsSnapshot};
 pub use shell::NotwigUi;
-pub use state::{Notification, NotificationKind, PanelSizes, Selection, UiState, Viewport};
+pub use state::{Notification, NotificationKind, Selection, UiState, Viewport};
+pub use summary::{SceneSummary, scene_summary};
 pub use widgets::{format_beats, format_db, format_param, snap_16};
