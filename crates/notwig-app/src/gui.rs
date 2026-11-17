@@ -335,6 +335,13 @@ impl NotwigApp {
                     }
                 }
             }
+            UiIntent::DropAudio { path, track_id, at } => {
+                if self.workspace.bundle.is_none() {
+                    self.notify_error("Save the project before importing audio.".into());
+                } else if let Err(err) = self.workspace.import_audio_at(&path, track_id, at) {
+                    self.notify_error(err);
+                }
+            }
             UiIntent::InsertAudioClip { track_id, asset_id } => {
                 if let Err(err) = self.workspace.insert_audio_clip(track_id, asset_id) {
                     self.notify_error(err);
@@ -458,6 +465,11 @@ impl NotwigApp {
 
 impl eframe::App for NotwigApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let dirty = if self.workspace.dirty { "*" } else { "" };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+            "{}{} — Notwig",
+            self.workspace.doc.meta.name, dirty
+        )));
         let snapshot = self.audio_snapshot();
         let playing = self.workspace.doc.transport.playing;
         if snapshot.running {

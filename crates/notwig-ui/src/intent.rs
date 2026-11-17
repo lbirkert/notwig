@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use notwig_core::{
     AssetId, ClipId, Db, DeviceChainId, DeviceId, DeviceKind, Pan, ParamId, ParamValue, RangeMus,
     TimeMus, TrackId, TrackKind,
@@ -61,6 +63,11 @@ pub enum UiIntent {
         kind: DeviceKind,
     },
     ImportAudio,
+    DropAudio {
+        path: PathBuf,
+        track_id: TrackId,
+        at: TimeMus,
+    },
     InsertAudioClip {
         track_id: TrackId,
         asset_id: AssetId,

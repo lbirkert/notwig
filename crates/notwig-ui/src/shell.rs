@@ -5,6 +5,7 @@ use notwig_core::{ProjectDoc, TrackId, TrackKind};
 use notwig_dsp::DeviceRegistry;
 
 use crate::arranger::ClipDrag;
+use crate::device::EqDrag;
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::state::{NotificationKind, UiState};
@@ -21,7 +22,12 @@ pub struct NotwigUi {
     pub show_help: bool,
     pub track_rows: BTreeMap<TrackId, Rect>,
     pub timeline_width: f32,
+    pub timeline_left: f32,
+    pub arranger_rect: Rect,
     pub loop_drag_start: Option<notwig_core::TimeMus>,
+    pub eq_band: usize,
+    pub eq_range: f32,
+    pub eq_drag: Option<EqDrag>,
     initialized: bool,
 }
 
@@ -37,7 +43,12 @@ impl Default for NotwigUi {
             show_help: false,
             track_rows: BTreeMap::new(),
             timeline_width: 800.0,
+            timeline_left: 230.0,
+            arranger_rect: Rect::NOTHING,
             loop_drag_start: None,
+            eq_band: 1,
+            eq_range: 10.0,
+            eq_drag: None,
             initialized: false,
         }
     }
@@ -57,6 +68,7 @@ impl NotwigUi {
         self.intents.clear();
         self.track_rows.clear();
         self.sanitize(doc);
+        self.handle_dropped_files(ctx, doc);
         self.handle_shortcuts(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
@@ -245,40 +257,7 @@ impl NotwigUi {
                         doc.meta.name.clone()
                     };
                     ui.label(RichText::new(title).strong());
-                    if let Some(path) = &runtime.bundle_path {
-                        ui.label(
-                            RichText::new(path.display().to_string())
-                                .small()
-                                .color(theme::TEXT_MUTED),
-                        );
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Render").clicked() {
-                            self.emit(UiIntent::RenderMixdown);
-                        }
-                        if ui.button("Help").clicked() {
-                            self.show_help = !self.show_help;
-                        }
-                        if ui.button("Fit").clicked() {
-                            self.zoom_to_fit(doc);
-                        }
-                        if ui.button("+").clicked() {
-                            self.state.viewport.pixels_per_beat =
-                                (self.state.viewport.pixels_per_beat * 1.25).clamp(4.0, 400.0);
-                        }
-                        if ui.button("−").clicked() {
-                            self.state.viewport.pixels_per_beat =
-                                (self.state.viewport.pixels_per_beat / 1.25).clamp(4.0, 400.0);
-                        }
-                        ui.label(
-                            RichText::new(format!("xruns {}", runtime.xruns))
-                                .small()
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
-                });
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
+                    ui.separator();
                     let play_label = if runtime.playing { "Pause" } else { "Play" };
                     let play = egui::Button::new(play_label)
                         .fill(theme::ACCENT)
@@ -298,45 +277,83 @@ impl NotwigUi {
                         self.emit(UiIntent::ToggleLoop);
                     }
                     ui.separator();
-                    ui.label(
-                        RichText::new(format_beats(runtime.playhead, doc.meta.time_sig_num))
-                            .monospace()
-                            .color(if runtime.playing {
-                                theme::ACCENT
-                            } else {
-                                Color32::WHITE
-                            }),
-                    );
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("TEMPO")
+                                .small()
+                                .monospace()
+                                .color(theme::TEXT_MUTED),
+                        );
+                        ui.label(
+                            RichText::new(format!("{:.2} BPM", doc.meta.tempo_bpm))
+                                .strong()
+                                .monospace(),
+                        );
+                    });
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("SIGNATURE")
+                                .small()
+                                .monospace()
+                                .color(theme::TEXT_MUTED),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "{}/{}",
+                                doc.meta.time_sig_num, doc.meta.time_sig_den
+                            ))
+                            .strong()
+                            .monospace(),
+                        );
+                    });
                     ui.separator();
-                    ui.label(
-                        RichText::new(format!("{:.2} BPM", doc.meta.tempo_bpm))
-                            .color(theme::TEXT_MUTED),
-                    );
-                    ui.label(
-                        RichText::new(format!(
-                            "{}/{}",
-                            doc.meta.time_sig_num, doc.meta.time_sig_den
-                        ))
-                        .color(theme::TEXT_MUTED),
-                    );
-                    ui.separator();
-                    ui.label(
-                        RichText::new(
-                            "Double-click lane: new clip · Drag edges: trim · Right-click: actions",
-                        )
-                        .small()
-                        .color(theme::TEXT_MUTED),
-                    );
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("POSITION")
+                                .small()
+                                .monospace()
+                                .color(theme::TEXT_MUTED),
+                        );
+                        ui.label(
+                            RichText::new(format_beats(runtime.playhead, doc.meta.time_sig_num))
+                                .monospace()
+                                .size(17.0)
+                                .color(if runtime.playing {
+                                    theme::ACCENT
+                                } else {
+                                    Color32::WHITE
+                                }),
+                        );
+                    });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(cpu) = runtime.cpu_load {
-                            ui.label(
-                                RichText::new(format!("cpu {:.1}%", cpu * 100.0))
-                                    .small()
-                                    .color(theme::TEXT_MUTED),
-                            );
+                        if ui.button("Render").clicked() {
+                            self.emit(UiIntent::RenderMixdown);
                         }
-                        let snap = "1/16 snap";
-                        ui.label(RichText::new(snap).small().color(theme::TEXT_MUTED));
+                        if ui.button("Help").clicked() {
+                            self.show_help = !self.show_help;
+                        }
+                        if ui.button("Fit").clicked() {
+                            self.zoom_to_fit(doc);
+                        }
+                        if ui.small_button("+").clicked() {
+                            self.state.viewport.pixels_per_beat =
+                                (self.state.viewport.pixels_per_beat * 1.25).clamp(4.0, 800.0);
+                        }
+                        if ui.small_button("−").clicked() {
+                            self.state.viewport.pixels_per_beat =
+                                (self.state.viewport.pixels_per_beat / 1.25).clamp(4.0, 800.0);
+                        }
+                        ui.label(
+                            RichText::new(format!("xruns {}", runtime.xruns))
+                                .small()
+                                .color(theme::TEXT_MUTED),
+                        );
+                        ui.label(
+                            RichText::new("1/16 SNAP")
+                                .small()
+                                .monospace()
+                                .color(theme::TEXT_MUTED),
+                        );
                     });
                 });
             });
@@ -402,6 +419,14 @@ impl NotwigUi {
                         ui.spinner();
                         ui.label(RichText::new("Saving…").small());
                     }
+                    ui.separator();
+                    ui.label(
+                        RichText::new(
+                            "Double-click lane: new clip · Drag edges: trim · Shift+drag ruler: loop · Middle-drag: pan/zoom",
+                        )
+                        .small()
+                        .color(theme::TEXT_MUTED),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !self.state.notifications.is_empty()
                             && ui
@@ -465,8 +490,14 @@ impl NotwigUi {
                     ("Double-click empty lane", "Create 4-beat MIDI clip"),
                     ("Drag clip body / edges", "Move or trim clip"),
                     ("Right-click clip", "Mute, duplicate, delete"),
-                    ("Wheel over ruler", "Zoom arrangement"),
                     ("Shift+drag ruler", "Set loop range"),
+                    ("Middle-drag", "Pan timeline horizontally / zoom vertically"),
+                    ("Pinch / two-finger swipe", "Zoom / pan the whole timeline"),
+                    ("Drag audio file", "Import and place it on an audio track"),
+                    (
+                        "EQ band number",
+                        "Drag gain/frequency; handle adjusts Q/frequency",
+                    ),
                 ] {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(key).monospace().color(theme::ACCENT));
@@ -487,7 +518,42 @@ impl NotwigUi {
             + 1.0;
         self.state.viewport.start = notwig_core::TimeMus::zero();
         self.state.viewport.pixels_per_beat =
-            ((self.timeline_width - 4.0) / end as f32).clamp(4.0, 400.0);
+            ((self.timeline_width - 4.0) / end as f32).clamp(4.0, 800.0);
+    }
+
+    fn handle_dropped_files(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
+        let (files, pointer) =
+            ctx.input(|input| (input.raw.dropped_files.clone(), input.pointer.hover_pos()));
+        let Some(pointer) = pointer else {
+            return;
+        };
+        if !self.arranger_rect.contains(pointer) {
+            return;
+        }
+        let Some(track_id) = self.track_at(pointer.y) else {
+            return;
+        };
+        let Some(track) = doc.tracks.get(&track_id) else {
+            return;
+        };
+        if track.kind != TrackKind::Audio {
+            return;
+        }
+        let Some(file) = files.into_iter().find_map(|file| file.path) else {
+            return;
+        };
+        let ppb = self.state.viewport.pixels_per_beat.max(4.0);
+        let beat =
+            self.state.viewport.start.as_f64() + f64::from((pointer.x - self.timeline_left) / ppb);
+        let at = crate::widgets::snap_16(
+            notwig_core::TimeMus::new((beat.max(0.0) * 1_000_000.0).round() as i64, 1_000_000),
+            false,
+        );
+        self.emit(UiIntent::DropAudio {
+            path: file,
+            track_id,
+            at,
+        });
     }
 
     pub(crate) fn track_at(&self, y: f32) -> Option<TrackId> {

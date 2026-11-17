@@ -431,7 +431,7 @@ impl Workspace {
         })
     }
 
-    pub fn import_audio(&mut self, source: &Path) -> Result<(), String> {
+    pub fn import_audio(&mut self, source: &Path) -> Result<AssetId, String> {
         let bundle = self
             .bundle
             .clone()
@@ -452,13 +452,32 @@ impl Workspace {
             entry: imported.entry,
         })?;
         self.status = Some(format!("Imported {}", source.display()));
-        Ok(())
+        Ok(asset_id)
+    }
+
+    pub fn import_audio_at(
+        &mut self,
+        source: &Path,
+        track_id: TrackId,
+        start: notwig_core::TimeMus,
+    ) -> Result<(), String> {
+        let asset_id = self.import_audio(source)?;
+        self.insert_audio_clip_at(track_id, asset_id, start)
     }
 
     pub fn insert_audio_clip(
         &mut self,
         track_id: TrackId,
         asset_id: AssetId,
+    ) -> Result<(), String> {
+        self.insert_audio_clip_at(track_id, asset_id, self.doc.transport.playhead)
+    }
+
+    pub fn insert_audio_clip_at(
+        &mut self,
+        track_id: TrackId,
+        asset_id: AssetId,
+        start: notwig_core::TimeMus,
     ) -> Result<(), String> {
         let entry = self
             .doc
@@ -471,7 +490,6 @@ impl Workspace {
             .duration_samples
             .ok_or_else(|| "asset has no duration".to_string())?;
         let length = self.doc.tempo_map().samples_to_mus(duration);
-        let start = self.doc.transport.playhead;
         let range =
             notwig_core::RangeMus::new(start, start + length).map_err(|err| err.to_string())?;
         let id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
@@ -681,6 +699,32 @@ mod tests {
             })
             .sum::<usize>();
         assert_eq!(notes, 2);
+    }
+
+    #[test]
+    fn import_audio_at_places_clip_on_track() {
+        let dir = temp_dir();
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Audio).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Audio)
+            .unwrap()
+            .id;
+        workspace.save(Some(&dir.join("Import.notwig"))).unwrap();
+        let source = dir.join("tone.wav");
+        let samples: Vec<f32> = (0..4800).map(|i| (i as f32 * 0.02).sin()).collect();
+        notwig_project::write_wav_f32(&source, 48_000, 1, &samples).unwrap();
+        workspace
+            .import_audio_at(&source, track, Rational::new(2, 1))
+            .unwrap();
+        assert_eq!(workspace.doc.assets.assets.len(), 1);
+        let clip = workspace.doc.arranger.clips.values().next().unwrap();
+        assert_eq!(clip.range.start, Rational::new(2, 1));
+        assert_eq!(workspace.assets.len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

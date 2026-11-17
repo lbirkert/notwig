@@ -36,16 +36,20 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 400.0);
+        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 800.0);
         let start = self.state.viewport.start;
         let beats_per_bar = doc.meta.time_sig_num.max(1);
         let width = ui.available_width().max(320.0);
         let header_w = HEADER_W.min(width * 0.45);
         self.timeline_width = (width - header_w).max(80.0);
+        self.arranger_rect = ui.max_rect();
+        self.timeline_left = self.arranger_rect.left() + header_w;
+        self.handle_navigation(ui);
 
         let (ruler_rect, ruler_resp) =
             ui.allocate_exact_size(Vec2::new(width, RULER_H), Sense::click_and_drag());
         let timeline_left = ruler_rect.left() + header_w;
+        self.timeline_left = timeline_left;
         self.draw_ruler(
             ui,
             ruler_rect,
@@ -214,11 +218,51 @@ impl NotwigUi {
                 }
             }
         }
-        let scroll = ui.input(|i| i.raw_scroll_delta.y);
-        if ruler_resp.hovered() && scroll.abs() > 0.0 {
-            let factor = (scroll * 0.0015).exp();
-            self.state.viewport.pixels_per_beat = (ppb * factor).clamp(4.0, 400.0);
+    }
+
+    fn handle_navigation(&mut self, ui: &mut egui::Ui) {
+        let Some(pos) = ui.input(|i| i.pointer.hover_pos()) else {
+            return;
+        };
+        if !self.arranger_rect.contains(pos) {
+            return;
         }
+        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 800.0);
+        let zoom_delta = ui.input(egui::InputState::zoom_delta);
+        if (zoom_delta - 1.0).abs() > 1e-4 {
+            self.zoom_at(pos.x, zoom_delta);
+        }
+        let middle = ui.input(|i| i.pointer.middle_down());
+        if middle {
+            let delta = ui.input(|i| i.pointer.delta());
+            if delta.x.abs() > 0.0 {
+                self.pan_beats(-f64::from(delta.x) / f64::from(ppb));
+            }
+            if delta.y.abs() > 0.0 {
+                self.zoom_at(pos.x, (-f64::from(delta.y) * 0.012).exp() as f32);
+            }
+        }
+        let scroll = ui.input(|i| i.smooth_scroll_delta);
+        if !middle && scroll.x.abs() > scroll.y.abs() && scroll.x.abs() > 0.01 {
+            self.pan_beats(-f64::from(scroll.x) / f64::from(ppb));
+        }
+    }
+
+    fn zoom_at(&mut self, pointer_x: f32, factor: f32) {
+        let ppb = self.state.viewport.pixels_per_beat.clamp(4.0, 800.0);
+        let start = self.state.viewport.start.as_f64();
+        let beat_under = start + f64::from((pointer_x - self.timeline_left) / ppb);
+        let new_ppb = (ppb * factor).clamp(4.0, 800.0);
+        let new_start =
+            (beat_under - f64::from((pointer_x - self.timeline_left) / new_ppb)).max(0.0);
+        self.state.viewport.pixels_per_beat = new_ppb;
+        self.state.viewport.start =
+            TimeMus::new((new_start * 1_000_000.0).round() as i64, 1_000_000);
+    }
+
+    fn pan_beats(&mut self, delta: f64) {
+        let start = (self.state.viewport.start.as_f64() + delta).max(0.0);
+        self.state.viewport.start = TimeMus::new((start * 1_000_000.0).round() as i64, 1_000_000);
     }
 
     #[allow(clippy::too_many_arguments)]

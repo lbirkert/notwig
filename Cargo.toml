@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/notwig-core",
-    "crates/notwig-project",
-    "crates/notwig-dsp",
-    "crates/notwig-engine",
-    "crates/notwig-plugins",
-    "crates/notwig-ui",
-    "crates/notwig-app",
+  "crates/notwig-core",
+  "crates/notwig-project",
+  "crates/notwig-dsp",
+  "crates/notwig-engine",
+  "crates/notwig-plugins",
+  "crates/notwig-ui",
+  "crates/notwig-app",
 ]
 
 [workspace.package]
@@ -15,7 +15,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MPL-2.0"
-repository = "https://github.com/anomalyco/notwig"
+repository = "https://github.com/lbirkert/notwig"
 
 [workspace.dependencies]
 notwig-core = { path = "crates/notwig-core" }
@@ -26,7 +26,10 @@ notwig-plugins = { path = "crates/notwig-plugins" }
 notwig-ui = { path = "crates/notwig-ui" }
 
 crossbeam-queue = "0.3"
-eframe = { version = "0.32", default-features = false, features = ["default_fonts", "wgpu"] }
+eframe = { version = "0.32", default-features = false, features = [
+  "default_fonts",
+  "wgpu",
+] }
 egui = "0.32"
 cpal = "0.18"
 rfd = { version = "0.18", default-features = false }

@@ -47,6 +47,9 @@ pub fn band_param(band: usize, offset: u128) -> ParamId {
 pub fn p_eq_output_gain() -> ParamId {
     param_id(0x2100)
 }
+pub fn p_eq_shift() -> ParamId {
+    param_id(0x2101)
+}
 
 fn audio_ports() -> Vec<Port> {
     vec![
@@ -154,6 +157,14 @@ pub fn eq_spec() -> DeviceSpec {
         Unit::Decibels,
         -24.0,
         24.0,
+        0.0,
+    ));
+    params.push(ParamSpec::continuous(
+        p_eq_shift(),
+        "Shift",
+        Unit::Semitones,
+        -12.0,
+        12.0,
         0.0,
     ));
     DeviceSpec {
@@ -336,6 +347,11 @@ pub fn eq_magnitude_response(
     frequency: f64,
 ) -> f64 {
     let mut magnitude = 1.0_f64;
+    let shift = values
+        .get(&p_eq_shift())
+        .and_then(ParamValue::as_f64)
+        .unwrap_or(0.0)
+        / 12.0;
     for band in 0..4 {
         let enabled = !matches!(
             values.get(&band_param(band, 0)),
@@ -353,7 +369,8 @@ pub fn eq_magnitude_response(
         let freq = values
             .get(&band_param(band, 2))
             .and_then(ParamValue::as_f64)
-            .unwrap_or(1_000.0);
+            .unwrap_or(1_000.0)
+            * 2.0_f64.powf(shift);
         let gain = values
             .get(&band_param(band, 3))
             .and_then(ParamValue::as_f64)
