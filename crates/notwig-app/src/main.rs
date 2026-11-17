@@ -2,6 +2,7 @@
 
 mod audio;
 mod gui;
+mod history;
 mod workspace;
 
 use std::path::{Path, PathBuf};

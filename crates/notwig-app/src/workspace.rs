@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::history::History;
 use notwig_core::ids::{
     Clip as ClipMarker, Device as DeviceMarker, DeviceChain as DeviceChainMarker,
     Note as NoteMarker, Track as TrackMarker,
@@ -43,8 +44,7 @@ pub struct Workspace {
     pub last_autosave: std::time::Instant,
     pub play_start: Option<notwig_core::TimeMus>,
     clipboard: Clipboard,
-    undo_stack: Vec<ProjectDoc>,
-    redo_stack: Vec<ProjectDoc>,
+    history: History,
 }
 
 impl Workspace {
@@ -106,8 +106,7 @@ impl Workspace {
             last_autosave: std::time::Instant::now(),
             play_start: None,
             clipboard: Clipboard::default(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
+            history: History::default(),
         };
         workspace.load_assets();
         workspace.rebuild_engine()?;
@@ -212,11 +211,7 @@ impl Workspace {
                 self.doc = result.doc;
                 self.dirty = true;
                 if let Some(before) = before {
-                    self.undo_stack.push(before);
-                    if self.undo_stack.len() > 200 {
-                        self.undo_stack.remove(0);
-                    }
-                    self.redo_stack.clear();
+                    self.history.record(before);
                 }
                 if structural {
                     self.rebuild_engine()?;
@@ -238,10 +233,9 @@ impl Workspace {
     }
 
     pub fn undo(&mut self) -> Result<(), String> {
-        let Some(previous) = self.undo_stack.pop() else {
+        let Some(previous) = self.history.undo(&self.doc) else {
             return Ok(());
         };
-        self.redo_stack.push(self.doc.clone());
         self.doc = previous;
         self.dirty = true;
         self.rebuild_engine()?;
@@ -250,10 +244,9 @@ impl Workspace {
     }
 
     pub fn redo(&mut self) -> Result<(), String> {
-        let Some(next) = self.redo_stack.pop() else {
+        let Some(next) = self.history.redo(&self.doc) else {
             return Ok(());
         };
-        self.undo_stack.push(self.doc.clone());
         self.doc = next;
         self.dirty = true;
         self.rebuild_engine()?;

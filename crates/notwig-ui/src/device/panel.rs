@@ -360,7 +360,7 @@ impl NotwigUi {
         else {
             return;
         };
-        let button_width = ((width - 16.0) / 3.0).max(48.0);
+        let button_width = ((width - 32.0) / 3.0).max(42.0);
         ui.horizontal(|ui| {
             for (id, label) in [
                 (notwig_dsp::stock::p_polarity_l(), "L−"),
