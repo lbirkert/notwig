@@ -494,7 +494,10 @@ impl NotwigUi {
             }
         }
         if response.drag_started() {
-            if let Some(pos) = response.interact_pointer_pos() {
+            if let Some(pos) = ui
+                .input(|input| input.pointer.press_origin())
+                .or_else(|| response.interact_pointer_pos())
+            {
                 let mut started = None;
                 if let Some((band_index, _)) =
                     handles.iter().find(|(_, handle)| handle.contains(pos))

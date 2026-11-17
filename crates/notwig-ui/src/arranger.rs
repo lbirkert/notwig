@@ -757,7 +757,10 @@ impl NotwigUi {
             }
         });
         if response.drag_started() {
-            if let Some(pos) = response.interact_pointer_pos() {
+            if let Some(pos) = ui
+                .input(|i| i.pointer.press_origin())
+                .or_else(|| response.interact_pointer_pos())
+            {
                 let edge = 7.0;
                 let mode = if (pos.x - clip_rect.left()).abs() < edge {
                     ClipDragMode::TrimStart
