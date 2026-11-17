@@ -37,6 +37,21 @@ pub struct TimeDrag {
     pub start_y: f32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupDrag {
+    pub start_pointer: egui::Pos2,
+    pub primary_origin: RangeMus,
+    pub origins: Vec<(ClipId, TrackId, RangeMus)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarSelectionDrag {
+    pub start_pointer: egui::Pos2,
+    pub origin: RangeMus,
+    pub tracks: Vec<TrackId>,
+    pub clips: Vec<(ClipId, TrackId, RangeMus)>,
+}
+
 impl NotwigUi {
     pub(crate) fn arranger_view(
         &mut self,
@@ -85,6 +100,7 @@ impl NotwigUi {
                     .id_salt("arranger_rows")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
                         for track_id in doc.track_order.depth_first() {
                             self.track_row(ui, doc, track_id, header_w, ppb, start, runtime, grid);
                         }
@@ -106,6 +122,7 @@ impl NotwigUi {
             },
         );
 
+        self.bar_selection_interaction(ui, doc, ppb, start, grid);
         let content_rect = Rect::from_min_max(
             egui::pos2(timeline_left, rows_top),
             egui::pos2(ruler_rect.right(), rows_top + rows_height),
@@ -141,6 +158,140 @@ impl NotwigUi {
         let (bar_rect, _) = ui.allocate_exact_size(Vec2::new(width, SCROLLBAR_H), Sense::hover());
         self.draw_drop_preview(ui, doc, header_w);
         self.timeline_scrollbar(ui, bar_rect, doc, header_w, ppb);
+    }
+
+    fn bar_selection_interaction(
+        &mut self,
+        ui: &mut egui::Ui,
+        doc: &ProjectDoc,
+        ppb: f32,
+        start: TimeMus,
+        grid: TimeMus,
+    ) {
+        let Some(time) = self.state.selection.time.clone() else {
+            return;
+        };
+        let tracks: Vec<TrackId> = time.tracks.iter().copied().collect();
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for track in &tracks {
+            if let Some(row) = self.row_rect(*track) {
+                min_y = min_y.min(row.top());
+                max_y = max_y.max(row.bottom());
+            }
+        }
+        if !min_y.is_finite() || !max_y.is_finite() {
+            return;
+        }
+        let x1 = self
+            .state
+            .viewport
+            .beat_to_x(time.range.start, self.timeline_left);
+        let x2 = self
+            .state
+            .viewport
+            .beat_to_x(time.range.end, self.timeline_left);
+        let rect = Rect::from_min_max(
+            egui::pos2(x1.min(x2), min_y),
+            egui::pos2(x1.max(x2).max(x1.min(x2) + 4.0), max_y),
+        )
+        .intersect(ui.max_rect());
+        if rect.width() < 1.0 || rect.height() < 1.0 {
+            return;
+        }
+        let response = ui.interact(rect, Id::new("bar-selection-move"), Sense::drag());
+        if response.hovered() || response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            let painter = ui
+                .ctx()
+                .layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("bar-selection-handle"),
+                ))
+                .with_clip_rect(rect);
+            let handle = Rect::from_center_size(
+                egui::pos2(rect.center().x, rect.top() + 10.0),
+                Vec2::new(44.0, 16.0),
+            );
+            painter.rect_filled(handle, CornerRadius::same(6), Color32::WHITE);
+            painter.text(
+                handle.center(),
+                Align2::CENTER_CENTER,
+                "↔",
+                FontId::monospace(11.0),
+                Color32::BLACK,
+            );
+        }
+        if response.drag_started() {
+            if let Some(pointer) = ui
+                .input(|i| i.pointer.press_origin())
+                .or_else(|| response.interact_pointer_pos())
+            {
+                let clips = doc
+                    .arranger
+                    .clips
+                    .values()
+                    .filter(|clip| {
+                        time.tracks.contains(&clip.track_id) && clip.range.intersects(time.range)
+                    })
+                    .map(|clip| (clip.id, clip.track_id, clip.range))
+                    .collect();
+                self.bar_selection_drag = Some(BarSelectionDrag {
+                    start_pointer: pointer,
+                    origin: time.range,
+                    tracks,
+                    clips,
+                });
+            }
+        }
+        if response.dragged() {
+            if let Some(drag) = self.bar_selection_drag.clone() {
+                let current = response
+                    .interact_pointer_pos()
+                    .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                    .unwrap_or(drag.start_pointer);
+                let alt = ui.input(|i| i.modifiers.alt);
+                let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
+                let new_start = snap_time(
+                    TimeMus::new(
+                        ((drag.origin.start.as_f64() + delta) * 1_000_000.0).round() as i64,
+                        1_000_000,
+                    ),
+                    grid,
+                    alt,
+                );
+                let shift = new_start - drag.origin.start;
+                let new_end = (drag.origin.end + shift).max(new_start);
+                if let Ok(range) = RangeMus::new(new_start.max(TimeMus::zero()), new_end) {
+                    self.state.selection.select_time(range, &drag.tracks);
+                    self.group_preview = drag
+                        .clips
+                        .iter()
+                        .map(|(id, track, origin)| {
+                            let start = (origin.start + shift).max(TimeMus::zero());
+                            let range =
+                                RangeMus::new(start, start + origin.length()).unwrap_or(*origin);
+                            (*id, *track, range)
+                        })
+                        .collect();
+                }
+            }
+        }
+        if response.drag_stopped() && self.bar_selection_drag.take().is_some() {
+            let previews = std::mem::take(&mut self.group_preview);
+            let moves: Vec<_> = previews
+                .into_iter()
+                .filter(|(id, _, range)| {
+                    self.clip_origins
+                        .get(id)
+                        .is_some_and(|(_, _, origin)| origin != range)
+                })
+                .collect();
+            if !moves.is_empty() {
+                self.emit(UiIntent::MoveClips { clips: moves });
+            }
+        }
+        let _ = start;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -547,19 +698,27 @@ impl NotwigUi {
         let header_resp = ui.interact(
             header_rect,
             Id::new(("track-header", track_id)),
-            Sense::click_and_drag(),
+            Sense::click(),
         );
         if header_resp.clicked() {
             let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
             self.state.selection.select_track(track_id, additive);
             self.emit(UiIntent::SelectTrack(track_id));
         }
-        if header_resp.drag_started() && track.kind != TrackKind::Master {
+        let drag_rect = Rect::from_min_max(
+            egui::pos2(header_rect.left() + 3.0, header_rect.top()),
+            egui::pos2(header_rect.right() - 52.0, header_rect.bottom() - 19.0),
+        );
+        let drag_resp = ui.interact(drag_rect, Id::new(("track-drag", track_id)), Sense::drag());
+        if drag_resp.hovered() && track.kind != TrackKind::Master {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+        if drag_resp.drag_started() && track.kind != TrackKind::Master {
             self.track_drag = Some(track_id);
             self.state.selection.select_track(track_id, false);
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
-        if header_resp.dragged() {
+        if drag_resp.dragged() {
             if let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) {
                 let painter = ui.painter();
                 painter.line_segment(
@@ -571,14 +730,14 @@ impl NotwigUi {
                 );
             }
         }
-        if header_resp.drag_stopped()
+        if drag_resp.drag_stopped()
             && self.track_drag.take().is_some()
             && let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
         {
             let order = doc.track_order.depth_first();
             let mut index = 0usize;
             for id in &order {
-                if let Some(row) = self.track_rows.get(id) {
+                if let Some(row) = self.row_rect(*id) {
                     if pointer.y > row.center().y {
                         index += 1;
                     }
@@ -687,7 +846,7 @@ impl NotwigUi {
                         let max_y = drag.start_y.max(pos.y);
                         let mut tracks = Vec::new();
                         for id in doc.track_order.depth_first() {
-                            if let Some(row) = self.track_rows.get(&id) {
+                            if let Some(row) = self.row_rect(id) {
                                 if row.bottom() >= min_y && row.top() <= max_y {
                                     tracks.push(id);
                                 }
@@ -865,9 +1024,15 @@ impl NotwigUi {
             return;
         };
         let preview = self
-            .clip_preview
-            .filter(|(id, _, _)| *id == clip_id)
-            .map(|(_, range, _)| range);
+            .group_preview
+            .iter()
+            .find(|(id, _, _)| *id == clip_id)
+            .map(|(_, _, range)| *range)
+            .or_else(|| {
+                self.clip_preview
+                    .filter(|(id, _, _)| *id == clip_id)
+                    .map(|(_, range, _)| range)
+            });
         let range = preview.unwrap_or(clip.range);
         let x1 = lane_rect.left() + (range.start.as_f64() - start.as_f64()) as f32 * ppb;
         let x2 = lane_rect.left() + (range.end.as_f64() - start.as_f64()) as f32 * ppb;
@@ -1005,10 +1170,20 @@ impl NotwigUi {
                 .input(|i| i.pointer.press_origin())
                 .or_else(|| name_response.interact_pointer_pos())
             {
-                self.begin_clip_drag(clip, clip_id, track_id, ClipDragMode::Move, pos);
+                if self.state.selection.clips.len() > 1
+                    && self.state.selection.clips.contains(&clip_id)
+                {
+                    self.begin_group_drag(clip, pos);
+                } else {
+                    self.begin_clip_drag(clip, clip_id, track_id, ClipDragMode::Move, pos);
+                }
             }
         }
-        self.update_clip_drag(ui, doc, &name_response, clip, clip_id, lane_rect, ppb, grid);
+        if self.group_drag.is_some() {
+            self.update_group_drag(ui, &name_response, ppb, grid);
+        } else {
+            self.update_clip_drag(ui, doc, &name_response, clip, clip_id, lane_rect, ppb, grid);
+        }
 
         for (mode, edge_x, id) in [
             (ClipDragMode::TrimStart, clip_rect.left(), "trim-start"),
@@ -1072,6 +1247,80 @@ impl NotwigUi {
         }
     }
 
+    fn begin_group_drag(&mut self, clip: &notwig_core::ClipEntity, pointer: egui::Pos2) {
+        let origins: Vec<(ClipId, TrackId, RangeMus)> = self
+            .state
+            .selection
+            .clips
+            .iter()
+            .filter_map(|id| self.doc_clip_origin(*id))
+            .collect();
+        if origins.is_empty() {
+            return;
+        }
+        self.group_drag = Some(GroupDrag {
+            start_pointer: pointer,
+            primary_origin: clip.range,
+            origins,
+        });
+    }
+
+    fn doc_clip_origin(&self, id: ClipId) -> Option<(ClipId, TrackId, RangeMus)> {
+        self.clip_origins.get(&id).copied()
+    }
+
+    fn update_group_drag(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        ppb: f32,
+        grid: TimeMus,
+    ) {
+        if response.dragged() {
+            if let Some(drag) = self.group_drag.clone() {
+                let current = response
+                    .interact_pointer_pos()
+                    .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                    .unwrap_or(drag.start_pointer);
+                let alt = ui.input(|i| i.modifiers.alt);
+                let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
+                let primary_start = snap_time(
+                    TimeMus::new(
+                        ((drag.primary_origin.start.as_f64() + delta) * 1_000_000.0).round() as i64,
+                        1_000_000,
+                    ),
+                    grid,
+                    alt,
+                );
+                let shift = primary_start - drag.primary_origin.start;
+                self.group_preview = drag
+                    .origins
+                    .iter()
+                    .map(|(id, track, origin)| {
+                        let start = (origin.start + shift).max(TimeMus::zero());
+                        let range =
+                            RangeMus::new(start, start + origin.length()).unwrap_or(*origin);
+                        (*id, *track, range)
+                    })
+                    .collect();
+            }
+        }
+        if response.drag_stopped() && self.group_drag.take().is_some() {
+            let previews = std::mem::take(&mut self.group_preview);
+            let moves: Vec<_> = previews
+                .into_iter()
+                .filter(|(id, _, range)| {
+                    self.clip_origins
+                        .get(id)
+                        .is_some_and(|(_, _, origin)| origin != range)
+                })
+                .collect();
+            if !moves.is_empty() {
+                self.emit(UiIntent::MoveClips { clips: moves });
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn update_clip_drag(
         &mut self,
@@ -1132,22 +1381,21 @@ impl NotwigUi {
         let painter = ui.painter().clone();
         let order: Vec<TrackId> = doc.track_order.depth_first();
         let lane = match preview.target {
-            crate::intent::DropAudioTarget::Track(track_id) => {
-                self.track_rows.get(&track_id).map(|row| {
-                    Rect::from_min_max(
-                        egui::pos2(row.left() + header_w, row.top() + 3.0),
-                        egui::pos2(row.right() - 1.0, row.bottom() - 3.0),
-                    )
-                })
-            }
+            crate::intent::DropAudioTarget::Track(track_id) => self.row_rect(track_id).map(|row| {
+                Rect::from_min_max(
+                    egui::pos2(row.left() + header_w, row.top() + 3.0),
+                    egui::pos2(row.right() - 1.0, row.bottom() - 3.0),
+                )
+            }),
             crate::intent::DropAudioTarget::NewTrack { index } => {
                 let y = order
                     .get(index)
-                    .and_then(|id| self.track_rows.get(id))
-                    .map(egui::Rect::top)
+                    .and_then(|id| self.row_rect(*id))
+                    .map(|row| row.top())
                     .or_else(|| {
                         self.track_rows
                             .values()
+                            .chain(self.last_track_rows.values())
                             .map(egui::Rect::bottom)
                             .reduce(f32::max)
                     })

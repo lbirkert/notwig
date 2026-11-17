@@ -294,6 +294,11 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
+            UiIntent::MoveClips { clips } => {
+                if let Err(err) = self.workspace.move_clips(&clips) {
+                    self.notify_error(err);
+                }
+            }
             UiIntent::SetClipMuted { clip_id, muted } => {
                 if let Err(err) = self.workspace.apply(CommandPayload::EditClip {
                     clip_id,
@@ -483,6 +488,20 @@ impl NotwigApp {
                         .set_title("Render mixdown")
                         .save_file()
                 });
+            }
+            UiIntent::Undo => {
+                if let Err(err) = self.workspace.undo() {
+                    self.notify_error(err);
+                } else {
+                    self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                }
+            }
+            UiIntent::Redo => {
+                if let Err(err) = self.workspace.redo() {
+                    self.notify_error(err);
+                } else {
+                    self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                }
             }
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
         }

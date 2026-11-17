@@ -18,12 +18,35 @@ pub fn snap_step(pixels_per_beat: f32, beats_per_bar: u8) -> TimeMus {
     ];
     let mut chosen = *candidates.last().expect("grid candidates");
     for step in candidates {
-        if (step as f32) * pixels_per_beat >= 6.0 {
+        if (step as f32) * pixels_per_beat >= 12.0 {
             chosen = step;
             break;
         }
     }
     TimeMus::new((chosen * 1_000_000.0).round() as i64, 1_000_000)
+}
+
+pub fn snap_label(step: TimeMus, beats_per_bar: u8) -> String {
+    let beats = step.as_f64();
+    let bar = f64::from(beats_per_bar.max(1));
+    if beats >= bar {
+        let bars = (beats / bar).round() as i64;
+        if bars <= 1 {
+            "1 BAR SNAP".into()
+        } else {
+            format!("{bars} BARS SNAP")
+        }
+    } else if beats >= 1.0 {
+        let whole = beats.round() as i64;
+        if whole <= 1 {
+            "1 BEAT SNAP".into()
+        } else {
+            format!("{whole} BEATS SNAP")
+        }
+    } else {
+        let denominator = (1.0 / beats).round() as i64;
+        format!("1/{denominator} SNAP")
+    }
 }
 
 pub fn snap_time(time: TimeMus, step: TimeMus, bypass: bool) -> TimeMus {
@@ -87,9 +110,9 @@ mod tests {
     #[test]
     fn snapping_step_adapts_to_zoom() {
         let far = snap_step(16.0, 4);
-        let near = snap_step(240.0, 4);
+        let near = snap_step(100.0, 4);
         assert!(far > near, "zoomed out should snap coarser");
-        assert_eq!(near, TimeMus::new(1, 32));
+        assert_eq!(near, TimeMus::new(1, 8));
     }
 
     #[test]

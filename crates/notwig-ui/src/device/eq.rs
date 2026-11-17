@@ -26,7 +26,7 @@ pub struct EqDrag {
 
 impl NotwigUi {
     fn eq_curve(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, sample_rate: f64) {
-        let height = 150.0;
+        let height = 88.0;
         let (rect, response) = ui.allocate_exact_size(
             Vec2::new(ui.available_width().max(220.0), height),
             Sense::click_and_drag(),

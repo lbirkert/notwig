@@ -5,7 +5,7 @@ use egui::{Color32, Rect, RichText};
 use notwig_core::{ProjectDoc, TrackId, TrackKind};
 use notwig_dsp::DeviceRegistry;
 
-use crate::arranger::{ClipDrag, TimeDrag};
+use crate::arranger::{BarSelectionDrag, ClipDrag, GroupDrag, TimeDrag};
 use crate::device::{DeviceBrowserState, EqDrag};
 use crate::drop_target::DragPreview;
 use crate::icons::{Icon, icon_button, icon_button_sized};
@@ -22,10 +22,16 @@ pub struct NotwigUi {
     pub drag: Option<ClipDrag>,
     pub time_drag: Option<TimeDrag>,
     pub track_drag: Option<TrackId>,
+    pub group_drag: Option<GroupDrag>,
+    pub bar_selection_drag: Option<BarSelectionDrag>,
+    pub group_preview: Vec<(notwig_core::ClipId, TrackId, notwig_core::RangeMus)>,
+    pub clip_origins:
+        BTreeMap<notwig_core::ClipId, (notwig_core::ClipId, TrackId, notwig_core::RangeMus)>,
     pub clip_preview: Option<(notwig_core::ClipId, notwig_core::RangeMus, TrackId)>,
     pub show_notifications: bool,
     pub show_help: bool,
     pub track_rows: BTreeMap<TrackId, Rect>,
+    pub last_track_rows: BTreeMap<TrackId, Rect>,
     pub timeline_width: f32,
     pub timeline_left: f32,
     pub arranger_rect: Rect,
@@ -59,10 +65,15 @@ impl Default for NotwigUi {
             drag: None,
             time_drag: None,
             track_drag: None,
+            group_drag: None,
+            bar_selection_drag: None,
+            group_preview: Vec::new(),
+            clip_origins: BTreeMap::new(),
             clip_preview: None,
             show_notifications: false,
             show_help: false,
             track_rows: BTreeMap::new(),
+            last_track_rows: BTreeMap::new(),
             timeline_width: 800.0,
             timeline_left: 230.0,
             arranger_rect: Rect::NOTHING,
@@ -108,15 +119,22 @@ impl NotwigUi {
             self.last_pointer = Some(pos);
         }
         self.sanitize(doc);
+        self.clip_origins = doc
+            .arranger
+            .clips
+            .values()
+            .map(|clip| (clip.id, (clip.id, clip.track_id, clip.range)))
+            .collect();
+        self.last_track_rows = std::mem::take(&mut self.track_rows);
         self.handle_dropped_files(ctx, doc);
         self.update_drag_preview(ctx, doc);
         self.track_rows.clear();
         self.handle_shortcuts(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
+        self.info_panel(ctx, doc, runtime);
         self.device_panel(ctx, doc, runtime);
         self.device_browser_window(ctx, doc, runtime);
-        self.info_panel(ctx, doc, runtime);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -201,6 +219,48 @@ impl NotwigUi {
                 input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace),
             )
         });
+        let time = self
+            .state
+            .selection
+            .time
+            .as_ref()
+            .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
+        let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
+        let copy_time = if clips.is_empty() { time.clone() } else { None };
+        let (copy_event, cut_event, paste_event) = ctx.input(|input| {
+            (
+                input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Copy)),
+                input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Cut)),
+                input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Paste(_))),
+            )
+        });
+        if copy_event {
+            self.emit(UiIntent::CopySelection {
+                clips: clips.clone(),
+                time: copy_time.clone(),
+            });
+        }
+        if cut_event {
+            self.emit(UiIntent::CutSelection {
+                clips: clips.clone(),
+                time: copy_time.clone(),
+            });
+        }
+        if paste_event {
+            let at = time
+                .as_ref()
+                .map_or(runtime.playhead, |(range, _)| range.start);
+            self.emit(UiIntent::PasteClips { at });
+        }
         if space {
             if shift || doc.transport.playing {
                 self.emit(UiIntent::Stop);
@@ -222,36 +282,18 @@ impl NotwigUi {
             if ctx.input(|i| i.key_pressed(egui::Key::O)) {
                 self.emit(UiIntent::OpenProject);
             }
-            let time = self
-                .state
-                .selection
-                .time
-                .as_ref()
-                .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
-            let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
-            if ctx.input(|i| i.key_pressed(egui::Key::C)) {
-                self.emit(UiIntent::CopySelection {
-                    clips: clips.clone(),
-                    time: time.clone(),
-                });
-            }
-            if ctx.input(|i| i.key_pressed(egui::Key::X)) {
-                self.emit(UiIntent::CutSelection {
-                    clips: clips.clone(),
-                    time: time.clone(),
-                });
-            }
-            if ctx.input(|i| i.key_pressed(egui::Key::V)) {
-                let at = time
-                    .as_ref()
-                    .map_or(runtime.playhead, |(range, _)| range.start);
-                self.emit(UiIntent::PasteClips { at });
-            }
             if ctx.input(|i| i.key_pressed(egui::Key::L)) {
                 if let Some((range, _)) = time.clone() {
                     self.emit(UiIntent::SetLoopRange(range));
                 } else {
                     self.emit(UiIntent::ToggleLoop);
+                }
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Z)) {
+                if ctx.input(|i| i.modifiers.shift) {
+                    self.emit(UiIntent::Redo);
+                } else {
+                    self.emit(UiIntent::Undo);
                 }
             }
             if ctx.input(|i| i.key_pressed(egui::Key::D)) {
@@ -454,8 +496,12 @@ impl NotwigUi {
                                 .small()
                                 .color(theme::TEXT_MUTED),
                         );
+                        let snap = crate::widgets::snap_step(
+                            self.state.viewport.pixels_per_beat,
+                            doc.meta.time_sig_num,
+                        );
                         ui.label(
-                            RichText::new("1/16 SNAP")
+                            RichText::new(crate::widgets::snap_label(snap, doc.meta.time_sig_num))
                                 .small()
                                 .monospace()
                                 .color(theme::TEXT_MUTED),
@@ -597,8 +643,14 @@ impl NotwigUi {
                     ("Shift+Space", "Stop"),
                     ("Cmd+S / Cmd+Shift+S", "Save / save as"),
                     ("Cmd+N / Cmd+O", "New / open project"),
-                    ("Cmd+D", "Duplicate selected clip"),
-                    ("Delete", "Delete selected clip or track"),
+                    ("Cmd+D", "Duplicate selected clips or time range"),
+                    (
+                        "Cmd+C / Cmd+X / Cmd+V",
+                        "Copy / cut / paste clips or time range",
+                    ),
+                    ("Cmd+Z / Cmd+Shift+Z", "Undo / redo"),
+                    ("Cmd+L", "Loop the selected time range"),
+                    ("Delete", "Delete selection, clips, or time range"),
                     ("Cmd+0", "Fit arrangement"),
                     ("Alt while dragging", "Bypass 1/16 snapping"),
                     ("Double-click empty lane", "Create 4-beat MIDI clip"),
@@ -670,7 +722,7 @@ impl NotwigUi {
             return;
         }
         let Some(target) =
-            crate::drop_target::resolve_drop_target(doc, &self.track_rows, pointer.y)
+            crate::drop_target::resolve_drop_target(doc, &self.last_track_rows, pointer.y)
         else {
             self.drag_preview = None;
             return;
@@ -727,7 +779,8 @@ impl NotwigUi {
             if !self.arranger_rect.contains(pointer) {
                 return None;
             }
-            let target = crate::drop_target::resolve_drop_target(doc, &self.track_rows, pointer.y)?;
+            let target =
+                crate::drop_target::resolve_drop_target(doc, &self.last_track_rows, pointer.y)?;
             let grid = crate::widgets::snap_step(
                 self.state.viewport.pixels_per_beat,
                 doc.meta.time_sig_num,
@@ -776,8 +829,16 @@ impl NotwigUi {
     pub(crate) fn track_at(&self, y: f32) -> Option<TrackId> {
         self.track_rows
             .iter()
+            .chain(self.last_track_rows.iter())
             .find(|(_, rect)| y >= rect.top() && y < rect.bottom())
             .map(|(id, _)| *id)
+    }
+
+    pub(crate) fn row_rect(&self, track: TrackId) -> Option<Rect> {
+        self.track_rows
+            .get(&track)
+            .or_else(|| self.last_track_rows.get(&track))
+            .copied()
     }
 }
 

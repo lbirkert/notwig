@@ -17,10 +17,10 @@ use crate::shell::NotwigUi;
 use crate::theme;
 use crate::widgets::format_param;
 
-const DEVICE_CARD_HEIGHT: f32 = 286.0;
-const DEVICE_PANEL_HEIGHT: f32 = 356.0;
-const OVERLINE_SPACE: f32 = 16.0;
-const HANDLE_WIDTH: f32 = 38.0;
+const DEVICE_CARD_HEIGHT: f32 = 220.0;
+const DEVICE_PANEL_HEIGHT: f32 = 286.0;
+const OVERLINE_SPACE: f32 = 14.0;
+const HANDLE_WIDTH: f32 = 32.0;
 
 impl NotwigUi {
     pub(crate) fn device_panel(
@@ -35,7 +35,7 @@ impl NotwigUi {
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL_LIGHT)
-                    .inner_margin(egui::Margin::symmetric(8, 6)),
+                    .inner_margin(egui::Margin::symmetric(6, 4)),
             )
             .show(ctx, |ui| {
                 let Some(track_id) = self.selected_track(doc) else {
@@ -313,10 +313,10 @@ impl NotwigUi {
     ) {
         let body_width = card_width(device) - HANDLE_WIDTH - 2.0;
         egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(6, 4))
+            .inner_margin(egui::Margin::symmetric(4, 2))
             .show(ui, |ui| {
                 ui.allocate_ui_with_layout(
-                    Vec2::new(body_width - 12.0, height - 8.0),
+                    Vec2::new(body_width - 8.0, height - 4.0),
                     Layout::top_down(Align::Min),
                     |ui| {
                         ui.spacing_mut().interact_size.y = 16.0;
@@ -341,6 +341,8 @@ impl NotwigUi {
                             self.eq_card_body(ui, device, f64::from(doc.meta.sample_rate.value()));
                         } else if device.kind == DeviceKind::Container {
                             self.chain_body(ui, device);
+                        } else if device.type_id == notwig_dsp::stock::TOOL_TYPE_ID {
+                            self.tool_body(ui, device, body_width);
                         } else {
                             self.param_editor(ui, device);
                         }
@@ -348,6 +350,90 @@ impl NotwigUi {
                     },
                 );
             });
+    }
+
+    fn tool_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, width: f32) {
+        let Some(spec) = self
+            .registry
+            .resolve(&device.type_id, device.version)
+            .cloned()
+        else {
+            return;
+        };
+        let button_width = ((width - 16.0) / 3.0).max(48.0);
+        ui.horizontal(|ui| {
+            for (id, label) in [
+                (notwig_dsp::stock::p_polarity_l(), "L−"),
+                (notwig_dsp::stock::p_swap_lr(), "Swap L/R"),
+                (notwig_dsp::stock::p_polarity_r(), "R−"),
+            ] {
+                let current = device
+                    .param_values
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or(ParamValue::Bool(false));
+                let active = matches!(current, ParamValue::Bool(true));
+                let button = egui::Button::new(RichText::new(label).small().color(if active {
+                    Color32::BLACK
+                } else {
+                    theme::TEXT_MUTED
+                }))
+                .fill(if active {
+                    theme::ACCENT
+                } else {
+                    theme::PANEL_LIGHT
+                })
+                .corner_radius(CornerRadius::same(4));
+                if ui.add_sized([button_width, 24.0], button).clicked() {
+                    self.emit(UiIntent::SetParam {
+                        device_id: device.id,
+                        param_id: id,
+                        value: ParamValue::Bool(!active),
+                    });
+                }
+            }
+        });
+        ui.add_space(4.0);
+        let columns = [
+            (notwig_dsp::stock::p_input_gain(), "Volume"),
+            (notwig_dsp::stock::p_output_gain(), "Gain"),
+            (notwig_dsp::stock::p_pan(), "Pan"),
+            (notwig_dsp::stock::p_width(), "Width"),
+        ];
+        for row in columns.chunks(2) {
+            ui.horizontal(|ui| {
+                let gap = ((width - 16.0 - 156.0) / 3.0).max(0.0);
+                ui.add_space(gap);
+                for (id, label) in row {
+                    let Some(param) = spec.params.iter().find(|param| param.id == *id) else {
+                        continue;
+                    };
+                    let current = device
+                        .param_values
+                        .get(&param.id)
+                        .cloned()
+                        .unwrap_or_else(|| param.default.clone());
+                    let mut norm = param.norm(&current).0;
+                    let value = match *id {
+                        id if id == notwig_dsp::stock::p_pan() => {
+                            format!("{:.0} %", param.physical(&current) * 100.0)
+                        }
+                        id if id == notwig_dsp::stock::p_width() => {
+                            format!("{:.0} %", param.physical(&current) * 100.0)
+                        }
+                        _ => format_param(param.unit, param.physical(&current)),
+                    };
+                    if knob(ui, &mut norm, &value, label) {
+                        self.emit(UiIntent::SetParam {
+                            device_id: device.id,
+                            param_id: param.id,
+                            value: param.value_from_norm(notwig_core::Norm01::clamped(norm)),
+                        });
+                    }
+                    ui.add_space(gap);
+                }
+            });
+        }
     }
 
     fn chain_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
@@ -398,13 +484,11 @@ impl NotwigUi {
 
 fn card_width(device: &DeviceInstance) -> f32 {
     if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
-        620.0
+        560.0
     } else if device.type_id == notwig_dsp::stock::CHAIN_TYPE_ID {
-        190.0
-    } else if device.type_id == notwig_dsp::stock::TOOL_TYPE_ID {
-        300.0
+        150.0
     } else {
-        340.0
+        300.0
     }
 }
 

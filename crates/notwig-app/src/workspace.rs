@@ -43,6 +43,8 @@ pub struct Workspace {
     pub last_autosave: std::time::Instant,
     pub play_start: Option<notwig_core::TimeMus>,
     clipboard: Clipboard,
+    undo_stack: Vec<ProjectDoc>,
+    redo_stack: Vec<ProjectDoc>,
 }
 
 impl Workspace {
@@ -104,6 +106,8 @@ impl Workspace {
             last_autosave: std::time::Instant::now(),
             play_start: None,
             clipboard: Clipboard::default(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
         workspace.load_assets();
         workspace.rebuild_engine()?;
@@ -198,10 +202,22 @@ impl Workspace {
 
     pub fn apply(&mut self, payload: CommandPayload) -> Result<(), String> {
         let structural = payload.requires_plan_rebuild();
+        let record_undo = !matches!(
+            payload,
+            CommandPayload::SetTransport { .. } | CommandPayload::Pause | CommandPayload::Stop
+        );
+        let before = record_undo.then(|| self.doc.clone());
         match apply(&self.doc, &Command::new(payload)) {
             Ok(result) => {
                 self.doc = result.doc;
                 self.dirty = true;
+                if let Some(before) = before {
+                    self.undo_stack.push(before);
+                    if self.undo_stack.len() > 200 {
+                        self.undo_stack.remove(0);
+                    }
+                    self.redo_stack.clear();
+                }
                 if structural {
                     self.rebuild_engine()?;
                 } else if let Ok(mut engine) = self.engine.lock() {
@@ -219,6 +235,30 @@ impl Workspace {
                 Err(err.to_string())
             }
         }
+    }
+
+    pub fn undo(&mut self) -> Result<(), String> {
+        let Some(previous) = self.undo_stack.pop() else {
+            return Ok(());
+        };
+        self.redo_stack.push(self.doc.clone());
+        self.doc = previous;
+        self.dirty = true;
+        self.rebuild_engine()?;
+        self.status = Some("Undo.".into());
+        Ok(())
+    }
+
+    pub fn redo(&mut self) -> Result<(), String> {
+        let Some(next) = self.redo_stack.pop() else {
+            return Ok(());
+        };
+        self.undo_stack.push(self.doc.clone());
+        self.doc = next;
+        self.dirty = true;
+        self.rebuild_engine()?;
+        self.status = Some("Redo.".into());
+        Ok(())
     }
 
     pub fn save(&mut self, as_path: Option<&Path>) -> Result<PathBuf, String> {
@@ -538,6 +578,38 @@ impl Workspace {
         })
     }
 
+    pub fn move_clips(
+        &mut self,
+        clips: &[(ClipId, TrackId, notwig_core::RangeMus)],
+    ) -> Result<(), String> {
+        let mut ordered = clips.to_vec();
+        let moving_right = ordered
+            .first()
+            .and_then(|(id, _, range)| {
+                self.doc
+                    .arranger
+                    .clips
+                    .get(id)
+                    .map(|clip| range.start > clip.range.start)
+            })
+            .unwrap_or(false);
+        ordered.sort_by(|a, b| {
+            if moving_right {
+                b.2.start.cmp(&a.2.start)
+            } else {
+                a.2.start.cmp(&b.2.start)
+            }
+        });
+        for (clip_id, track_id, range) in ordered {
+            self.apply(CommandPayload::MoveClip {
+                clip_id,
+                track_id: Some(track_id),
+                range,
+            })?;
+        }
+        Ok(())
+    }
+
     pub fn copy_clips(&mut self, clip_ids: &[ClipId]) {
         let mut clips: Vec<notwig_core::ClipEntity> = clip_ids
             .iter()
@@ -566,13 +638,74 @@ impl Workspace {
             .clips
             .values()
             .filter(|clip| track_set.contains(&clip.track_id) && clip.range.intersects(range))
-            .map(|clip| ClipboardEntry {
-                track_id: clip.track_id,
-                offset: clip.range.start - range.start,
-                clip: clip.clone(),
+            .filter_map(|clip| {
+                self.trim_clip_to_range(clip, range)
+                    .map(|trimmed| ClipboardEntry {
+                        track_id: trimmed.track_id,
+                        offset: trimmed.range.start - range.start,
+                        clip: trimmed,
+                    })
             })
             .collect();
         self.status = Some("Copied time selection.".into());
+    }
+
+    fn trim_clip_to_range(
+        &self,
+        clip: &notwig_core::ClipEntity,
+        range: notwig_core::RangeMus,
+    ) -> Option<notwig_core::ClipEntity> {
+        let start = clip.range.start.max(range.start);
+        let end = clip.range.end.min(range.end);
+        if end <= start {
+            return None;
+        }
+        let mut trimmed = clip.clone();
+        trimmed.range = notwig_core::RangeMus::new(start, end).ok()?;
+        trimmed.payload = match &clip.payload {
+            ClipPayload::Midi(midi) => {
+                let mut notes = Vec::new();
+                for note in &midi.notes {
+                    let absolute_start = clip.range.start + (note.start - midi.content_start);
+                    let absolute_end = absolute_start + note.length;
+                    let note_start = absolute_start.max(start);
+                    let note_end = absolute_end.min(end);
+                    if note_end <= note_start {
+                        continue;
+                    }
+                    let mut clipped = note.clone();
+                    clipped.start = note_start - start;
+                    clipped.length = note_end - note_start;
+                    notes.push(clipped);
+                }
+                ClipPayload::Midi(notwig_core::MidiClipData {
+                    length: end - start,
+                    content_start: notwig_core::TimeMus::zero(),
+                    notes,
+                })
+            }
+            ClipPayload::Audio(audio) => {
+                let map = self.doc.tempo_map();
+                let left = map.samples_delta(start - clip.range.start);
+                let source_start =
+                    u64::try_from(i128::from(audio.source_start_sample) + i128::from(left)).ok()?;
+                let duration = map.mus_to_samples(end - start);
+                let source_end = source_start.saturating_add(duration);
+                if source_end <= source_start {
+                    return None;
+                }
+                ClipPayload::Audio(notwig_core::AudioClipData {
+                    asset_id: audio.asset_id,
+                    source_start_sample: source_start,
+                    source_end_sample: source_end,
+                    gain_db: audio.gain_db,
+                    fade_in_samples: 0,
+                    fade_out_samples: 0,
+                    fade_shape: audio.fade_shape,
+                })
+            }
+        };
+        Some(trimmed)
     }
 
     pub fn copy_selection(
@@ -1097,6 +1230,65 @@ mod tests {
         assert!(clips.iter().any(|clip| {
             clip.range.start == Rational::new(3, 1) && clip.range.end == Rational::new(4, 1)
         }));
+    }
+
+    #[test]
+    fn copy_bar_selection_then_paste_at_new_time() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )
+            .unwrap();
+        workspace.copy_selection(
+            &[],
+            Some((
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+                vec![track],
+            )),
+        );
+        workspace.paste_clips(Rational::new(8, 1)).unwrap();
+        assert!(
+            workspace
+                .doc
+                .arranger
+                .clips
+                .values()
+                .any(|clip| clip.range.start == Rational::new(8, 1))
+        );
+    }
+
+    #[test]
+    fn undo_redo_restores_document_snapshots() {
+        let mut workspace = Workspace::new_empty().unwrap();
+        workspace.create_track(TrackKind::Instrument).unwrap();
+        let track = workspace
+            .doc
+            .tracks
+            .values()
+            .find(|track| track.kind == TrackKind::Instrument)
+            .unwrap()
+            .id;
+        workspace
+            .create_midi_clip(
+                track,
+                notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(workspace.doc.arranger.clips.len(), 1);
+        workspace.undo().unwrap();
+        assert_eq!(workspace.doc.arranger.clips.len(), 0);
+        workspace.redo().unwrap();
+        assert_eq!(workspace.doc.arranger.clips.len(), 1);
     }
 
     #[test]

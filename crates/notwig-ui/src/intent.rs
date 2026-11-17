@@ -33,6 +33,9 @@ pub enum UiIntent {
         track_id: TrackId,
         range: RangeMus,
     },
+    MoveClips {
+        clips: Vec<(ClipId, TrackId, RangeMus)>,
+    },
     SetClipMuted {
         clip_id: ClipId,
         muted: bool,
@@ -115,6 +118,8 @@ pub enum UiIntent {
     Save,
     SaveAs,
     RenderMixdown,
+    Undo,
+    Redo,
     ClearNotifications,
 }
 

@@ -333,3 +333,57 @@ fn drop_works_from_platform_pointer_without_cursor_events() {
         } if *track == audio_track
     )));
 }
+
+#[test]
+fn copy_and_paste_events_use_the_current_selection() {
+    use notwig_ui::UiIntent;
+    let doc = doc();
+    let track = doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Instrument)
+        .unwrap()
+        .id;
+    let clip = *doc.arranger.clips.keys().next().unwrap();
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_clip(clip, track, false);
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let mut copy_intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::Copy],
+            ..Default::default()
+        },
+        |ctx| {
+            copy_intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(copy_intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::CopySelection { clips, time: None } if clips.contains(&clip)
+    )));
+
+    let at = Rational::new(6, 1);
+    ui.state
+        .selection
+        .select_time(RangeMus::new(at, at).unwrap(), &[track]);
+    let mut paste_intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::Paste("ignored".into())],
+            ..Default::default()
+        },
+        |ctx| {
+            paste_intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(
+        paste_intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::PasteClips { at: time } if *time == at))
+    );
+}

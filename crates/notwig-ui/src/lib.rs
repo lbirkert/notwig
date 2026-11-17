@@ -20,4 +20,6 @@ pub use runtime::{MeterValues, PluginEntry, RuntimeView};
 pub use shell::NotwigUi;
 pub use state::{Notification, NotificationKind, Selection, UiState, Viewport};
 pub use summary::{SceneSummary, scene_summary};
-pub use widgets::{format_beats, format_db, format_param, snap_16, snap_step, snap_time};
+pub use widgets::{
+    format_beats, format_db, format_param, snap_16, snap_label, snap_step, snap_time,
+};

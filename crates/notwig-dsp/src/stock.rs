@@ -41,6 +41,9 @@ pub fn p_polarity_r() -> ParamId {
 pub fn p_dry_wet() -> ParamId {
     param_id(0x1007)
 }
+pub fn p_swap_lr() -> ParamId {
+    param_id(0x1008)
+}
 
 pub fn band_param(band: usize, offset: u128) -> ParamId {
     param_id(0x2000 + (band as u128) * 0x10 + offset)
@@ -273,6 +276,7 @@ struct ToolSmoothing {
     dry_wet: SmoothedValue,
     polarity_l: SmoothedValue,
     polarity_r: SmoothedValue,
+    swap_lr: SmoothedValue,
     sample_rate: f64,
 }
 
@@ -286,6 +290,7 @@ impl ToolSmoothing {
             dry_wet: SmoothedValue::new(1.0, sample_rate, 15.0),
             polarity_l: SmoothedValue::new(1.0, sample_rate, 8.0),
             polarity_r: SmoothedValue::new(1.0, sample_rate, 8.0),
+            swap_lr: SmoothedValue::new(0.0, sample_rate, 8.0),
             sample_rate,
         }
     }
@@ -299,6 +304,7 @@ impl ToolSmoothing {
         self.dry_wet.set_sample_rate(self.sample_rate, 15.0);
         self.polarity_l.set_sample_rate(self.sample_rate, 8.0);
         self.polarity_r.set_sample_rate(self.sample_rate, 8.0);
+        self.swap_lr.set_sample_rate(self.sample_rate, 8.0);
     }
 
     fn snap(&mut self) {
@@ -309,6 +315,7 @@ impl ToolSmoothing {
         self.dry_wet.snap();
         self.polarity_l.snap();
         self.polarity_r.snap();
+        self.swap_lr.snap();
     }
 
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
@@ -376,11 +383,18 @@ impl DeviceProcessor for ToolProcessor {
             let wet = self.smooth.dry_wet.next() as f32;
             let polarity_l = self.smooth.polarity_l.next() as f32;
             let polarity_r = self.smooth.polarity_r.next() as f32;
+            let swap = self.smooth.swap_lr.next() as f32;
             let (pan_l, pan_r) = notwig_core::Pan(pan).gains();
             let dry_l = frame[0];
             let dry_r = frame[1];
             let mut l = dry_l * input_gain * polarity_l;
             let mut r = dry_r * input_gain * polarity_r;
+            if swap > 0.0 {
+                let swapped_l = l * (1.0 - swap) + r * swap;
+                let swapped_r = r * (1.0 - swap) + l * swap;
+                l = swapped_l;
+                r = swapped_r;
+            }
             let mid = f32::midpoint(l, r);
             let side = (l - r) * 0.5 * width;
             l = (mid + side) * pan_l;
