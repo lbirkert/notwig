@@ -121,40 +121,22 @@ impl NotwigUi {
             .get(&param.id)
             .cloned()
             .unwrap_or_else(|| param.default.clone());
-        let mut norm = param.norm(&current).0;
+        let norm = param.norm(&current).0;
         let bipolar = param.range.min < 0.0 && param.range.max > 0.0;
         let knob_rect = Rect::from_center_size(
             egui::pos2(rect.left() + 27.0, rect.center().y),
             Vec2::splat(42.0),
         );
-        let response = ui
-            .interact(
-                knob_rect,
-                ui.make_persistent_id(("plugin-param-knob", device.id, param.id)),
-                Sense::click_and_drag(),
-            )
-            .on_hover_text(&param.name);
-        if response.hovered() || response.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
-        let mut changed = false;
         let default_norm = param.norm(&param.default).0;
-        if let Some(value) = crate::widgets::value_drag(
+        if let Some(norm) = crate::widgets::knob(
             ui,
-            &response,
-            ui.make_persistent_id(("plugin-knob", device.id, param.id)),
-            f64::from(norm),
-            f64::from(default_norm),
-            0.0,
-            1.0,
-            0.005,
-            true,
+            ui.make_persistent_id(("plugin-param-knob", device.id, param.id)),
+            knob_rect,
+            norm,
+            default_norm,
+            bipolar,
+            &param.name,
         ) {
-            norm = value as f32;
-            changed = true;
-        }
-        draw_param_knob(&painter, knob_rect, norm, bipolar);
-        if changed {
             self.last_touched_param.insert(device.id, param.id);
             self.emit(UiIntent::SetParam {
                 device_id: device.id,
@@ -253,58 +235,6 @@ fn plugin_search_bar(ui: &mut egui::Ui, search: &mut String) -> bool {
         }
     }
     response.changed()
-}
-
-fn draw_param_knob(painter: &egui::Painter, rect: Rect, norm: f32, bipolar: bool) {
-    let center = rect.center();
-    let radius = 15.0;
-    painter.circle_filled(center, radius + 3.0, Color32::from_rgb(29, 31, 37));
-    painter.circle_stroke(
-        center,
-        radius,
-        Stroke::new(3.0_f32, Color32::from_rgb(73, 77, 88)),
-    );
-    let start = std::f32::consts::PI * 0.75;
-    let end = std::f32::consts::PI * 2.25;
-    let angle = start + (end - start) * norm.clamp(0.0, 1.0);
-    let arc_start = if bipolar {
-        start + (end - start) * 0.5
-    } else {
-        start
-    };
-    let steps = 24;
-    let mut points = Vec::with_capacity(steps + 1);
-    for step in 0..=steps {
-        let t = step as f32 / steps as f32;
-        let angle = arc_start + (angle - arc_start) * t;
-        points.push(egui::pos2(
-            center.x + radius * angle.cos(),
-            center.y + radius * angle.sin(),
-        ));
-    }
-    painter.add(egui::Shape::line(
-        points,
-        Stroke::new(3.0_f32, theme::ACCENT),
-    ));
-    painter.line_segment(
-        [
-            center,
-            egui::pos2(
-                center.x + (radius - 3.0) * angle.cos(),
-                center.y + (radius - 3.0) * angle.sin(),
-            ),
-        ],
-        Stroke::new(2.0_f32, Color32::WHITE),
-    );
-    if bipolar {
-        painter.line_segment(
-            [
-                egui::pos2(center.x, rect.top() - 1.0),
-                egui::pos2(center.x, rect.top() + 1.0),
-            ],
-            Stroke::new(1.5_f32, theme::TEXT_MUTED),
-        );
-    }
 }
 
 fn plugin_value_text(param: &ParamSpec, value: &ParamValue) -> String {

@@ -33,7 +33,7 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
 enum DialogAction {
     OpenProject,
     SaveAs,
-    Render,
+    Render { start: TimeMus, end: TimeMus },
     ImportAudio,
     Relink(notwig_core::AssetId),
 }
@@ -42,6 +42,8 @@ struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
     audio: Option<AudioService>,
+    audio_settings: crate::audio::AudioSettings,
+    audio_options: Vec<notwig_ui::AudioDriverView>,
     fallback_playhead: f64,
     last_tick: Instant,
     dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
@@ -64,10 +66,19 @@ impl NotwigApp {
             }
         };
         let fallback_playhead = workspace.doc.transport.playhead.as_f64();
+        let audio_settings = crate::audio::AudioSettings {
+            driver: String::new(),
+            device: String::new(),
+            sample_rate: Some(workspace.doc.meta.sample_rate.value()),
+            block_size: workspace.audio_block_size,
+        };
+        let audio_options = AudioService::available_options();
         let mut app = Self {
             workspace,
             ui: NotwigUi::default(),
             audio: None,
+            audio_settings,
+            audio_options,
             fallback_playhead,
             last_tick: Instant::now(),
             dialog_rx: None,
@@ -81,7 +92,11 @@ impl NotwigApp {
     fn restart_audio(&mut self) {
         self.audio = None;
         let rate = self.workspace.doc.meta.sample_rate.value();
-        match AudioService::start(Arc::clone(&self.workspace.engine), rate) {
+        match AudioService::start_with(
+            Arc::clone(&self.workspace.engine),
+            rate,
+            &self.audio_settings,
+        ) {
             Ok(audio) => self.audio = Some(audio),
             Err(err) => self.workspace.status = Some(err),
         }
@@ -119,6 +134,22 @@ impl NotwigApp {
                     )
                 })
             });
+        let audio_settings = notwig_ui::AudioSettingsView {
+            drivers: self.audio_options.clone(),
+            current: notwig_ui::AudioSettingsValue {
+                driver: self.audio_settings.driver.clone(),
+                device: self.audio_settings.device.clone(),
+                sample_rate: self
+                    .audio_settings
+                    .sample_rate
+                    .map_or_else(|| "auto".into(), |rate| rate.to_string()),
+                block_size: self.audio_settings.block_size,
+            },
+            error: snapshot.error.clone(),
+            warning: (!self.workspace.assets.is_empty()).then(|| {
+                "Changing the sample rate does not resample existing audio assets.".into()
+            }),
+        };
         RuntimeView {
             playing: self.workspace.doc.transport.playing,
             playhead,
@@ -135,6 +166,7 @@ impl NotwigApp {
             bundle_path: self.workspace.bundle.clone(),
             dirty: self.workspace.dirty,
             saving: false,
+            audio_settings,
         }
     }
 
@@ -311,7 +343,7 @@ impl NotwigApp {
                 Err(err) => self.notify_error(err),
             },
             UiIntent::DeleteClip(clip_id) => {
-                if let Err(err) = self.workspace.apply(CommandPayload::DeleteClip { clip_id }) {
+                if let Err(err) = self.workspace.delete_selection(&[clip_id], None) {
                     self.notify_error(err);
                 }
             }
@@ -320,16 +352,18 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
+            UiIntent::CreateAudioClip { track_id, range } => {
+                if let Err(err) = self.workspace.create_audio_clip(track_id, range) {
+                    self.notify_error(err);
+                }
+            }
             UiIntent::EditClipRange { clip_id, range } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::EditClip {
-                    clip_id,
-                    range: Some(range),
-                    name: None,
-                    muted: None,
-                    content_start: None,
-                    content_length: None,
-                    audio: None,
-                }) {
+                if let Err(err) = self.workspace.trim_clip(clip_id, range) {
+                    self.notify_error(err);
+                }
+            }
+            UiIntent::SetClipRange { clip_id, range } => {
+                if let Err(err) = self.workspace.set_clip_range(clip_id, range) {
                     self.notify_error(err);
                 }
             }
@@ -338,16 +372,12 @@ impl NotwigApp {
                 track_id,
                 range,
             } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::MoveClip {
-                    clip_id,
-                    track_id: Some(track_id),
-                    range,
-                }) {
+                if let Err(err) = self.workspace.relocate_clips(&[(clip_id, track_id, range)]) {
                     self.notify_error(err);
                 }
             }
             UiIntent::MoveClips { clips } => {
-                if let Err(err) = self.workspace.move_clips(&clips) {
+                if let Err(err) = self.workspace.relocate_clips(&clips) {
                     self.notify_error(err);
                 }
             }
@@ -364,33 +394,21 @@ impl NotwigApp {
                     self.notify_error(err);
                 }
             }
-            UiIntent::DuplicateClip { clip_id } => {
-                let track = self
-                    .workspace
-                    .doc
-                    .arranger
-                    .clips
-                    .get(&clip_id)
-                    .map(|clip| clip.track_id);
-                match self.workspace.duplicate_clip(clip_id) {
-                    Ok(new_id) => {
-                        if let Some(track) = track {
-                            self.ui.state.selection.select_clip(new_id, track, false);
-                        }
-                    }
-                    Err(err) => self.notify_error(err),
-                }
-            }
-            UiIntent::DuplicateClips { clips } => {
-                for clip in clips {
-                    if let Err(err) =
-                        self.workspace
-                            .duplicate_clip_to(clip.old_id, clip.new_id, Some(clip.range))
+            UiIntent::DuplicateClip { clip_id } => match self.workspace.duplicate_clip(clip_id) {
+                Ok(new_id) => {
+                    if let Some(track) = self
+                        .workspace
+                        .doc
+                        .arranger
+                        .clips
+                        .get(&new_id)
+                        .map(|clip| clip.track_id)
                     {
-                        self.notify_error(err);
+                        self.ui.state.selection.select_clip(new_id, track, false);
                     }
                 }
-            }
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::CopySelection { clips, time } => {
                 let count = self.workspace.copy_selection(&clips, time);
                 if count > 0 {
@@ -401,37 +419,50 @@ impl NotwigApp {
                 }
             }
             UiIntent::CutSelection { clips, time } => {
-                let count = self.workspace.cut_selection(&clips, time);
+                let count = self.workspace.cut_selection(&clips, time.clone());
                 if count > 0 {
                     tracing::info!(count, "cut selection");
                     self.notify_info(format!("Cut {count} clip(s)."));
+                    if time.is_none() {
+                        self.ui.state.selection.clips.clear();
+                    }
                 } else {
                     self.notify_error("Nothing to cut.".into());
                 }
             }
             UiIntent::PasteClips { at } => match self.workspace.paste_clips(at) {
-                Ok(result) if !result.clip_ids.is_empty() => {
-                    tracing::info!(count = result.clip_ids.len(), "pasted selection");
-                    self.notify_info(format!("Pasted {} clip(s).", result.clip_ids.len()));
-                    if let Some((range, tracks)) = result.time {
-                        self.ui.state.selection.select_time(range, &tracks);
-                    } else {
-                        self.ui.state.selection.select_clips(&result.clip_tracks);
-                    }
+                Ok(info) if !info.is_empty() => {
+                    let count = info.objects.len().max(usize::from(info.time.is_some()));
+                    tracing::info!(count, "pasted selection");
+                    self.notify_info(format!("Pasted {count} object(s)."));
+                    self.ui.state.selection.apply_info(&info);
                 }
                 Ok(_) => self.notify_error("Clipboard is empty.".into()),
                 Err(err) => self.notify_error(err),
             },
-            UiIntent::DeleteTimeSelection { range, tracks } => {
-                if let Err(err) = self.workspace.delete_time_range(range, &tracks) {
-                    self.notify_error(err);
+            UiIntent::DeleteSelection { clips, time } => {
+                match self.workspace.delete_selection(&clips, time) {
+                    Ok(info) => self.ui.state.selection.apply_info(&info),
+                    Err(err) => self.notify_error(err),
                 }
             }
-            UiIntent::DuplicateTimeSelection { range, tracks } => {
-                if let Err(err) = self.workspace.duplicate_time_range(range, &tracks) {
-                    self.notify_error(err);
+            UiIntent::DuplicateSelection { clips, time } => {
+                match self.workspace.duplicate_selection(&clips, time) {
+                    Ok(info) => {
+                        self.ui.state.selection.apply_info(&info);
+                        self.notify_info("Duplicated selection.".into());
+                    }
+                    Err(err) => self.notify_error(err),
                 }
             }
+            UiIntent::MoveTimeSelection {
+                range,
+                tracks,
+                delta,
+            } => match self.workspace.move_time_selection(range, &tracks, delta) {
+                Ok(info) => self.ui.state.selection.apply_info(&info),
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::SetTrackColor { track_id, color } => {
                 if let Err(err) = self.workspace.apply(CommandPayload::SetTrackColor {
                     id: track_id,
@@ -596,6 +627,31 @@ impl NotwigApp {
                     audio_pick_dialog("Relink audio asset"),
                 );
             }
+            UiIntent::ApplyAudioSettings {
+                driver,
+                device,
+                sample_rate,
+                block_size,
+            } => {
+                if let Some(rate) = sample_rate
+                    && rate != self.workspace.doc.meta.sample_rate.value()
+                    && let Err(err) = self.workspace.set_sample_rate(rate)
+                {
+                    self.notify_error(err);
+                    return;
+                }
+                self.audio_settings = crate::audio::AudioSettings {
+                    driver,
+                    device,
+                    sample_rate,
+                    block_size,
+                };
+                self.workspace.audio_block_size = if block_size == 0 { 512 } else { block_size };
+                self.workspace.request_engine_rebuild();
+                self.audio_options = AudioService::available_options();
+                self.restart_audio();
+                self.notify_info("Audio settings applied.".into());
+            }
             UiIntent::NewProject | UiIntent::NewProjectAtRate(_) => {
                 let rate = match intent {
                     UiIntent::NewProjectAtRate(rate) => rate,
@@ -629,8 +685,8 @@ impl NotwigApp {
                 }
             }
             UiIntent::SaveAs => self.handle_save_as(),
-            UiIntent::RenderMixdown => {
-                self.spawn_dialog(DialogAction::Render, || {
+            UiIntent::RenderMixdownRange { start, end } => {
+                self.spawn_dialog(DialogAction::Render { start, end }, || {
                     rfd::FileDialog::new()
                         .add_filter("WAV", &["wav"])
                         .set_file_name("mixdown.wav")
@@ -731,11 +787,11 @@ impl NotwigApp {
                     Err(err) => self.notify_error(err),
                 }
             }
-            DialogAction::Render => {
+            DialogAction::Render { start, end } => {
                 let Some(path) = path else {
                     return;
                 };
-                match self.workspace.render_to(&path) {
+                match self.workspace.render_range_to(&path, start, end) {
                     Ok(frames) => self.notify_info(format!(
                         "Rendered {} frames to {}",
                         frames,
@@ -796,6 +852,7 @@ impl NotwigApp {
 
 impl eframe::App for NotwigApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.workspace.poll_engine_build();
         self.poll_dialog();
         self.workspace.poll_plugin_catalog();
         let mut editor_changes = Vec::new();
@@ -862,6 +919,9 @@ impl eframe::App for NotwigApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else {
             ctx.request_repaint_after(Duration::from_millis(250));
+        }
+        if self.workspace.engine_building() {
+            ctx.request_repaint_after(Duration::from_millis(50));
         }
     }
 }

@@ -21,6 +21,7 @@ pub enum Icon {
     Device,
     Folder,
     Save,
+    Settings,
 }
 
 impl Icon {
@@ -40,6 +41,7 @@ impl Icon {
             Self::Device => "\u{e29a}",
             Self::Folder => "\u{e0d7}",
             Self::Save => "\u{e14d}",
+            Self::Settings => "\u{e8b8}",
         }
     }
 }

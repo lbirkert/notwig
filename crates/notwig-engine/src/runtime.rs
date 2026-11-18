@@ -207,14 +207,17 @@ impl ActivePlan {
         frames: usize,
         output: &mut [f32],
         playing: bool,
+        include_clips: bool,
     ) -> Result<(), EngineError> {
         for track in self.tracks.values_mut() {
             track.buffer[..frames * 2].fill(0.0);
             track.pre_fader[..frames * 2].fill(0.0);
         }
 
-        self.render_audio_clips(start_sample, frames);
-        let mut events = self.collect_events(start_sample, frames);
+        if include_clips {
+            self.render_audio_clips(start_sample, frames);
+        }
+        let mut events = self.collect_events(start_sample, frames, include_clips);
 
         let map = notwig_core::TempoMap {
             tempo_bpm: self.tempo_bpm,
@@ -354,6 +357,7 @@ impl ActivePlan {
         &mut self,
         start_sample: u64,
         frames: usize,
+        include_clips: bool,
     ) -> BTreeMap<TrackId, Vec<NoteEvent>> {
         let map = notwig_core::TempoMap {
             tempo_bpm: self.tempo_bpm,
@@ -377,60 +381,66 @@ impl ActivePlan {
             self.panic_pending = false;
         }
         let block_end = start_sample + frames as u64;
-        for (track_id, clips) in &self.schedule.tracks {
-            if !self
-                .tracks
-                .get(track_id)
-                .is_some_and(|track| track.plan.active)
-            {
-                continue;
-            }
-            for clip in clips {
-                let ClipPayload::Midi(midi) = &clip.payload else {
-                    continue;
-                };
-                let clip_start = map.mus_to_samples(clip.range.start);
-                let clip_end = map.mus_to_samples(clip.range.end);
-                if clip_end <= start_sample || clip_start >= block_end {
+        if include_clips {
+            for (track_id, clips) in &self.schedule.tracks {
+                if !self
+                    .tracks
+                    .get(track_id)
+                    .is_some_and(|track| track.plan.active)
+                {
                     continue;
                 }
-                for note in &midi.notes {
-                    if note.start < midi.content_start {
+                for clip in clips {
+                    let ClipPayload::Midi(midi) = &clip.payload else {
+                        continue;
+                    };
+                    let clip_start = map.mus_to_samples(clip.range.start);
+                    let clip_end = map.mus_to_samples(clip.range.end);
+                    if clip_end <= start_sample || clip_start >= block_end {
                         continue;
                     }
-                    let relative_start = note.start - midi.content_start;
-                    let absolute_start_mus = clip.range.start + relative_start;
-                    let absolute_end_mus = (absolute_start_mus + note.length).min(clip.range.end);
-                    if absolute_start_mus >= clip.range.end {
-                        continue;
-                    }
-                    let note_start = map.mus_to_samples(absolute_start_mus);
-                    let note_end = map.mus_to_samples(absolute_end_mus);
-                    let velocity = note.velocity.0.clamp(0.0, 1.0);
-                    let list = events.entry(*track_id).or_default();
-                    if note_start >= start_sample && note_start < block_end {
-                        list.push(NoteEvent {
-                            sample_offset: (note_start - start_sample) as u32,
-                            kind: NoteKind::On,
-                            note_id: note.id,
-                            pitch: note.pitch,
-                            velocity,
-                        });
-                        self.active_notes
-                            .entry(*track_id)
-                            .or_default()
-                            .insert(note.id, (note.pitch, velocity));
-                    }
-                    if note_end > start_sample && note_end <= block_end && note_end > note_start {
-                        list.push(NoteEvent {
-                            sample_offset: (note_end.saturating_sub(start_sample)) as u32,
-                            kind: NoteKind::Off,
-                            note_id: note.id,
-                            pitch: note.pitch,
-                            velocity,
-                        });
-                        if let Some(active) = self.active_notes.get_mut(track_id) {
-                            active.remove(&note.id);
+                    for note in &midi.notes {
+                        if note.start < midi.content_start {
+                            continue;
+                        }
+                        let relative_start = note.start - midi.content_start;
+                        let absolute_start_mus = clip.range.start + relative_start;
+                        let absolute_end_mus =
+                            (absolute_start_mus + note.length).min(clip.range.end);
+                        if absolute_start_mus >= clip.range.end {
+                            continue;
+                        }
+                        let note_start = map.mus_to_samples(absolute_start_mus);
+                        let note_end = map.mus_to_samples(absolute_end_mus);
+                        let velocity = note.velocity.0.clamp(0.0, 1.0);
+                        let list = events.entry(*track_id).or_default();
+                        if note_start >= start_sample && note_start < block_end {
+                            list.push(NoteEvent {
+                                sample_offset: (note_start - start_sample) as u32,
+                                kind: NoteKind::On,
+                                note_id: note.id,
+                                pitch: note.pitch,
+                                velocity,
+                            });
+                            self.active_notes
+                                .entry(*track_id)
+                                .or_default()
+                                .insert(note.id, (note.pitch, velocity));
+                        }
+                        if note_end > start_sample && note_end <= block_end && note_end > note_start
+                        {
+                            list.push(NoteEvent {
+                                sample_offset: (note_end.saturating_sub(start_sample))
+                                    .min(frames.saturating_sub(1) as u64)
+                                    as u32,
+                                kind: NoteKind::Off,
+                                note_id: note.id,
+                                pitch: note.pitch,
+                                velocity,
+                            });
+                            if let Some(active) = self.active_notes.get_mut(track_id) {
+                                active.remove(&note.id);
+                            }
                         }
                     }
                 }

@@ -1,656 +1,784 @@
-# Editing Model
+# Editing operations
 
-This document defines the editing contracts for the arranger timeline and the audio clip editor. It is derived from the existing arranger implementation and is intended to be the source of truth for future refactors.
+Status: design contract. It is implemented for the arranger and the audio clip editor. The MIDI and automation adapters are the remaining editors to wire up.
 
-Related: [`FRONTEND.md`](./FRONTEND.md) for shell/focus/shortcut routing, [`ARRANGER.md`](./ARRANGER.md) for track and lane UI, [`CLIPS.md`](./CLIPS.md) for clip identity, overlap, and copy semantics, [`DEVICES.md`](./DEVICES.md) for the device rack.
+Related: [`EDITING_TESTING.md`](./EDITING_TESTING.md).
 
-## 1. Time and intervals
+## 1. Problem
 
-All musical time is `TimeMus`, a rational number of quarter-note beats (`t ∈ Q`, `t >= 0`).
+The arranger and the audio clip editor already implement duplicate, copy, paste, cut, delete, move, and trim. The MIDI and automation editors will need the same operations later. Today each editor owns its selection type, clipboard, clamping rules, destination clearing, and duplicate target math. The audio clip editor has a second clipboard and a second copy of duplicate.
 
-Every UI conversion to `TimeMus` is rounded to microseconds of a beat:
+The result is not only duplicated code. A fixed bug has to be fixed four times, and a test only proves that one editor behaves correctly.
 
-```
-TimeMus::new(round(t * 1_000_000) as i64, 1_000_000)
-```
+This design puts the operations behind one seam. Each editor projects its content into a small model, calls the same algebra, and lowers the result into document commands.
 
-A `RangeMus` is the half-open interval:
+## 2. Vocabulary
 
-```
-[start, end), start <= end
-length = end - start
-empty <=> start == end
-contains(t) <=> start <= t < end
-intersects(u) <=> start < u.end && u.start < end
-```
+- **Editor**: a view that edits one document region. The arranger, audio clip editor, MIDI editor, and automation editor.
+- **Lane**: an ordered, editable stream of content. In the arranger a lane is a track. In the audio clip editor it is the clip. In the MIDI editor it is a pitch row. In the automation editor it is one parameter.
+- **Object**: a discrete editable thing with an identity. A clip, slice, note, or automation point.
+- **Audio event**: the UI term for an audio slice. The domain type keeps the name `AudioSlice`; the clip editor calls it an event.
+- **Span**: the half-open interval `[start, end)` with `start <= end`. A span with `start == end` is empty. Two spans intersect when `a.start < b.end && b.start < a.end`.
+- **Point**: an object with a single time and no length. Automation points are points; clips, slices, and notes are spans. A point at `t` intersects `[a, b)` exactly when `a <= t < b`. The `span` field of a point is the marker `[t, t]`, not an interval.
+- **Container**: an optional outer extent that owns lane time. The audio clip editor's container is the clip range. The MIDI editor's container is the MIDI content length. The arranger has no container.
+- **Extract**: owned clipboard content produced by copy. It holds cloned content, not document references.
+- **Plan**: an ordered list of `EditOp` values produced by an operation. A plan is pure and has no IDs for newly created objects.
+- **Lowering**: the adapter-side step that turns a plan into document commands, allocates IDs, and resolves created objects back into a concrete selection.
 
-Samples convert to musical time as:
-
-```
-samples_per_beat = sample_rate * 60 / tempo_bpm
-samples_to_mus(n) = n / samples_per_beat
-mus_to_samples(t) = round(t * samples_per_beat)
-```
-
-## 2. Arranger geometry
-
-Let:
+## 3. Layers and seams
 
 ```
-W          = arranger available width
-header_w   = min(230, 0.45 * W)
-timeline_x = arranger_left + header_w
-ROW_H      = 64
-RULER_H    = 30
-SCROLLBAR_H= 14
-master_h   = ROW_H if a Master track exists else 0
-rows_h     = max(available_height - SCROLLBAR_H - 4, 60)
-scroll_h   = max(rows_h - master_h, ROW_H)
+pointer gesture
+      |
+      v
+selection + operation          UI state, pure
+      |
+      v
+edit algebra  ------------->   Extract (clipboard)
+      |  notwig-core, pure
+      v
+plan + next selection
+      |
+      v
+lowering  ----------------->   CommandPayload[]
+      |  notwig-app
+      v
+ProjectDoc
 ```
 
-The Lane-Tree occupies `[arranger_left, timeline_x)`. The Timeline-Content occupies `[timeline_x, arranger_right)`.
+There are two seams:
 
-The Master track is always rendered last in a fixed row directly above the scrollbar. It never participates in vertical scrolling or track dragging.
+1. `EditModel` between a document region and the algebra.
+2. `lower` between a plan and commands.
 
-Track header indentation for depth `d` is:
+The algebra never mutates a document, performs IO, allocates IDs, or reads UI state. `EditModel` never mutates. Lowering is the only place that knows command shapes, identity allocation, and embedded payloads such as audio slices.
 
-```
-indent(d) = min(14 * d, 0.35 * header_w)
-header_left = row_left + indent(d)
-```
+This is the deep module: one small algebra covers every editor, and the editor-specific detail stays behind `EditModel` and `lower`.
 
-## 3. Viewport and coordinate conversion
+## 4. The edit model
 
-The viewport is `(start, ppb)` where:
+```rust
+pub trait EditKey: Copy + Ord + std::hash::Hash + std::fmt::Debug + 'static {}
 
-```
-start ∈ TimeMus, start >= 0
-ppb ∈ [4, 800] pixels per beat
-```
+pub enum EditorKind {
+    Arranger,
+    AudioClip,
+    Midi,
+    Automation,
+}
 
-Coordinate conversion:
+pub struct LaneBounds {
+    pub start: TimeMus,
+    pub end: Option<TimeMus>,
+}
 
-```
-x(t) = timeline_x + (t - start) * ppb
-t(x) = max(0, start + (x - timeline_x) / ppb)
-```
+pub struct ObjectView<L, O> {
+    pub id: O,
+    pub lane: L,
+    pub span: RangeMus,
+    pub kind: ObjectKind,
+    pub extent: ObjectExtent,
+}
 
-For any pointer coordinate `px`, zoom must preserve the beat under the pointer:
+pub enum ObjectExtent {
+    Span,
+    Point,
+}
 
-```
-b = start_old + (px - timeline_x) / ppb_old
-start_new = max(0, b - (px - timeline_x) / ppb_new)
-ppb_new = clamp(ppb_old * factor, 4, 800)
-```
+pub struct TrimLimits {
+    pub min_start: TimeMus,
+    pub max_start: TimeMus,
+    pub min_end: TimeMus,
+    pub max_end: Option<TimeMus>,
+}
 
-Panning changes `start` by `delta` beats and clamps it to `>= 0`.
+pub trait EditModel {
+    type Lane: EditKey;
+    type Object: EditKey;
+    type Content: Clone + PartialEq + std::fmt::Debug;
 
-## 4. Adaptive grid and snapping
+    fn editor(&self) -> EditorKind;
+    fn container(&self) -> Option<RangeMus> {
+        None
+    }
 
-With bar length `B = time_signature_numerator`, the candidate snap steps are:
-
-```
-1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1, B, 2B, 4B, 8B
-```
-
-The selected step is the first candidate `s` satisfying:
-
-```
-s * ppb >= 12
-```
-
-If none satisfies it, the last candidate is used.
-
-Snapping is:
-
-```
-snap(t) = round(t / step) * step
-```
-
-When snapping is bypassed, `snap(t) = t`.
-
-Bypass rules in the current implementation:
-
-| Operation | Bypass modifier |
-| --- | --- |
-| Clip move / trim | Alt |
-| Group clip move | Alt |
-| Bar-selection move | Alt |
-| Time-range drag in a lane | Shift |
-| Lane click / double-click clip creation | Shift |
-| Ruler play-start click/drag | Shift |
-| Clip-editor bar selection | Shift |
-| Clip-editor slice move / trim | Alt |
-
-The grid is drawn once over Timeline-Content, behind all rows and clips. It is not drawn per lane.
-
-Grid line strength:
-
-- Bar boundary: strong.
-- Whole beat: medium.
-- Sub-beat: faint.
-
-## 5. Selection system
-
-All editors use the same two selection forms.
-
-### Node selection
-
-A node is one discrete editable object:
-
-- Arranger: a clip (`ClipId`).
-- Clip editor: an audio slice (`SliceId`).
-
-Node selection is an additive set with one primary node.
-
-```
-N ⊆ NodeId
+    fn container_trim_limits(&self) -> Option<TrimLimits> {
+        let container = self.container()?;
+        let eps = epsilon();
+        Some(TrimLimits {
+            min_start: container.start,
+            max_start: container.end - eps,
+            min_end: container.start + eps,
+            max_end: Some(container.end),
+        })
+    }
+    fn lanes(&self) -> Vec<Self::Lane>;
+    fn lane_bounds(&self, lane: Self::Lane) -> LaneBounds;
+    fn objects(&self, lane: Self::Lane) -> Vec<ObjectView<Self::Lane, Self::Object>>;
+    fn object(&self, object: Self::Object) -> Option<ObjectView<Self::Lane, Self::Object>>;
+    fn trim_limits(&self, object: Self::Object) -> TrimLimits;
+    fn extract(&self, object: Self::Object, window: RangeMus) -> Result<Self::Content, EditError>;
+    fn accepts(&self, lane: Self::Lane, kind: ObjectKind) -> bool;
+}
 ```
 
-### Bar selection
+`ObjectKind` is an opaque adapter tag. The algebra copies it but never inspects it. Arranger adapters use it for MIDI and audio clips. The clip editor uses it for slices. The MIDI editor uses it for notes. The automation editor uses it for point kinds.
 
-A bar selection is one half-open time interval and the scope it applies to.
+Contract of each method:
+
+- `container`: the editable extent, if the editor has one. Returns `None` for the arranger.
+- `lanes`: every editable lane. Lanes that cannot host content are omitted. The order is the display order.
+- `lane_bounds`: the hard time bounds of a lane. `end = None` means it is unbounded to the right. Arranger lanes start at zero. The audio clip editor starts its lane at `-clip_start` so events can sit before the clip. Container bounds are manual and never move during event lowering.
+- `objects`: every object on the lane, ordered by `(span.start, id)`. Span objects on a lane do not overlap.
+- `object`: a lookup by identity. Stale IDs return `None` and are dropped during materialization.
+- `trim_limits`: absolute limits for trimming the object's start and end. The adapter derives them from the content and the minimum length. `max_end = None` means no upper limit.
+- `extract`: content clipped to `window`, anchored so that the returned content starts at `window.start`. `window` lies inside the object's span. For a point, `window` is `[t, t]`. Extracting audio rewrites source sample windows; extracting a MIDI note returns the part of the note in the window. Extraction never stretches content. A failed extraction is an error, not a silent drop, so a broken selection cannot half-apply.
+- `accepts`: whether a lane can host a pasted object of this kind. This is what stops a MIDI clip from landing on an audio track.
+
+The interface stays small on purpose. Everything about clip payloads, sample windows, note splitting, and point ordering stays in the adapters. An adapter may back `objects(lane)` with an interval index; the algebra only requires the ordered result.
+
+## 5. Selection
+
+### 5.1 State
+
+```rust
+pub struct Selection<L, O> {
+    pub objects: BTreeSet<O>,
+    pub time: Option<TimeSelection<L>>,
+}
+
+pub struct TimeSelection<L> {
+    pub span: RangeMus,
+    pub lanes: BTreeSet<L>,
+}
+
+impl<L, O> Selection<L, O> {
+    pub fn mode(&self) -> Option<SelectionMode> {
+        if !self.objects.is_empty() {
+            Some(SelectionMode::Objects)
+        } else if self.time.is_some() {
+            Some(SelectionMode::Time)
+        } else {
+            None
+        }
+    }
+}
+```
+
+Both forms can be present at once. The mode decides which one an edit uses:
 
 ```
-B = [a, b), a < b
+Objects if objects is not empty
+else Time if a time selection exists
+else None
 ```
 
-- Arranger scope: a set of tracks.
-- Clip editor scope: the clip being edited.
+The same rule drives keyboard edits, toolbar edits, and context menu edits. There is no editor-specific dispatch.
 
-### Selection transitions
+The key types are per editor. The arranger instantiates `Selection<TrackId, ClipId>`, the audio clip editor `Selection<ClipLane, SliceId>`, the MIDI editor `Selection<Pitch, NoteId>`, and the automation editor `Selection<ParamLane, PointId>`. The shell routes commands to the focused editor, which uses its own instantiation.
 
-The two forms are mutually exclusive when a bar selection is created, but additive node selection does not erase an existing bar selection.
+### 5.2 Transitions
 
 ```
-select_bar(B):
-    N = ∅
-    bar = B
+select_time(span, lanes):
+    require span is non-empty and lanes is non-empty
+    objects = {}
+    time = Some({span, lanes})
 
-select_node(n, additive=false):
-    N = {n}
-    bar = ∅
-
-select_node(n, additive=true):
-    N = N XOR {n}
-    bar unchanged
+select_object(object, additive):
+    if additive:
+        objects ^= {object}
+        time unchanged
+    else:
+        objects = {object}
+        time = None
 
 clear:
-    N = ∅
-    bar = ∅
+    objects = {}
+    time = None
 ```
 
-Action dispatch uses node selection first:
+Creating a time selection always clears object selection. Non-additive object selection always clears the time selection. Additive object selection keeps the time selection. This matches the current arranger rule and gives the clip editor the same behaviour.
 
-```
-use_nodes if N != ∅
-else use_bar if B exists
-else nothing
-```
-
-Clicking an empty lane clears both forms. Dragging an empty lane replaces both forms with a bar selection.
+Stale object IDs are dropped when the selection is materialized, not when the document changes. This keeps undo simple.
 
-### Active editing focus
+### 5.3 Object selection span
 
-The arranger and the clip editor share one shortcut router.
+Object mode needs one span for offsets, duplicate, and paste:
 
 ```
-edit_focus ∈ { Timeline, ClipEditor }
+span.start = min(object.span.start)
+span.end   = max over objects of (
+                 object.span.end              if the object is a span
+                 object.span.start + epsilon  if the object is a point
+             )
+epsilon    = 1 microbeat = 1/1_000_000 beat
 ```
 
-Focus rules:
+The epsilon term only matters when the last object is a point. It ensures that duplicate places points after the source instead of on top of it.
 
-- Opening the clip editor gives it focus.
-- Clicking anywhere in the arranger gives the timeline focus.
-- Clicking anywhere in the clip editor gives the clip editor focus.
-- Closing the clip editor returns focus to the timeline.
-- Keyboard edit actions dispatch only to the focused editor.
-- The clip editor may remain open while the timeline is focused.
+### 5.4 Time selection bounds
 
-This means timeline copy, cut, paste, duplicate, delete, and move shortcuts continue to work while the clip editor is open, as long as the timeline has focus.
+A time selection is valid only inside the intersection of its lanes' bounds:
 
-### Selection markers
+```
+lo = max(lane.start for every selected lane)
+hi = min(lane.end for every selected lane with a bound)
+```
 
-A bar selection renders:
+If `hi < lo`, the selection is invalid. The UI must not create it. Operations also validate it.
 
-- a translucent fill over the selected interval;
-- a start marker at `a`;
-- an end marker at `b`.
+## 6. Materialization
 
-The fill and markers are drawn above all nodes and audio slices. The markers are drawn on the beat strip and through the selected lanes. Node selection is rendered by outlining each selected node.
+Every operation starts by turning a selection into a uniform view:
 
-### Bar-selection move
+```rust
+pub struct Materialized<L, O, C> {
+    pub mode: SelectionMode,
+    pub span: RangeMus,
+    pub lanes: BTreeSet<L>,
+    pub members: Vec<ObjectView<L, O>>,
+    pub fragments: Vec<Fragment<L, C>>,
+}
 
-Given original interval `[a, b)`, pointer beat delta `Δ`, snap bypass `z`, and clip length `Lc`:
+pub struct Fragment<L, C> {
+    pub lane: L,
+    pub offset: TimeMus,
+    pub length: TimeMus,
+    pub kind: ObjectKind,
+    pub content: C,
+}
 
+pub enum SelectionMode {
+    Objects,
+    Time,
+}
 ```
-L = b - a
-a' = clamp(snap(a + Δ, z), 0, Lc - L)
-shift = a' - a
-b' = a' + L
-```
-
-The shift is applied to all nodes intersecting `[a, b)`:
 
-- Arranger: clips on the selected tracks.
-- Clip editor: slices in the clip.
+Rules:
 
-The same shift is applied to the bar selection itself.
+- **Objects mode**
+  - `span` is the bounding span from 5.3.
+  - `lanes` is the set of lanes of the selected objects.
+  - `members` is the selected objects, sorted by `(lane, span.start, id)`.
+  - `fragments` contains one fragment per member. `offset = member.span.start - span.start`. `length = member.span.length()`. `content = model.extract(member, member.span)`. The whole object is copied.
+- **Time mode**
+  - `span` is the selection span.
+  - `lanes` is the selected lanes.
+  - `members` every object on a selected lane that intersects the span, sorted by `(lane, span.start, id)`.
+  - `fragments` contains one fragment per member whose intersection with the span is non-empty. `window = member.span ∩ span`. `offset = window.start - span.start`. `length = window.length()`. `content = model.extract(member, window)`. The object is clipped.
+  - A point is included when `span.start <= t < span.end`. Its fragment has `length = 0` and `offset = t - span.start`.
 
-If any moved node would leave `[0, Lc)`, `shift` is clamped so the whole moved set remains inside the clip.
+Materialization is where the two selection forms become one. Everything after this point is mode-parametric, not editor-parametric.
 
-## 6. Clip interactions
+The deliberate asymmetry is in the data, not in the operations:
 
-A drag starts with:
+- Object mode copies whole objects.
+- Time mode copies only the part of each object inside the span, and keeps the gaps between them.
 
-```
-pointer origin p0
-clip origin interval [s0, e0)
-original track track0
-```
+### 6.1 Plans
 
-Let the current pointer x-coordinate be `px`, and:
-
-```
-Δ = (px - p0.x) / ppb
-```
+```rust
+pub struct Plan<L, O, C> {
+    pub ops: Vec<EditOp<L, O, C>>,
+    pub next: NextSelection<L, O>,
+}
 
-Let `z` be the snap bypass flag.
+pub enum EditOp<L, O, C> {
+    SetContainer { span: RangeMus },
+    Erase { lane: L, span: RangeMus },
+    Remove { object: O },
+    Move { object: O, lane: L, span: RangeMus },
+    Trim { object: O, span: RangeMus },
+    Place { lane: L, span: RangeMus, kind: ObjectKind, content: C },
+}
 
-### Move
+pub enum NextSelection<L, O> {
+    Unchanged,
+    None,
+    Objects(Vec<ObjectRef<O>>),
+    Time { span: RangeMus, lanes: Vec<L> },
+}
 
-```
-s' = snap(s0 + Δ, z)
-e' = s' + max(e0 - s0, 1/16)
+pub enum ObjectRef<O> {
+    Existing(O),
+    Created(usize),   // index into the ordered Place ops
+}
 ```
 
-The moved clip targets the track under the pointer if that track's kind is compatible with the clip kind. Otherwise it remains on `track0`.
+`Created` keeps the algebra free of ID allocation. Lowering allocates an ID for each `Place` in order and resolves the index when it builds the concrete selection.
 
-### Trim start
-
-```
-s' = snap(s0 + Δ, z)
-if s' < e0: range = [s', e0)
-else: keep [s0, e0)
-```
+## 7. Clipboard
 
-### Trim end
+```rust
+pub struct Extract<L, C> {
+    pub domain: EditorKind,
+    pub mode: SelectionMode,
+    pub length: TimeMus,
+    pub lanes: Vec<L>,
+    pub fragments: Vec<Extracted<L, C>>,
+}
 
-```
-e' = snap(e0 + Δ, z)
-if e' > s0: range = [s0, e')
-else: keep [s0, e0)
+pub struct Extracted<L, C> {
+    pub lane: L,
+    pub offset: TimeMus,
+    pub length: TimeMus,
+    pub kind: ObjectKind,
+    pub content: C,
+}
 ```
 
-Move and trim use pointer-position differences from the drag origin. They must never use per-frame pointer deltas.
+- An extract owns cloned content. It never borrows the document, so a later edit or undo cannot invalidate it.
+- `domain` is the editor family that produced it. Paste requires `extract.domain == model.editor()`. Pasting notes into the arranger or clips into the audio clip editor is rejected with a clear error. Cross-domain conversion, such as turning notes into a new MIDI clip, is a separate feature.
+- There is one clipboard for the whole app. Copy replaces it. Cut replaces it only after the delete has been lowered and applied successfully. Duplicate never touches it.
+- The app stores a `Clipboard` enum with one variant per editor kind, because lane and content types differ. The `domain` tag rejects a mismatch before lowering.
+- Paste also validates every lane with `model.accepts(lane, kind)` before any command is applied.
 
-Resize handles exist only on the clip title strip, at its left and right edges.
+## 8. Operations
 
-## 7. Track drag and ordering
+The operation matrix is the contract. Read it before reading the individual sections.
 
-Track drag insertion is determined by row centers:
+| Operation | Object selection | Time selection |
+| --- | --- | --- |
+| Copy | Copy whole objects, offsets from the bounding start. | Copy objects clipped to the span, offsets from the span start, gaps kept. |
+| Cut | Copy, then remove the whole objects. | Copy clipped, then erase the span on every selected lane. |
+| Paste | Place whole objects at `at + offset`; erase each destination span first. | Place clipped fragments at `at + offset`; erase the whole destination span first, so gaps come back as gaps. |
+| Duplicate | Copy, paste at the bounding end, select the copies. | Copy, paste at the span end, select the new span. |
+| Delete | Remove the whole objects. | Erase the span on every selected lane; objects crossing the boundary are trimmed or split. |
+| Move | Shift the whole objects as one group; selection follows. | Clip every intersecting object to the span, shift the fragments, and leave the outside parts in place. Selection span follows. |
+| Trim start/end | Resize the object edge under the pointer; selection becomes that object. | Resize the selection span; content does not change. |
 
-- If the pointer is above the center of a row, the insertion point is before that row.
-- Otherwise it is after the row.
-- Dropping after the final row inserts at the end.
-- Parent/index are inherited from the neighbouring row's position in the track forest.
-- Dropping a track into itself or one of its descendants is invalid.
-- Master is not draggable.
-- Master must remain clickable; no drag interaction may cover its header.
+Time selection move clips. The selected part of every intersecting object is cut and pasted at the shifted span. The parts that stick out of the source span stay where they are. This is Bitwig's current behaviour.
 
-## 8. Audio slice model and clip editor
+An operation means the same thing in both modes at the caller's level. It uses the same command, the same dispatch, the same clear-before-place rule, the same undo grouping, and the same selection update rules. Only three things vary by mode: where the span comes from, whether whole objects or fragments are addressed, and whether an operation removes objects or subtracts time. Those three are properties of the materialized selection, so the operation code stays shared.
 
-The clip editor is audio-only. It is opened for a selected audio clip, replaces the device panel in the bottom editor slot, and receives `EditFocus::ClipEditor` when the user presses inside it. Clipboard, duplicate, and delete shortcuts run against the clip editor only while it holds edit focus. See [`FRONTEND.md`](./FRONTEND.md).
+The algebra exports these functions:
+
+```rust
+copy(model, selection) -> Result<Extract, EditError>
+delete(model, selection) -> Result<Plan, EditError>
+cut(model, selection) -> Result<(Extract, Plan), EditError>
+paste(model, extract, at) -> Result<Plan, EditError>
+duplicate(model, selection) -> Result<Plan, EditError>
+move_selection(model, selection, delta) -> Result<Plan, EditError>
+trim_selection(model, selection, edge, to) -> Result<Plan, EditError>
+trim_object(model, object, edge, to) -> Result<Plan, EditError>
+trim_container(model, edge, to) -> Result<Plan, EditError>
+```
 
-An audio clip has one `asset_id`. Audio clips have two content modes:
+### 8.1 Copy
 
 ```
-slices_enabled = false, slices empty  -> legacy single-source mode
-slices_enabled = true                 -> slice mode, including an empty set (silence)
-slices non-empty                      -> always slice mode
+view = materialize(selection)
+extract = Extract {
+    domain: model.editor(),
+    mode: view.mode,
+    length: view.span.length(),
+    lanes: view.lanes,
+    fragments: view.fragments,
+}
 ```
 
-Any explicit `SetClipSlices` enters slice mode, even when the supplied set is empty.
+Copy does not mutate the document and cannot fail on a valid selection.
 
-Each slice may reference an asset:
+### 8.2 Cut
 
 ```
-slice.asset_id = None  -> use the clip's base asset
-slice.asset_id = Some  -> use that project asset
+extract = copy(selection)
+plan = delete(selection)
 ```
 
-Dropping an audio file onto the clip editor imports it as a new slice at the dropped beat, enters slice mode, extends the clip if needed, and references the imported asset explicitly.
+The caller applies the plan and only then replaces the clipboard. If lowering fails, the old clipboard stays.
 
-### Clip-local time
+### 8.3 Paste
 
-The clip editor uses clip-local musical time:
+Inputs: an extract, a resolved target time `at`, and the target model.
 
 ```
-l ∈ [0, Lc), Lc = clip.range.length()
-```
+validate every fragment's lane exists and accepts its kind
+validate at >= max(lane.start for every target lane)
+plan = []
 
-A slice is:
+if extract.mode == Time:
+    plan.push(Erase { lane, span: [at, at + extract.length) } for every lane)
+else:
+    for each fragment:
+        plan.push(Erase { lane, span: [at + offset, at + offset + length) })
 
-```
-(l_i, source_start_i, source_end_i)
+for each fragment:
+    plan.push(Place {
+        lane: fragment.lane,
+        span: [at + offset, at + offset + length),
+        kind: fragment.kind,
+        content: fragment.content,
+    })
+
+next selection:
+    Time   -> Time { span: [at, at + extract.length), lanes: extract.lanes }
+    Objects -> Objects(Created for every Place op, in order)
 ```
+
+The target `at` is chosen by the gesture layer, not by the algebra:
 
-Its displayed local interval is:
+- Time mode: `at = selection.span.start` when a time selection exists, else the cursor.
+- Object mode: `at = the insertion cursor`.
+- The value is snapped before it reaches the algebra. Duplicate targets are not snapped.
 
+Paste clears before it places. Lowering must apply every `Erase` before any `Place`; otherwise a later erase would remove freshly pasted content.
+
+### 8.4 Duplicate
+
 ```
-[l_i, l_i + d_i)
-d_i = samples_to_mus(source_end_i - source_start_i)
+view = materialize(selection)
+extract = copy(view)
+plan = paste(extract, view.span.end)
 ```
 
-There is no time-stretch. Source duration determines displayed duration.
+Duplicate never changes the clipboard. It is copy plus paste, so it inherits destination clearing, offset preservation, and selection behaviour for free.
 
-### Clip editor viewport and beat strip
+Object mode places the copy immediately after the bounding end, so repeated duplicates tile with no gap. Time mode places the copy immediately after the selection and selects an equal-length span.
 
-The clip editor has the same local viewport rules as the arranger:
+### 8.5 Delete
 
 ```
-pixels_per_beat ∈ [4, 800]
-start >= 0
-x(t) = content_left + (t - start) * pixels_per_beat
-```
+view = materialize(selection)
 
-Zoom preserves the beat under the pointer. Middle-drag pans; middle-drag vertically zooms; horizontal scroll pans. A horizontal scrollbar moves the viewport.
+Objects mode:
+    ops = view.members.map(|object| Remove { object })
+    next = Objects(empty)
 
-The beat strip renders:
+Time mode:
+    ops = view.lanes.map(|lane| Erase { lane, span: view.span })
+    next = Time { span: view.span, lanes: view.lanes }   // kept
+```
 
-- bar and beat lines from `TimelineGrid`;
-- a `CLIP START` marker at `l = 0`;
-- a `CLIP END` marker at `l = Lc`;
-- bar-selection `IN` and `OUT` markers;
-- the insertion cursor.
+Keeping the time selection after delete makes repeated edits predictable. Object selection is cleared because its objects no longer exist.
 
-Clicking or dragging the beat strip sets the insertion cursor. Clicking or dragging empty lane space with Shift bypasses snapping.
+`Erase` is content-aware. It removes, trims, or splits objects in the span, and it is described in section 9.
 
-### Clip boundary handles
+### 8.6 Move
 
-The `CLIP START` and `CLIP END` markers are draggable resize handles.
+Object-mode drags can change lanes. The `Move` op carries the target lane, and `relocate_objects` is the entry point for drags that already resolved their final spans. It validates the lane and the object kind, then emits `Move` ops. Same-lane group moves use `move_selection`.
 
 ```
-minimum clip length = 1/16 beat
-Δ = (pointer.x - press_origin.x) / pixels_per_beat
-```
+view = materialize(selection)
+delta = clamp_move_delta(view, requested_delta)
+if delta == 0: no-op
 
-Start handle:
+Objects mode:
+    ops = view.members.map(|member| Move {
+        object: member.id,
+        lane: member.lane,
+        span: member.span + delta,
+    })
+    next = Objects(view.members)
 
-```
-new_start = clamp(snap(clip.start + Δ, z), 0, clip.end - 1/16)
-clip.range = [new_start, clip.end)
+Time mode:
+    source = view.span
+    dest   = source + delta
+    ops = Erase { lane, span: source } for every lane
+        + Erase { lane, span: dest } for every lane
+        + Place { lane, span: dest.start + fragment.offset, ... }
+          for every fragment
+    next = Time { span: dest, lanes: view.lanes }
 ```
 
-End handle:
+Object mode moves whole objects, keeps their identities, and may change lanes. Time mode cuts the clipped fragments, clears the destination, and places them at the shifted span. Moved fragments receive new IDs. The outside parts of partially covered objects keep their identities and stay in place.
 
-```
-new_end = max(snap(clip.end + Δ, z), clip.start + 1/16)
-clip.range = [clip.start, new_end)
-```
+Clamping is group-wise:
 
-Alt bypasses snapping.
+```
+Objects mode:
+    lower = max(lane.start - member.span.start) over members
+    upper = min(lane.end - member.span.end) over bounded lanes
 
-Boundary edits change the clip range before slice data is adjusted. Slice local starts are rewritten so slice content remains anchored to the timeline:
+Time mode:
+    lower = lo - view.span.start
+    upper = hi - view.span.end
 
+if lower > upper: delta = 0
+else:             delta = clamp(requested, lower, upper)
 ```
-left_trim = new_start - old_start
-slice_window = [left_trim, left_trim + new_length)
-```
 
-Slices outside the new window are trimmed or removed.
+`lo` and `hi` are the time selection lane bounds from section 5.4. `hi` is `None` when every selected lane is unbounded, so the upper clamp is `None` too.
 
-### Node selection
+For points, `span.start == span.end == t`, so the object formula works. In time mode a point inside the span is cut and placed at the destination.
 
-In the clip editor, nodes are audio slices. The slice title strip selects and moves a slice. Cmd/Shift+click toggles slice selection. Non-additive slice selection clears the bar selection.
+Object mode uses the lift/place rule in section 9.3. Time mode uses erase-then-place, in that order. Erasing the source first makes a destination that overlaps the source safe: the second erase only removes stationary content.
 
-The slice body does not select the node. Dragging the body creates a bar selection, matching the arranger rule that the clip title strip owns node selection while the body owns time selection.
+### 8.7 Trim
 
-### Bar selection
+Trim has three targets. The pointer decides which one is active.
 
-Dragging empty lane space creates a bar selection over `[a, b)`. Dragging the bar-selection region moves the bar selection and every slice intersecting its original interval, exactly as described in section 5.
+```
+on press:
+    if a time selection exists and the pointer is on its start or end handle:
+        TrimSelectionEdge
+    else if the pointer is on an object edge:
+        clear the time selection
+        select only that object
+        TrimObject
+    else if the pointer is on the container edge:
+        TrimContainer
+    else:
+        other gesture
+```
 
-### Slice move
+The time selection handle wins when both handles overlap. The object edge is checked before the object body.
 
-Slice starts must remain inside the clip:
+#### 8.7.1 Time selection edges
 
-```
-ε = 1 microbeat
-l_max = max(0, Lc - ε)
-anchor' = clamp(snap(anchor + Δ, z), 0, l_max)
-shift = anchor' - anchor
 ```
+limits = selection bounds from 5.4
+epsilon = 1 microbeat
 
-When several slices are selected, `shift` is applied to every selected slice. `shift` is clamped so that:
+Start edge:
+    a' = clamp(to, lo, selection.span.end - epsilon)
+    span' = [a', selection.span.end)
 
+End edge:
+    b' = clamp(to, selection.span.start + epsilon, hi or to)
+    span' = [selection.span.start, b')
 ```
-min(selected starts) + shift >= 0
-max(selected starts) + shift <= l_max
-```
 
-Relative offsets between selected slices are preserved.
+The plan is empty. The next selection is the resized time selection. Content is untouched. This is the operation the user reaches for when they drag the in/out points of a time selection.
 
-### Slice trim start
+#### 8.7.2 Object edges
 
-```
-l_i' = clamp(snap(l_i + Δ, z), 0, l_max)
-Δs = round((l_i' - l_i) * samples_per_beat)
-source_start_i' = clamp(source_start_i + Δs, 0, source_end_i - 1)
 ```
+limits = model.trim_limits(object)
 
-The right edge stays fixed when `Δs` equals the musical shift.
+Start edge:
+    s' = clamp(to, limits.min_start, limits.max_start)
+    span' = [s', object.span.end)
 
-### Slice trim end
+End edge:
+    e' = clamp(to, limits.min_end, limits.max_end or to)
+    span' = [object.span.start, e')
 
+ops = [Trim { object, span: span' }]
+next = Objects({object})
 ```
-Δs = round(Δ * samples_per_beat)
-source_end_i' = max(source_start_i + 1, source_end_i + Δs)
-```
-
-Alt bypasses slice move and trim snapping.
 
-### Destination clearing
+The opposite edge never moves. The adapter supplies content-aware limits. For audio, a start trim advances the source window and a start extension pulls earlier source material back in. For MIDI, a start trim advances `content_start`. Section 11 lists the per-kind rules.
 
-Every operation that places clip content on a track clears the destination range first.
-
-```
-place(track, range, clip):
-    clear_range(track, range)
-    insert(clip)
-```
+A point object has no edges to trim. `trim_object` returns an error for `ObjectExtent::Point`; the router never sends one.
 
-This applies to:
+Object trim is single-object by design. The routing above clears the time selection and selects the object that owns the grabbed edge. Multi-object trim needs a separate gesture and is deferred.
 
-- clip creation
-- duplication
-- paste
-- move
-- clip-range edits
+#### 8.7.3 Container edges
 
-`clear_range` removes destination content, never permits overlap, and preserves non-overlapping fragments:
+Only editors with a container support this. The audio clip editor's `CLIP START` and `CLIP END` handles are the current case.
 
 ```
-existing fully inside range          -> remove existing
-range covers existing start          -> trim existing end to range.start
-range covers existing end            -> trim existing start to range.end
-range lies inside existing           -> split existing at range.start
-                                        then trim the right part to range.end
+container = model.container().expect("editor has a container")
+epsilon = 1 microbeat
+
+Start edge:
+    s' = clamp(to, container.start, container.end - epsilon)
+End edge:
+    e' = clamp(to, container.start + epsilon, container.end)
 ```
 
-For audio slice mode, trimming and splitting use slice windows. Slice source ranges are adjusted by the sample delta of the local trim; sliced content is never stretched.
+The plan is `SetContainer { span: [s', e') }`. The span is in editor-local time. Lowering treats the difference from the old container as the trim amount, rewrites the content window so slice and note anchors stay attached to the timeline, moves the clip's arranger start when the start edge is trimmed, and renormalizes the surviving local time to start at zero. The slice and note anchors stay put on the timeline across that renormalization. The container cannot be moved or selected. This operation is orthogonal to object and time selection.
 
-### Shared editing actions
+## 9. Destination clearing, splitting, and overlap
 
-Clip editor and arranger actions are selected by the same rule: nodes first, then bar selection.
+### 9.1 Erase
 
-Shortcut mapping:
+`Erase { lane, span }` removes every object, or part of an object, in `span`. It keeps content outside the span and never stretches content.
 
 ```
-Cmd/Ctrl+C  copy
-Cmd/Ctrl+X  cut
-Cmd/Ctrl+V  paste at cursor
-Cmd/Ctrl+D  duplicate
-Delete      delete
-Drag        move
+for each span object on the lane that intersects span:
+    fully inside        -> remove
+    covered on the left -> trim the object's end to span.start
+    covered on the right-> trim the object's start to span.end
+    span inside object  -> split at span.start and span.end,
+                           remove the middle, keep the two ends
+for each point on the lane with span.start <= t < span.end:
+    remove
 ```
 
+Splitting preserves content anchors. Trimming an audio slice or clip adjusts source sample windows by the sample delta of the trimmed edge. MIDI notes are split at the boundary and the right part keeps the same absolute note content.
 
-#### Copy
+### 9.2 Placement clears first
 
-Node copy stores each selected node with an offset from the earliest selected node:
+Every insertion emits `Erase` before `Place`. This covers paste, duplicate, and any future insert. Move and Trim are not insertions; they use the lift and place rule in 9.3. Time-mode paste erases the whole destination span, so empty gaps in the source become empty gaps at the destination. Object-mode paste erases only each fragment's destination span, so content in the gaps between objects survives.
 
+The lowered sequence is:
+
 ```
-o_i = l_i - min(l_j)
+1. SetContainer, if the plan contains an explicit container trim
+2. every Erase
+3. every Remove
+4. every Move and Trim
+5. every Place
 ```
 
-Bar copy trims each intersecting node to `[a, b)` and stores offsets from `a`:
+The order is part of the contract. Lowering may batch or reorder commands internally only if the observable result matches this order.
 
-```
-o_i = max(l_i, a) - a
-```
+### 9.3 Lift and place
 
-For an audio slice, the trimmed source range is:
+Object-mode `Move` and extending `Trim` are atomic relocations. Lowering implements them with three steps:
 
 ```
-Δs_start = round((max(l_i, a) - l_i) * samples_per_beat)
-Δs_end   = round((min(l_i + d_i, b) - l_i) * samples_per_beat)
-source_start_i' = source_start_i + Δs_start
-source_end_i'   = source_start_i + Δs_end
+1. Lift the affected objects out of the lane. Keep their content and identity.
+2. Erase the destination spans on the destination lanes,
+   excluding the lifted objects themselves.
+3. Reinsert the lifted objects at their new spans with their original identities
+   and untouched content.
 ```
 
-#### Paste
+This makes the moved set authoritative. Stationary content that overlaps a destination is trimmed or split; the moved content is never trimmed. Source gaps stay as gaps.
 
-The paste target is the active bar-selection start when a bar is selected, otherwise the insertion cursor:
+### 9.4 Container bounds are manual
 
-```
-c = bar.start if bar selection exists else cursor
-l_i' = c + o_i
-```
+The clip start and end move only when the user drags the container handles in the clip editor. Event edits never grow or shrink the container. Paste, duplicate, move, and trim can place audio events before the clip start or after the clip end; the events stay visible and editable.
 
-Every pasted node receives a new ID. The pasted selection becomes the pasted node set for node copy, or `[c, c + (b - a))` for bar copy.
+Playback still follows the container range. Events outside it are drawn, selected, copied, and edited, but they do not play. The clip editor draws the grid and ruler across the visible range, including outside the container, and the scroll range includes the outermost events.
 
-#### Duplicate
+The waveform is drawn only where the source has samples. Over-trimmed events leave the unsupported tail empty instead of stretching the available waveform.
 
-Duplicate means copy followed by paste at a deterministic target:
+### 9.5 Determinism
 
-```
-node duplicate target = max(l_i + d_i) over the selected nodes
-bar duplicate target  = b
-```
+Members are sorted by `(lane, span.start, id)`. Ops are emitted in the phase order above, and within a phase by `(lane, span.start, id)`. The same model and selection always produce an identical plan. This is required for golden tests and for undo stability.
 
-The duplicated nodes or bar selection become the active selection. This applies equally to timeline nodes and clip-editor slices.
+## 10. Lowering
 
-#### Cut
+Lowering is the only impure step before command application. It has four jobs.
 
-```
-cut = copy + delete
-```
+1. Allocate IDs for every `Place`. New IDs are caller-generated, as elsewhere in the domain. Place ops are numbered; `NextSelection::Objects` refers to `Created(place_index)`, and lowering resolves those to the IDs it allocated.
+2. Apply the plan in the phase order from 9.2.
+3. Translate content semantics. Trimming an audio clip adjusts `source_start_sample` and the slice windows, not just the range.
+4. Emit commands inside one transaction.
 
-#### Delete
+Command mapping:
 
-Node delete removes the selected nodes.
+| EditOp | Arranger | Audio clip editor | MIDI editor |
+| --- | --- | --- | --- |
+| `Erase` | trim, split, or delete clips | rewrite the slice list | trim, split, or delete notes |
+| `Place` | `CreateClip` | grow the clip, then `SetClipSlices` | create or set notes |
+| `Move` | `MoveClip` | move a slice | move a note |
+| `Trim` | `EditClip` | trim a slice | set note start and length |
+| `Remove` | `DeleteClip` | remove a slice | `DeleteNote` |
+| `SetContainer` | not applicable | `EditClip` range and content | edit MIDI content length |
 
-Bar delete removes `[a, b)` and leaves the outside parts:
+Lowering must be atomic:
 
-```
-keep [l_i, a) if l_i < a
-keep [b, l_i + d_i) if l_i + d_i > b
-```
+- All commands for one operation belong to one undo group. The app snapshots the document once per operation, not once per command.
+- If any command fails validation, no command is applied and the clipboard is unchanged.
+- Embedded payloads such as audio slices are collected in memory and written once. A partially applied slice list is never observable.
+
+## 11. Trim semantics per object kind
 
-If both parts survive, the left part keeps the original ID and the right part receives a new ID. Empty slice sets silence the clip; they do not restore legacy mode.
+The algebra only knows spans and limits. The adapter and lowering own these rules.
 
-The same slice-window rules apply when deleting a time range in the arranger. An audio clip with multiple slices is split at both deletion boundaries and its slice source ranges are trimmed accordingly.
+| Kind | Start trim | End trim | Extension |
+| --- | --- | --- | --- |
+| MIDI clip | Advance `range.start` and `content_start` equally. Notes stay in place. | Adjust `range.end`. Content length is unchanged. | Left is limited by `content_start >= 0`. Right opens an empty tail. |
+| Audio clip, single source | Advance `range.start` and `source_start_sample` by the same sample delta. | Adjust `range.end` and `source_end_sample`. | Limited by available source. No silent tail. |
+| Audio clip, slices | Advance `range.start` and rewrite every slice window. Fully covered slices are dropped. | Adjust `range.end` and trim slice windows at the new edge. | The container is manual. Events may extend outside it. No stretch. |
+| Audio slice | Advance `start` and `source_start_sample`, keep the source end fixed. | Adjust `source_end_sample`, keep `start` fixed. | Limited by source. The waveform draws only where samples exist. No stretch. |
+| MIDI note | Advance `start`, shorten `length`. | Adjust `length`, keep `start` fixed. | Minimum length is one tick or epsilon. The container is manual. |
+| Automation point | Not trimmable. | Not trimmable. | Points move and copy only. |
 
-#### Move
+No operation stretches audio. Waveform scale follows the source sample position, not the trimmed span.
 
-Node drag moves the selected node set as described in section 5. Bar drag moves every intersecting node and the bar selection.
+## 12. Snapping and gesture math
 
-If an edit places slice content beyond the clip end, the clip range is extended first:
+Snapping is not part of the algebra. The algebra receives resolved times (`to`, `at`, `delta`) and only clamps them to model limits. This keeps the algebra free of display state and makes it deterministic.
 
+The gesture layer owns three pure helpers:
+
 ```
-required_end = max(start_i + duration_i)
-if required_end > clip_length:
-    clip_end = clip_start + required_end
+pointer_delta(pointer, press_origin, pixels_per_beat) -> TimeMus
+snap(time, step, bypass) -> TimeMus
+resolve_target(pointer, viewport, snap_step, bypass) -> TimeMus
 ```
 
-`SetClipSlices` is applied after the range extension.
+Rules:
 
-## 9. Audio slice rendering
+- Deltas are always measured from the press origin, never accumulated per frame.
+- `snap(snap(t)) == snap(t)`.
+- A bypass modifier returns the input time unchanged.
+- The algebra is called once per gesture update with the resolved value. It does not remember the previous frame.
 
-For an audio clip starting at musical time `b0`, a slice starting at `l_i` is rendered from:
+Current bypass rules stay as they are:
 
-```
-region_start_mus = b0 + l_i
-region_start_sample = mus_to_samples(region_start_mus)
-source_sample(n) = source_start_i + (n - region_start_sample)
-```
+| Gesture | Bypass |
+| --- | --- |
+| Clip move or trim | Alt |
+| Group move | Alt |
+| Time selection move | Alt |
+| Time range drag in a lane | Shift |
+| Lane click or double-click clip creation | Shift |
+| Ruler play start | Shift |
+| Clip editor range selection | Shift |
+| Clip editor event move or trim | Alt |
 
-Rendering stops at:
+### 12.1 Editor chrome
 
-```
-min(region_start_sample + source_duration_samples, mus_to_samples(clip.range.end))
-```
+The arranger and the audio clip editor use the same beat strip component. It draws the beat grid, loop range, time selection, playhead, and the arranger play-start marker.
 
-Slices are mixed additively into the track buffer.
+The playhead and play-start are global transport state. Clicking the beat strip in either editor emits `SetPlayStart` with the snapped beat. The clip editor also sets its insertion cursor from the same click. The clip editor does not draw a separate play-start marker; the arranger shows the shared play-start.
 
-Waveform previews map source samples into the asset's peak table by absolute position:
+The device editor and the clip editor are mutually exclusive:
 
 ```
-peak_index(source_sample) = floor(source_sample / asset_samples * peak_count)
+currently_opened: Option<OpenedEditor>
+OpenedEditor = DeviceEditor | ClipEditor
 ```
+
+The toolbar buttons toggle each editor against the current selection. Opening one closes the other. With no valid selection, the editor shows `Select an Arrangement Clip to edit.` or `Select an Arrangement Lane to edit.`
 
-The mapping must not normalize by the trimmed source span. Trimming or cutting audio changes the visible sample window, not the horizontal scale of the waveform. Slice waveforms use the peak table and duration of the slice's own asset.
+The clip editor is closed by dragging its top handle down. Its height remains resizable. Clip start and clip end are adjusted only by dragging their handles in the clip editor; event edits never resize the clip.
 
-## 10. Required invariants
+## 13. Invariants
 
-1. All musical times are `>= 0`.
-2. `snap(snap(t)) = snap(t)`.
-3. Zoom preserves the beat under the pointer.
-4. Panning never moves `start` below zero.
-5. Move preserves clip length; trim preserves a non-empty interval.
-6. Time selection always satisfies `start <= end`.
-7. Slice source ranges are non-empty and trim never inverts them.
-8. Slice `start` lies in `[0, clip_length)`.
-9. Master is always visible, pinned, clickable, and never draggable.
-10. Grid lines are rendered once over Timeline-Content, not per lane.
-11. The device panel and clip editor are mutually exclusive bottom editors.
-12. A shortcut-driven action does not also get a redundant toolbar button.
-13. The clip editor is audio-only; there is no MIDI note editor in the current build.
-14. Copy, duplicate, and delete route to the editor that holds edit focus.
-15. Copies are independent; no clip edit propagates to another clip (see [`CLIPS.md`](./CLIPS.md)).
+1. Every span satisfies `start <= end`. A dispatchable time selection also satisfies `start < end` and has at least one lane.
+2. Every object ID in a selection exists in the model after materialization. Stale IDs are dropped.
+3. Span objects on one lane do not overlap after any operation.
+4. Copy does not mutate the document.
+5. Object-mode move preserves each object's length and content window. Time-mode move preserves the span length and clips each fragment to the source span.
+6. Trim keeps the opposite edge fixed and never inverts the span.
+7. Trim never stretches audio and never exceeds the adapter's limits.
+8. Erase never changes content outside its span.
+9. Time-mode copy and delete leave content outside the source span intact. Time-mode move only clears content at its shifted destination, in addition to removing the source span.
+10. Paste assigns new IDs. No pasted object aliases a source object.
+11. Destination content is erased before placed content is inserted.
+12. Destination content is authoritative: placing onto existing content trims the existing content, not the placed fragments. Object-mode move follows the same rule for whole objects.
+13. Event edits never change the container. Only the clip start and end handles change it. Events may lie outside it.
+14. Every operation is deterministic: same model and selection, same plan.
+15. One user operation is one undo group. Undo restores the document and leaves selection sanitisation to the UI.
+16. The clipboard holds owned content only and survives document changes.
+17. Cross-editor paste is rejected unless the extract's domain matches the target editor.
+18. A failed operation applies no commands and does not change the clipboard.
 
-## 11. Required tests
+## 14. Migration
 
-Selection and editing:
+The algebra has no behaviour to preserve yet. Build it first, then move one editor at a time.
 
-- Node and bar selection are mutually exclusive when a bar is created.
-- Additive node selection preserves the existing bar selection.
-- Action dispatch prefers node selection over bar selection.
-- Bar selection clamps to `[0, Lc)` and preserves its length while moving.
-- Node move preserves relative offsets and clamps to the clip.
-- Bar move moves only intersecting nodes and clamps as one group.
+1. Add `crates/notwig-core/src/edit/` with `mod.rs` (selection, extract, plan, and model types), `algebra.rs`, and `arranger.rs`. Export the types from `notwig-core`.
+2. Add the tape model, property tests, and explicit snapshot tests from [`EDITING_TESTING.md`](./EDITING_TESTING.md) before any adapter exists. The pure tests are the reference.
+3. Add the arranger model (`ClipId`, `TrackId`, clip payloads) and lowering in `notwig-app/src/edit_lowering.rs`.
+4. Replace the clip-level editing functions in `notwig-app/src/workspace.rs`: `copy_clips`, `copy_time_range`, `cut_selection`, `paste_clips`, `delete_time_range`, `duplicate_time_range`, and the duplicate helpers. The app keeps asset and notification concerns.
+5. Add the audio clip editor model (`SliceId`, one clip lane) and slice lowering in `notwig-ui/src/clip_editor.rs`. Delete the old copy, paste, and delete helpers.
+6. Move the shared selection state from `notwig-ui/src/state.rs` and the slice editor into the core `Selection` type. Keep view state such as viewport, cursor, and drag origin in the UI.
+7. Replace the helpers in `notwig-ui/src/edit.rs` with the algebra and the gesture helpers. `EditTarget`, `ClipboardMode`, `duplicate_plan`, `paste_target`, `clamp_node_shift`, `clamp_bar_shift`, and `duplicate_bar_range` all disappear.
+8. Add the MIDI and automation adapters when those editors land. They should not need new algebra.
 
-Clip editor actions:
+Bugs this removes from the current code:
 
-- Node copy/paste preserves offsets and assigns new IDs.
-- Bar copy trims audio source ranges and offsets them to the bar start.
-- Paste targets the insertion cursor.
-- Node duplicate places clones after the selected node set.
-- Bar duplicate places clones at the bar end and selects the new range.
-- Cut copies before deleting.
-- Node delete removes only selected nodes.
-- Bar delete splits a slice that spans the deleted range.
-- Bar delete trims the left edge, trims the right edge, and removes fully covered slices.
-- Deleting all slices leaves the clip in slice mode and renders silence.
-- Edits beyond the clip end extend the clip range before applying slices.
-- Dragging clip start/end markers emits range edits and clamps to minimum length.
-- Destination clearing splits a covering clip and preserves both fragments.
-- Duplicate and paste clear the destination before inserting.
-- Deleting a timeline time range splits multiple audio slices and trims their sources.
-- Waveform peak lookup uses absolute asset samples and does not stretch trimmed audio.
+- Slice paste and slice duplicate append onto existing slices without clearing the destination, so overlap rules are not enforced.
+- The arranger and the clip editor have different duplicate target math and different clipboard lifetimes.
+- Delete, cut, and duplicate are written once per editor, so a fix in one does not reach the others.
+- Time selection and object selection have different dispatch paths in each editor.
 
-Viewport and strips:
+## 15. Deferred
 
-- Zoom preserves the clip-local beat under the pointer.
-- Panning never moves the viewport start below zero.
-- Bar start/end markers, clip start/end markers, and the cursor use the shared grid coordinates.
+- Multi-object trim gestures. The algebra can trim one object; a future gesture can call it for a sorted set.
+- Cross-domain paste and conversion, including notes to a new MIDI clip.
+- Clipboard persistence across app sessions.
+- Automation curves with non-linear interpolation. v0 treats points as objects with a time and a value.
+- Paste onto a different lane. v0 keeps every fragment on its source lane. Pasting to the focused track or with a lane offset is a separate gesture with its own compatibility rules.
+- Cross-project paste. The lane and content mapping needs a project-level identity story first.

@@ -1,14 +1,9 @@
 #![forbid(unsafe_code)]
 
-mod audio;
-mod gui;
-mod history;
-mod logging;
-mod workspace;
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use notwig_app::{gui, logging};
 use notwig_core::ids::{Asset, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, PlaybackSchedule};
 use notwig_core::sequencer::{AudioClipData, ClipPayload, FadeShape};

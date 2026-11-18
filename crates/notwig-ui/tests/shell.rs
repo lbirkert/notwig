@@ -3,11 +3,20 @@ use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::sequencer::{AudioClipData, ClipKind, ClipPayload, FadeShape, MidiClipData};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_ui::{ClipEditorState, NotwigUi, RuntimeView, snap_16};
+use notwig_ui::{NotwigUi, RuntimeView, UiIntent, snap_16};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
     Id::from_uuid(Uuid::from_u128(n))
+}
+
+fn open_clip_editor(ui: &mut NotwigUi, doc: &ProjectDoc, clip: ClipId) {
+    if let Some(clip) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip.id, clip.track_id, false);
+    }
+    ui.open_clip_editor(clip);
 }
 
 fn doc() -> ProjectDoc {
@@ -132,7 +141,7 @@ fn cutting_clip_editor_bar_selection_from_ui_emits_slices() {
     let mut runtime = RuntimeView::default();
     runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
     let mut ui = NotwigUi::default();
-    ui.clip_editor = Some(ClipEditorState::new(clip));
+    open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
     let run =
@@ -140,6 +149,10 @@ fn cutting_clip_editor_bar_selection_from_ui_emits_slices() {
             let _ = ctx.run(
                 egui::RawInput {
                     screen_rect: Some(screen),
+                    modifiers: egui::Modifiers {
+                        shift: true,
+                        ..Default::default()
+                    },
                     events,
                     ..Default::default()
                 },
@@ -225,7 +238,7 @@ fn clicking_the_timeline_reclaims_shortcut_focus_from_the_clip_editor() {
     let doc = audio_doc();
     let clip = id::<Clip>(60);
     let mut ui = NotwigUi::default();
-    ui.clip_editor = Some(ClipEditorState::new(clip));
+    open_clip_editor(&mut ui, &doc, clip);
     ui.edit_focus = notwig_ui::EditFocus::ClipEditor;
     let ctx = egui::Context::default();
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
@@ -295,7 +308,7 @@ fn dragging_clip_editor_start_marker_emits_a_range_edit() {
     let doc = audio_doc();
     let clip = id::<Clip>(60);
     let mut ui = NotwigUi::default();
-    ui.clip_editor = Some(ClipEditorState::new(clip));
+    open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
     let runtime = RuntimeView::default();
@@ -356,7 +369,7 @@ fn dragging_clip_editor_start_marker_emits_a_range_edit() {
     );
     assert!(intents.iter().any(|intent| matches!(
         intent,
-        notwig_ui::UiIntent::EditClipRange { range, .. }
+        notwig_ui::UiIntent::SetClipRange { range, .. }
             if range.start == Rational::new(1, 1) && range.end == Rational::new(2, 1)
     )));
 }
@@ -369,7 +382,7 @@ fn finder_audio_drop_targets_the_clip_editor() {
     let mut runtime = RuntimeView::default();
     runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
     let mut ui = NotwigUi::default();
-    ui.clip_editor = Some(ClipEditorState::new(clip));
+    open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
     let _ = ctx.run(
@@ -854,7 +867,7 @@ fn clip_editor_renders_audio_slices_headlessly() {
     let mut runtime = RuntimeView::default();
     runtime.waveforms.insert(asset, vec![0.5; 128]);
     let mut ui = NotwigUi::default();
-    ui.clip_editor = Some(ClipEditorState::new(clip));
+    open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
     let _ = ctx.run(
@@ -867,4 +880,260 @@ fn clip_editor_renders_audio_slices_headlessly() {
         },
     );
     assert!(ui.clip_editor.is_some());
+}
+
+fn run_ui(
+    ctx: &egui::Context,
+    ui: &mut NotwigUi,
+    doc: &ProjectDoc,
+    runtime: &RuntimeView,
+    screen: egui::Rect,
+    events: Vec<egui::Event>,
+) -> Vec<UiIntent> {
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, doc, runtime);
+        },
+    );
+    intents
+}
+
+fn clip_editor_screen() -> egui::Rect {
+    egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0))
+}
+
+fn pointer_event(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    }
+}
+
+#[test]
+fn clip_editor_ruler_updates_global_play_start() {
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    open_clip_editor(&mut ui, &doc, clip);
+    let ctx = egui::Context::default();
+    let screen = clip_editor_screen();
+    let _ = run_ui(&ctx, &mut ui, &doc, &runtime, screen, Vec::new());
+    let content = ui.clip_editor_content_rect;
+    let ruler = egui::pos2(content.left() + 240.0, content.top() + 15.0);
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::PointerMoved(ruler)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(ruler, true)],
+    );
+    let intents = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(ruler, false)],
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::SetPlayStart(time) if *time == TimeMus::new(3, 1)
+    )));
+}
+
+#[test]
+fn clip_editor_copy_paste_uses_platform_clipboard_events() {
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let mut runtime = RuntimeView::default();
+    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    let mut ui = NotwigUi::default();
+    open_clip_editor(&mut ui, &doc, clip);
+    let ctx = egui::Context::default();
+    let screen = clip_editor_screen();
+    let _ = run_ui(&ctx, &mut ui, &doc, &runtime, screen, Vec::new());
+    let content = ui.clip_editor_content_rect;
+    let title = egui::pos2(content.left() + 40.0, content.top() + 65.0);
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::PointerMoved(title)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(title, true)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(title, false)],
+    );
+    let slice = notwig_core::SliceId::from_uuid(uuid::Uuid::from_u128(77));
+    assert!(
+        ui.clip_editor
+            .as_ref()
+            .is_some_and(|state| state.selected_contains(slice)),
+        "event click should select the slice"
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::Copy],
+    );
+    runtime.playhead = TimeMus::new(3, 1);
+    let intents = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::Paste(String::new())],
+    );
+    let slices = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipSlices { slices, .. } => Some(slices.clone()),
+            _ => None,
+        })
+        .expect("paste should emit slices");
+    assert!(slices.iter().any(|slice| slice.start == TimeMus::new(3, 1)));
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetClipRange { .. }))
+    );
+}
+
+#[test]
+fn clip_editor_event_body_moves_outside_the_clip() {
+    let doc = audio_doc();
+    let clip = id::<Clip>(60);
+    let mut runtime = RuntimeView::default();
+    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    let mut ui = NotwigUi::default();
+    open_clip_editor(&mut ui, &doc, clip);
+    let ctx = egui::Context::default();
+    let screen = clip_editor_screen();
+    let _ = run_ui(&ctx, &mut ui, &doc, &runtime, screen, Vec::new());
+    let content = ui.clip_editor_content_rect;
+    let body = egui::pos2(content.left() + 40.0, content.top() + 65.0);
+    let end = egui::pos2(content.left() + 400.0, body.y);
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::PointerMoved(body)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(body, true)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::PointerMoved(end)],
+    );
+    let intents = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(end, false)],
+    );
+    let slices = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipSlices { slices, .. } => Some(slices.clone()),
+            _ => None,
+        })
+        .expect("body drag should emit slices");
+    assert!(slices.iter().any(|slice| slice.start > TimeMus::new(2, 1)));
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetClipRange { .. }))
+    );
+}
+
+#[test]
+fn settings_page_renders_audio_options() {
+    use notwig_ui::{AudioDeviceView, AudioDriverView, AudioSettingsValue, AudioSettingsView};
+    let runtime = RuntimeView {
+        audio_settings: AudioSettingsView {
+            drivers: vec![AudioDriverView {
+                id: "macOS Audio".into(),
+                label: "macOS Audio".into(),
+                devices: vec![AudioDeviceView {
+                    id: "System Out".into(),
+                    label: "System Out".into(),
+                    sample_rates: vec![44_100, 48_000, 96_000],
+                }],
+            }],
+            current: AudioSettingsValue {
+                driver: "macOS Audio".into(),
+                device: "System Out".into(),
+                sample_rate: "auto".into(),
+                block_size: 512,
+            },
+            error: None,
+            warning: None,
+        },
+        ..RuntimeView::default()
+    };
+    let mut ui = NotwigUi::default();
+    ui.settings_open = true;
+    ui.audio_draft = runtime.audio_settings.current.clone();
+    let ctx = egui::Context::default();
+    let screen = clip_editor_screen();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc(), &runtime);
+        },
+    );
+    assert!(ui.settings_open);
 }

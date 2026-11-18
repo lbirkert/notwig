@@ -157,24 +157,3 @@ macro_rules! test_id {
         $crate::ids::Id::<$ty>::from_uuid(uuid::Uuid::from_u128($n))
     };
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ids_roundtrip_canonical_text() {
-        let id = Id::<Track>::from_uuid(Uuid::from_u128(42));
-        let json = serde_json::to_string(&id).unwrap();
-        assert_eq!(json, format!("\"{id}\""));
-        let back: Id<Track> = serde_json::from_str(&json).unwrap();
-        assert_eq!(id, back);
-    }
-
-    #[test]
-    fn typed_ids_are_distinct_types() {
-        let track = test_id!(Track, 1);
-        let asset = test_id!(Asset, 1);
-        assert_eq!(track.as_uuid(), asset.as_uuid());
-    }
-}

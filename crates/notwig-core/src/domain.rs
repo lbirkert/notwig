@@ -254,6 +254,35 @@ impl ProjectDoc {
             .map(|track| track.id)
     }
 
+    #[must_use]
+    pub fn effective_solo(&self, id: crate::ids::TrackId) -> bool {
+        let any_solo = self.tracks.values().any(|track| track.mixer.solo);
+        if !any_solo {
+            return true;
+        }
+        let Some(track) = self.tracks.get(&id) else {
+            return false;
+        };
+        if track.kind == crate::tracks::TrackKind::Master || track.mixer.solo {
+            return true;
+        }
+        let mut current = track.parent;
+        while let Some(track_id) = current {
+            let Some(parent) = self.tracks.get(&track_id) else {
+                break;
+            };
+            if parent.mixer.solo {
+                return true;
+            }
+            current = parent.parent;
+        }
+        self.track_order.descendants(id).into_iter().any(|child| {
+            self.tracks
+                .get(&child)
+                .is_some_and(|track| track.mixer.solo)
+        })
+    }
+
     pub fn validate(&self) -> Result<(), CoreError> {
         self.meta.validate()?;
         self.transport.validate()?;

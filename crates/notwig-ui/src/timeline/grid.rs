@@ -1,4 +1,4 @@
-use egui::{Align2, FontId, Painter, Rect, Stroke};
+use egui::{Painter, Rect, Stroke};
 use notwig_core::TimeMus;
 
 use crate::theme;
@@ -73,45 +73,5 @@ impl TimelineGrid {
                 ),
             );
         }
-    }
-
-    pub fn draw_ruler(self, painter: &Painter, rect: Rect) {
-        let bar_len = f64::from(self.beats_per_bar);
-        let end_beat =
-            self.start.as_f64() + f64::from((rect.width() / self.pixels_per_beat).max(1.0));
-        let first_bar = (self.start.as_f64() / bar_len).floor() as i64;
-        let last_bar = (end_beat / bar_len).ceil() as i64;
-        for bar in first_bar..=last_bar {
-            let beat = bar as f64 * bar_len;
-            let x = rect.left() + (beat - self.start.as_f64()) as f32 * self.pixels_per_beat;
-            if x < rect.left() - 1.0 || x > rect.right() + 1.0 {
-                continue;
-            }
-            painter.line_segment(
-                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                Stroke::new(1.0_f32, theme::GRID_STRONG),
-            );
-            painter.text(
-                egui::pos2(x + 3.0, rect.top() + 3.0),
-                Align2::LEFT_TOP,
-                format!("{}.1", bar + 1),
-                FontId::monospace(9.0),
-                theme::TEXT_MUTED,
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn coordinates_round_trip_and_snap() {
-        let grid = TimelineGrid::new(TimeMus::zero(), 64.0, 4);
-        let x = grid.x_for_beat(TimeMus::new(2, 1), 10.0);
-        assert!((x - 138.0).abs() < 0.01);
-        assert_eq!(grid.beat_for_x(x, 10.0), TimeMus::new(2, 1));
-        assert_eq!(grid.snap(TimeMus::new(9, 32), false), TimeMus::new(1, 4));
     }
 }

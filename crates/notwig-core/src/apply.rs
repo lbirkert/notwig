@@ -218,7 +218,7 @@ fn apply_payload(
                 .map(|track| EngineMsg::SetTrackState {
                     track_id: track.id,
                     mute: track.mixer.mute,
-                    solo_effective: effective_solo(doc, track.id),
+                    solo_effective: doc.effective_solo(track.id),
                     gain_db: track.mixer.volume_db,
                     pan: track.mixer.pan,
                 })
@@ -339,6 +339,45 @@ fn apply_payload(
         }
         CommandPayload::DeleteClip { clip_id } => {
             delete_clip(doc, *clip_id, changes)?;
+            Ok(vec![schedule_msg(doc)])
+        }
+        CommandPayload::SetClipColor { clip_id, color } => {
+            let clip = doc
+                .arranger
+                .clips
+                .get_mut(clip_id)
+                .ok_or_else(|| not_found(clip_id))?;
+            clip.color = *color;
+            changes.affected.clips.insert(*clip_id);
+            changes.push(DocChange::ClipUpserted(*clip_id));
+            Ok(vec![schedule_msg(doc)])
+        }
+        CommandPayload::SetClipRange { clip_id, range } => {
+            let existing = doc
+                .arranger
+                .clips
+                .get(clip_id)
+                .cloned()
+                .ok_or_else(|| not_found(clip_id))?;
+            if range.is_empty() || range.start < TimeMus::zero() {
+                return Err(CoreError::ValidationFailed {
+                    reason: "clip range must be non-empty and start at or after zero".into(),
+                });
+            }
+            let mut clip = existing.clone();
+            clip.range = *range;
+            clip.validate(doc)?;
+            clear_range(doc, existing.track_id, *range, Some(*clip_id), changes)?;
+            doc.arranger.clips.insert(*clip_id, clip);
+            changes.affected.clips.insert(*clip_id);
+            changes.push(DocChange::ClipUpserted(*clip_id));
+            Ok(vec![schedule_msg(doc)])
+        }
+        CommandPayload::ClearRange { track_id, range } => {
+            if !doc.tracks.contains_key(track_id) {
+                return Err(not_found(track_id));
+            }
+            clear_range(doc, *track_id, *range, None, changes)?;
             Ok(vec![schedule_msg(doc)])
         }
         CommandPayload::SetNote { clip_id, note } => {
@@ -702,33 +741,6 @@ fn validate_routing(doc: &ProjectDoc) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn effective_solo(doc: &ProjectDoc, id: TrackId) -> bool {
-    let any_solo = doc.tracks.values().any(|t| t.mixer.solo);
-    if !any_solo {
-        return true;
-    }
-    let Some(track) = doc.tracks.get(&id) else {
-        return false;
-    };
-    if track.kind == TrackKind::Master || track.mixer.solo {
-        return true;
-    }
-    let mut current = track.parent;
-    while let Some(track_id) = current {
-        let Some(parent) = doc.tracks.get(&track_id) else {
-            break;
-        };
-        if parent.mixer.solo {
-            return true;
-        }
-        current = parent.parent;
-    }
-    doc.track_order
-        .descendants(id)
-        .into_iter()
-        .any(|child| doc.tracks.get(&child).is_some_and(|track| track.mixer.solo))
-}
-
 fn create_clip(
     doc: &mut ProjectDoc,
     id: ClipId,
@@ -809,7 +821,7 @@ fn audio_slice_window(
     Some(segment)
 }
 
-fn audio_slice_window_set(
+pub(crate) fn audio_slice_window_set(
     map: crate::time::TempoMap,
     audio: &AudioClipData,
     from: TimeMus,

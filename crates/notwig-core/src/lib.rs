@@ -2,6 +2,7 @@
 
 pub mod apply;
 pub mod domain;
+pub mod edit;
 pub mod ids;
 pub mod protocol;
 pub mod sequencer;

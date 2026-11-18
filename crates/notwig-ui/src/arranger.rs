@@ -3,20 +3,18 @@ use notwig_core::{
     ClipId, ClipKind, ClipPayload, ProjectDoc, RangeMus, TimeMus, TrackId, TrackKind,
 };
 
-use crate::edit::{clamp_bar_shift, clamp_node_shift};
+use crate::edit::clamp_node_shift;
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
-use crate::shell::{NotwigUi, clip_color, track_depth};
+use crate::shell::{NotwigUi, track_depth};
 use crate::theme;
 use crate::timeline::TimelineGrid;
-use crate::widgets::{format_db, snap_step, snap_time};
+use crate::widgets::{snap_step, snap_time};
 
 const HEADER_W: f32 = 230.0;
 const ROW_H: f32 = 64.0;
 const RULER_H: f32 = 30.0;
 const SCROLLBAR_H: f32 = 14.0;
-const DB_MIN: f32 = -60.0;
-const DB_MAX: f32 = 6.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TrackDrop {
@@ -60,7 +58,6 @@ pub struct BarSelectionDrag {
     pub start_pointer: egui::Pos2,
     pub origin: RangeMus,
     pub tracks: Vec<TrackId>,
-    pub clips: Vec<(ClipId, TrackId, RangeMus)>,
 }
 
 impl NotwigUi {
@@ -88,22 +85,26 @@ impl NotwigUi {
         self.timeline_left = self.arranger_rect.left() + header_w;
         self.handle_navigation(ui);
 
-        let (ruler_rect, ruler_resp) =
-            ui.allocate_exact_size(Vec2::new(width, RULER_H), Sense::click_and_drag());
+        let (ruler_rect, _) = ui.allocate_exact_size(Vec2::new(width, RULER_H), Sense::hover());
         let timeline_left = ruler_rect.left() + header_w;
         self.timeline_left = timeline_left;
-        self.draw_ruler(
-            ui,
-            ruler_rect,
-            &ruler_resp,
-            doc,
-            runtime,
-            header_w,
-            timeline_left,
-            ppb,
-            beats_per_bar,
-            grid,
-        );
+        let strip = crate::timeline::BeatStrip {
+            grid: TimelineGrid::new(start, ppb, beats_per_bar),
+            header_width: header_w,
+            header_label: Some("TRACKS"),
+            loop_range: if doc.transport.loop_enabled {
+                doc.transport.loop_range
+            } else {
+                None
+            },
+            time_selection: self.state.selection.time.as_ref().map(|time| time.range),
+            play_start: runtime.play_start,
+            playhead: runtime.playhead,
+            show_play_start: true,
+        };
+        if let Some(beat) = strip.show(ui, ruler_rect, Id::new("arranger-ruler")) {
+            self.emit(UiIntent::SetPlayStart(beat));
+        }
 
         let rows_top = ui.cursor().top();
         let master = doc.master_track();
@@ -214,32 +215,27 @@ impl NotwigUi {
             egui::pos2(ruler_rect.right(), rows_top + rows_height),
         );
         let overlay = ui.painter().with_clip_rect(content_rect);
-        let playhead_x = timeline_left + (runtime.playhead.as_f64() - start.as_f64()) as f32 * ppb;
-        if runtime.playing
-            && playhead_x >= content_rect.left()
-            && playhead_x <= content_rect.right()
-        {
-            overlay.line_segment(
-                [
-                    egui::pos2(playhead_x, content_rect.top()),
-                    egui::pos2(playhead_x, content_rect.bottom()),
-                ],
-                Stroke::new(1.0_f32, Color32::WHITE),
-            );
-        }
+        crate::timeline::draw_playhead(
+            &overlay,
+            content_rect,
+            timeline_left,
+            TimelineGrid::new(start, ppb, beats_per_bar),
+            runtime.playhead,
+        );
         if let Some(time) = &self.state.selection.time {
-            for beat in [time.range.start, time.range.end] {
-                let x = timeline_left + (beat.as_f64() - start.as_f64()) as f32 * ppb;
-                if x >= content_rect.left() && x <= content_rect.right() {
-                    overlay.line_segment(
-                        [
-                            egui::pos2(x, content_rect.top()),
-                            egui::pos2(x, content_rect.bottom()),
-                        ],
-                        Stroke::new(1.0_f32, Color32::WHITE),
-                    );
-                }
-            }
+            let marker_rect = Rect::from_min_max(
+                egui::pos2(timeline_left, ruler_rect.top()),
+                egui::pos2(content_rect.right(), content_rect.bottom()),
+            );
+            let selection_painter = ui.painter().with_clip_rect(marker_rect);
+            crate::timeline::draw_time_selection_markers(
+                &selection_painter,
+                TimelineGrid::new(start, ppb, beats_per_bar),
+                timeline_left,
+                marker_rect,
+                ruler_rect,
+                time.range,
+            );
         }
         let (bar_rect, _) = ui.allocate_exact_size(Vec2::new(width, SCROLLBAR_H), Sense::hover());
         self.draw_drop_preview(ui, doc, header_w);
@@ -249,7 +245,7 @@ impl NotwigUi {
     fn bar_selection_interaction(
         &mut self,
         ui: &mut egui::Ui,
-        doc: &ProjectDoc,
+        _doc: &ProjectDoc,
         ppb: f32,
         start: TimeMus,
         grid: TimeMus,
@@ -313,20 +309,10 @@ impl NotwigUi {
                 .input(|i| i.pointer.press_origin())
                 .or_else(|| response.interact_pointer_pos())
             {
-                let clips = doc
-                    .arranger
-                    .clips
-                    .values()
-                    .filter(|clip| {
-                        time.tracks.contains(&clip.track_id) && clip.range.intersects(time.range)
-                    })
-                    .map(|clip| (clip.id, clip.track_id, clip.range))
-                    .collect();
                 self.bar_selection_drag = Some(BarSelectionDrag {
                     start_pointer: pointer,
                     origin: time.range,
                     tracks,
-                    clips,
                 });
             }
         }
@@ -337,200 +323,50 @@ impl NotwigUi {
                     .or_else(|| ui.input(|i| i.pointer.hover_pos()))
                     .unwrap_or(drag.start_pointer);
                 let alt = ui.input(|i| i.modifiers.alt);
-                let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
-                let requested = snap_time(
-                    TimeMus::new(
-                        ((drag.origin.start.as_f64() + delta) * 1_000_000.0).round() as i64,
-                        1_000_000,
-                    ),
+                let delta =
+                    crate::timeline::interaction::pointer_delta(drag.start_pointer, current, ppb);
+                let requested = crate::timeline::interaction::snapped_delta(
+                    drag.origin.start,
+                    delta,
                     grid,
                     alt,
-                ) - drag.origin.start;
-                let starts: Vec<TimeMus> =
-                    drag.clips.iter().map(|(_, _, range)| range.start).collect();
-                let shift = clamp_bar_shift(drag.origin, requested, &starts, None, None);
-                let new_start = drag.origin.start + shift;
-                let new_end = drag.origin.end + shift;
-                if let Ok(range) = RangeMus::new(new_start, new_end) {
+                );
+                let preview_start = drag.origin.start + requested;
+                let preview_end = drag.origin.end + requested;
+                if let Ok(range) = RangeMus::new(preview_start, preview_end) {
                     self.state.selection.select_time(range, &drag.tracks);
-                    self.group_preview = drag
-                        .clips
-                        .iter()
-                        .map(|(id, track, origin)| {
-                            let start = origin.start + shift;
-                            let range =
-                                RangeMus::new(start, start + origin.length()).unwrap_or(*origin);
-                            (*id, *track, range)
-                        })
-                        .collect();
                 }
+                self.group_preview.clear();
             }
         }
-        if response.drag_stopped() && self.bar_selection_drag.take().is_some() {
-            let previews = std::mem::take(&mut self.group_preview);
-            let moves: Vec<_> = previews
-                .into_iter()
-                .filter(|(id, _, range)| {
-                    self.clip_origins
-                        .get(id)
-                        .is_some_and(|(_, _, origin)| origin != range)
-                })
-                .collect();
-            if !moves.is_empty() {
-                self.emit(UiIntent::MoveClips { clips: moves });
+        if response.drag_stopped() {
+            if let Some(drag) = self.bar_selection_drag.take() {
+                let current = response
+                    .interact_pointer_pos()
+                    .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                    .unwrap_or(drag.start_pointer);
+                let alt = ui.input(|i| i.modifiers.alt);
+                let delta =
+                    crate::timeline::interaction::pointer_delta(drag.start_pointer, current, ppb);
+                let requested = crate::timeline::interaction::snapped_delta(
+                    drag.origin.start,
+                    delta,
+                    grid,
+                    alt,
+                );
+                if requested != TimeMus::zero() {
+                    self.emit(UiIntent::MoveTimeSelection {
+                        range: drag.origin,
+                        tracks: drag.tracks,
+                        delta: requested,
+                    });
+                }
             }
         }
         let _ = start;
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn draw_ruler(
-        &mut self,
-        ui: &mut egui::Ui,
-        ruler_rect: Rect,
-        ruler_resp: &egui::Response,
-        doc: &ProjectDoc,
-        runtime: &RuntimeView,
-        header_w: f32,
-        timeline_left: f32,
-        ppb: f32,
-        beats_per_bar: u8,
-        grid: TimeMus,
-    ) {
-        let painter = ui.painter().clone();
-        painter.rect_filled(ruler_rect, CornerRadius::ZERO, theme::PANEL_LIGHT);
-        painter.line_segment(
-            [
-                egui::pos2(ruler_rect.left() + header_w, ruler_rect.top()),
-                egui::pos2(ruler_rect.left() + header_w, ruler_rect.bottom()),
-            ],
-            Stroke::new(1.0_f32, theme::GRID_STRONG),
-        );
-        painter.text(
-            egui::pos2(ruler_rect.left() + 10.0, ruler_rect.center().y),
-            Align2::LEFT_CENTER,
-            "TRACKS",
-            FontId::proportional(11.0),
-            theme::TEXT_MUTED,
-        );
-        let start = self.state.viewport.start;
-        let visible_beats = f64::from(((ruler_rect.right() - timeline_left) / ppb).max(1.0));
-        if doc.transport.loop_enabled {
-            if let Some(range) = doc.transport.loop_range {
-                let x1 = timeline_left + (range.start.as_f64() - start.as_f64()) as f32 * ppb;
-                let x2 = timeline_left + (range.end.as_f64() - start.as_f64()) as f32 * ppb;
-                painter.rect_filled(
-                    Rect::from_min_max(
-                        egui::pos2(x1.max(timeline_left), ruler_rect.top()),
-                        egui::pos2(x2.min(ruler_rect.right()), ruler_rect.bottom()),
-                    ),
-                    CornerRadius::ZERO,
-                    theme::ACCENT.gamma_multiply(0.18),
-                );
-            }
-        }
-        if let Some(time) = &self.state.selection.time {
-            let x1 = timeline_left + (time.range.start.as_f64() - start.as_f64()) as f32 * ppb;
-            let x2 = timeline_left + (time.range.end.as_f64() - start.as_f64()) as f32 * ppb;
-            painter.rect_filled(
-                Rect::from_min_max(
-                    egui::pos2(x1.max(timeline_left), ruler_rect.top()),
-                    egui::pos2(x2.min(ruler_rect.right()), ruler_rect.bottom()),
-                ),
-                CornerRadius::ZERO,
-                Color32::from_rgba_unmultiplied(255, 210, 120, 34),
-            );
-        }
-        let step = grid.as_f64().max(1.0 / 256.0);
-        let bar_len = f64::from(beats_per_bar);
-        let show_beats = ppb >= 26.0;
-        let first_index = (start.as_f64() / step).floor() as i64;
-        let last_index = ((start.as_f64() + visible_beats) / step).ceil() as i64 + 1;
-        for index in first_index..=last_index {
-            let beat = index as f64 * step;
-            if beat < 0.0 {
-                continue;
-            }
-            let x = timeline_left + (beat - start.as_f64()) as f32 * ppb;
-            if x < timeline_left - 1.0 || x > ruler_rect.right() + 1.0 {
-                continue;
-            }
-            let strong = (beat / bar_len).fract().abs() < 1e-6;
-            let beat_line = (beat.fract()).abs() < 1e-6;
-            let label = if strong || (show_beats && beat_line) {
-                let bar = (beat / bar_len).floor() as i64 + 1;
-                let beat_in_bar = (beat % bar_len).floor() as i64 + 1;
-                format!("{bar}.{beat_in_bar}")
-            } else {
-                String::new()
-            };
-            painter.line_segment(
-                [
-                    egui::pos2(
-                        x,
-                        ruler_rect.top()
-                            + if strong {
-                                6.0
-                            } else if beat_line {
-                                14.0
-                            } else {
-                                20.0
-                            },
-                    ),
-                    egui::pos2(x, ruler_rect.bottom()),
-                ],
-                Stroke::new(
-                    1.0_f32,
-                    if strong {
-                        theme::GRID_STRONG
-                    } else if beat_line {
-                        theme::GRID
-                    } else {
-                        theme::GRID.gamma_multiply(0.55)
-                    },
-                ),
-            );
-            if !label.is_empty() {
-                painter.text(
-                    egui::pos2(x + 3.0, ruler_rect.top() + 3.0),
-                    Align2::LEFT_TOP,
-                    label,
-                    FontId::monospace(9.0),
-                    if strong {
-                        theme::TEXT_MUTED
-                    } else {
-                        theme::GRID_STRONG
-                    },
-                );
-            }
-        }
-        let play_start_x =
-            timeline_left + (runtime.play_start.as_f64() - start.as_f64()) as f32 * ppb;
-        if play_start_x >= timeline_left && play_start_x <= ruler_rect.right() {
-            painter.add(egui::Shape::convex_polygon(
-                vec![
-                    egui::pos2(play_start_x, ruler_rect.top() + 4.0),
-                    egui::pos2(play_start_x, ruler_rect.top() + 14.0),
-                    egui::pos2(play_start_x + 8.0, ruler_rect.top() + 9.0),
-                ],
-                theme::ACCENT,
-                Stroke::NONE,
-            ));
-        }
-        if (ruler_resp.clicked() || ruler_resp.dragged())
-            && ruler_resp.interact_pointer_pos().is_some()
-        {
-            if let Some(pos) = ruler_resp.interact_pointer_pos() {
-                if pos.x > timeline_left {
-                    let beat = start.as_f64() + f64::from((pos.x - timeline_left) / ppb);
-                    let shift = ui.input(|i| i.modifiers.shift);
-                    let beat = TimeMus::new((beat * 1_000_000.0).round() as i64, 1_000_000);
-                    self.emit(UiIntent::SetPlayStart(snap_time(beat, grid, shift)));
-                }
-            }
-        }
-    }
-
     fn handle_navigation(&mut self, ui: &mut egui::Ui) {
         let Some(pos) = ui.input(|i| i.pointer.hover_pos()) else {
             return;
@@ -745,11 +581,13 @@ impl NotwigUi {
             egui::pos2(icon_rect.right() + 8.0, header_rect.top() + 38.0),
             egui::pos2(menu_rect.left() - 6.0, header_rect.top() + 53.0),
         );
-        if let Some(volume) = volume_fader(
+        if let Some(volume) = crate::widgets::volume_fader(
             ui,
+            Id::new(("track-volume", track_id)),
             fader_rect,
             track.mixer.volume_db.0,
-            Id::new(("track-volume", track_id)),
+            crate::widgets::DB_MIN,
+            crate::widgets::DB_MAX,
         ) {
             self.emit(UiIntent::SetTrackMixer {
                 track_id,
@@ -926,12 +764,9 @@ impl NotwigUi {
                         grid,
                         shift,
                     );
-                    let (start_mus, end_mus) = if drag.start_beat <= beat {
-                        (drag.start_beat, beat)
-                    } else {
-                        (beat, drag.start_beat)
-                    };
-                    if let Ok(range) = RangeMus::new(start_mus, end_mus) {
+                    if let Some(range) =
+                        crate::timeline::interaction::selection_range(drag.start_beat, beat)
+                    {
                         let min_y = drag.start_y.min(pos.y);
                         let max_y = drag.start_y.max(pos.y);
                         let mut tracks = Vec::new();
@@ -1032,21 +867,16 @@ impl NotwigUi {
             }
         }
 
-        if let Some(time) = &self.state.selection.time {
-            if time.contains_track(track_id) {
-                let x1 =
-                    lane_rect.left() + (time.range.start.as_f64() - start.as_f64()) as f32 * ppb;
-                let x2 = lane_rect.left() + (time.range.end.as_f64() - start.as_f64()) as f32 * ppb;
-                let rect = Rect::from_min_max(
-                    egui::pos2(x1.max(lane_rect.left()), lane_rect.top()),
-                    egui::pos2(x2.min(lane_rect.right()), lane_rect.bottom()),
-                );
-                painter.rect_filled(
-                    rect,
-                    CornerRadius::ZERO,
-                    Color32::from_rgba_unmultiplied(255, 210, 120, 26),
-                );
-            }
+        if let Some(time) = &self.state.selection.time
+            && time.contains_track(track_id)
+        {
+            crate::timeline::draw_time_selection_fill(
+                &painter,
+                TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1)),
+                lane_rect.left(),
+                lane_rect,
+                time.range,
+            );
         }
     }
 
@@ -1133,19 +963,8 @@ impl NotwigUi {
                 }
             }
             TrackKind::Audio => {
-                let asset = doc
-                    .assets
-                    .assets
-                    .values()
-                    .find(|asset| asset.kind == notwig_core::AssetKind::Audio)
-                    .map(|asset| asset.id);
-                if let Some(asset_id) = asset {
-                    self.emit(UiIntent::InsertAudioClip { track_id, asset_id });
-                } else {
-                    self.state.notify(
-                        crate::state::NotificationKind::Info,
-                        "Import audio from File → Import Audio, then double-click the lane.",
-                    );
+                if let Ok(range) = RangeMus::new(beat, beat + TimeMus::new(4, 1)) {
+                    self.emit(UiIntent::CreateAudioClip { track_id, range });
                 }
             }
             _ => {}
@@ -1179,97 +998,23 @@ impl NotwigUi {
                     .map(|(_, range, _)| range)
             });
         let range = preview.unwrap_or(clip.range);
-        let x1 = lane_rect.left() + (range.start.as_f64() - start.as_f64()) as f32 * ppb;
-        let x2 = lane_rect.left() + (range.end.as_f64() - start.as_f64()) as f32 * ppb;
-        let clip_rect = Rect::from_min_max(
-            egui::pos2(x1, lane_rect.top() + 3.0),
-            egui::pos2(x2.max(x1 + 1.0), lane_rect.bottom() - 3.0),
-        );
-        let visible = clip_rect.intersect(lane_rect);
-        if visible.width() < 2.0 {
-            return;
-        }
         let selected = self.state.selection.clips.contains(&clip_id);
-        let color = clip_color(clip.kind);
-        let color = if clip.muted {
-            color.gamma_multiply(0.35)
-        } else {
-            color
+        let Some(visual) = crate::timeline::draw_clip_visual(
+            ui.painter(),
+            doc,
+            clip,
+            range,
+            lane_rect,
+            TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1)),
+            &runtime.waveforms,
+            selected,
+            preview.is_some(),
+        ) else {
+            return;
         };
+        let clip_rect = visual.clip_rect;
+        let name_rect = visual.name_rect;
         let painter = ui.painter().with_clip_rect(lane_rect);
-        painter.rect_filled(clip_rect, CornerRadius::same(3), color);
-        let name_height = 14.0_f32.min(clip_rect.height() * 0.42);
-        let name_rect = Rect::from_min_max(
-            clip_rect.min,
-            egui::pos2(clip_rect.right(), clip_rect.top() + name_height),
-        );
-        let body_rect = Rect::from_min_max(
-            egui::pos2(clip_rect.left(), name_rect.bottom()),
-            clip_rect.max,
-        );
-        painter.rect_filled(
-            name_rect,
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 0,
-                se: 0,
-            },
-            Color32::from_black_alpha(52),
-        );
-        match &clip.payload {
-            ClipPayload::Midi(midi) => {
-                draw_midi_preview(&painter, body_rect, clip.range, midi);
-            }
-            ClipPayload::Audio(audio) => {
-                crate::timeline::draw_audio_slices(
-                    &painter,
-                    doc,
-                    clip,
-                    audio,
-                    &runtime.waveforms,
-                    body_rect,
-                    TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1)),
-                    lane_rect.left(),
-                    lane_rect.top(),
-                );
-            }
-        }
-        painter.rect_stroke(
-            clip_rect,
-            CornerRadius::same(3),
-            Stroke::new(
-                if selected { 1.8_f32 } else { 1.0_f32 },
-                if selected {
-                    theme::SELECTION
-                } else {
-                    Color32::from_black_alpha(120)
-                },
-            ),
-            StrokeKind::Inside,
-        );
-        let label = clip.name.clone().unwrap_or_else(|| match &clip.payload {
-            ClipPayload::Midi(midi) => format!("MIDI · {} notes", midi.notes.len()),
-            ClipPayload::Audio(audio) => format!(
-                "AUDIO · {:.1}s",
-                audio.source_duration() as f64 / f64::from(doc.meta.sample_rate.value())
-            ),
-        });
-        painter.with_clip_rect(name_rect).text(
-            egui::pos2(name_rect.left() + 8.0, name_rect.center().y),
-            Align2::LEFT_CENTER,
-            label,
-            FontId::monospace(9.5),
-            Color32::from_black_alpha(235),
-        );
-        if preview.is_some() {
-            painter.rect_stroke(
-                clip_rect,
-                CornerRadius::same(3),
-                Stroke::new(1.5_f32, theme::ACCENT),
-                StrokeKind::Inside,
-            );
-        }
 
         let name_visible = name_rect.intersect(lane_rect);
         let name_response = ui.interact(
@@ -1583,26 +1328,7 @@ impl NotwigUi {
             egui::pos2(x1.max(lane.left()), lane.top()),
             egui::pos2(x2.max(x1 + 8.0).min(lane.right()), lane.bottom()),
         );
-        painter.rect_filled(
-            rect,
-            CornerRadius::same(3),
-            theme::ACCENT.gamma_multiply(0.28),
-        );
-        painter.rect_stroke(
-            rect,
-            CornerRadius::same(3),
-            Stroke::new(1.5_f32, theme::ACCENT),
-            StrokeKind::Inside,
-        );
-        if let Some(name) = preview.path.file_name().and_then(|name| name.to_str()) {
-            painter.with_clip_rect(rect).text(
-                egui::pos2(rect.left() + 5.0, rect.center().y),
-                Align2::LEFT_CENTER,
-                name,
-                FontId::monospace(10.0),
-                Color32::WHITE,
-            );
-        }
+        crate::timeline::draw_drop_preview(&painter, rect, &preview.path);
     }
 
     fn timeline_scrollbar(
@@ -1613,8 +1339,6 @@ impl NotwigUi {
         header_w: f32,
         ppb: f32,
     ) {
-        let painter = ui.painter();
-        painter.rect_filled(bar_rect, CornerRadius::ZERO, theme::PANEL_LIGHT);
         let track = Rect::from_min_max(
             egui::pos2(bar_rect.left() + header_w + 4.0, bar_rect.top() + 3.0),
             egui::pos2(bar_rect.right() - 4.0, bar_rect.bottom() - 3.0),
@@ -1624,39 +1348,19 @@ impl NotwigUi {
             .clips
             .values()
             .map(|clip| clip.range.end.as_f64())
-            .fold(8.0_f64, f64::max);
+            .fold(8.0_f64, f64::max)
+            + 4.0;
         let visible = f64::from(((bar_rect.right() - bar_rect.left() - header_w) / ppb).max(1.0));
-        let content = (content_end + 4.0).max(visible);
-        let start = self
-            .state
-            .viewport
-            .start
-            .as_f64()
-            .clamp(0.0, (content - visible).max(0.0));
-        let thumb_x = track.left() + (start / content) as f32 * track.width();
-        let thumb_w = ((visible / content) as f32 * track.width())
-            .max(24.0)
-            .min(track.width());
-        let thumb = Rect::from_min_size(
-            egui::pos2(thumb_x.min(track.right() - thumb_w), track.top()),
-            Vec2::new(thumb_w, track.height()),
-        );
-        painter.rect_filled(track, CornerRadius::same(3), theme::GRID);
-        painter.rect_filled(thumb, CornerRadius::same(3), theme::TEXT_MUTED);
-        let response = ui.interact(
+        if let Some(start) = crate::timeline::horizontal_scrollbar(
+            ui,
             bar_rect,
+            track,
+            content_end,
+            visible,
+            self.state.viewport.start,
             Id::new("arranger_hscroll"),
-            Sense::click_and_drag(),
-        );
-        if response.clicked() || response.dragged() {
-            if let Some(pos) = response.interact_pointer_pos() {
-                let fraction = f64::from(((pos.x - track.left()) / track.width()).clamp(0.0, 1.0));
-                let max_start = (content - visible).max(0.0);
-                self.state.viewport.start = TimeMus::new(
-                    ((fraction * max_start) * 1_000_000.0).round() as i64,
-                    1_000_000,
-                );
-            }
+        ) {
+            self.state.viewport.start = start;
         }
     }
 }
@@ -1699,60 +1403,6 @@ fn draw_track_prefixes(
         );
         ancestor = parent.parent;
     }
-}
-
-fn volume_fader(ui: &mut egui::Ui, rect: Rect, db: f32, id: Id) -> Option<f32> {
-    let response = ui
-        .interact(rect, id, Sense::click_and_drag())
-        .on_hover_text(format_db(notwig_core::Db(db)));
-    if response.hovered() || response.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-    }
-    let value = crate::widgets::value_drag(
-        ui,
-        &response,
-        id,
-        f64::from(db),
-        0.0,
-        f64::from(DB_MIN),
-        f64::from(DB_MAX),
-        f64::from(DB_MAX - DB_MIN) / 200.0,
-        false,
-    )
-    .map_or(db, |value| value as f32);
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(3), Color32::from_rgb(15, 16, 20));
-    painter.rect_stroke(
-        rect,
-        CornerRadius::same(3),
-        Stroke::new(1.0_f32, theme::GRID),
-        StrokeKind::Inside,
-    );
-    let t = ((db - DB_MIN) / (DB_MAX - DB_MIN)).clamp(0.0, 1.0);
-    let fill = Rect::from_min_max(
-        rect.min,
-        egui::pos2(rect.left() + rect.width() * t, rect.bottom()),
-    );
-    painter.rect_filled(fill, CornerRadius::same(3), Color32::from_rgb(116, 67, 25));
-    if t > 0.0 {
-        painter.line_segment(
-            [
-                egui::pos2(fill.right().max(rect.left() + 1.0), rect.top() + 2.0),
-                egui::pos2(fill.right().max(rect.left() + 1.0), rect.bottom() - 2.0),
-            ],
-            Stroke::new(1.5_f32, Color32::from_rgb(255, 145, 46)),
-        );
-    }
-    let zero_t = (0.0 - DB_MIN) / (DB_MAX - DB_MIN);
-    let zero_x = rect.left() + rect.width() * zero_t;
-    painter.line_segment(
-        [
-            egui::pos2(zero_x, rect.top() + 3.0),
-            egui::pos2(zero_x, rect.bottom() - 3.0),
-        ],
-        Stroke::new(1.0_f32, Color32::from_white_alpha(50)),
-    );
-    (value - db).abs().gt(&1e-9_f32).then_some(value)
 }
 
 fn draw_vertical_meter(painter: &egui::Painter, rect: Rect, peak_l: f32, peak_r: f32) {
@@ -1803,42 +1453,6 @@ fn track_color(kind: TrackKind) -> Color32 {
         TrackKind::Group => Color32::from_rgb(116, 120, 136),
         TrackKind::BusFx => Color32::from_rgb(154, 122, 190),
         TrackKind::Master => theme::ACCENT,
-    }
-}
-
-fn draw_midi_preview(
-    painter: &egui::Painter,
-    rect: Rect,
-    range: RangeMus,
-    midi: &notwig_core::MidiClipData,
-) {
-    if rect.height() < 12.0 {
-        return;
-    }
-    let clip_start = range.start.as_f64();
-    let clip_end = range.end.as_f64();
-    let clip_len = range.length().as_f64().max(1e-6);
-    for note in &midi.notes {
-        let relative = (note.start - midi.content_start).as_f64();
-        let abs_start = clip_start + relative;
-        let abs_end = abs_start + note.length.as_f64();
-        let start = abs_start.max(clip_start);
-        let end = abs_end.min(clip_end);
-        if end <= start {
-            continue;
-        }
-        let x1 = rect.left() + ((start - clip_start) / clip_len) as f32 * rect.width();
-        let x2 = rect.left() + ((end - clip_start) / clip_len) as f32 * rect.width();
-        let pitch = f32::from(note.pitch);
-        let y = rect.bottom() - 5.0 - (pitch / 127.0) * (rect.height() - 18.0);
-        painter.rect_filled(
-            Rect::from_min_max(
-                egui::pos2(x1, y - 1.5),
-                egui::pos2(x2.max(x1 + 1.5), y + 1.5),
-            ),
-            CornerRadius::same(1),
-            Color32::from_black_alpha(150),
-        );
     }
 }
 
@@ -1894,33 +1508,5 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool, grid: TimeMus) -> RangeMus 
                 drag.origin
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zoom_keeps_pointer_beat_stable() {
-        let mut ui = NotwigUi::default();
-        ui.timeline_left = 230.0;
-        ui.state.viewport.pixels_per_beat = 64.0;
-        ui.state.viewport.start = TimeMus::zero();
-        ui.state.viewport.zoom_at(430.0, ui.timeline_left, 2.0);
-        assert!((ui.state.viewport.pixels_per_beat - 128.0).abs() < 1e-3);
-        let beat = ui.state.viewport.start.as_f64()
-            + f64::from((430.0 - ui.timeline_left) / ui.state.viewport.pixels_per_beat);
-        assert!((beat - 3.125).abs() < 1e-6);
-    }
-
-    #[test]
-    fn panning_clamps_at_zero() {
-        let mut ui = NotwigUi::default();
-        ui.state.viewport.start = TimeMus::new(10, 1);
-        ui.state.viewport.pan_beats(-4.0);
-        assert_eq!(ui.state.viewport.start, TimeMus::new(6, 1));
-        ui.state.viewport.pan_beats(-100.0);
-        assert_eq!(ui.state.viewport.start, TimeMus::zero());
     }
 }

@@ -140,6 +140,18 @@ pub enum CommandPayload {
     DeleteClip {
         clip_id: ClipId,
     },
+    SetClipColor {
+        clip_id: ClipId,
+        color: Option<crate::time::Color>,
+    },
+    SetClipRange {
+        clip_id: ClipId,
+        range: RangeMus,
+    },
+    ClearRange {
+        track_id: TrackId,
+        range: RangeMus,
+    },
     SetNote {
         clip_id: ClipId,
         note: crate::sequencer::NoteEntity,
@@ -222,8 +234,6 @@ impl CommandPayload {
                 | Self::MoveDevice { .. }
                 | Self::SetDeviceBypass { .. }
                 | Self::SetDeviceState { .. }
-                | Self::RegisterAsset { .. }
-                | Self::RelinkAsset { .. }
         )
     }
 }

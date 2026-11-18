@@ -9,11 +9,21 @@ use notwig_engine::Engine;
 use notwig_ui::MeterValues;
 
 #[derive(Debug, Clone, Default)]
+pub struct AudioSettings {
+    pub driver: String,
+    pub device: String,
+    pub sample_rate: Option<u32>,
+    pub block_size: u32,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct AudioSnapshot {
     pub running: bool,
+    pub driver: String,
     pub device_name: String,
     pub sample_rate: u32,
     pub channels: u16,
+    pub block_size: u32,
     pub playhead_samples: u64,
     pub playing: bool,
     pub meters: BTreeMap<TrackId, MeterValues>,
@@ -25,32 +35,52 @@ pub struct AudioSnapshot {
 pub struct AudioService {
     _stream: cpal::Stream,
     pub snapshot: Arc<Mutex<AudioSnapshot>>,
+    pub settings: AudioSettings,
 }
 
 impl AudioService {
     pub fn start(engine: Arc<Mutex<Engine>>, project_rate: u32) -> Result<Self, String> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| "no default output device".to_string())?;
+        Self::start_with(
+            engine,
+            project_rate,
+            &AudioSettings {
+                sample_rate: Some(project_rate),
+                ..AudioSettings::default()
+            },
+        )
+    }
+
+    pub fn start_with(
+        engine: Arc<Mutex<Engine>>,
+        project_rate: u32,
+        settings: &AudioSettings,
+    ) -> Result<Self, String> {
+        let host = resolve_host(&settings.driver)?;
+        let device = resolve_device(&host, &settings.device)?;
         let device_name = device.description().map_or_else(
-            |_| "Output".into(),
+            |_| "Output".to_string(),
             |description| description.name().to_string(),
         );
         let default = device
             .default_output_config()
             .map_err(|err| format!("output config: {err}"))?;
         let sample_format = default.sample_format();
-        let config = choose_config(&device, project_rate).ok_or_else(|| {
-            format!(
-                "output device does not support {project_rate} Hz; project playback is unavailable"
-            )
+        let rate = settings.sample_rate.unwrap_or(project_rate);
+        let mut config = choose_config(&device, rate).ok_or_else(|| {
+            format!("output device does not support {rate} Hz; playback is unavailable")
         })?;
+        config.buffer_size = if settings.block_size > 0 {
+            cpal::BufferSize::Fixed(settings.block_size)
+        } else {
+            cpal::BufferSize::Default
+        };
         let snapshot = Arc::new(Mutex::new(AudioSnapshot {
             running: false,
+            driver: settings.driver.clone(),
             device_name,
             sample_rate: config.sample_rate,
             channels: config.channels,
+            block_size: settings.block_size,
             error: None,
             ..AudioSnapshot::default()
         }));
@@ -68,6 +98,7 @@ impl AudioService {
         Ok(Self {
             _stream: stream,
             snapshot,
+            settings: settings.clone(),
         })
     }
 
@@ -77,6 +108,78 @@ impl AudioService {
             .map(|snapshot| snapshot.clone())
             .unwrap_or_default()
     }
+
+    pub fn available_options() -> Vec<notwig_ui::AudioDriverView> {
+        let mut drivers = Vec::new();
+        for host_id in cpal::available_hosts() {
+            let Ok(host) = cpal::host_from_id(host_id) else {
+                continue;
+            };
+            let Ok(devices) = host.output_devices() else {
+                continue;
+            };
+            let mut device_views = Vec::new();
+            for device in devices {
+                let Ok(description) = device.description() else {
+                    continue;
+                };
+                let name = description.name().to_string();
+                let mut rates = std::collections::BTreeSet::new();
+                if let Ok(configs) = device.supported_output_configs() {
+                    for range in configs {
+                        rates.insert(range.min_sample_rate());
+                        rates.insert(range.max_sample_rate());
+                        for rate in [44_100, 48_000, 88_200, 96_000, 176_400, 192_000] {
+                            if range.min_sample_rate() <= rate && rate <= range.max_sample_rate() {
+                                rates.insert(rate);
+                            }
+                        }
+                    }
+                }
+                device_views.push(notwig_ui::AudioDeviceView {
+                    id: name.clone(),
+                    label: name,
+                    sample_rates: rates.into_iter().collect(),
+                });
+            }
+            drivers.push(notwig_ui::AudioDriverView {
+                id: host_id.name().to_string(),
+                label: host_id.name().to_string(),
+                devices: device_views,
+            });
+        }
+        drivers
+    }
+}
+
+fn resolve_host(driver: &str) -> Result<cpal::Host, String> {
+    if driver.is_empty() {
+        return Ok(cpal::default_host());
+    }
+    let id = cpal::available_hosts()
+        .into_iter()
+        .find(|id| id.name() == driver)
+        .ok_or_else(|| format!("audio driver not found: {driver}"))?;
+    cpal::host_from_id(id).map_err(|err| format!("audio driver: {err}"))
+}
+
+fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
+    if name.is_empty() {
+        return host
+            .default_output_device()
+            .ok_or_else(|| "no default output device".to_string());
+    }
+    host.output_devices()
+        .map_err(|err| format!("output devices: {err}"))?
+        .find(|device| {
+            device
+                .description()
+                .ok()
+                .map(|description| description.name().to_string())
+                .as_deref()
+                == Some(name)
+        })
+        .ok_or_else(|| format!("audio device not found: {name}"))
 }
 
 fn choose_config(device: &cpal::Device, project_rate: u32) -> Option<StreamConfig> {

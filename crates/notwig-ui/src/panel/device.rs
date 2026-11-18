@@ -37,36 +37,27 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        if !self.device_panel_open {
-            return;
-        }
-        egui::TopBottomPanel::bottom("notwig_devices")
-            .resizable(false)
-            .exact_height(DEVICE_PANEL_HEIGHT)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::BLACK)
-                    .inner_margin(egui::Margin::symmetric(6, 0)),
-            )
-            .show(ctx, |ui| {
-                if crate::widgets::collapse_handle(
-                    ui,
-                    Vec2::new(ui.available_width(), 6.0),
-                    false,
-                    "device-panel",
-                    "Drag down to collapse",
-                ) {
-                    self.device_panel_open = false;
-                }
+        let open = super::bottom_panel(
+            ctx,
+            super::PanelConfig {
+                id: "notwig_devices",
+                resizable: false,
+                default_height: DEVICE_PANEL_HEIGHT,
+                min_height: DEVICE_PANEL_HEIGHT,
+                max_height: DEVICE_PANEL_HEIGHT,
+                handle_id: "device-panel",
+                handle_tooltip: "Drag down to close",
+            },
+            |ui| {
                 let Some(track_id) = self.selected_track(doc) else {
                     ui.label(
-                        RichText::new("Select a track to inspect its device chain.")
+                        RichText::new("Select an Arrangement Lane to edit.")
                             .color(theme::TEXT_MUTED),
                     );
-                    return;
+                    return true;
                 };
                 let Some(track) = doc.tracks.get(&track_id) else {
-                    return;
+                    return true;
                 };
                 let main_chain = track.main_chain;
                 egui::ScrollArea::horizontal()
@@ -99,7 +90,12 @@ impl NotwigUi {
                             }
                         });
                     });
-            });
+                true
+            },
+        );
+        if !open {
+            self.close_editor();
+        }
     }
 
     fn device_chain(
@@ -414,13 +410,17 @@ impl NotwigUi {
                             ui.add_space(4.0);
                         }
                         if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
-                            self.eq_card_body(ui, device, f64::from(doc.meta.sample_rate.value()));
+                            self.eq_card_body_from_panel(
+                                ui,
+                                device,
+                                f64::from(doc.meta.sample_rate.value()),
+                            );
                         } else if device.kind == DeviceKind::Container {
                             self.chain_body(ui, device);
                         } else if device.type_id == notwig_dsp::stock::TOOL_TYPE_ID {
                             self.tool_body(ui, device, body_width);
                         } else {
-                            self.param_editor(ui, device);
+                            self.param_editor_from_panel(ui, device);
                         }
                         let _ = runtime;
                     },

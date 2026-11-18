@@ -261,16 +261,31 @@ impl Engine {
                 actual: output.len(),
             });
         }
-        let stereo = &mut output[..frames * 2];
-        stereo.fill(0.0);
+        if self.runtime.is_none() {
+            return Err(EngineError::NoPlan);
+        }
+        let chunk = self.config.max_block_size.max(1);
+        let mut written = 0;
+        while written < frames {
+            let count = (frames - written).min(chunk);
+            let range = written * 2..(written + count) * 2;
+            self.process_chunk(&mut output[range], count)?;
+            written += count;
+        }
+        Ok(())
+    }
 
+    fn process_chunk(&mut self, stereo: &mut [f32], frames: usize) -> Result<(), EngineError> {
+        stereo.fill(0.0);
         if self.runtime.is_none() {
             return Err(EngineError::NoPlan);
         }
 
         if !self.transport.playing {
             if let Some(runtime) = &mut self.runtime {
-                runtime.emit_all_notes_off();
+                runtime.initiate_all_notes_off();
+                let start = self.transport.playhead_samples.max(0.0) as u64;
+                let _ = runtime.render(start, frames, stereo, false, false);
             }
             self.all_notes_off = false;
             self.transport_tick();
@@ -311,6 +326,7 @@ impl Engine {
                     segment,
                     &mut stereo[written * 2..(written + segment) * 2],
                     self.transport.playing,
+                    true,
                 )
             } else {
                 Err(EngineError::NoPlan)

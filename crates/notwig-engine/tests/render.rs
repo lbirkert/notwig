@@ -681,3 +681,111 @@ fn audio_slices_render_in_their_clip_local_regions() {
         "second slice should render"
     );
 }
+
+fn note_doc_with_sine() -> ProjectDoc {
+    let mut doc = base_doc();
+    let (track, chain) = add_track(&mut doc, 2, TrackKind::Instrument);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<DeviceMarker>(300),
+            type_id: "test.sine".into(),
+            version: None,
+            kind: DeviceKind::Instrument,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: None,
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    apply(
+        &doc,
+        &Command::new(CommandPayload::CreateClip {
+            id: id::<ClipMarker>(20),
+            track_id: track,
+            kind: ClipKind::Midi,
+            range: RangeMus::new(Rational::zero(), Rational::new(1, 1)).unwrap(),
+            payload: ClipPayload::Midi(MidiClipData {
+                length: Rational::new(1, 1),
+                content_start: Rational::zero(),
+                notes: vec![NoteEntity {
+                    id: id::<NoteMarker>(30),
+                    pitch: 69,
+                    start: Rational::zero(),
+                    length: Rational::new(1, 2),
+                    velocity: Norm01::clamped(1.0),
+                    release_velocity: None,
+                    expression: std::collections::BTreeMap::default(),
+                }],
+            }),
+        }),
+    )
+    .unwrap()
+    .doc
+}
+
+#[test]
+fn process_chunks_oversized_device_blocks() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 500, 24_000);
+    add_audio_clip(&mut doc, track, asset, 20, 1);
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(24_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 128),
+    );
+    engine
+        .apply(EngineMsg::SetTransport {
+            playing: true,
+            playhead_samples: 0,
+            loop_enabled: false,
+            loop_start_samples: None,
+            loop_end_samples: None,
+            stop: false,
+        })
+        .unwrap();
+    let mut output = vec![0.0_f32; 512 * 2];
+    engine.process(&mut output, 512).unwrap();
+    assert_eq!(engine.playhead_samples(), 512);
+}
+
+#[test]
+fn stopping_transport_sends_note_off() {
+    let doc = note_doc_with_sine();
+    let mut engine = prepare_engine(
+        &doc,
+        vec![],
+        Arc::new(TestFactory),
+        EngineConfig::new(48_000, 128),
+    );
+    engine
+        .apply(EngineMsg::SetTransport {
+            playing: true,
+            playhead_samples: 0,
+            loop_enabled: false,
+            loop_start_samples: None,
+            loop_end_samples: None,
+            stop: false,
+        })
+        .unwrap();
+    let mut first = vec![0.0_f32; 128 * 2];
+    engine.process(&mut first, 128).unwrap();
+    assert!(first.iter().any(|sample| sample.abs() > 1e-4));
+    engine
+        .apply(EngineMsg::SetTransport {
+            playing: false,
+            playhead_samples: engine.playhead_samples(),
+            loop_enabled: false,
+            loop_start_samples: None,
+            loop_end_samples: None,
+            stop: false,
+        })
+        .unwrap();
+    let mut stopped = vec![0.0_f32; 128 * 2];
+    engine.process(&mut stopped, 128).unwrap();
+    assert!(stopped.iter().all(|sample| sample.abs() < 1e-4));
+}

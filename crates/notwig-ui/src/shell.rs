@@ -6,15 +6,15 @@ use notwig_core::{ProjectDoc, TrackId, TrackKind};
 use notwig_dsp::DeviceRegistry;
 
 use crate::arranger::{BarSelectionDrag, ClipDrag, GroupDrag, TimeDrag, TrackDrop};
-use crate::clip_editor::ClipEditorState;
 use crate::device::{DeviceBrowserState, EqDrag};
 use crate::drop_target::DragPreview;
-use crate::edit::{DuplicateSpan, EditTarget, duplicate_bar_range, duplicate_plan, paste_target};
 use crate::icons::{Icon, icon_button_sized};
-use crate::intent::{ClipDuplicate, DropAudioTarget, UiIntent};
+use crate::intent::{DropAudioTarget, UiIntent};
+use crate::panel::clip_editor::ClipEditorState;
 use crate::runtime::RuntimeView;
-use crate::state::{EditFocus, NotificationKind, UiState};
+use crate::state::{EditFocus, NotificationKind, OpenedEditor, UiState};
 use crate::theme;
+use notwig_core::edit::SelectionMode;
 
 pub struct NotwigUi {
     pub state: UiState,
@@ -53,8 +53,13 @@ pub struct NotwigUi {
     pub collapsed_devices: BTreeSet<notwig_core::DeviceId>,
     pub device_browser: Option<DeviceBrowserState>,
     pub show_info: bool,
-    pub device_panel_open: bool,
-    device_panel_was_open: bool,
+    pub currently_opened: Option<OpenedEditor>,
+    pub settings_open: bool,
+    pub settings_category: crate::settings::SettingsCategory,
+    pub audio_draft: crate::runtime::AudioSettingsValue,
+    pub render_open: bool,
+    pub render_start: notwig_core::TimeMus,
+    pub render_end: notwig_core::TimeMus,
     pub platform_pointer: Option<egui::Pos2>,
     pub analyzer_pre: bool,
     pub analyzer_post: bool,
@@ -103,8 +108,13 @@ impl Default for NotwigUi {
             collapsed_devices: BTreeSet::new(),
             device_browser: None,
             show_info: true,
-            device_panel_open: true,
-            device_panel_was_open: true,
+            currently_opened: Some(OpenedEditor::DeviceEditor),
+            settings_open: false,
+            settings_category: crate::settings::SettingsCategory::Audio,
+            audio_draft: crate::runtime::AudioSettingsValue::default(),
+            render_open: false,
+            render_start: notwig_core::TimeMus::zero(),
+            render_end: notwig_core::TimeMus::zero(),
             platform_pointer: None,
             analyzer_pre: true,
             analyzer_post: false,
@@ -150,10 +160,10 @@ impl NotwigUi {
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
         self.info_panel(ctx, doc, runtime);
-        if self.clip_editor.is_some() {
-            self.clip_editor_panel(ctx, doc, runtime);
-        } else {
-            self.device_panel(ctx, doc, runtime);
+        match self.currently_opened {
+            Some(OpenedEditor::ClipEditor) => self.clip_editor_panel(ctx, doc, runtime),
+            Some(OpenedEditor::DeviceEditor) => self.device_panel(ctx, doc, runtime),
+            None => {}
         }
         self.device_browser_window(ctx, doc, runtime);
         egui::CentralPanel::default()
@@ -163,6 +173,12 @@ impl NotwigUi {
                     .inner_margin(egui::Margin::same(0)),
             )
             .show(ctx, |ui| self.arranger_view(ui, doc, runtime));
+        if self.settings_open {
+            self.settings_window(ctx, runtime);
+        }
+        if self.render_open {
+            self.render_window(ctx, doc);
+        }
         if self.show_notifications {
             self.notifications_window(ctx);
         }
@@ -182,19 +198,48 @@ impl NotwigUi {
         }
     }
 
-    pub(crate) fn open_clip_editor(&mut self, clip_id: notwig_core::ClipId) {
-        if self.clip_editor.is_none() {
-            self.device_panel_was_open = self.device_panel_open;
-        }
-        self.device_panel_open = false;
+    pub fn open_clip_editor(&mut self, clip_id: notwig_core::ClipId) {
+        self.currently_opened = Some(OpenedEditor::ClipEditor);
         self.clip_editor = Some(ClipEditorState::new(clip_id));
         self.edit_focus = EditFocus::ClipEditor;
     }
 
-    pub(crate) fn close_clip_editor(&mut self) {
+    pub fn close_clip_editor(&mut self) {
+        if self.currently_opened == Some(OpenedEditor::ClipEditor) {
+            self.currently_opened = None;
+        }
         self.clip_editor = None;
-        self.device_panel_open = self.device_panel_was_open;
         self.edit_focus = EditFocus::Timeline;
+    }
+
+    pub fn open_device_editor(&mut self) {
+        self.currently_opened = Some(OpenedEditor::DeviceEditor);
+        self.clip_editor = None;
+        self.edit_focus = EditFocus::Timeline;
+    }
+
+    pub fn close_editor(&mut self) {
+        self.currently_opened = None;
+        self.clip_editor = None;
+        self.edit_focus = EditFocus::Timeline;
+    }
+
+    pub fn toggle_device_editor(&mut self) {
+        if self.currently_opened == Some(OpenedEditor::DeviceEditor) {
+            self.close_editor();
+        } else {
+            self.open_device_editor();
+        }
+    }
+
+    pub fn toggle_clip_editor(&mut self, doc: &ProjectDoc) {
+        if self.currently_opened == Some(OpenedEditor::ClipEditor) {
+            self.close_clip_editor();
+            return;
+        }
+        self.currently_opened = Some(OpenedEditor::ClipEditor);
+        self.clip_editor = self.selected_audio_clip(doc).map(ClipEditorState::new);
+        self.edit_focus = EditFocus::ClipEditor;
     }
 
     fn selected_audio_clip(&self, doc: &ProjectDoc) -> Option<notwig_core::ClipId> {
@@ -229,12 +274,6 @@ impl NotwigUi {
                     .copied()
                     .find(|id| doc.tracks.contains_key(id))
             })
-            .or_else(|| {
-                doc.tracks
-                    .keys()
-                    .copied()
-                    .find(|id| doc.tracks[id].kind != TrackKind::Master)
-            })
     }
 
     fn sanitize(&mut self, doc: &ProjectDoc) {
@@ -251,6 +290,17 @@ impl NotwigUi {
             .devices
             .retain(|id| doc.devices.contains_key(id));
         self.state.selection.notes.clear();
+        if self.currently_opened == Some(OpenedEditor::ClipEditor) {
+            let selected = self.selected_audio_clip(doc);
+            match (
+                selected,
+                self.clip_editor.as_ref().map(|state| state.clip_id),
+            ) {
+                (Some(id), Some(current)) if current == id => {}
+                (Some(id), _) => self.clip_editor = Some(ClipEditorState::new(id)),
+                (None, _) => self.clip_editor = None,
+            }
+        }
         if self
             .drag
             .as_ref()
@@ -265,8 +315,9 @@ impl NotwigUi {
         if ctx.wants_keyboard_input() {
             return;
         }
-        let clip_editor_focused =
-            self.edit_focus == EditFocus::ClipEditor && self.clip_editor.is_some();
+        let clip_editor_focused = self.edit_focus == EditFocus::ClipEditor
+            && self.currently_opened == Some(OpenedEditor::ClipEditor)
+            && self.clip_editor.is_some();
         let (space, shift, command, escape, delete) = ctx.input(|input| {
             (
                 input.key_pressed(egui::Key::Space),
@@ -283,8 +334,8 @@ impl NotwigUi {
             .as_ref()
             .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
         let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
-        let target = EditTarget::active(clips.len(), time.as_ref().map(|(range, _)| *range));
-        let copy_time = if target == Some(EditTarget::Bar) {
+        let target = self.state.selection.to_edit_selection().mode();
+        let copy_time = if target == Some(SelectionMode::Time) {
             time.clone()
         } else {
             None
@@ -320,7 +371,9 @@ impl NotwigUi {
             });
         }
         if paste_event && !clip_editor_focused {
-            let at = paste_target(time.as_ref().map(|(range, _)| *range), runtime.playhead);
+            let at = time
+                .as_ref()
+                .map_or(runtime.playhead, |(range, _)| range.start);
             self.emit(UiIntent::PasteClips { at });
         }
         if space {
@@ -344,6 +397,9 @@ impl NotwigUi {
             if ctx.input(|i| i.key_pressed(egui::Key::O)) {
                 self.emit(UiIntent::OpenProject);
             }
+            if ctx.input(|i| i.key_pressed(egui::Key::Comma)) {
+                self.open_settings(runtime);
+            }
             if ctx.input(|i| i.key_pressed(egui::Key::L)) {
                 if let Some((range, _)) = time.clone() {
                     self.emit(UiIntent::SetLoopRange(range));
@@ -366,46 +422,11 @@ impl NotwigUi {
             }
             if !clip_editor_focused && ctx.input(|i| i.key_pressed(egui::Key::D)) {
                 match target {
-                    Some(EditTarget::Bar) => {
-                        if let Some((range, tracks)) = time.clone() {
-                            self.emit(UiIntent::DuplicateTimeSelection {
-                                range,
-                                tracks: tracks.clone(),
-                            });
-                            if let Some(next) = duplicate_bar_range(range) {
-                                self.state.selection.select_time(next, &tracks);
-                            }
-                        }
-                    }
-                    Some(EditTarget::Nodes) => {
-                        let spans: Vec<DuplicateSpan<notwig_core::ClipId>> = clips
-                            .iter()
-                            .filter_map(|clip_id| {
-                                doc.arranger.clips.get(clip_id).map(|clip| DuplicateSpan {
-                                    id: *clip_id,
-                                    range: clip.range,
-                                })
-                            })
-                            .collect();
-                        let plan = duplicate_plan(&spans);
-                        let mut duplicates = Vec::new();
-                        let mut selection = Vec::new();
-                        for span in plan {
-                            let Some(clip) = doc.arranger.clips.get(&span.id) else {
-                                continue;
-                            };
-                            let new_id = notwig_core::ClipId::from_uuid(uuid::Uuid::new_v4());
-                            duplicates.push(ClipDuplicate {
-                                old_id: span.id,
-                                new_id,
-                                range: span.range,
-                            });
-                            selection.push((new_id, clip.track_id));
-                        }
-                        if !duplicates.is_empty() {
-                            self.state.selection.select_clips(&selection);
-                            self.emit(UiIntent::DuplicateClips { clips: duplicates });
-                        }
+                    Some(SelectionMode::Objects | SelectionMode::Time) => {
+                        self.emit(UiIntent::DuplicateSelection {
+                            clips: clips.clone(),
+                            time: time.clone(),
+                        });
                     }
                     None => {
                         if let Some(track) = self
@@ -438,23 +459,14 @@ impl NotwigUi {
                 .time
                 .as_ref()
                 .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
-            if target == Some(EditTarget::Bar)
-                && let Some((range, tracks)) = time
-            {
-                self.emit(UiIntent::DeleteTimeSelection { range, tracks });
-                self.state.selection.time = None;
-                return;
-            }
             let devices: Vec<_> = self.state.selection.devices.iter().copied().collect();
             let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
             if !devices.is_empty() {
                 for device in devices {
                     self.emit(UiIntent::RemoveDevice(device));
                 }
-            } else if !clips.is_empty() {
-                for clip in clips {
-                    self.emit(UiIntent::DeleteClip(clip));
-                }
+            } else if !clips.is_empty() || time.is_some() {
+                self.emit(UiIntent::DeleteSelection { clips, time });
             } else {
                 for track in self
                     .state
@@ -489,7 +501,7 @@ impl NotwigUi {
                     egui::vec2(ui.available_width(), 42.0),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        self.file_menu(ui);
+                        self.file_menu(ui, doc, runtime);
                         ui.add_space(4.0);
                         let play_icon = if runtime.playing {
                             Icon::Pause
@@ -654,12 +666,25 @@ impl NotwigUi {
                                     });
                             },
                         );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icon_button_sized(
+                                ui,
+                                Icon::Settings,
+                                egui::vec2(32.0, 32.0),
+                                false,
+                                "Audio settings",
+                            )
+                            .clicked()
+                            {
+                                self.open_settings(runtime);
+                            }
+                        });
                     },
                 );
             });
     }
 
-    fn file_menu(&mut self, ui: &mut egui::Ui) {
+    fn file_menu(&mut self, ui: &mut egui::Ui, doc: &ProjectDoc, runtime: &RuntimeView) {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 42.0), egui::Sense::click());
         let painter = ui.painter();
         painter.rect_filled(
@@ -714,8 +739,12 @@ impl NotwigUi {
                 self.emit(UiIntent::ImportAudio);
                 ui.close();
             }
+            if ui.button("Audio Settings…").clicked() {
+                self.open_settings(runtime);
+                ui.close();
+            }
             if ui.button("Render Mixdown…").clicked() {
-                self.emit(UiIntent::RenderMixdown);
+                self.open_render(doc);
                 ui.close();
             }
         });
@@ -750,38 +779,35 @@ impl NotwigUi {
                         if footer_icon(
                             ui,
                             FooterIcon::Sliders,
-                            self.device_panel_open && self.clip_editor.is_none(),
-                            "Toggle device panel",
+                            self.currently_opened == Some(OpenedEditor::DeviceEditor),
+                            "Toggle device editor",
                         )
                         .clicked()
                         {
-                            self.close_clip_editor();
-                            self.device_panel_open = !self.device_panel_open;
+                            self.toggle_device_editor();
                         }
-                        let selected_clip = self.selected_audio_clip(doc);
                         if footer_icon(
                             ui,
                             FooterIcon::Clip,
-                            self.clip_editor.is_some(),
+                            self.currently_opened == Some(OpenedEditor::ClipEditor),
                             "Toggle clip editor",
                         )
                         .clicked()
                         {
-                            if self.clip_editor.is_some() {
-                                self.close_clip_editor();
-                            } else if let Some(clip_id) = selected_clip {
-                                self.open_clip_editor(clip_id);
-                            }
+                            self.toggle_clip_editor(doc);
                         }
                         ui.add_space(12.0);
-                        let action = if self.device_panel_open {
-                            "Hide Device Panel"
+                        let action = if self.currently_opened.is_some() {
+                            "Hide Editor"
                         } else {
-                            "Show Device Panel"
+                            "Show Device Editor"
                         };
-                        let toggle = footer_action(ui, action);
-                        if toggle {
-                            self.device_panel_open = !self.device_panel_open;
+                        if footer_action(ui, action) {
+                            if self.currently_opened.is_some() {
+                                self.close_editor();
+                            } else {
+                                self.open_device_editor();
+                            }
                         }
                     },
                 );
@@ -1344,242 +1370,17 @@ pub(crate) fn clip_color(kind: notwig_core::ClipKind) -> Color32 {
     }
 }
 
-#[cfg(test)]
-mod tests {
+#[doc(hidden)]
+pub mod test_api {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
-    pub(super) fn clip_editor_doc() -> ProjectDoc {
-        let meta = notwig_core::Meta {
-            name: "Shell".into(),
-            created_utc: 0,
-            modified_utc: 0,
-            sample_rate: notwig_core::SampleRate::DEFAULT,
-            tempo_bpm: 120.0,
-            time_sig_num: 4,
-            time_sig_den: 4,
-        };
-        ProjectDoc::new_template(
-            meta,
-            notwig_core::TrackId::nil(),
-            notwig_core::DeviceChainId::nil(),
-        )
-        .unwrap()
-    }
-
-    fn timeline_doc() -> ProjectDoc {
-        let meta = notwig_core::Meta {
-            name: "Timeline".into(),
-            created_utc: 0,
-            modified_utc: 0,
-            sample_rate: notwig_core::SampleRate::DEFAULT,
-            tempo_bpm: 120.0,
-            time_sig_num: 4,
-            time_sig_den: 4,
-        };
-        let mut doc = ProjectDoc::new_template(
-            meta,
-            notwig_core::TrackId::nil(),
-            notwig_core::DeviceChainId::nil(),
-        )
-        .unwrap();
-        let track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
-        let chain = notwig_core::DeviceChainId::from_uuid(uuid::Uuid::from_u128(102));
-        doc = notwig_core::apply(
-            &doc,
-            &notwig_core::protocol::Command::new(
-                notwig_core::protocol::CommandPayload::CreateTrack {
-                    id: track,
-                    chain_id: chain,
-                    kind: TrackKind::Instrument,
-                    name: "Keys".into(),
-                    parent: None,
-                    index: None,
-                    color: None,
-                },
-            ),
-        )
-        .unwrap()
-        .doc;
-        notwig_core::apply(
-            &doc,
-            &notwig_core::protocol::Command::new(
-                notwig_core::protocol::CommandPayload::CreateClip {
-                    id: notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20)),
-                    track_id: track,
-                    kind: notwig_core::ClipKind::Midi,
-                    range: notwig_core::RangeMus::new(
-                        notwig_core::Rational::zero(),
-                        notwig_core::Rational::new(2, 1),
-                    )
-                    .unwrap(),
-                    payload: notwig_core::ClipPayload::Midi(notwig_core::sequencer::MidiClipData {
-                        length: notwig_core::Rational::new(2, 1),
-                        content_start: notwig_core::Rational::zero(),
-                        notes: Vec::new(),
-                    }),
-                },
-            ),
-        )
-        .unwrap()
-        .doc
-    }
-
-    #[test]
-    fn timeline_duplicate_advances_node_selection() {
-        let doc = timeline_doc();
-        let clip = notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20));
-        let track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
-        let runtime = RuntimeView::default();
-        let ctx = egui::Context::default();
-        let mut ui = NotwigUi::default();
-        ui.state.selection.select_clip(clip, track, false);
-        let _ = ctx.run(
-            egui::RawInput {
-                modifiers: egui::Modifiers {
-                    command: true,
-                    ..Default::default()
-                },
-                events: vec![egui::Event::Key {
-                    key: egui::Key::D,
-                    physical_key: None,
-                    pressed: true,
-                    repeat: false,
-                    modifiers: egui::Modifiers {
-                        command: true,
-                        ..Default::default()
-                    },
-                }],
-                ..Default::default()
-            },
-            |ctx| {
-                ui.handle_shortcuts(ctx, &doc, &runtime);
-            },
-        );
-        assert_eq!(ui.state.selection.clips.len(), 1);
-        assert!(!ui.state.selection.clips.contains(&clip));
-        assert!(
-            ui.intents
-                .iter()
-                .any(|intent| matches!(intent, UiIntent::DuplicateClips { .. }))
-        );
-    }
-
-    fn shortcut_intents(
+    pub fn handle_shortcuts(
+        ui: &mut NotwigUi,
+        ctx: &egui::Context,
         doc: &ProjectDoc,
-        events: Vec<egui::Event>,
-        modifiers: egui::Modifiers,
-    ) -> Vec<UiIntent> {
-        let runtime = RuntimeView::default();
-        let ctx = egui::Context::default();
-        let (clip, track) = doc.arranger.clips.iter().next().map_or(
-            (notwig_core::ClipId::nil(), notwig_core::TrackId::nil()),
-            |(id, clip)| (*id, clip.track_id),
-        );
-        let mut ui = NotwigUi::default();
-        ui.state.selection.select_clip(clip, track, false);
-        ui.clip_editor = Some(ClipEditorState::new(clip));
-        ui.edit_focus = EditFocus::Timeline;
-        let mut intents = Vec::new();
-        let _ = ctx.run(
-            egui::RawInput {
-                modifiers,
-                events,
-                ..Default::default()
-            },
-            |ctx| {
-                ui.handle_shortcuts(ctx, doc, &runtime);
-                intents = std::mem::take(&mut ui.intents);
-            },
-        );
-        intents
-    }
-
-    #[test]
-    fn timeline_shortcut_family_still_runs_while_clip_editor_is_open() {
-        let doc = timeline_doc();
-        let command = egui::Modifiers {
-            command: true,
-            ..Default::default()
-        };
-        let copy = shortcut_intents(&doc, vec![egui::Event::Copy], command);
-        assert!(matches!(copy.as_slice(), [UiIntent::CopySelection { .. }]));
-        let cut = shortcut_intents(&doc, vec![egui::Event::Cut], command);
-        assert!(matches!(cut.as_slice(), [UiIntent::CutSelection { .. }]));
-        let paste = shortcut_intents(&doc, vec![egui::Event::Paste(String::new())], command);
-        assert!(matches!(paste.as_slice(), [UiIntent::PasteClips { .. }]));
-        let duplicate = shortcut_intents(
-            &doc,
-            vec![egui::Event::Key {
-                key: egui::Key::D,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: command,
-            }],
-            command,
-        );
-        assert!(
-            duplicate
-                .iter()
-                .any(|intent| matches!(intent, UiIntent::DuplicateClips { .. }))
-        );
-        let delete = shortcut_intents(
-            &doc,
-            vec![egui::Event::Key {
-                key: egui::Key::Delete,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: egui::Modifiers::default(),
-            }],
-            egui::Modifiers::default(),
-        );
-        assert!(
-            delete
-                .iter()
-                .any(|intent| matches!(intent, UiIntent::DeleteClip(_)))
-        );
-    }
-
-    #[test]
-    fn timeline_shortcuts_still_run_while_clip_editor_is_open() {
-        let doc = clip_editor_doc();
-        let clip = notwig_core::ClipId::nil();
-        let track = notwig_core::TrackId::nil();
-        let runtime = RuntimeView::default();
-        let ctx = egui::Context::default();
-        let mut ui = NotwigUi::default();
-        ui.state.selection.select_clip(clip, track, false);
-        ui.clip_editor = Some(ClipEditorState::new(clip));
-
-        let mut intents = Vec::new();
-        let _ = ctx.run(
-            egui::RawInput {
-                events: vec![egui::Event::Copy],
-                ..Default::default()
-            },
-            |ctx| {
-                ui.handle_shortcuts(ctx, &doc, &runtime);
-                intents = std::mem::take(&mut ui.intents);
-            },
-        );
-        assert!(intents.iter().any(|intent| matches!(
-            intent,
-            UiIntent::CopySelection { clips, .. } if clips.contains(&clip)
-        )));
-    }
-
-    #[test]
-    fn clip_editor_and_device_panel_are_mutually_exclusive() {
-        let mut ui = NotwigUi {
-            device_panel_open: true,
-            ..NotwigUi::default()
-        };
-        ui.open_clip_editor(notwig_core::ClipId::nil());
-        assert!(ui.clip_editor.is_some());
-        assert!(!ui.device_panel_open);
-        ui.close_clip_editor();
-        assert!(ui.clip_editor.is_none());
-        assert!(ui.device_panel_open);
+        runtime: &RuntimeView,
+    ) {
+        ui.handle_shortcuts(ctx, doc, runtime);
     }
 }

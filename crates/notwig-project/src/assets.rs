@@ -140,10 +140,11 @@ pub fn resample(
         ResampleQuality::Standard => 1,
         ResampleQuality::High => 3,
     };
+    let mut weights = Vec::with_capacity((radius * 2 + 1) as usize);
     for out_frame in 0..out_frames {
         let position = out_frame as f64 / ratio;
         let center = position.floor() as isize;
-        let mut weights = Vec::with_capacity((radius * 2 + 1) as usize);
+        weights.clear();
         let mut sum_weight = 0.0_f64;
         for tap in -radius..=radius {
             let distance = position - (center + tap) as f64;

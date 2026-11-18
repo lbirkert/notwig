@@ -20,6 +20,36 @@ pub struct PluginEntry {
     pub kind: DeviceKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AudioSettingsValue {
+    pub driver: String,
+    pub device: String,
+    pub sample_rate: String,
+    pub block_size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AudioDeviceView {
+    pub id: String,
+    pub label: String,
+    pub sample_rates: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AudioDriverView {
+    pub id: String,
+    pub label: String,
+    pub devices: Vec<AudioDeviceView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AudioSettingsView {
+    pub drivers: Vec<AudioDriverView>,
+    pub current: AudioSettingsValue,
+    pub error: Option<String>,
+    pub warning: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeView {
     pub playing: bool,
@@ -34,6 +64,7 @@ pub struct RuntimeView {
     pub bundle_path: Option<PathBuf>,
     pub dirty: bool,
     pub saving: bool,
+    pub audio_settings: AudioSettingsView,
 }
 
 impl Default for RuntimeView {
@@ -51,6 +82,7 @@ impl Default for RuntimeView {
             bundle_path: None,
             dirty: false,
             saving: false,
+            audio_settings: AudioSettingsView::default(),
         }
     }
 }

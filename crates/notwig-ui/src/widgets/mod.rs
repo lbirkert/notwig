@@ -1,3 +1,11 @@
+mod draggable_number;
+mod fader;
+mod knob;
+
+pub(crate) use draggable_number::draggable_number;
+pub(crate) use fader::{DB_MAX, DB_MIN, volume_fader};
+pub(crate) use knob::knob;
+
 use egui::{Color32, Id, Rect, Sense, Vec2};
 use notwig_core::{Db, TimeMus};
 use notwig_dsp::Unit;
@@ -305,26 +313,7 @@ pub fn format_param(unit: Unit, value: f64) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snapping_step_adapts_to_zoom() {
-        let far = snap_step(16.0, 4);
-        let near = snap_step(100.0, 4);
-        assert!(far > near, "zoomed out should snap coarser");
-        assert_eq!(near, TimeMus::new(1, 8));
-    }
-
-    #[test]
-    fn snapping_uses_the_step() {
-        let step = TimeMus::new(1, 8);
-        assert_eq!(
-            snap_time(TimeMus::new(3, 16), step, false),
-            TimeMus::new(1, 4)
-        );
-        let raw = TimeMus::new(3, 16);
-        assert_eq!(snap_time(raw, step, true), raw);
-    }
+#[doc(hidden)]
+pub mod test_api {
+    pub use super::draggable_number::test_api as draggable_number;
 }

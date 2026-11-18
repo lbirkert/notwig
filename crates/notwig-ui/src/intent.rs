@@ -6,13 +6,6 @@ use notwig_core::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ClipDuplicate {
-    pub old_id: ClipId,
-    pub new_id: ClipId,
-    pub range: RangeMus,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum UiIntent {
     Play,
     Pause,
@@ -37,7 +30,15 @@ pub enum UiIntent {
         track_id: TrackId,
         range: RangeMus,
     },
+    CreateAudioClip {
+        track_id: TrackId,
+        range: RangeMus,
+    },
     EditClipRange {
+        clip_id: ClipId,
+        range: RangeMus,
+    },
+    SetClipRange {
         clip_id: ClipId,
         range: RangeMus,
     },
@@ -56,9 +57,6 @@ pub enum UiIntent {
     DuplicateClip {
         clip_id: ClipId,
     },
-    DuplicateClips {
-        clips: Vec<ClipDuplicate>,
-    },
     CopySelection {
         clips: Vec<ClipId>,
         time: Option<(RangeMus, Vec<TrackId>)>,
@@ -70,13 +68,18 @@ pub enum UiIntent {
     PasteClips {
         at: TimeMus,
     },
-    DeleteTimeSelection {
-        range: RangeMus,
-        tracks: Vec<TrackId>,
+    DeleteSelection {
+        clips: Vec<ClipId>,
+        time: Option<(RangeMus, Vec<TrackId>)>,
     },
-    DuplicateTimeSelection {
+    DuplicateSelection {
+        clips: Vec<ClipId>,
+        time: Option<(RangeMus, Vec<TrackId>)>,
+    },
+    MoveTimeSelection {
         range: RangeMus,
         tracks: Vec<TrackId>,
+        delta: TimeMus,
     },
     MoveTrack {
         id: TrackId,
@@ -160,10 +163,19 @@ pub enum UiIntent {
     OpenProject,
     Save,
     SaveAs,
-    RenderMixdown,
+    RenderMixdownRange {
+        start: TimeMus,
+        end: TimeMus,
+    },
     Undo,
     Redo,
     ClearNotifications,
+    ApplyAudioSettings {
+        driver: String,
+        device: String,
+        sample_rate: Option<u32>,
+        block_size: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

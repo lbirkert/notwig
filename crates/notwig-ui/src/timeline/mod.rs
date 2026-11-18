@@ -1,5 +1,81 @@
-mod audio_clip;
+mod beat_strip;
+mod clip;
+mod drop_preview;
 mod grid;
+pub(crate) mod interaction;
+mod selection;
 
-pub(crate) use audio_clip::*;
+use egui::{CornerRadius, Id, Rect, Sense};
+use notwig_core::TimeMus;
+
+use crate::theme;
+
+pub(crate) use beat_strip::{BeatStrip, draw_playhead};
+pub(crate) use clip::*;
+pub(crate) use drop_preview::draw_drop_preview;
 pub(crate) use grid::TimelineGrid;
+pub(crate) use selection::{draw_time_selection_fill, draw_time_selection_markers};
+
+pub(crate) fn horizontal_scrollbar(
+    ui: &mut egui::Ui,
+    bar_rect: Rect,
+    track: Rect,
+    content_end: f64,
+    visible: f64,
+    start: TimeMus,
+    id: Id,
+) -> Option<TimeMus> {
+    let painter = ui.painter();
+    painter.rect_filled(bar_rect, CornerRadius::ZERO, theme::PANEL_LIGHT);
+    let content = content_end.max(visible).max(1.0);
+    let start = start.as_f64().clamp(0.0, (content - visible).max(0.0));
+    let thumb_x = track.left() + (start / content) as f32 * track.width();
+    let thumb_w = ((visible / content) as f32 * track.width())
+        .max(24.0)
+        .min(track.width());
+    let thumb = Rect::from_min_size(
+        egui::pos2(thumb_x.min(track.right() - thumb_w), track.top()),
+        egui::vec2(thumb_w, track.height()),
+    );
+    painter.rect_filled(track, CornerRadius::same(3), theme::GRID);
+    painter.rect_filled(thumb, CornerRadius::same(3), theme::TEXT_MUTED);
+
+    let response = ui.interact(bar_rect, id, Sense::click_and_drag());
+    if (response.clicked() || response.dragged())
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        let fraction = f64::from(((pos.x - track.left()) / track.width()).clamp(0.0, 1.0));
+        let max_start = (content - visible).max(0.0);
+        return Some(TimeMus::new(
+            ((fraction * max_start) * 1_000_000.0).round() as i64,
+            1_000_000,
+        ));
+    }
+    None
+}
+
+#[doc(hidden)]
+pub mod test_api {
+    pub use super::clip::test_api as clip;
+    pub use super::grid::TimelineGrid;
+
+    pub fn pointer_delta(start: egui::Pos2, current: egui::Pos2, ppb: f32) -> f64 {
+        super::interaction::pointer_delta(start, current, ppb)
+    }
+
+    pub fn snapped_delta(
+        anchor: notwig_core::TimeMus,
+        delta: f64,
+        grid: notwig_core::TimeMus,
+        bypass: bool,
+    ) -> notwig_core::TimeMus {
+        super::interaction::snapped_delta(anchor, delta, grid, bypass)
+    }
+
+    pub fn selection_range(
+        anchor: notwig_core::TimeMus,
+        current: notwig_core::TimeMus,
+    ) -> Option<notwig_core::RangeMus> {
+        super::interaction::selection_range(anchor, current)
+    }
+}

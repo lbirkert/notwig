@@ -384,47 +384,49 @@ impl NotwigUi {
             Vec2::new(ui.available_width(), 24.0),
             egui::Layout::left_to_right(Align::Center),
             |ui| {
-                let mut shift = device
+                let shift = device
                     .param_values
                     .get(&shift_id)
                     .and_then(ParamValue::as_f64)
                     .unwrap_or(0.0);
                 ui.label(RichText::new("Shift").small().color(theme::TEXT_MUTED));
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut shift)
-                            .speed(0.01)
-                            .fixed_decimals(2)
-                            .suffix(" st"),
-                    )
-                    .changed()
-                {
+                if let Some(shift) = crate::widgets::draggable_number(
+                    ui,
+                    ui.id().with(("eq-shift", device.id)),
+                    shift,
+                    -12.0,
+                    12.0,
+                    0.0,
+                    0.01,
+                    eq_shift_text,
+                ) {
                     self.emit(UiIntent::SetParam {
                         device_id: device.id,
                         param_id: shift_id,
-                        value: ParamValue::F64(shift.clamp(-12.0, 12.0)),
+                        value: ParamValue::F64(shift),
                     });
                 }
                 ui.add_space(6.0);
-                let mut gain = device
+                let gain = device
                     .param_values
                     .get(&gain_id)
                     .and_then(ParamValue::as_f64)
                     .unwrap_or(0.0);
                 ui.label(RichText::new("Gain").small().color(theme::TEXT_MUTED));
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut gain)
-                            .speed(0.1)
-                            .fixed_decimals(1)
-                            .suffix(" dB"),
-                    )
-                    .changed()
-                {
+                if let Some(gain) = crate::widgets::draggable_number(
+                    ui,
+                    ui.id().with(("eq-gain", device.id)),
+                    gain,
+                    -24.0,
+                    24.0,
+                    0.0,
+                    0.1,
+                    eq_gain_text,
+                ) {
                     self.emit(UiIntent::SetParam {
                         device_id: device.id,
                         param_id: gain_id,
-                        value: ParamValue::F64(gain.clamp(-24.0, 24.0)),
+                        value: ParamValue::F64(gain),
                     });
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -528,45 +530,53 @@ impl NotwigUi {
                         }
                     });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut q = values
+                    let q = values
                         .get(&q_id)
                         .and_then(ParamValue::as_f64)
                         .unwrap_or(0.707);
-                    if ui
-                        .add(egui::DragValue::new(&mut q).speed(0.01).fixed_decimals(2))
-                        .changed()
-                    {
-                        self.emit_eq_param(device.id, band, 4, q.clamp(0.1, 18.0));
+                    if let Some(q) = crate::widgets::draggable_number(
+                        ui,
+                        ui.id().with(("eq-band-q", device.id, band)),
+                        q,
+                        0.1,
+                        18.0,
+                        0.707,
+                        0.01,
+                        eq_q_text,
+                    ) {
+                        self.emit_eq_param(device.id, band, 4, q);
                     }
-                    let mut gain = values
+                    let gain = values
                         .get(&gain_id)
                         .and_then(ParamValue::as_f64)
                         .unwrap_or(0.0);
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut gain)
-                                .speed(0.1)
-                                .fixed_decimals(1)
-                                .suffix(" dB"),
-                        )
-                        .changed()
-                    {
-                        self.emit_eq_param(device.id, band, 3, gain.clamp(-24.0, 24.0));
+                    if let Some(gain) = crate::widgets::draggable_number(
+                        ui,
+                        ui.id().with(("eq-band-gain", device.id, band)),
+                        gain,
+                        -24.0,
+                        24.0,
+                        0.0,
+                        0.1,
+                        eq_gain_text,
+                    ) {
+                        self.emit_eq_param(device.id, band, 3, gain);
                     }
-                    let mut freq = values
+                    let freq = values
                         .get(&freq_id)
                         .and_then(ParamValue::as_f64)
                         .unwrap_or(1_000.0);
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut freq)
-                                .speed(1.0)
-                                .fixed_decimals(0)
-                                .suffix(" Hz"),
-                        )
-                        .changed()
-                    {
-                        self.emit_eq_param(device.id, band, 2, freq.clamp(20.0, 20_000.0));
+                    if let Some(freq) = crate::widgets::draggable_number(
+                        ui,
+                        ui.id().with(("eq-band-freq", device.id, band)),
+                        freq,
+                        20.0,
+                        20_000.0,
+                        1_000.0,
+                        1.0,
+                        eq_freq_text,
+                    ) {
+                        self.emit_eq_param(device.id, band, 2, freq);
                     }
                 });
             },
@@ -598,6 +608,26 @@ fn curve_color(t: f32) -> Color32 {
         blend(red, green, t * 2.0)
     } else {
         blend(green, blue, (t - 0.5) * 2.0)
+    }
+}
+
+fn eq_shift_text(value: f64) -> String {
+    format!("{value:+.2} st")
+}
+
+fn eq_gain_text(value: f64) -> String {
+    format!("{value:+.1} dB")
+}
+
+fn eq_q_text(value: f64) -> String {
+    format!("{value:.2}")
+}
+
+fn eq_freq_text(value: f64) -> String {
+    if value >= 1000.0 {
+        format!("{:.2} kHz", value / 1000.0)
+    } else {
+        format!("{value:.0} Hz")
     }
 }
 
