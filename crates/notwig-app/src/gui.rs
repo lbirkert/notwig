@@ -134,22 +134,12 @@ impl NotwigApp {
                     )
                 })
             });
-        let audio_settings = notwig_ui::AudioSettingsView {
-            drivers: self.audio_options.clone(),
-            current: notwig_ui::AudioSettingsValue {
-                driver: self.audio_settings.driver.clone(),
-                device: self.audio_settings.device.clone(),
-                sample_rate: self
-                    .audio_settings
-                    .sample_rate
-                    .map_or_else(|| "auto".into(), |rate| rate.to_string()),
-                block_size: self.audio_settings.block_size,
-            },
-            error: snapshot.error.clone(),
-            warning: (!self.workspace.assets.is_empty()).then(|| {
-                "Changing the sample rate does not resample existing audio assets.".into()
-            }),
-        };
+        let audio_settings = crate::audio::settings_view(
+            self.audio_options.clone(),
+            &self.audio_settings,
+            snapshot.error.clone(),
+            !self.workspace.assets.is_empty(),
+        );
         RuntimeView {
             playing: self.workspace.doc.transport.playing,
             playhead,

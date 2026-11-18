@@ -2,6 +2,7 @@ use egui::{Align2, RichText};
 
 use notwig_core::{ProjectDoc, TimeMus};
 
+use crate::form;
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
 use crate::theme;
@@ -34,10 +35,10 @@ impl NotwigUi {
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Format").strong());
+                    form::section_heading(ui, "Format");
                     ui.label(RichText::new("WAV · 32-bit float").color(theme::TEXT_MUTED));
                     ui.add_space(10.0);
-                    ui.label(RichText::new("Range").strong());
+                    form::section_heading(ui, "Range");
                     ui.horizontal(|ui| {
                         let mut start = self.render_start.as_f64();
                         if ui

@@ -38,6 +38,28 @@ pub struct AudioService {
     pub settings: AudioSettings,
 }
 
+pub fn settings_view(
+    drivers: Vec<notwig_ui::AudioDriverView>,
+    settings: &AudioSettings,
+    error: Option<String>,
+    has_assets: bool,
+) -> notwig_ui::AudioSettingsView {
+    notwig_ui::AudioSettingsView {
+        drivers,
+        current: notwig_ui::AudioSettingsValue {
+            driver: settings.driver.clone(),
+            device: settings.device.clone(),
+            sample_rate: settings
+                .sample_rate
+                .map_or_else(|| "auto".into(), |rate| rate.to_string()),
+            block_size: settings.block_size,
+        },
+        error,
+        warning: has_assets
+            .then(|| "Changing the sample rate does not resample existing audio assets.".into()),
+    }
+}
+
 impl AudioService {
     pub fn start(engine: Arc<Mutex<Engine>>, project_rate: u32) -> Result<Self, String> {
         Self::start_with(

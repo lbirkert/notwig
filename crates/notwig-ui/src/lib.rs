@@ -4,6 +4,7 @@ mod arranger;
 mod device;
 mod drop_target;
 mod edit;
+mod form;
 mod icons;
 mod info;
 mod intent;

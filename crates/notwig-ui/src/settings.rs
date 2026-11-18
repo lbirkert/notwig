@@ -1,5 +1,6 @@
 use egui::{Color32, RichText};
 
+use crate::form;
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
@@ -115,13 +116,8 @@ impl NotwigUi {
         let view = &runtime.audio_settings;
         ui.heading("Audio");
         ui.add_space(4.0);
-        ui.label(
-            RichText::new("Audio System")
-                .strong()
-                .size(13.0)
-                .color(theme::TEXT_MUTED),
-        );
-        ui.add_space(10.0);
+        form::section_heading(ui, "Audio System");
+        ui.add_space(4.0);
 
         let current = &view.current;
         if self.audio_draft.driver.is_empty() {
@@ -135,75 +131,62 @@ impl NotwigUi {
             }
         }
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Driver").size(13.0));
-            egui::ComboBox::from_id_salt("audio-driver")
-                .selected_text(self.driver_label(view))
-                .width(360.0)
-                .show_ui(ui, |ui| {
-                    for driver in &view.drivers {
-                        if ui
-                            .selectable_label(self.audio_draft.driver == driver.id, &driver.label)
-                            .clicked()
-                        {
-                            self.audio_draft.driver.clone_from(&driver.id);
-                            self.audio_draft.device = driver
-                                .devices
-                                .first()
-                                .map(|device| device.id.clone())
-                                .unwrap_or_default();
-                            self.audio_draft.sample_rate = "auto".into();
-                        }
-                    }
-                });
-        });
-        ui.add_space(8.0);
+        let driver_label = self.driver_label(view);
+        let drivers = view
+            .drivers
+            .iter()
+            .map(|driver| (driver.id.clone(), driver.label.clone()))
+            .collect();
+        if form::select_row(
+            ui,
+            "Driver",
+            "audio-driver",
+            &mut self.audio_draft.driver,
+            driver_label,
+            drivers,
+        ) {
+            self.audio_draft.device = view
+                .drivers
+                .iter()
+                .find(|driver| driver.id == self.audio_draft.driver)
+                .and_then(|driver| driver.devices.first())
+                .map(|device| device.id.clone())
+                .unwrap_or_default();
+            self.audio_draft.sample_rate = "auto".into();
+        }
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Device").size(13.0));
-            egui::ComboBox::from_id_salt("audio-device")
-                .selected_text(self.device_label(view))
-                .width(360.0)
-                .show_ui(ui, |ui| {
-                    for device in self.devices_for(view) {
-                        if ui
-                            .selectable_label(self.audio_draft.device == device.id, &device.label)
-                            .clicked()
-                        {
-                            self.audio_draft.device.clone_from(&device.id);
-                            self.audio_draft.sample_rate = "auto".into();
-                        }
-                    }
-                });
-        });
-        ui.add_space(8.0);
+        let device_label = self.device_label(view);
+        let devices = self
+            .devices_for(view)
+            .iter()
+            .map(|device| (device.id.clone(), device.label.clone()))
+            .collect();
+        if form::select_row(
+            ui,
+            "Device",
+            "audio-device",
+            &mut self.audio_draft.device,
+            device_label,
+            devices,
+        ) {
+            self.audio_draft.sample_rate = "auto".into();
+        }
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Sample rate").size(13.0));
-            egui::ComboBox::from_id_salt("audio-rate")
-                .selected_text(self.sample_rate_label(view))
-                .width(360.0)
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(self.audio_draft.sample_rate == "auto", "Automatic")
-                        .clicked()
-                    {
-                        self.audio_draft.sample_rate = "auto".into();
-                    }
-                    for rate in self.sample_rates_for(view) {
-                        if ui
-                            .selectable_label(
-                                self.audio_draft.sample_rate == rate.to_string(),
-                                format!("{rate} Hz"),
-                            )
-                            .clicked()
-                        {
-                            self.audio_draft.sample_rate = rate.to_string();
-                        }
-                    }
-                });
-        });
-        ui.add_space(8.0);
+        let rate_label = self.sample_rate_label(view);
+        let mut rates = vec![("auto".to_string(), "Automatic".to_string())];
+        rates.extend(
+            self.sample_rates_for(view)
+                .into_iter()
+                .map(|rate| (rate.to_string(), format!("{rate} Hz"))),
+        );
+        form::select_row(
+            ui,
+            "Sample rate",
+            "audio-rate",
+            &mut self.audio_draft.sample_rate,
+            rate_label,
+            rates,
+        );
 
         ui.horizontal(|ui| {
             ui.label(RichText::new("Block size").size(13.0));
@@ -269,13 +252,7 @@ impl NotwigUi {
         }
 
         ui.add_space(18.0);
-        ui.label(
-            RichText::new("Outputs")
-                .strong()
-                .size(13.0)
-                .color(theme::TEXT_MUTED),
-        );
-        ui.add_space(6.0);
+        form::section_heading(ui, "Outputs");
         egui::Frame::new()
             .fill(Color32::from_rgb(18, 19, 23))
             .inner_margin(egui::Margin::symmetric(10, 8))
