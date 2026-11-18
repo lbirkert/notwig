@@ -27,65 +27,11 @@ assets, or other copyrighted material is used in this project.
 - A real-time audio engine that prioritizes correctness and predictable behavior.
 - A macOS application today, with platform-specific code kept behind adapters.
 
-## Current features
+## Scope
 
-### Projects
-
-- Directory-based `*.notwig` project bundles with a versioned JSON manifest.
-- Project sample rate selection (44.1, 48, and 96 kHz templates).
-- Save, Save As, autosave snapshots, and recovery detection.
-- Undo/redo (200 steps) with cheap non-structural undo for mixer and parameter changes.
-- Offline mixdown to 32-bit float WAV, including range rendering.
-
-### Arranger
-
-- Audio, instrument, group, bus FX, and master tracks.
-- Track rename, color, comment, mute/solo, volume, pan, grouping, and duplication.
-- MIDI and audio clips on the linear timeline.
-- Clip move, trim, split, duplicate, mute, and manual clip bounds.
-- Object selection and time-range selection with copy, cut, paste, delete, duplicate, and move.
-- 1/16 snap by default; hold Alt while dragging to bypass snapping.
-- Audio drag-and-drop onto tracks, new tracks, or the clip editor.
-- Pinned master track and fit-arrangement navigation.
-
-### Audio clip editor
-
-- Bottom panel for audio clips with a waveform view and event (slice) editing.
-- Move, trim, split, duplicate, and delete audio events.
-- Add audio events by dropping files into the clip editor.
-- Shared editing algebra with the arranger, including clipboard and undo support.
-
-### Device and information panels
-
-- Device chains with stock EQ, Tool, and Chain devices.
-- VST3 and AU hosting on macOS, including native plugin editor windows.
-- Device browser, parameter controls, bypass, removal, and plugin reload.
-- Info panel for tracks, devices, MIDI clips, audio clips, files, and time selections.
-- Analysis views for EQ curves and meters.
-
-### Audio and transport
-
-- Transport play, pause, stop, loop, tempo, time signature, play-start, and playhead.
-- Audio device selection (driver, device, sample rate, and block size).
-- DSP load analysis window with the last 200 callback loads, average/max load,
-  deadline, period jitter, and output latency.
-- Engine builds happen off the UI thread; structural changes swap in a rebuilt plan.
-
-### Plugins
-
-- In-process VST3 and AU hosting through `truce-rack` on macOS.
-- Background plugin discovery with a persistent cache.
-- VST2 is reserved in the plugin model but not currently hosted.
-
-## Status
-
-Notwig is an early-stage prototype. It is playback/edit only:
-
-- No audio or MIDI recording, live input, or monitoring.
-- No MIDI note editor yet; MIDI clips can be created and edited at the clip level.
-- No Clip Launcher, scenes, comping, takes, or audio warping.
-- No tempo/time-signature automation, modulation runtime, or macros runtime.
-- macOS is the only actively supported platform.
+Notwig is an early-stage, playback/edit-only macOS prototype. Current features,
+candidate next milestones, and deferred scope live in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Build and run
 
@@ -119,7 +65,7 @@ cargo test --workspace
 - [`docs/README.md`](docs/README.md) — documentation index and reading paths.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system layers, state flow, and invariants.
 - [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md) — repository and module map, extension recipes.
-- [`docs/FEATURES.md`](docs/FEATURES.md) — current user-facing features and where they live.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — current features, next milestones, and deferred scope.
 - [`docs/EDITING.md`](docs/EDITING.md) — editing algebra and adapter contracts.
 - [`docs/EDITING_TESTING.md`](docs/EDITING_TESTING.md) — testing strategy for edit operations.
 

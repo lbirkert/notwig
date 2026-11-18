@@ -1,14 +1,13 @@
 # Notwig documentation
 
-These documents describe the project as it exists today. They are the stable
-entry point for contributors and agents; the historical planning notes under
-`plan/` are not authoritative.
+These documents describe the project as it exists today and are the stable
+entry point for contributors and agents.
 
 ## Start here
 
 | If you want to... | Read |
 |---|---|
-| Understand what Notwig does | [`FEATURES.md`](FEATURES.md) |
+| Understand what Notwig does and what comes next | [`ROADMAP.md`](ROADMAP.md) |
 | Understand how the system is put together | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Find where code lives and how to extend it | [`CODE_STRUCTURE.md`](CODE_STRUCTURE.md) |
 | Change editing behavior | [`EDITING.md`](EDITING.md) |
@@ -29,7 +28,7 @@ surface, and boundaries:
 
 ### New to the project
 
-1. [`FEATURES.md`](FEATURES.md) to see the current scope.
+1. [`ROADMAP.md`](ROADMAP.md) to see the current scope and planned work.
 2. [`ARCHITECTURE.md`](ARCHITECTURE.md) for the state and data-flow model.
 3. [`CODE_STRUCTURE.md`](CODE_STRUCTURE.md) for the crate and module map.
 4. The README of the crate you are about to change.

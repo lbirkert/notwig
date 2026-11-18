@@ -12,7 +12,7 @@ and test layer before editing.
   README.md                  project overview and build instructions
   AGENTS.md                  contributor/agent workflow and code style
   docs/                      authoritative documentation
-  plan/                      historical planning archive (not authoritative)
+  plan/                      scratch/planning notes (not part of the stable docs)
   crates/
     notwig-core/
     notwig-project/
@@ -203,8 +203,6 @@ Deferred structural work:
 - Extract an `AudioSettingsDraft` type so driver/device/sample-rate reset policy
   is not spread across UI closures.
 - Add a shared popup-window builder for settings, render, DSP, and future dialogs.
-- Continue the audio hardening items in the historical `plan/AUDIO.md` notes:
-  plugin load timeouts, import worker, streaming export, and stock DSP cleanup.
 
 ## Conventions
 

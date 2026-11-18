@@ -32,8 +32,8 @@ Read the stable documentation first:
   real-time rules, and invariants.
 - [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md) — crate/module map,
   extension recipes, and known structural hotspots.
-- [`docs/FEATURES.md`](docs/FEATURES.md) — what the app does today and where the
-  code lives.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — current features, candidate next
+  milestones, and deferred scope.
 - [`docs/EDITING.md`](docs/EDITING.md) — shared editing algebra and adapter
   contracts. Read before changing arranger or clip editor operations.
 - [`docs/EDITING_TESTING.md`](docs/EDITING_TESTING.md) — testing strategy for
