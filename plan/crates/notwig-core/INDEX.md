@@ -11,4 +11,4 @@ Canonical domain/session model crate. Owns document truth (`S_doc`), validation/
 ## Boundaries
 - Depends on no other workspace crates.
 - No IO, UI, audio callback processing, or plugin hosting.
-- Source planning: split/refined during the crate-aligned restructuring; cross-cutting context in `../../high-level/OVERVIEW.md`.
+- Current cross-cutting context: [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md).

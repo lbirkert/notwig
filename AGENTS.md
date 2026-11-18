@@ -1,31 +1,163 @@
 # AGENTS.md
 
 ## Project gist
-Notwig is an open-source **clean-room reimplementation** of a Bitwig-inspired DAW, currently in the **planning/specification phase**. The goal is to define precise contracts for implementation (by AI agents/humans), not to copy code or assets from Bitwig or other projects.
 
-- **Priorities:** extensibility, simplicity, few high-quality features, stable/correct real-time DSP.
-- **Tech direction:** Rust (Cargo workspace), UI with `egui` + `wgpu`.
-- **v0 focus:** project bundle persistence, tracks, Arranger-only sequencer, basic MIDI/audio clip editing (playback/edit only), hosted instruments, device system (EQ/Tool/Chain), RT-safe engine boundaries, polished reusable UI primitives/workflows.
-- **Deferred in v0:** Clip Launcher/scenes, audio/MIDI recording, live input/monitoring, stock instruments, metronome/count-in, audio warping, tempo/time-signature automation, modulation/macros runtime, undo/redo, comping/takes, collaboration, out-of-process plugin hosting, Windows/Linux builds.
+Notwig is an open-source, feature-light digital audio workstation built around a
+small number of carefully designed, extensible features. It is not a Bitwig
+clone or a feature-parity project; Bitwig is a reference for interaction and
+workflow ideas. The project is in the implementation phase, not the planning
+phase.
 
-## Where to find planning docs
-Start here:
-- [`plan/high-level/INDEX.md`](plan/high-level/INDEX.md) — common entrypoint: system map and interactions.
-- [`plan/high-level/OVERVIEW.md`](plan/high-level/OVERVIEW.md) — merged architecture and cross-cutting contracts (scope, decisions, invariants, topology, interfaces).
-- [`plan/INDEX.md`](plan/INDEX.md) — master index of all planning/contract documents.
+- **Priorities:** extensibility, simplicity, few high-quality features, stable
+  and correct real-time DSP.
+- **Stack:** Rust, Cargo workspace, `egui` + `wgpu`, CPAL, `truce-rack` for
+  VST3/AU hosting.
+- **Platform:** macOS first; platform-specific code sits behind adapters.
+- **Implemented today:** project bundles, autosave/recovery, undo/redo, tracks,
+  Arranger, MIDI/audio clips at the clip level, audio clip event editing, device
+  chains with stock EQ/Tool/Chain, VST3/AU hosting, render mixdown, audio
+  settings, and DSP load analysis.
+- **Not implemented yet:** audio/MIDI recording, live input/monitoring, MIDI
+  note and automation editors, Clip Launcher/scenes, comping/takes, warping,
+  tempo/time-signature automation, modulation/macros runtime, metronome,
+  stock instruments, Windows/Linux builds, collaboration, and out-of-process
+  plugin hosting.
 
-Crate-aligned contracts (primary detail):
-- [`plan/crates/notwig-core/INDEX.md`](plan/crates/notwig-core/INDEX.md) — domain, tracks, sequencer, protocol (`Command/Delta/EngineMsg/RtEvent`).
-- [`plan/crates/notwig-project/INDEX.md`](plan/crates/notwig-project/INDEX.md) — project lifecycle and bundle persistence.
-- [`plan/crates/notwig-dsp/INDEX.md`](plan/crates/notwig-dsp/INDEX.md) — devices, parameters, graph/plan, compilation, RT/offline, stock devices.
-- [`plan/crates/notwig-engine/INDEX.md`](plan/crates/notwig-engine/INDEX.md) — engine execution and rendering.
-- [`plan/crates/notwig-plugins/INDEX.md`](plan/crates/notwig-plugins/INDEX.md) — plugin hosting (v0 VST3/AU primary, VST2 fallback).
-- [`plan/crates/notwig-ui/INDEX.md`](plan/crates/notwig-ui/INDEX.md) — UI architecture, primitives, views, interaction.
-- [`plan/crates/notwig-app/INDEX.md`](plan/crates/notwig-app/INDEX.md) — composition and runtime wiring.
+## Where to start
 
-Workspace-level code planning:
-- [`plan/code/INDEX.md`](plan/code/INDEX.md) — Rust workspace/crate boundaries and conventions.
+Read the stable documentation first:
 
-Other references:
-- [`README.md`](README.md) — project summary, paradigms, and inspiration links.
-- Inspiration / candidate dependencies (license review required; clean-room w.r.t. Bitwig/OpenLive): [truce-audio/truce-rack](https://github.com/truce-audio/truce-rack) (VST3/AU/CLAP loading; may be used as the plugin-hosting dependency), [hikarucorporation/hikaru-openlive](https://github.com/hikarucorporation/hikaru-openlive) (Bitwig-inspired UI/workflow; ideas only).
+- [`docs/README.md`](docs/README.md) — documentation index and reading paths.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — layers, state flow, threading,
+  real-time rules, and invariants.
+- [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md) — crate/module map,
+  extension recipes, and known structural hotspots.
+- [`docs/FEATURES.md`](docs/FEATURES.md) — what the app does today and where the
+  code lives.
+- [`docs/EDITING.md`](docs/EDITING.md) — shared editing algebra and adapter
+  contracts. Read before changing arranger or clip editor operations.
+- [`docs/EDITING_TESTING.md`](docs/EDITING_TESTING.md) — testing strategy for
+  editing behavior.
+
+Each crate has a `README.md` with its exact purpose, owned concerns, module map,
+and boundaries. Start there when working inside a crate.
+
+## Code style
+
+### File organization
+
+1. **One primary responsibility per file.** A file may contain closely related
+   helpers, but it should not mix unrelated concerns just because they are
+   convenient to keep together. If a file serves several distinct ideas, split
+   it by concept.
+2. **Split large files at seams, not at line counts.** File size is a signal,
+   not a target. When a file becomes hard to navigate, identify the independent
+   sub-systems inside it (state, interaction, rendering, I/O, lowering) and
+   extract modules with clear interfaces. Do not split mechanically into
+   arbitrary fragments.
+3. **Extract shared behavior when duplication is real.** If the same logic is
+   needed in more than one place, create a shared abstraction unless the
+   duplication is deliberate and cheaper to maintain. Prefer a small, deep
+   interface that hides details over a heavily parameterized helper that makes
+   every call site harder to read.
+4. **Default to narrow visibility.** Keep local helpers private. Use
+   `pub(crate)` for code that is shared across a crate. Use `pub` only for an
+   intentionally designed API: cohesive, documented, hard to misuse, and stable
+   enough that other crates can depend on it. Do not make an implementation
+   detail public just because another module needs it.
+
+### Architecture and ownership
+
+- Follow the dependency direction in [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md).
+  Lower layers must not depend on higher layers.
+- Keep `notwig-core` free of I/O, UI, plugin loading, and real-time execution.
+- Keep canonical project state in `ProjectDoc`. UI code emits `UiIntent`; it
+  does not mutate the document directly.
+- Keep reusable domain/DSP logic out of `notwig-app`. The app composes, wires,
+  and applies policy.
+- Use the shared editing algebra for arranger and editor operations. Do not add
+  a second copy of copy/cut/paste/duplicate/trim logic.
+- Shared boundary types belong in the lowest crate that needs them.
+
+### State, data, and determinism
+
+- Prefer pure functions and explicit state transitions over hidden global state.
+- IDs are caller-supplied. Domain code does not allocate IDs or use randomness.
+- Use ordered collections whenever iteration order affects behavior,
+  persistence, or tests.
+- Name values by domain meaning: musical time vs audio time, clip vs event,
+  track vs chain vs device. Avoid ambiguous unitless names.
+- Keep persisted data versioned and canonically encoded.
+
+### Errors and real-time safety
+
+- Return typed errors at boundaries (`CoreError`, `ProjectError`,
+  `EngineError`, `PluginError`, ...).
+- Do not panic on recoverable user/input/file/plugin failures. Panics are for
+  internal invariant violations only.
+- The audio callback path must not allocate, block, perform file or plugin I/O,
+  load plugins, compile DSP, or run unbounded work. Report runtime problems via
+  `RtEvent`/status rather than unwinding across the callback.
+- Do not hold locks while doing heavy work. Build engines and load plugins off
+  the UI/audio threads.
+
+### UI code
+
+- Reuse `widgets/`, `timeline/`, and `form.rs` helpers instead of copying layout,
+  snapping, or interaction math.
+- Views read `RuntimeView`/`ProjectDoc`; they emit intents. Behavior belongs in
+  `Workspace` or the app layer.
+- Keep view state ephemeral. Do not stash canonical project state in `NotwigUi`.
+- Add a headless `egui` render test when adding a panel, window, or interaction.
+
+### Tests and verification
+
+- Put integration tests in `crates/*/tests/`, not in `src/`.
+- Test the lowest useful layer first. Use property tests for algebra and
+  deterministic math; use workspace tests for command/lowering/undo flows.
+- UI tests use a headless `egui::Context` and `RawInput`. `notwig_ui::test_api`
+  is test-only.
+- Run the standard checks after code changes:
+
+  ```sh
+  cargo fmt --all
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace
+  ```
+
+- For documentation-only changes, verify links and referenced paths; run code
+  checks if any code or examples changed.
+
+### Dependencies and documentation
+
+- Check existing workspace libraries and patterns before adding a dependency.
+- Review licenses, platform support, and real-time implications before adopting
+  a new crate. Keep plugin-format-specific types behind adapters.
+- Update the relevant crate README or docs page when behavior, boundaries, or
+  public APIs change.
+- Write comments for non-obvious reasons and invariants, not for restating what
+  the code already says.
+
+## Todo workflow
+
+Before starting any task with more than one step, write a precise TODO list with
+the todo tool. Each item should be an atomic, verifiable action ("add
+`CommandPayload::X` and apply it", "add the popup and render test"), not a vague
+area ("do UI").
+
+- Keep exactly one item `in_progress` while work remains.
+- Update statuses as you go; do not batch completions at the end.
+- Mark an item completed only after its verification has actually happened
+  (tests, checks, link validation, or a deliberate manual review).
+- Add new items discovered during implementation instead of silently expanding
+  scope.
+- If blocked, keep the item `in_progress` and record the concrete blocker.
+- Include verification/commit steps in the list when they are part of the task.
+- For a genuinely single-step task, skip the list and just do the work.
+
+## Git
+
+- Commit only when the user explicitly asks for a commit.
+- Before committing, inspect `git status`, `git diff`, and recent history; stage
+  only the intended files and never commit secrets.
+- Write a concise message that matches the repository style.
