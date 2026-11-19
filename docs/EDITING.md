@@ -20,7 +20,7 @@ This design puts the operations behind one seam. Each editor projects its conten
 - **Audio event**: the UI term for an audio slice. The domain type keeps the name `AudioSlice`; the clip editor calls it an event.
 - **Span**: the half-open interval `[start, end)` with `start <= end`. A span with `start == end` is empty. Two spans intersect when `a.start < b.end && b.start < a.end`.
 - **Point**: an object with a single time and no length. Automation points are points; clips, slices, and notes are spans. A point at `t` intersects `[a, b)` exactly when `a <= t < b`. The `span` field of a point is the marker `[t, t]`, not an interval.
-- **Container**: an optional outer extent that owns lane time. The audio clip editor's container is the clip range. The MIDI editor's container is the MIDI content length. The arranger has no container.
+- **Container**: an optional outer extent that owns lane time. The audio clip editor's container is the clip range. The MIDI editor has no hard container: its content length is advisory and notes may lie outside the clip range. The arranger has no container.
 - **Extract**: owned clipboard content produced by copy. It holds cloned content, not document references.
 - **Plan**: an ordered list of `EditOp` values produced by an operation. A plan is pure and has no IDs for newly created objects.
 - **Lowering**: the adapter-side step that turns a plan into document commands, allocates IDs, and resolves created objects back into a concrete selection.
@@ -568,7 +568,7 @@ Object trim is single-object by design. The routing above clears the time select
 
 #### 8.7.3 Container edges
 
-Only editors with a container support this. The audio clip editor's `CLIP START` and `CLIP END` handles are the current case.
+Only editors with a container support this. The audio clip editor's clip start and end handles are the current case.
 
 ```
 container = model.container().expect("editor has a container")
@@ -633,9 +633,9 @@ This makes the moved set authoritative. Stationary content that overlaps a desti
 
 ### 9.4 Container bounds are manual
 
-The clip start and end move only when the user drags the container handles in the clip editor. Event edits never grow or shrink the container. Paste, duplicate, move, and trim can place audio events before the clip start or after the clip end; the events stay visible and editable.
+The clip start and end move only when the user drags the container handles in the audio editor. Event and note edits never grow or shrink the clip range. Paste, duplicate, move, and trim can place audio events and MIDI notes before the clip start or after the clip end; they stay visible and editable.
 
-Playback still follows the container range. Events outside it are drawn, selected, copied, and edited, but they do not play. The clip editor draws the grid and ruler across the visible range, including outside the container, and the scroll range includes the outermost events.
+Playback still follows the clip range. Events and notes outside it are drawn, selected, copied, and edited, but they do not play. The clip and MIDI editors draw the grid and ruler across the visible range, including outside the clip, and the scroll range includes the outermost objects.
 
 The waveform is drawn only where the source has samples. Over-trimmed events leave the unsupported tail empty instead of stretching the available waveform.
 

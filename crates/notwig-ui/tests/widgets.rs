@@ -8,6 +8,11 @@ fn snapping_step_adapts_to_zoom() {
     let near = snap_step(100.0, 4);
     assert!(far > near, "zoomed out should snap coarser");
     assert_eq!(near, TimeMus::new(1, 8));
+    assert_eq!(
+        snap_step(1_000.0, 4),
+        TimeMus::new(1, 8),
+        "snapping should never become finer than 1/8 by default"
+    );
 }
 
 #[test]

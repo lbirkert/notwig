@@ -1499,7 +1499,7 @@ fn create_note(
             id: note_id.to_string(),
         });
     }
-    note.validate(midi.length)?;
+    note.validate()?;
     midi.notes.push(note);
     sort_notes(&mut midi.notes);
     midi.validate()?;

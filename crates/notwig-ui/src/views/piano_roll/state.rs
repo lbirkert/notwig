@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use notwig_core::edit::{Extract, Selection, TimeSelection};
-use notwig_core::{ClipId, Norm01, NoteEntity, NoteId, RangeMus, TimeMus};
+use notwig_core::{ClipId, Norm01, NoteEntity, NoteId, RangeMus, TimeMus, TrackId};
 
 use crate::state::{SelectionGroup, Viewport};
 use crate::timeline::ClipChromeDrag;
@@ -22,6 +22,8 @@ pub struct PianoRollState {
     pub(super) chrome_drag: Option<ClipChromeDrag>,
     pub(super) preview_range: Option<RangeMus>,
     pub(super) marquee: Option<MarqueeDrag>,
+    pub(super) held_key: Option<(TrackId, NoteId, u8)>,
+    pub(super) preview_highlights: BTreeMap<u8, f64>,
     pub(super) initialized: bool,
 }
 
@@ -90,6 +92,8 @@ impl PianoRollState {
             chrome_drag: None,
             preview_range: None,
             marquee: None,
+            held_key: None,
+            preview_highlights: BTreeMap::new(),
             initialized: false,
         }
     }

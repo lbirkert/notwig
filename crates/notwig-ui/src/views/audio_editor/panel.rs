@@ -22,7 +22,7 @@ use super::navigation::{clip_editor_navigation, clip_editor_scrollbar};
 use super::state::{BarDrag, ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, SliceDragMode};
 
 const CLIP_HEADER_W: f32 = 120.0;
-const RULER_H: f32 = 30.0;
+const RULER_H: f32 = 38.0;
 const SCROLLBAR_H: f32 = 14.0;
 
 pub(super) fn playhead_for_strip(runtime: &RuntimeView) -> TimeMus {
@@ -142,6 +142,7 @@ impl NotwigUi {
                     play_start: runtime.play_start,
                     playhead: playhead_for_strip(runtime),
                     show_play_start: true,
+                    loop_bottom_inset: 14.0,
                 };
                 if let Some(action) = strip.show(
                     ui,
@@ -595,10 +596,10 @@ impl NotwigUi {
                         ppb,
                         snap_step: grid,
                         bypass,
-                        start_label: "CLIP START",
-                        end_label: "CLIP END",
-                        start_color: theme::ACCENT,
-                        end_color: theme::TEXT_MUTED,
+                        start_label: "",
+                        end_label: "",
+                        start_color: crate::timeline::clip_color(doc, &clip),
+                        end_color: crate::timeline::clip_color(doc, &clip),
                     },
                     &mut chrome_drag,
                 );

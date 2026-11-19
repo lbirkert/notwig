@@ -129,6 +129,11 @@ pub enum UiIntent {
         note_id: NoteId,
         pitch: u8,
         velocity: f32,
+        length_mus: Option<TimeMus>,
+    },
+    ReleasePreviewNote {
+        track_id: TrackId,
+        note_id: NoteId,
     },
     SetTrackMixer {
         track_id: TrackId,

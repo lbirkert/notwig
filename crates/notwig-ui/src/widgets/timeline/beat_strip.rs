@@ -6,7 +6,7 @@ use notwig_core::{RangeMus, TimeMus};
 use crate::theme;
 use crate::timeline::TimelineGrid;
 
-const LOOP_EDGE_WIDTH: f32 = 7.0;
+const LOOP_EDGE_WIDTH: f32 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BeatStripAction {
@@ -23,6 +23,8 @@ pub struct BeatStrip<'a> {
     pub play_start: TimeMus,
     pub playhead: TimeMus,
     pub show_play_start: bool,
+    /// Space kept free at the bottom of the strip for clip arrow tips.
+    pub loop_bottom_inset: f32,
 }
 
 impl BeatStrip<'_> {
@@ -30,6 +32,7 @@ impl BeatStrip<'_> {
         let content_left = rect.left() + self.header_width;
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, egui::CornerRadius::ZERO, theme::PANEL_LIGHT);
+        let response = ui.interact(rect, id, Sense::click_and_drag());
 
         if self.header_width > 0.0 {
             painter.line_segment(
@@ -65,9 +68,11 @@ impl BeatStrip<'_> {
 
         let mut action = None;
         if let Some(range) = self.loop_range {
-            let loop_rect = loop_rect(rect, content_left, self.grid, range);
+            let loop_rect = loop_rect(rect, content_left, self.grid, range, self.loop_bottom_inset);
             draw_loop(&painter, loop_rect);
-            if let Some(next) = self.loop_edge_action(ui, rect, id, content_left, range) {
+            if let Some(next) =
+                self.loop_edge_action(ui, rect, id, content_left, range, self.loop_bottom_inset)
+            {
                 action = Some(BeatStripAction::SetLoop(next));
             }
         }
@@ -77,7 +82,6 @@ impl BeatStrip<'_> {
         }
         draw_playhead(&painter, rect, content_left, self.grid, self.playhead);
 
-        let response = ui.interact(rect, id, Sense::click_and_drag());
         if action.is_none() && (response.clicked() || response.dragged()) {
             action = response
                 .interact_pointer_pos()
@@ -98,8 +102,9 @@ impl BeatStrip<'_> {
         id: Id,
         content_left: f32,
         range: RangeMus,
+        bottom_inset: f32,
     ) -> Option<RangeMus> {
-        let loop_rect = loop_rect(rect, content_left, self.grid, range);
+        let loop_rect = loop_rect(rect, content_left, self.grid, range, bottom_inset);
         let mut next = None;
         for (edge, x) in [
             (LoopEdge::Start, loop_rect.left()),
@@ -123,6 +128,12 @@ impl BeatStrip<'_> {
             );
             if response.hovered() || response.dragged() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                let grip = Rect::from_center_size(
+                    egui::pos2(x, loop_rect.center().y),
+                    egui::vec2(2.0, loop_rect.height().max(6.0)),
+                );
+                ui.painter()
+                    .rect_filled(grip, egui::CornerRadius::same(1), theme::TEXT_MUTED);
             }
             if response.drag_stopped()
                 && let Some(pos) = response
@@ -155,9 +166,15 @@ pub(super) fn loop_edge_range(edge: LoopEdge, range: RangeMus, beat: TimeMus) ->
     (!candidate.is_empty()).then_some(candidate)
 }
 
-fn loop_rect(rect: Rect, content_left: f32, grid: TimelineGrid, range: RangeMus) -> Rect {
-    let top = rect.top() + 17.0;
-    let bottom = rect.bottom() - 1.0;
+fn loop_rect(
+    rect: Rect,
+    content_left: f32,
+    grid: TimelineGrid,
+    range: RangeMus,
+    bottom_inset: f32,
+) -> Rect {
+    let top = rect.top() + 14.0;
+    let bottom = rect.bottom() - bottom_inset.max(0.0);
     let x1 = grid
         .x_for_beat(range.start, content_left)
         .max(content_left)
@@ -254,11 +271,11 @@ fn draw_beats(painter: &Painter, rect: Rect, content_left: f32, grid: TimelineGr
             Stroke::new(
                 1.0_f32,
                 if strong {
-                    theme::GRID_STRONG
+                    Color32::from_rgb(92, 97, 112)
                 } else if beat_line {
-                    theme::GRID
+                    theme::GRID_STRONG
                 } else {
-                    theme::GRID.gamma_multiply(0.55)
+                    theme::GRID
                 },
             ),
         );

@@ -434,7 +434,14 @@ impl Workspace {
     }
 
     /// Stage a short, UI-triggered note preview for the audio engine.
-    pub fn preview_note(&mut self, track_id: TrackId, note_id: NoteId, pitch: u8, velocity: f32) {
+    pub fn preview_note(
+        &mut self,
+        track_id: TrackId,
+        note_id: NoteId,
+        pitch: u8,
+        velocity: f32,
+        length_mus: Option<notwig_core::TimeMus>,
+    ) {
         self.engine_control
             .data_mut()
             .push_preview_note(PreviewNote {
@@ -442,7 +449,15 @@ impl Workspace {
                 note_id,
                 pitch,
                 velocity,
+                length_mus,
             });
+        self.engine_control.flush();
+    }
+
+    pub fn release_preview_note(&mut self, track_id: TrackId, note_id: NoteId) {
+        self.engine_control
+            .data_mut()
+            .push_preview_off(track_id, note_id);
         self.engine_control.flush();
     }
 

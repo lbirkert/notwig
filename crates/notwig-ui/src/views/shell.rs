@@ -1110,7 +1110,7 @@ impl NotwigUi {
             grid,
             false,
         );
-        let at = (absolute - clip.range.start).max(notwig_core::TimeMus::zero());
+        let at = absolute - clip.range.start;
         Some((state.clip_id, at))
     }
 

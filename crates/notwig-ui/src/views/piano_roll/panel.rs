@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use egui::{Align2, Color32, CornerRadius, FontId, Id, Rect, Sense, Stroke, StrokeKind, Vec2};
 use notwig_core::edit;
 use notwig_core::{
     ClipEntity, ClipPayload, MidiClipData, Norm01, NoteEntity, NoteId, ProjectDoc, RangeMus,
-    TimeMus,
+    TimeMus, TrackId,
 };
 use uuid::Uuid;
 
@@ -28,7 +28,7 @@ use super::navigation::{SCROLLBAR_H, piano_roll_navigation, piano_roll_scrollbar
 use super::state::{MarqueeDrag, NoteDrag, NoteDragMode, NoteOrigin, PianoRollState, VelocityDrag};
 
 const KEY_WIDTH: f32 = 56.0;
-const RULER_H: f32 = 26.0;
+pub(super) const RULER_H: f32 = 38.0;
 const VELOCITY_H: f32 = 62.0;
 const MIN_NOTE_LEN: i64 = 1;
 const MIN_NOTE_DEN: u32 = 16;
@@ -149,10 +149,13 @@ impl NotwigUi {
                     } else {
                         None
                     },
-                    time_selection: state.time_selection(),
+                    time_selection: state
+                        .time_selection()
+                        .map(|range| absolute_time_range(range, &clip, &midi)),
                     play_start: runtime.play_start,
                     playhead: playhead_for_strip(runtime),
                     show_play_start: true,
+                    loop_bottom_inset: 14.0,
                 };
                 if let Some(action) =
                     strip.show(ui, strip_rect, Id::new(("piano-roll-ruler", state.clip_id)))
@@ -169,22 +172,49 @@ impl NotwigUi {
 
                 let clipped = painter.with_clip_rect(note_area);
                 let content_clipped = painter.with_clip_rect(content);
-                let clicked_key = draw_pitch_rows(
+                let now = ui.input(|input| input.time);
+                state
+                    .preview_highlights
+                    .retain(|_, expiry| !expiry.is_finite() || *expiry > now);
+                let playing_pitches = played_pitches(&midi, &clip, runtime);
+                let pressed_key = draw_pitch_rows(
                     ui,
                     &clipped,
                     &painter,
                     header,
                     note_area,
                     state.pitch_scroll,
+                    &state.preview_highlights,
+                    &playing_pitches,
+                    now,
                 );
-                if let Some(pitch) = clicked_key {
+                if let Some(pitch) = pressed_key
+                    && state.held_key.is_none_or(|(_, _, held)| held != pitch)
+                {
+                    let note_id = NoteId::from_uuid(Uuid::new_v4());
                     self.emit(UiIntent::PreviewNote {
                         track_id: clip.track_id,
-                        note_id: NoteId::from_uuid(Uuid::new_v4()),
+                        note_id,
                         pitch,
                         velocity: 0.8,
+                        length_mus: None,
                     });
+                    state.held_key = Some((clip.track_id, note_id, pitch));
+                    state.preview_highlights.insert(pitch, f64::INFINITY);
                 }
+                if state.held_key.is_some() && !ui.input(|input| input.pointer.primary_down()) {
+                    if let Some((track_id, note_id, pitch)) = state.held_key.take() {
+                        self.emit(UiIntent::ReleasePreviewNote { track_id, note_id });
+                        state.preview_highlights.remove(&pitch);
+                    }
+                }
+                draw_content_shading(
+                    &clipped,
+                    &timeline_grid,
+                    content.left(),
+                    note_area,
+                    display_range,
+                );
                 timeline_grid.draw(&clipped, note_area);
 
                 let bypass = ui.input(|input| input.modifiers.alt);
@@ -232,6 +262,8 @@ impl NotwigUi {
                             grid,
                             bypass,
                             pos,
+                            doc.meta.tempo_bpm,
+                            now,
                         );
                     }
                 } else if bg.clicked() && !hit_note {
@@ -241,7 +273,7 @@ impl NotwigUi {
                     {
                         let beat = beat_at(pos.x, &timeline_grid, content.left(), bypass);
                         if let Ok(range) = RangeMus::new(beat, beat) {
-                            state.select_time(range);
+                            state.select_time(local_time_range(range, &clip, &midi));
                         }
                     }
                 }
@@ -252,7 +284,7 @@ impl NotwigUi {
                     {
                         let beat = beat_at(pos.x, &timeline_grid, content.left(), bypass);
                         if let Ok(range) = RangeMus::new(beat, beat) {
-                            state.select_time(range);
+                            state.select_time(local_time_range(range, &clip, &midi));
                         }
                         state.marquee = Some(MarqueeDrag {
                             origin_pointer: pos,
@@ -280,6 +312,8 @@ impl NotwigUi {
                         content.left(),
                         note_area,
                         bypass,
+                        &clip,
+                        &midi,
                     );
                 }
                 if bg.drag_stopped()
@@ -298,6 +332,8 @@ impl NotwigUi {
                         content.left(),
                         note_area,
                         bypass,
+                        &clip,
+                        &midi,
                     );
                 }
 
@@ -330,6 +366,15 @@ impl NotwigUi {
                         let additive =
                             ui.input(|input| input.modifiers.command || input.modifiers.shift);
                         state.select_note(note.id, additive);
+                        preview_note_for_action(
+                            self,
+                            &mut state,
+                            &midi,
+                            clip.track_id,
+                            note.id,
+                            doc.meta.tempo_bpm,
+                            now,
+                        );
                     }
                     if response.drag_started()
                         && let Some(pos) = ui
@@ -345,12 +390,22 @@ impl NotwigUi {
                             .is_some_and(|drag| drag.note_id == note.id)
                     {
                         let drag = state.drag.take().expect("drag exists");
+                        let preview_id = drag.note_id;
                         let release = response
                             .interact_pointer_pos()
                             .or_else(|| ui.input(|input| input.pointer.hover_pos()))
                             .unwrap_or(drag.origin_pointer);
                         finish_note_drag(
                             self, &mut state, &mut midi, drag, release, ppb, grid, bypass,
+                        );
+                        preview_note_for_action(
+                            self,
+                            &mut state,
+                            &midi,
+                            clip.track_id,
+                            preview_id,
+                            doc.meta.tempo_bpm,
+                            now,
                         );
                     }
                     if visual.rect.width() > 10.0 {
@@ -385,12 +440,22 @@ impl NotwigUi {
                                     .is_some_and(|drag| drag.note_id == note.id)
                             {
                                 let drag = state.drag.take().expect("drag exists");
+                                let preview_id = drag.note_id;
                                 let release = trim
                                     .interact_pointer_pos()
                                     .or_else(|| ui.input(|input| input.pointer.hover_pos()))
                                     .unwrap_or(drag.origin_pointer);
                                 finish_note_drag(
                                     self, &mut state, &mut midi, drag, release, ppb, grid, bypass,
+                                );
+                                preview_note_for_action(
+                                    self,
+                                    &mut state,
+                                    &midi,
+                                    clip.track_id,
+                                    preview_id,
+                                    doc.meta.tempo_bpm,
+                                    now,
                                 );
                             }
                         }
@@ -423,10 +488,10 @@ impl NotwigUi {
                         ppb,
                         snap_step: grid,
                         bypass,
-                        start_label: "CLIP START",
-                        end_label: "CLIP END",
-                        start_color: theme::ACCENT,
-                        end_color: theme::TEXT_MUTED,
+                        start_label: "",
+                        end_label: "",
+                        start_color: crate::timeline::clip_color(doc, &clip),
+                        end_color: crate::timeline::clip_color(doc, &clip),
                     },
                     &mut chrome_drag,
                 );
@@ -444,7 +509,10 @@ impl NotwigUi {
                     });
                 }
 
-                if let Some(range) = state.time_selection() {
+                if let Some(range) = state
+                    .time_selection()
+                    .map(|range| absolute_time_range(range, &clip, &midi))
+                {
                     crate::timeline::draw_time_selection_fill(
                         &clipped,
                         timeline_grid,
@@ -514,8 +582,21 @@ impl NotwigUi {
                     theme::TEXT_MUTED,
                 );
 
+                let notes_end = midi
+                    .notes
+                    .iter()
+                    .map(|note| {
+                        beat_from_content_time(
+                            note.start + note.length,
+                            clip.range.start,
+                            midi.content_start,
+                        )
+                    })
+                    .max()
+                    .unwrap_or(clip.range.start);
                 let content_end =
                     beat_from_content_time(midi.length, clip.range.start, midi.content_start)
+                        .max(notes_end)
                         .max(display_range.end)
                         .max(clip.range.end)
                         + TimeMus::new(4, 1);
@@ -693,34 +774,30 @@ fn create_note_at_pointer(
     snap_grid: TimeMus,
     bypass: bool,
     pointer: egui::Pos2,
+    tempo_bpm: f64,
+    now: f64,
 ) {
     let beat = beat_at(pointer.x, grid, content_left, bypass);
-    let start = content_time_from_beat(beat, clip.range.start, midi.content_start)
-        .max(TimeMus::zero())
-        .min(midi.length);
-    if start >= midi.length {
-        return;
-    }
+    let start = content_time_from_beat(beat, clip.range.start, midi.content_start);
     let pitch = pitch_for_y(pointer.y, note_area.top(), pitch_scroll);
-    let end = default_note_end(start, snap_grid, pitch, &midi.notes, midi.length);
+    let max_end = start + TimeMus::new(16, 1);
+    let end = default_note_end(start, snap_grid, pitch, &midi.notes, max_end);
     let length = end - start;
     if length <= TimeMus::zero() {
         return;
     }
-    create_note_clearing(
-        ui,
-        state,
-        midi,
-        NoteEntity {
-            id: NoteId::from_uuid(Uuid::new_v4()),
-            pitch,
-            start,
-            length,
-            velocity: PianoRollState::default_velocity(),
-            release_velocity: None,
-            expression: BTreeMap::new(),
-        },
-    );
+    let note = NoteEntity {
+        id: NoteId::from_uuid(Uuid::new_v4()),
+        pitch,
+        start,
+        length,
+        velocity: PianoRollState::default_velocity(),
+        release_velocity: None,
+        expression: BTreeMap::new(),
+    };
+    let note_id = note.id;
+    create_note_clearing(ui, state, midi, note);
+    preview_note_for_action(ui, state, midi, clip.track_id, note_id, tempo_bpm, now);
 }
 
 fn delete_note(
@@ -750,6 +827,8 @@ fn apply_marquee(
     content_left: f32,
     note_area: Rect,
     bypass: bool,
+    clip: &ClipEntity,
+    midi: &MidiClipData,
 ) {
     let origin_beat = beat_at(origin.x, grid, content_left, bypass);
     let current_beat = beat_at(current.x, grid, content_left, bypass);
@@ -758,15 +837,40 @@ fn apply_marquee(
     } else {
         (current_beat, origin_beat)
     };
-    let Ok(range) = RangeMus::new(start, end) else {
+    let Ok(absolute) = RangeMus::new(start, end) else {
         return;
     };
+    let local = local_time_range(absolute, clip, midi);
     let rect = Rect::from_two_pos(origin, current).intersect(note_area);
-    let ids = visuals
+    let selected: Vec<&NoteVisual> = visuals
         .iter()
         .filter(|visual| visual.rect.intersects(rect))
-        .map(|visual| visual.note.id);
-    state.select_marquee(ids, range);
+        .collect();
+    let ids: Vec<NoteId> = selected.iter().map(|visual| visual.note.id).collect();
+    let mut start = local.start;
+    let mut end = local.end;
+    for visual in &selected {
+        start = start.min(visual.span.start);
+        end = end.max(visual.span.end);
+    }
+    let expanded = RangeMus::new(start.min(end), end.max(start)).unwrap_or(local);
+    state.select_marquee(ids, expanded);
+}
+
+fn absolute_time_range(range: RangeMus, clip: &ClipEntity, midi: &MidiClipData) -> RangeMus {
+    RangeMus::new(
+        beat_from_content_time(range.start, clip.range.start, midi.content_start),
+        beat_from_content_time(range.end, clip.range.start, midi.content_start),
+    )
+    .unwrap_or(range)
+}
+
+fn local_time_range(range: RangeMus, clip: &ClipEntity, midi: &MidiClipData) -> RangeMus {
+    RangeMus::new(
+        content_time_from_beat(range.start, clip.range.start, midi.content_start),
+        content_time_from_beat(range.end, clip.range.start, midi.content_start),
+    )
+    .unwrap_or(range)
 }
 
 fn begin_note_drag(
@@ -865,6 +969,50 @@ fn finish_note_drag(
         apply_note_lowered(ui, state, midi, lowered);
     }
     state.drag = None;
+}
+
+fn played_pitches(midi: &MidiClipData, clip: &ClipEntity, runtime: &RuntimeView) -> BTreeSet<u8> {
+    let mut pitches = BTreeSet::new();
+    if !runtime.playing {
+        return pitches;
+    }
+    for note in &midi.notes {
+        let start = beat_from_content_time(note.start, clip.range.start, midi.content_start);
+        let end = beat_from_content_time(
+            note.start + note.length,
+            clip.range.start,
+            midi.content_start,
+        );
+        if runtime.playhead >= start && runtime.playhead < end {
+            pitches.insert(note.pitch);
+        }
+    }
+    pitches
+}
+
+fn preview_note_for_action(
+    ui: &mut NotwigUi,
+    state: &mut PianoRollState,
+    midi: &MidiClipData,
+    track_id: TrackId,
+    note_id: NoteId,
+    tempo_bpm: f64,
+    now: f64,
+) {
+    let Some(note) = midi.notes.iter().find(|note| note.id == note_id) else {
+        return;
+    };
+    let seconds = note.length.as_f64() * 60.0 / tempo_bpm.max(1.0);
+    state
+        .preview_highlights
+        .insert(note.pitch, now + seconds.max(0.08));
+    ui.emit(UiIntent::PreviewNote {
+        track_id,
+        note_id,
+        pitch: note.pitch,
+        velocity: note.velocity.0,
+        length_mus: Some(note.length),
+    });
 }
 
 fn velocity_preview(
@@ -1005,6 +1153,7 @@ fn set_note_velocity(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_pitch_rows(
     ui: &mut egui::Ui,
     clipped: &egui::Painter,
@@ -1012,6 +1161,9 @@ fn draw_pitch_rows(
     header: Rect,
     note_area: Rect,
     scroll: f32,
+    highlights: &BTreeMap<u8, f64>,
+    playing: &BTreeSet<u8>,
+    now: f64,
 ) -> Option<u8> {
     let key_clip = Rect::from_min_max(
         egui::pos2(header.left(), note_area.top()),
@@ -1055,6 +1207,17 @@ fn draw_pitch_rows(
                 Color32::from_rgb(200, 204, 210)
             },
         );
+        let highlighted = highlights
+            .get(&pitch_u8)
+            .is_some_and(|expiry| !expiry.is_finite() || *expiry > now)
+            || playing.contains(&pitch_u8);
+        if highlighted {
+            keys.rect_filled(
+                key_rect,
+                CornerRadius::ZERO,
+                Color32::from_rgba_unmultiplied(255, 166, 66, 150),
+            );
+        }
         painter.line_segment(
             [
                 egui::pos2(header.left(), y),
@@ -1076,8 +1239,12 @@ fn draw_pitch_rows(
         if hit.height() <= 0.0 {
             continue;
         }
-        let response = ui.interact(hit, Id::new(("piano-key", pitch_u8)), Sense::click());
-        if response.clicked() {
+        let response = ui.interact(
+            hit,
+            Id::new(("piano-key", pitch_u8)),
+            Sense::click_and_drag(),
+        );
+        if response.is_pointer_button_down_on() {
             clicked = Some(pitch_u8);
         }
     }

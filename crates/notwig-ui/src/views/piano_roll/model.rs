@@ -59,7 +59,7 @@ impl EditModel for MidiModel<'_> {
     }
 
     fn container(&self) -> Option<RangeMus> {
-        RangeMus::new(TimeMus::zero(), self.midi.length).ok()
+        None
     }
 
     fn lanes(&self) -> Vec<Pitch> {
@@ -68,8 +68,8 @@ impl EditModel for MidiModel<'_> {
 
     fn lane_bounds(&self, _lane: Pitch) -> LaneBounds {
         LaneBounds {
-            start: TimeMus::zero(),
-            end: Some(self.midi.length),
+            start: TimeMus::new(-1_000_000, 1),
+            end: None,
         }
     }
 
@@ -100,10 +100,10 @@ impl EditModel for MidiModel<'_> {
         };
         let span = Self::span(note);
         TrimLimits {
-            min_start: TimeMus::zero(),
+            min_start: TimeMus::new(-1_000_000, 1),
             max_start: span.end - epsilon(),
             min_end: span.start + epsilon(),
-            max_end: Some(self.midi.length),
+            max_end: None,
         }
     }
 
@@ -260,11 +260,7 @@ pub fn lower_note_plan(
             }
         }
     }
-    for note in &mut out {
-        if note.start + note.length > midi_length {
-            note.length = (midi_length - note.start).max(epsilon());
-        }
-    }
+    let _ = midi_length;
     sort_notes(&mut out);
     let selection = match plan.next {
         NextSelection::Unchanged => NoteSelection::Unchanged,

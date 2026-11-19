@@ -138,7 +138,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Editors mutually exclusive | ✅ Implemented | ⭐⭐⭐ | |
 | Master track pinned | ✅ Implemented | ⭐⭐⭐ | |
 | DSP analysis window render | ✅ Implemented | ⭐⭐ | |
-| Piano roll interaction | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-ui/tests/piano_roll.rs` covers open/render, clickable key preview, zero-width time selection, marquee selection, create/delete, collision-aware move/resize, vertical velocity editing, and copy/paste. `notwig-engine/tests/preview.rs` covers MIDI preview notes. |
+| Piano roll interaction | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-ui/tests/piano_roll.rs` covers open/render, held and automatic note previews, key highlighting, zero-width time selection, marquee expansion, notes outside the clip range, create/delete, keyboard nudging, collision-aware move/resize, vertical velocity editing, and copy/paste. `notwig-engine/tests/preview.rs` covers held and automatic preview note-offs. |
 | Loop range edge resize | 🧪 Partial | ⭐⭐⭐ | Range math is tested; the egui edge hit-testing path is not. |
 | Meter reset and peak hold | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-app/tests/transport.rs` covers stop reset; `notwig-ui/tests/track_info.rs` covers peak hold and click reset. |
 | Recovery modal render | 📋 Planned | ⭐⭐⭐ | The recovery load/discard behavior is tested at the workspace level. |

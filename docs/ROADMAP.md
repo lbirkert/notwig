@@ -156,7 +156,7 @@ Dependencies worth planning around:
 | --- | --- | --- | --- |
 | MIDI note model | 🧪 Partial | ⭐⭐⭐⭐⭐ | Pitch, start, length, velocity, release velocity, and an opaque expression map. The expression map is unused. |
 | Note commands | ✅ Implemented | ⭐⭐⭐⭐⭐ | `SetNote`, `CreateNote`, `SetNotes`, `DeleteNote`, and `DeleteNotes` validate MIDI clips, IDs, pitch/velocity, and clip bounds. Covered by apply-layer tests. |
-| Piano roll | ✅ Implemented | ⭐⭐⭐⭐⭐ | Shared clip chrome and beat strip, clickable piano keys with note preview, combined marquee/time/object selection, note creation and collision-aware resize/move, vertical velocity sliders, and headless interaction tests. |
+| Piano roll | ✅ Implemented | ⭐⭐⭐⭐⭐ | Shared clip chrome and beat strip, clickable piano keys with held note preview and key highlighting, notes outside the clip range, combined marquee/time/object selection, keyboard nudging, collision-aware resize/move, vertical velocity sliders, and headless interaction tests. |
 | Note move, resize, and velocity editing | ✅ Implemented | ⭐⭐⭐⭐⭐ | Single and group move in time and pitch, edge resize, and velocity editing. |
 | Multi-note selection and editing | ✅ Implemented | ⭐⭐⭐⭐ | Additive selection with group move, copy, cut, paste, duplicate, and delete. |
 | Quantize, groove, swing, humanize | 📋 Planned | ⭐⭐⭐⭐ |  |

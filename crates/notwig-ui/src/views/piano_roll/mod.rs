@@ -26,6 +26,7 @@ pub mod test_api {
     }
 
     pub const ROW_HEIGHT: f32 = super::geometry::ROW_HEIGHT;
+    pub const RULER_H: f32 = super::panel::RULER_H;
 
     #[allow(clippy::too_many_arguments)]
     pub fn handle_piano_roll_actions(

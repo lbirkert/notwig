@@ -12,7 +12,7 @@ use crate::widgets::snap_step;
 
 const HEADER_W: f32 = 230.0;
 const ROW_H: f32 = 64.0;
-const RULER_H: f32 = 30.0;
+const RULER_H: f32 = 38.0;
 const SCROLLBAR_H: f32 = 14.0;
 pub(crate) const TRACK_INDENT: f32 = 14.0;
 
@@ -103,6 +103,7 @@ impl NotwigUi {
             play_start: runtime.play_start,
             playhead: playhead.unwrap_or(start - TimeMus::new(1_000_000, 1)),
             show_play_start: true,
+            loop_bottom_inset: 2.0,
         };
         if let Some(action) = strip.show(ui, ruler_rect, Id::new("arranger-ruler")) {
             match action {

@@ -15,7 +15,6 @@ use crate::engine::{EngineConfig, EngineError};
 use crate::factory::DeviceFactory;
 
 const PREVIEW_POOL_CAPACITY: usize = 32;
-const PREVIEW_LENGTH_MS: u64 = 160;
 
 #[derive(Debug, Clone, Copy)]
 struct PreviewSlot {
@@ -144,7 +143,6 @@ pub struct ActivePlan {
     assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
     active_notes: BTreeMap<TrackId, BTreeMap<NoteId, (u8, f32)>>,
     preview_pool: [Option<PreviewSlot>; PREVIEW_POOL_CAPACITY],
-    preview_length_frames: u32,
     panic_pending: bool,
     tempo_bpm: f64,
     sample_rate: u32,
@@ -210,11 +208,6 @@ impl ActivePlan {
             assets,
             active_notes: BTreeMap::new(),
             preview_pool: [None; PREVIEW_POOL_CAPACITY],
-            preview_length_frames: u32::try_from(
-                u64::from(plan.config.sample_rate) * PREVIEW_LENGTH_MS / 1000,
-            )
-            .unwrap_or(u32::MAX)
-            .max(1),
             panic_pending: false,
             tempo_bpm: plan.config.tempo_bpm,
             sample_rate: plan.config.sample_rate,
@@ -259,8 +252,24 @@ impl ActivePlan {
             pitch: preview.pitch,
             velocity: preview.velocity.clamp(0.0, 1.0),
             on_emitted: false,
-            frames_until_off: self.preview_length_frames,
+            frames_until_off: preview.length_mus.map_or(u32::MAX, |length| {
+                let map = notwig_core::TempoMap {
+                    tempo_bpm: self.tempo_bpm,
+                    sample_rate: notwig_core::SampleRate(self.sample_rate),
+                };
+                u32::try_from(map.mus_to_samples(length).max(1))
+                    .unwrap_or(u32::MAX)
+                    .max(1)
+            }),
         });
+    }
+
+    pub(crate) fn release_preview_note(&mut self, track_id: TrackId, note_id: NoteId) {
+        for preview in self.preview_pool.iter_mut().flatten() {
+            if preview.track_id == track_id && preview.note_id == note_id {
+                preview.frames_until_off = 0;
+            }
+        }
     }
 
     pub fn initiate_all_notes_off(&mut self) {

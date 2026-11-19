@@ -443,6 +443,9 @@ impl Engine {
             for preview in self.control_data.preview_notes.drain(..) {
                 runtime.queue_preview_note(preview);
             }
+            for (track_id, note_id) in self.control_data.preview_offs.drain(..) {
+                runtime.release_preview_note(track_id, note_id);
+            }
         }
 
         if self.control_data.all_notes_off {

@@ -19,9 +19,6 @@ use notwig_dsp::Unit;
 pub fn snap_step(pixels_per_beat: f32, beats_per_bar: u8) -> TimeMus {
     let bar = f64::from(beats_per_bar.max(1));
     let candidates = [
-        1.0 / 64.0,
-        1.0 / 32.0,
-        1.0 / 16.0,
         1.0 / 8.0,
         1.0 / 4.0,
         1.0 / 2.0,

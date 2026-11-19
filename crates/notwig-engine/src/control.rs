@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use notwig_core::protocol::RampSpec;
 use notwig_core::{
     AssetId, AudioAssetBuffer, Db, DeviceId, NoteId, Pan, ParamId, ParamValue, PlaybackSchedule,
-    TrackId,
+    TimeMus, TrackId,
 };
 use notwig_dsp::CompiledPlan;
 
@@ -55,6 +55,9 @@ pub struct PreviewNote {
     pub note_id: NoteId,
     pub pitch: u8,
     pub velocity: f32,
+    /// `None` holds the note until an explicit release; `Some(length)` schedules
+    /// an automatic note-off.
+    pub length_mus: Option<TimeMus>,
 }
 
 /// Control data produced by the app thread and consumed by the audio thread.
@@ -73,6 +76,7 @@ pub struct EngineData {
     pub(crate) track_states: Vec<TrackStateUpdate>,
     pub(crate) params: Vec<ParamUpdate>,
     pub(crate) preview_notes: Vec<PreviewNote>,
+    pub(crate) preview_offs: Vec<(TrackId, NoteId)>,
     pub(crate) transport: Option<TransportUpdate>,
     pub(crate) all_notes_off: bool,
 }
@@ -108,6 +112,10 @@ impl EngineData {
 
     pub fn push_preview_note(&mut self, preview: PreviewNote) {
         self.preview_notes.push(preview);
+    }
+
+    pub fn push_preview_off(&mut self, track_id: TrackId, note_id: NoteId) {
+        self.preview_offs.push((track_id, note_id));
     }
 
     pub fn clear(&mut self) {

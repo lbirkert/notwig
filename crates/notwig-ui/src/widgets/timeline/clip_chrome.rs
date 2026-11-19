@@ -158,7 +158,7 @@ pub(crate) fn draw_clip_marker(
     grid: TimelineGrid,
     content: Rect,
     ruler: Rect,
-    lanes: Rect,
+    _lanes: Rect,
     beat: TimeMus,
     label: &str,
     color: Color32,
@@ -168,31 +168,41 @@ pub(crate) fn draw_clip_marker(
     if x < content.left() - 1.0 || x > content.right() + 1.0 {
         return;
     }
-    painter.line_segment(
-        [egui::pos2(x, ruler.top()), egui::pos2(x, lanes.bottom())],
-        Stroke::new(1.5_f32, color),
-    );
-    painter.add(egui::Shape::convex_polygon(
+    let center_y = ruler.bottom() - 7.0;
+    let half_height = 7.0;
+    let width = 11.0;
+    let points = if align == Align2::RIGHT_TOP {
         vec![
-            egui::pos2(x, ruler.top()),
-            egui::pos2(x + 7.0, ruler.top() + 7.0),
-            egui::pos2(x, ruler.top() + 7.0),
-        ],
+            egui::pos2(x, center_y - half_height),
+            egui::pos2(x, center_y + half_height),
+            egui::pos2(x - width, center_y),
+        ]
+    } else {
+        vec![
+            egui::pos2(x, center_y - half_height),
+            egui::pos2(x, center_y + half_height),
+            egui::pos2(x + width, center_y),
+        ]
+    };
+    painter.add(egui::Shape::convex_polygon(
+        points,
         color,
-        Stroke::NONE,
+        Stroke::new(1.0_f32, color.gamma_multiply(0.62)),
     ));
-    painter.text(
-        egui::pos2(
-            if align == Align2::RIGHT_TOP {
-                x - 3.0
-            } else {
-                x + 3.0
-            },
-            ruler.top(),
-        ),
-        align,
-        label,
-        FontId::monospace(8.0),
-        color,
-    );
+    if !label.is_empty() {
+        painter.text(
+            egui::pos2(
+                if align == Align2::RIGHT_TOP {
+                    x - 3.0
+                } else {
+                    x + 3.0
+                },
+                ruler.top(),
+            ),
+            align,
+            label,
+            FontId::monospace(8.0),
+            color,
+        );
+    }
 }

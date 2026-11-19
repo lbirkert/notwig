@@ -64,11 +64,11 @@ impl TimelineGrid {
                 Stroke::new(
                     1.0_f32,
                     if strong {
-                        theme::GRID_STRONG
+                        egui::Color32::from_rgb(92, 97, 112)
                     } else if beat_line {
-                        theme::GRID
+                        theme::GRID_STRONG
                     } else {
-                        theme::GRID.gamma_multiply(0.55)
+                        theme::GRID
                     },
                 ),
             );

@@ -5,7 +5,7 @@ use notwig_core::ids::{Device as DeviceMarker, DeviceChain, Note as NoteMarker, 
 use notwig_core::protocol::{Command, CommandPayload, PlaybackSchedule};
 use notwig_core::tracks::TrackKind;
 use notwig_core::{
-    DeviceKind, Id, Meta, ParamId, ParamValue, ProjectDoc, SampleRate, TrackId, apply,
+    DeviceKind, Id, Meta, ParamId, ParamValue, ProjectDoc, SampleRate, TimeMus, TrackId, apply,
 };
 use notwig_dsp::devices::{ProcessContext, ProcessStatus};
 use notwig_dsp::{CompiledPlan, DeviceProcessor, EngineCaps, NoteEvent, NoteKind, PlanDevice};
@@ -163,6 +163,7 @@ fn preview_note_plays_and_releases_while_transport_is_stopped() {
         note_id,
         pitch: 64,
         velocity: 0.5,
+        length_mus: Some(TimeMus::new(32, 100)),
     });
     producer.flush();
 
@@ -202,6 +203,7 @@ fn all_notes_off_drops_pending_previews() {
         note_id,
         pitch: 60,
         velocity: 1.0,
+        length_mus: None,
     });
     producer.data_mut().request_all_notes_off();
     producer.flush();
@@ -211,5 +213,48 @@ fn all_notes_off_drops_pending_previews() {
     assert!(
         events.iter().all(|(_, event)| event.kind != NoteKind::On),
         "all-notes-off should clear the pending preview before it sounds"
+    );
+}
+
+#[test]
+fn held_preview_note_releases_on_explicit_note_off() {
+    let (mut engine, mut producer, events, track) = setup();
+    let note_id = id::<NoteMarker>(79);
+    let mut output = vec![0.0_f32; 256 * 2];
+    engine.process(&mut output, 256).unwrap();
+
+    producer.data_mut().push_preview_note(PreviewNote {
+        track_id: track,
+        note_id,
+        pitch: 67,
+        velocity: 0.7,
+        length_mus: None,
+    });
+    producer.flush();
+    for _ in 0..4 {
+        engine.process(&mut output, 256).unwrap();
+    }
+    {
+        let events = events.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|(_, event)| event.kind == NoteKind::On && event.note_id == note_id)
+        );
+        assert!(
+            events
+                .iter()
+                .all(|(_, event)| event.kind != NoteKind::Off || event.note_id != note_id)
+        );
+    }
+
+    producer.data_mut().push_preview_off(track, note_id);
+    producer.flush();
+    engine.process(&mut output, 256).unwrap();
+    let events = events.lock().unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|(_, event)| event.kind == NoteKind::Off && event.note_id == note_id)
     );
 }

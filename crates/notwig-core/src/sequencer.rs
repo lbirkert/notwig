@@ -185,7 +185,7 @@ impl MidiClipData {
                     id: note.id.to_string(),
                 });
             }
-            note.validate(self.length)?;
+            note.validate()?;
         }
         Ok(())
     }
@@ -201,25 +201,15 @@ impl MidiClipData {
 }
 
 impl NoteEntity {
-    pub fn validate(&self, content_length: TimeMus) -> Result<(), CoreError> {
+    pub fn validate(&self) -> Result<(), CoreError> {
         if self.pitch > 127 {
             return Err(CoreError::ValidationFailed {
                 reason: "note pitch must be in 0..=127".into(),
             });
         }
-        if self.start < TimeMus::zero() {
-            return Err(CoreError::ValidationFailed {
-                reason: "note start must not be negative".into(),
-            });
-        }
         if self.length <= TimeMus::zero() {
             return Err(CoreError::ValidationFailed {
                 reason: "note length must be positive".into(),
-            });
-        }
-        if self.start + self.length > content_length {
-            return Err(CoreError::ValidationFailed {
-                reason: "note extends beyond MIDI content length".into(),
             });
         }
         if !(0.0..=1.0).contains(&self.velocity.0) {

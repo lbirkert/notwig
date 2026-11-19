@@ -576,9 +576,13 @@ impl NotwigApp {
                 note_id,
                 pitch,
                 velocity,
+                length_mus,
             } => self
                 .workspace
-                .preview_note(track_id, note_id, pitch, velocity),
+                .preview_note(track_id, note_id, pitch, velocity, length_mus),
+            UiIntent::ReleasePreviewNote { track_id, note_id } => {
+                self.workspace.release_preview_note(track_id, note_id);
+            }
             UiIntent::SplitClip { clip_id, at } => {
                 let result = self.workspace.split_clip(clip_id, at);
                 let _ = self.report(result);

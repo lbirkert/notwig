@@ -1,12 +1,13 @@
 use notwig_core::edit;
-use notwig_core::{ClipEntity, MidiClipData, TimeMus};
+use notwig_core::{ClipEntity, MidiClipData, RangeMus, TimeMus};
 
 use crate::commands::{KeyChord, ShortcutCommand};
 use crate::shell::NotwigUi;
 use crate::state::EditFocus;
 use crate::widgets::snap_time;
 
-use super::geometry::content_time_from_beat;
+use super::geometry::{clamp_pitch_shift, content_time_from_beat};
+use super::model::Pitch;
 use super::model::{MidiModel, apply_note_lowered, lower_note_plan};
 use super::state::PianoRollState;
 use crate::views::arranger::edit::paste_target;
@@ -65,6 +66,10 @@ pub(super) fn handle_piano_roll_actions(
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);
     let selection = state.selection();
 
+    if !selection.objects.is_empty() {
+        move_selection_with_arrows(ui, ctx, state, midi, grid, &selection);
+    }
+
     if !selection.is_empty() {
         if cut {
             let pair = {
@@ -107,9 +112,6 @@ pub(super) fn handle_piano_roll_actions(
             let at = content_time_from_beat(beat, clip.range.start, midi.content_start);
             snap_time(at.max(TimeMus::zero()), grid, false)
         };
-        let at = at
-            .max(TimeMus::zero())
-            .min((midi.length - extract.length).max(TimeMus::zero()));
         let plan = {
             let model = MidiModel::new(midi);
             edit::paste(&model, &extract, at)
@@ -121,13 +123,91 @@ pub(super) fn handle_piano_roll_actions(
     }
 
     if duplicate && !selection.is_empty() {
-        let plan = {
+        let plan = if selection.objects.is_empty() {
             let model = MidiModel::new(midi);
             edit::duplicate(&model, &selection)
+        } else {
+            let model = MidiModel::new(midi);
+            let extract = edit::copy(&model, &selection);
+            let bounding_start = selection
+                .objects
+                .iter()
+                .filter_map(|id| midi.notes.iter().find(|note| note.id == *id))
+                .map(|note| note.start)
+                .min();
+            match (extract, bounding_start) {
+                (Ok(extract), Some(bounding_start)) => {
+                    let offset = state
+                        .time_selection()
+                        .map_or(extract.length, RangeMus::length);
+                    let at = bounding_start + offset;
+                    edit::paste(&model, &extract, at)
+                }
+                (Err(err), _) => Err(err),
+                (Ok(_), None) => edit::duplicate(&model, &selection),
+            }
         };
         if let Ok(plan) = plan {
             let lowered = lower_note_plan(midi.length, &midi.notes, plan);
             apply_note_lowered(ui, state, midi, lowered);
         }
+    }
+}
+
+fn move_selection_with_arrows(
+    ui: &mut NotwigUi,
+    ctx: &egui::Context,
+    state: &mut PianoRollState,
+    midi: &mut MidiClipData,
+    grid: TimeMus,
+    selection: &edit::Selection<Pitch, notwig_core::NoteId>,
+) {
+    let (left, right, up, down, shift) = ctx.input(|input| {
+        (
+            input.key_pressed(egui::Key::ArrowLeft),
+            input.key_pressed(egui::Key::ArrowRight),
+            input.key_pressed(egui::Key::ArrowUp),
+            input.key_pressed(egui::Key::ArrowDown),
+            input.modifiers.shift,
+        )
+    });
+    if !left && !right && !up && !down {
+        return;
+    }
+
+    let model = MidiModel::new(midi);
+    let plan = if left || right {
+        let delta = if left { TimeMus::zero() - grid } else { grid };
+        edit::move_selection(&model, selection, delta)
+    } else {
+        let semitones = if shift { 12 } else { 1 };
+        let requested = if up { semitones } else { -semitones };
+        let pitches: Vec<u8> = selection
+            .objects
+            .iter()
+            .filter_map(|id| midi.notes.iter().find(|note| note.id == *id))
+            .map(|note| note.pitch)
+            .collect();
+        let shift = clamp_pitch_shift(requested, &pitches);
+        let moves: Vec<edit::ObjectMove<Pitch, notwig_core::NoteId>> = selection
+            .objects
+            .iter()
+            .filter_map(|id| midi.notes.iter().find(|note| note.id == *id))
+            .filter_map(|note| {
+                let lane = Pitch((i32::from(note.pitch) + shift).clamp(0, 127) as u8);
+                RangeMus::new(note.start, note.start + note.length)
+                    .ok()
+                    .map(|span| edit::ObjectMove {
+                        object: note.id,
+                        lane,
+                        span,
+                    })
+            })
+            .collect();
+        edit::relocate_objects(&model, &moves)
+    };
+    if let Ok(plan) = plan {
+        let lowered = lower_note_plan(midi.length, &midi.notes, plan);
+        apply_note_lowered(ui, state, midi, lowered);
     }
 }

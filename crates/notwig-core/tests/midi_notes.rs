@@ -204,12 +204,7 @@ fn create_note_rejects_duplicate_ids() {
 #[test]
 fn create_note_validates_bounds_and_pitch() {
     let (doc, clip) = midi_doc(Vec::new());
-    for bad in [
-        note(1, 60, -1, 1),
-        note(1, 60, 3, 2),
-        note(1, 128, 0, 1),
-        note(1, 60, 0, 0),
-    ] {
+    for bad in [note(1, 128, 0, 1), note(1, 60, 0, 0)] {
         let result = run(
             &doc,
             CommandPayload::CreateNote {
@@ -221,6 +216,21 @@ fn create_note_validates_bounds_and_pitch() {
             matches!(result, Err(CoreError::ValidationFailed { .. })),
             "expected validation failure"
         );
+    }
+}
+
+#[test]
+fn create_note_allows_notes_outside_the_midi_content_bounds() {
+    let (doc, clip) = midi_doc(Vec::new());
+    for allowed in [note(1, 60, -2, 1), note(2, 60, 8, 2)] {
+        let result = run(
+            &doc,
+            CommandPayload::CreateNote {
+                clip_id: clip,
+                note: allowed,
+            },
+        );
+        assert!(result.is_ok(), "notes outside content should be editable");
     }
 }
 
@@ -279,7 +289,7 @@ fn set_notes_validates_every_note_before_committing() {
         &doc,
         CommandPayload::SetNotes {
             clip_id: clip,
-            notes: vec![note(1, 62, 1, 1), note(2, 64, 3, 2)],
+            notes: vec![note(1, 62, 1, 1), note(2, 128, 3, 2)],
         },
     );
     assert!(matches!(result, Err(CoreError::ValidationFailed { .. })));
