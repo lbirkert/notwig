@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use notwig_core::{DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue, SchemaVersion};
+use notwig_core::{Db, DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue, SchemaVersion};
 use uuid::Uuid;
 
 use crate::devices::{
@@ -55,6 +55,18 @@ pub fn p_eq_shift() -> ParamId {
     param_id(0x2101)
 }
 
+fn input_gain_param(id: ParamId) -> ParamSpec {
+    ParamSpec::continuous(id, "Input Gain", Unit::Decibels, -24.0, 24.0, 0.0)
+}
+
+fn output_gain_param(id: ParamId) -> ParamSpec {
+    ParamSpec::continuous(id, "Output Gain", Unit::Decibels, -24.0, 24.0, 0.0)
+}
+
+fn dry_wet_param(id: ParamId) -> ParamSpec {
+    ParamSpec::continuous(id, "Dry/Wet", Unit::Percent, 0.0, 1.0, 1.0)
+}
+
 fn audio_ports() -> Vec<Port> {
     vec![
         Port {
@@ -82,27 +94,13 @@ pub fn tool_spec() -> DeviceSpec {
         kind: DeviceKind::AudioFx,
         ports: audio_ports(),
         params: vec![
-            ParamSpec::continuous(
-                p_input_gain(),
-                "Input Gain",
-                Unit::Decibels,
-                -24.0,
-                24.0,
-                0.0,
-            ),
-            ParamSpec::continuous(
-                p_output_gain(),
-                "Output Gain",
-                Unit::Decibels,
-                -24.0,
-                24.0,
-                0.0,
-            ),
+            input_gain_param(p_input_gain()),
+            output_gain_param(p_output_gain()),
             ParamSpec::continuous(p_pan(), "Pan", Unit::None, -1.0, 1.0, 0.0),
             ParamSpec::continuous(p_width(), "Stereo Width", Unit::Percent, 0.0, 2.0, 1.0),
             ParamSpec::boolean(p_polarity_l(), "Polarity L", false),
             ParamSpec::boolean(p_polarity_r(), "Polarity R", false),
-            ParamSpec::continuous(p_dry_wet(), "Dry/Wet", Unit::Percent, 0.0, 1.0, 1.0),
+            dry_wet_param(p_dry_wet()),
         ],
         latency_samples: 0,
         name: "Tool".into(),
@@ -151,14 +149,7 @@ pub fn eq_spec() -> DeviceSpec {
             0.707,
         ));
     }
-    params.push(ParamSpec::continuous(
-        p_eq_output_gain(),
-        "Output Gain",
-        Unit::Decibels,
-        -24.0,
-        24.0,
-        0.0,
-    ));
+    params.push(output_gain_param(p_eq_output_gain()));
     params.push(ParamSpec::continuous(
         p_eq_shift(),
         "Shift",
@@ -187,23 +178,9 @@ pub fn chain_spec() -> DeviceSpec {
         kind: DeviceKind::Container,
         ports: audio_ports(),
         params: vec![
-            ParamSpec::continuous(
-                p_input_gain(),
-                "Input Gain",
-                Unit::Decibels,
-                -24.0,
-                24.0,
-                0.0,
-            ),
-            ParamSpec::continuous(
-                p_output_gain(),
-                "Output Gain",
-                Unit::Decibels,
-                -24.0,
-                24.0,
-                0.0,
-            ),
-            ParamSpec::continuous(p_dry_wet(), "Dry/Wet", Unit::Percent, 0.0, 1.0, 1.0),
+            input_gain_param(p_input_gain()),
+            output_gain_param(p_output_gain()),
+            dry_wet_param(p_dry_wet()),
         ],
         latency_samples: 0,
         name: "Chain".into(),
@@ -317,9 +294,9 @@ impl ToolSmoothing {
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
         let value = value.as_f64().unwrap_or(0.0);
         if param_id == p_input_gain() {
-            self.input_gain.set_target(10.0_f64.powf(value / 20.0));
+            self.input_gain.set_target(Db(value as f32).to_gain_f64());
         } else if param_id == p_output_gain() {
-            self.output_gain.set_target(10.0_f64.powf(value / 20.0));
+            self.output_gain.set_target(Db(value as f32).to_gain_f64());
         } else if param_id == p_pan() {
             self.pan.set_target(value.clamp(-1.0, 1.0));
         } else if param_id == p_width() {
@@ -696,7 +673,7 @@ impl DeviceProcessor for EqProcessor {
         store_value(&mut self.values, param_id, value);
         if param_id == p_eq_output_gain() {
             let gain = value.as_f64().unwrap_or(0.0);
-            self.output_gain.set_target(10.0_f64.powf(gain / 20.0));
+            self.output_gain.set_target(Db(gain as f32).to_gain_f64());
         }
     }
 
@@ -789,9 +766,9 @@ impl DeviceProcessor for ChainProcessor {
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
         let db = value.as_f64().unwrap_or(0.0);
         if param_id == p_input_gain() {
-            self.wet_gain.set_target(10.0_f64.powf(db / 20.0));
+            self.wet_gain.set_target(Db(db as f32).to_gain_f64());
         } else if param_id == p_output_gain() {
-            self.output_gain.set_target(10.0_f64.powf(db / 20.0));
+            self.output_gain.set_target(Db(db as f32).to_gain_f64());
         } else if param_id == p_dry_wet() {
             self.dry_wet.set_target(db.clamp(0.0, 1.0));
         }

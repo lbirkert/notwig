@@ -84,24 +84,35 @@ parameters, and refreshes the playback schedule without rebuilding the plan.
 
 ### Audio output
 
-`notwig-app::audio::AudioService` owns the CPAL output stream. The callback:
+`notwig-app::audio::AudioService` owns the CPAL output stream and the
+audio-thread `Engine`. The audio thread does not share a mutex with the UI.
+Instead the app publishes control data through the exchange described in
+[`AUDIO_ENGINE.md`](AUDIO_ENGINE.md):
 
-- tries to lock the engine,
-- processes one block,
-- updates playhead, meters, and DSP timing in an `AudioSnapshot`,
-- drains engine events.
+- the app owns a `Box<EngineData>` and modifies it without locks;
+- `EngineControl::flush` swaps it into `Mutex<(Option<Box<EngineData>>, bool)>`;
+- the audio thread tries the slot once per fixed frame interval, swaps its own
+  control box, and applies the new data;
+- a retired box, runtime, plan, and asset map return to the app thread, so the
+  audio thread does not free them.
 
-The UI thread reads snapshots through `try_lock` and never blocks the audio
-thread. If the engine lock is busy, the callback outputs silence for that block
-rather than blocking.
+Normal control updates apply in place and keep DSP state. Structural changes
+arrive as a prebuilt `PreparedRuntime` produced by the engine build/plugin-loader
+thread. The audio thread only moves the prepared value into place; it never
+compiles a plan, instantiates a plugin, or allocates buffers.
 
-The engine itself chunks oversized device blocks to `max_block_size` so a large
-host block cannot violate device expectations. Stop triggers all-notes-off and
+The callback then processes one block and updates playhead, meters, and DSP
+timing in an `AudioSnapshot`. The UI reads snapshots through `try_lock` and never
+blocks the audio thread. If the control slot is contended, the audio thread
+skips that sync point and retries at the next interval.
+
+The engine chunks oversized device blocks to `max_block_size` so a large host
+block cannot violate device expectations. Stop triggers all-notes-off and
 renders the tail with clip playback disabled.
 
-The intended real-time invariant is no allocation, blocking locks, file I/O,
-plugin loading, or unbounded work in the callback. This is a work in progress;
-snapshot updates and some engine-side allocations still need tightening.
+The real-time invariant is no allocation, blocking locks, file I/O, plugin
+loading, or unbounded work in the audio callback. Control exchange and
+prepared-runtime swaps are designed to preserve that invariant.
 
 ### Project persistence
 
@@ -118,8 +129,14 @@ project.notwig/
 ```
 
 `notwig-project` validates the schema major version, normalizes volatile fields
-(playing/recording), reports missing assets as load issues, and offers recovery
-when a session lock and autosave snapshots exist.
+(playing/recording), and reports missing assets as load issues. The app creates
+`session.lock` when a bundle is opened or saved and removes it on clean exit.
+When a lock and autosave snapshots are both present, the app offers to recover
+the latest autosave or discard it before continuing.
+
+User settings are stored separately from projects. Shortcut bindings and the
+audio driver, device, and block size live in per-user config files; the sample
+rate stays project-scoped.
 
 ## Crates at a glance
 
@@ -163,3 +180,6 @@ when a session lock and autosave snapshots exist.
   implement the behavior in `notwig-app::Workspace` or `gui`.
 - **Plugin formats**: implement a `HostAdapter` in `notwig-plugins`; keep
   format-specific types inside that crate.
+- **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
+  handle it in the focused view. Bindings are edited in Settings and persisted
+  by `notwig-app`.

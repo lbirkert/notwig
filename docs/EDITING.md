@@ -6,9 +6,9 @@ Related: [`EDITING_TESTING.md`](./EDITING_TESTING.md).
 
 ## 1. Problem
 
-The arranger and the audio clip editor already implement duplicate, copy, paste, cut, delete, move, and trim. The MIDI and automation editors will need the same operations later. Today each editor owns its selection type, clipboard, clamping rules, destination clearing, and duplicate target math. The audio clip editor has a second clipboard and a second copy of duplicate.
+The arranger and the audio clip editor already implement duplicate, copy, paste, cut, delete, move, and trim. The MIDI and automation editors will need the same operations later. A previous implementation gave each editor its own selection type, clipboard, clamping rules, destination clearing, and duplicate target math. The audio clip editor had a second clipboard and a second copy of duplicate.
 
-The result is not only duplicated code. A fixed bug has to be fixed four times, and a test only proves that one editor behaves correctly.
+The result was not only duplicated code. A fixed bug had to be fixed four times, and a test only proved that one editor behaved correctly.
 
 This design puts the operations behind one seam. Each editor projects its content into a small model, calls the same algebra, and lowers the result into document commands.
 
@@ -762,12 +762,12 @@ The algebra has no behaviour to preserve yet. Build it first, then move one edit
 2. Add the tape model, property tests, and explicit snapshot tests from [`EDITING_TESTING.md`](./EDITING_TESTING.md) before any adapter exists. The pure tests are the reference.
 3. Add the arranger model (`ClipId`, `TrackId`, clip payloads) and lowering in `notwig-app/src/edit_lowering.rs`.
 4. Replace the clip-level editing functions in `notwig-app/src/workspace.rs`: `copy_clips`, `copy_time_range`, `cut_selection`, `paste_clips`, `delete_time_range`, `duplicate_time_range`, and the duplicate helpers. The app keeps asset and notification concerns.
-5. Add the audio clip editor model (`SliceId`, one clip lane) and slice lowering in `notwig-ui/src/clip_editor.rs`. Delete the old copy, paste, and delete helpers.
+5. Add the audio clip editor model (`SliceId`, one clip lane) and slice lowering in `notwig-ui/src/views/audio_editor/`. Delete the old copy, paste, and delete helpers.
 6. Move the shared selection state from `notwig-ui/src/state.rs` and the slice editor into the core `Selection` type. Keep view state such as viewport, cursor, and drag origin in the UI.
-7. Replace the helpers in `notwig-ui/src/edit.rs` with the algebra and the gesture helpers. `EditTarget`, `ClipboardMode`, `duplicate_plan`, `paste_target`, `clamp_node_shift`, `clamp_bar_shift`, and `duplicate_bar_range` all disappear.
+7. Replace the helpers in `notwig-ui/src/views/arranger/edit.rs` with the algebra and the gesture helpers. `EditTarget`, `ClipboardMode`, `duplicate_plan`, `paste_target`, `clamp_node_shift`, `clamp_bar_shift`, and `duplicate_bar_range` all disappear.
 8. Add the MIDI and automation adapters when those editors land. They should not need new algebra.
 
-Bugs this removes from the current code:
+Bugs this removed from the previous implementation:
 
 - Slice paste and slice duplicate append onto existing slices without clearing the destination, so overlap rules are not enforced.
 - The arranger and the clip editor have different duplicate target math and different clipboard lifetimes.

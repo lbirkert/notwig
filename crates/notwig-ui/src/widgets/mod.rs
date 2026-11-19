@@ -2,6 +2,12 @@ mod draggable_number;
 mod fader;
 mod knob;
 
+pub(crate) mod drop_target;
+pub(crate) mod form;
+pub(crate) mod icons;
+pub(crate) mod theme;
+pub(crate) mod timeline;
+
 pub(crate) use draggable_number::draggable_number;
 pub(crate) use fader::{DB_MAX, DB_MIN, volume_fader};
 pub(crate) use knob::knob;

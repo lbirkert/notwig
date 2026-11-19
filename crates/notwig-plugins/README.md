@@ -13,17 +13,20 @@ macOS uses `truce-rack`; format-specific types stay inside this crate.
 
 - `PluginHost` and the `HostAdapter` boundary.
 - VST3/AU adapters (feature-gated) backed by `truce-rack`.
-- Plugin scan cache read/write.
-- `PluginDescriptor`, `PluginInstance`, `PluginState`, capabilities, formats,
-  and `PluginError`.
+- Plugin scan cache read/write. Cache persistence is best-effort and not part of
+  project recovery, so it intentionally does not share `notwig-project`'s atomic
+  write helper.
+- `PluginDescriptor`, its format-prefixed type IDs, `PluginInstance`,
+  `PluginState`, capabilities, formats, and `PluginError`.
 - Native plugin editor window lifecycle.
 - Instantiation, parameter descriptions, state save/restore, and latency
-  reporting through the format-agnostic API.
+  reporting through the format-agnostic API. The `truce-rack` 1.1.5 adapter
+  cannot query plugin latency, so it reports zero with `reports_latency: false`.
 
 ## Does not own
 
 - Plugin scan policy, background process launching, or UI cache display (see
-  `notwig-app/src/plugins.rs` and `notwig-ui/src/device/`).
+  `notwig-app/src/plugins.rs` and `notwig-ui/src/views/device_editor/`).
 - Device graph placement or real-time execution (see `notwig-dsp` and
   `notwig-engine`).
 - Project persistence of device instances (see `notwig-core` and

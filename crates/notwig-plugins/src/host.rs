@@ -124,6 +124,14 @@ impl PluginHost {
         discovered
     }
 
+    fn adapter_for(&self, format: PluginFormat) -> Result<&dyn HostAdapter, PluginError> {
+        self.adapters
+            .iter()
+            .find(|adapter| adapter.format() == format)
+            .map(std::convert::AsRef::as_ref)
+            .ok_or(PluginError::BackendUnavailable(format))
+    }
+
     pub fn load(
         &mut self,
         descriptor: &PluginDescriptor,
@@ -134,17 +142,11 @@ impl PluginHost {
         if self.cache.is_blacklisted(&descriptor.type_id) {
             return Err(PluginError::Blacklisted(descriptor.type_id.clone()));
         }
-        let Some(adapter) = self
-            .adapters
-            .iter()
-            .find(|adapter| adapter.format() == descriptor.format)
-        else {
-            return Err(PluginError::BackendUnavailable(descriptor.format));
-        };
+        let result = self.adapter_for(descriptor.format)?.load(descriptor);
         if !self.cache.records().contains_key(&descriptor.type_id) {
             self.cache.record(descriptor.clone());
         }
-        match adapter.load(descriptor) {
+        match result {
             Ok(instance) => Ok(instance),
             Err(err) => {
                 self.cache
@@ -170,13 +172,6 @@ impl PluginHost {
     }
 
     pub fn open_editor(&self, descriptor: &PluginDescriptor) -> Result<(), PluginError> {
-        let Some(adapter) = self
-            .adapters
-            .iter()
-            .find(|adapter| adapter.format() == descriptor.format)
-        else {
-            return Err(PluginError::BackendUnavailable(descriptor.format));
-        };
-        adapter.open_editor(descriptor)
+        self.adapter_for(descriptor.format)?.open_editor(descriptor)
     }
 }

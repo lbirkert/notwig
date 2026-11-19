@@ -1,0 +1,14 @@
+- Midi Editor needs the same beat strip and clip start/end handles as audio editor. (Make sure to DRY them so they look exactly the same!)
+- Midi Editor's piano on the left should be clickable (clicking a note should play the note)
+- Midi editor needs combined time and object selection that works roughly like this:
+  - Draw a rectangle using the mouse over the notes and time selection we want to select
+  - Draw start/end of selection using the same time selection markers as in Audio Editor and highlight the selected notes
+  - Support similar operations to audio editor (CMD + D, delete, copy, paste, cut, move)
+  - Selecting notes by clicking on them also should work. This sets time selection to min/max of the selected notes.
+- Double clicking notes should discard them.
+- Clicking a note lane right now places the note below the lane that was clicked.
+- Double clicking lane at an empty spot should similarly to audio editor find note end != note start such that note end is not within a note. Single click should set bar selection to empty selection like in audio editor.
+- Playhead should like in aranger be hidden if playback is paused/stopped.
+- Notes in midi editor should be the same color as the clip's color.
+- Notes may not coexist over each other. Resizing a note over another note should trim/delete it.
+- Make velocities a little vertical slider with a circle at the end that sits at note start. Additionally, decrease Pianos z-Index so it is drawn below velocity and below panel title.

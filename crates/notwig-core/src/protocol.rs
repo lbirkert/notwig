@@ -156,6 +156,18 @@ pub enum CommandPayload {
         clip_id: ClipId,
         note: crate::sequencer::NoteEntity,
     },
+    CreateNote {
+        clip_id: ClipId,
+        note: crate::sequencer::NoteEntity,
+    },
+    SetNotes {
+        clip_id: ClipId,
+        notes: Vec<crate::sequencer::NoteEntity>,
+    },
+    DeleteNotes {
+        clip_id: ClipId,
+        note_ids: Vec<NoteId>,
+    },
     DeleteNote {
         clip_id: ClipId,
         note_id: NoteId,

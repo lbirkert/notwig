@@ -106,14 +106,7 @@ impl Rational {
 }
 
 fn gcd_i64(a: i64, b: i64) -> i64 {
-    let mut a = a.abs();
-    let mut b = b.abs();
-    while b != 0 {
-        let t = b;
-        b = a % b;
-        a = t;
-    }
-    if a == 0 { 1 } else { a }
+    i64::try_from(gcd_i128(i128::from(a), i128::from(b))).unwrap_or(1)
 }
 
 impl Add for Rational {
@@ -156,14 +149,18 @@ fn rational_from_i128(mut num: i128, mut den: i128) -> Rational {
 }
 
 fn gcd_i128(a: i128, b: i128) -> i128 {
-    let mut a = a.abs();
-    let mut b = b.abs();
+    let mut a = a.unsigned_abs();
+    let mut b = b.unsigned_abs();
     while b != 0 {
         let t = b;
         b = a % b;
         a = t;
     }
-    if a == 0 { 1 } else { a }
+    if a == 0 {
+        1
+    } else {
+        i128::try_from(a).unwrap_or(i128::MAX)
+    }
 }
 
 impl PartialOrd for Rational {
@@ -272,7 +269,12 @@ impl Db {
 
     #[must_use]
     pub fn to_gain(self) -> GainLinear {
-        GainLinear(10.0_f32.powf(self.0 / 20.0))
+        GainLinear(self.to_gain_f64() as f32)
+    }
+
+    #[must_use]
+    pub fn to_gain_f64(self) -> f64 {
+        10.0_f64.powf(f64::from(self.0) / 20.0)
     }
 }
 

@@ -173,6 +173,8 @@ impl DeviceProcessor for RackPluginInstance {
     }
 
     fn latency(&self) -> Latency {
+        // `truce-rack` 1.x does not expose a plugin latency query, so the rack
+        // adapter reports zero and marks `reports_latency` accordingly.
         Latency { samples: 0 }
     }
 }
@@ -187,6 +189,7 @@ impl PluginInstance for RackPluginInstance {
             has_editor: self.plugin.info().has_editor,
             supports_state: true,
             reports_latency: false,
+            latency_samples: 0,
         }
     }
 

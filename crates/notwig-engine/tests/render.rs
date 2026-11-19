@@ -68,6 +68,7 @@ fn add_asset(doc: &mut ProjectDoc, n: u128, frames: u64) -> AssetId {
                 id: asset,
                 kind: AssetKind::Audio,
                 uri: format!("assets/{asset}.wav"),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -679,6 +680,101 @@ fn audio_slices_render_in_their_clip_local_regions() {
     assert!(
         output[30_000 * 2].abs() > 0.05,
         "second slice should render"
+    );
+}
+
+#[test]
+fn audio_event_starting_before_the_clip_plays_from_the_visible_source_offset() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 552, 48_000);
+    add_audio_clip(&mut doc, track, asset, 42, 2);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipSlices {
+            clip_id: id::<ClipMarker>(42),
+            slices: vec![AudioSlice {
+                id: id::<SliceMarker>(1),
+                start: Rational::new(-1, 1),
+                source_start_sample: 0,
+                source_end_sample: 48_000,
+                gain_db: Db(0.0),
+                asset_id: None,
+            }],
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    let mut samples = vec![0.0; 48_000 * 2];
+    for frame in 0..48_000 {
+        let value = frame as f32 / 48_000.0;
+        samples[frame * 2] = value;
+        samples[frame * 2 + 1] = value;
+    }
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(
+            asset,
+            AudioAssetBuffer {
+                sample_rate: 48_000,
+                channels: 2,
+                samples,
+            },
+        )],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 48_000).unwrap();
+    // The event starts one beat (24_000 samples) before the clip. The hidden
+    // part is skipped, so the first audible sample comes from source 24_000 and
+    // the ramp is at 0.5; 12_000 samples later it must be at 0.75.
+    assert!(
+        output[0] > 0.1,
+        "expected the visible source offset to be audible, got {}",
+        output[0]
+    );
+    let ratio = output[12_000 * 2] / output[0];
+    assert!(
+        (ratio - 1.5).abs() < 0.02,
+        "expected source samples 24_000 then 36_000, ratio {ratio}"
+    );
+}
+
+#[test]
+fn audio_event_starting_after_the_clip_renders_silence() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 553, 48_000);
+    add_audio_clip(&mut doc, track, asset, 43, 2);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipSlices {
+            clip_id: id::<ClipMarker>(43),
+            slices: vec![AudioSlice {
+                id: id::<SliceMarker>(1),
+                start: Rational::new(3, 1),
+                source_start_sample: 0,
+                source_end_sample: 48_000,
+                gain_db: Db(0.0),
+                asset_id: None,
+            }],
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(48_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 48_000).unwrap();
+    let peak = output
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    assert!(
+        peak < 1e-4,
+        "event beyond the clip should be silent, {peak}"
     );
 }
 

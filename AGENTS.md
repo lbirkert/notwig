@@ -13,12 +13,13 @@ phase.
 - **Stack:** Rust, Cargo workspace, `egui` + `wgpu`, CPAL, `truce-rack` for
   VST3/AU hosting.
 - **Platform:** macOS first; platform-specific code sits behind adapters.
-- **Implemented today:** project bundles, autosave/recovery, undo/redo, tracks,
-  Arranger, MIDI/audio clips at the clip level, audio clip event editing, device
-  chains with stock EQ/Tool/Chain, VST3/AU hosting, render mixdown, audio
-  settings, and DSP load analysis.
-- **Not implemented yet:** audio/MIDI recording, live input/monitoring, MIDI
-  note and automation editors, Clip Launcher/scenes, comping/takes, warping,
+- **Implemented today:** project bundles, autosave/recovery with a startup
+  recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
+  event editing, a MIDI piano roll, device chains with stock EQ/Tool/Chain,
+  VST3/AU hosting, render mixdown, persisted audio settings, customizable
+  keyboard shortcuts, and DSP load analysis.
+- **Not implemented yet:** audio/MIDI recording, live input/monitoring,
+  automation editing, Clip Launcher/scenes, comping/takes, warping,
   tempo/time-signature automation, modulation/macros runtime, metronome,
   stock instruments, Windows/Linux builds, collaboration, and out-of-process
   plugin hosting.
@@ -65,6 +66,7 @@ and boundaries. Start there when working inside a crate.
    intentionally designed API: cohesive, documented, hard to misuse, and stable
    enough that other crates can depend on it. Do not make an implementation
    detail public just because another module needs it.
+5. **Tests belong in the tests folder. Sources in src.**
 
 ### Architecture and ownership
 

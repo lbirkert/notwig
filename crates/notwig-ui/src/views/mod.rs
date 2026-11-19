@@ -1,0 +1,10 @@
+pub(crate) mod arranger;
+pub(crate) mod audio_editor;
+pub(crate) mod device_editor;
+pub(crate) mod dsp;
+pub(crate) mod info;
+pub(crate) mod panel;
+pub(crate) mod piano_roll;
+pub(crate) mod render;
+pub(crate) mod settings;
+pub(crate) mod shell;

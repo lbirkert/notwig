@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use notwig_plugins::{
-    HostAdapter, PluginDescriptor, PluginError, PluginFormat, PluginHost, PluginInstance,
-    UnavailableAdapter,
+    HostAdapter, PluginCapabilities, PluginDescriptor, PluginError, PluginFormat, PluginHost,
+    PluginInstance, UnavailableAdapter,
 };
 
 fn descriptor() -> PluginDescriptor {
@@ -71,4 +71,11 @@ fn custom_adapter_scan_merges_and_sorts() {
     let found = host.scan(&[]);
     assert!(found.iter().any(|d| d.type_id == "au.test"));
     let _ = UnavailableAdapter::new(PluginFormat::Vst2);
+}
+
+#[test]
+fn capabilities_default_to_no_latency_report() {
+    let capabilities = PluginCapabilities::default();
+    assert!(!capabilities.reports_latency);
+    assert_eq!(capabilities.latency_samples, 0);
 }

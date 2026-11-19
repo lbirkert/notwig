@@ -1,9 +1,10 @@
-use notwig_core::{ParamValue, TimeMus};
+use notwig_core::{ParamId, ParamValue, TimeMus};
 use notwig_dsp::DeviceProcessor;
-use notwig_dsp::devices::{ProcessContext, RenderConfig, TransportInfo};
+use notwig_dsp::devices::{DeviceSpec, ProcessContext, RenderConfig, TransportInfo};
+use notwig_dsp::params::{ParamSpec, Unit};
 use notwig_dsp::stock::{
-    EqProcessor, ToolProcessor, band_param, eq_spec, p_input_gain, p_output_gain, p_polarity_l,
-    tool_spec,
+    EqProcessor, ToolProcessor, band_param, chain_spec, eq_spec, p_dry_wet, p_eq_output_gain,
+    p_input_gain, p_output_gain, p_polarity_l, tool_spec,
 };
 
 fn config() -> RenderConfig {
@@ -13,6 +14,22 @@ fn config() -> RenderConfig {
         channels: 2,
         tempo_bpm: 120.0,
     }
+}
+
+fn param(spec: &DeviceSpec, id: ParamId) -> &ParamSpec {
+    spec.params
+        .iter()
+        .find(|param| param.id == id)
+        .expect("parameter exists")
+}
+
+fn assert_db_param(spec: &DeviceSpec, id: ParamId, name: &str) {
+    let param = param(spec, id);
+    assert_eq!(param.name, name);
+    assert_eq!(param.unit, Unit::Decibels);
+    assert_eq!(param.range.min, -24.0);
+    assert_eq!(param.range.max, 24.0);
+    assert_eq!(param.default, ParamValue::F64(0.0));
 }
 
 fn ctx(config: RenderConfig) -> ProcessContext<'static> {
@@ -62,6 +79,32 @@ fn tool_gain_changes_are_smoothed() {
         after[47_998].abs() < 0.005,
         "gain should settle to the target"
     );
+}
+
+#[test]
+fn stock_gain_specs_keep_their_contract() {
+    let tool = tool_spec();
+    assert_db_param(&tool, p_input_gain(), "Input Gain");
+    assert_db_param(&tool, p_output_gain(), "Output Gain");
+
+    let eq = eq_spec();
+    assert_db_param(&eq, p_eq_output_gain(), "Output Gain");
+
+    let chain = chain_spec();
+    assert_db_param(&chain, p_input_gain(), "Input Gain");
+    assert_db_param(&chain, p_output_gain(), "Output Gain");
+}
+
+#[test]
+fn stock_dry_wet_specs_keep_their_contract() {
+    for spec in [tool_spec(), chain_spec()] {
+        let param = param(&spec, p_dry_wet());
+        assert_eq!(param.name, "Dry/Wet");
+        assert_eq!(param.unit, Unit::Percent);
+        assert_eq!(param.range.min, 0.0);
+        assert_eq!(param.range.max, 1.0);
+        assert_eq!(param.default, ParamValue::F64(1.0));
+    }
 }
 
 #[test]

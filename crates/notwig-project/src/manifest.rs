@@ -1,6 +1,12 @@
 use notwig_core::{AssetEntry, ProjectDoc, SCHEMA_VERSION, SchemaVersion};
 use serde::{Deserialize, Serialize};
 
+/// On-disk wrapper around a [`ProjectDoc`].
+///
+/// `doc` is authoritative. The top-level `schema`, `assets`, `created_utc`, and
+/// `modified_utc` fields are advisory copies kept for external inspection; load
+/// validates `schema` against `doc.schema` and reads project state only from
+/// `doc`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
     pub schema: SchemaVersion,

@@ -4,6 +4,7 @@ use notwig_core::{AssetEntry, AssetId, AssetKind, AudioAssetBuffer};
 use sha2::{Digest, Sha256};
 
 use crate::error::ProjectError;
+use crate::fsutil;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResampleQuality {
@@ -239,18 +240,21 @@ pub fn import_asset(
         samples,
     };
     let assets_dir = bundle.join("assets");
-    std::fs::create_dir_all(&assets_dir)?;
+    fsutil::ensure_dir(&assets_dir)?;
     let temporary = assets_dir.join(format!("{asset_id}.wav.tmp"));
     write_wav_f32(&temporary, project_rate, channels, &buffer.samples)?;
     let hash = hash_file(&temporary)?;
     let file_name = format!("{hash}.wav");
     let final_path = assets_dir.join(&file_name);
-    std::fs::rename(&temporary, &final_path)?;
+    fsutil::finalize_atomic(&temporary, &final_path)?;
     let uri = PathBuf::from("assets").join(file_name);
     let entry = AssetEntry {
         id: asset_id,
         kind: AssetKind::Audio,
         uri: uri.to_string_lossy().into_owned(),
+        original_name: source
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned()),
         hash: Some(hash),
         format: "wav".into(),
         sample_rate: Some(project_rate),

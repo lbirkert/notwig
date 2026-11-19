@@ -12,8 +12,10 @@ real-time code.
 ## Owns
 
 - Saving and opening the project bundle directory.
+- Atomic JSON writes for the project manifest and autosave snapshots.
 - The versioned JSON manifest and schema-major checks.
 - Autosave snapshots, cleanup, and recovery detection.
+- `session.lock` creation/removal helpers used by the app to detect unclean exits.
 - WAV/AIFF/MP3/FLAC/OGG decoding through `symphonia`.
 - Offline resampling to the project sample rate.
 - Managed asset copies under `assets/`.
@@ -30,10 +32,14 @@ project.notwig/
   autosave/
   state/
   cache/
+  session.lock    # present only while a session owns the bundle
 ```
 
 `project.json` contains a `Manifest` with schema, app version, asset entries,
-timestamps, and the full `ProjectDoc`.
+timestamps, and the full `ProjectDoc`. The embedded `doc` is authoritative; the
+top-level manifest copies are advisory and their schema is checked against
+`doc.schema` on load. Manifest saves, autosaves, and asset finalization use
+temp-file-and-rename writes.
 
 ## Does not own
 
@@ -49,9 +55,11 @@ timestamps, and the full `ProjectDoc`.
 | `bundle.rs` | Save/open/autosave/recovery |
 | `manifest.rs` | Manifest, schema version, load issues |
 | `assets.rs` | Decode, resample, import, WAV export |
+| `fsutil.rs` | Atomic file/JSON writes and directory creation |
 | `error.rs` | `ProjectError` |
 
 ## Tests
 
 Integration tests in `tests/` cover bundle round-trips, autosave/recovery,
-asset import, resampling, and export. Audio fixtures live in `tests/fixtures/`.
+session lock lifecycle, corrupt autosaves, asset import, resampling, and export.
+Audio fixtures live in `tests/fixtures/`.

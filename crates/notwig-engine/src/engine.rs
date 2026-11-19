@@ -4,8 +4,13 @@ use std::sync::Arc;
 use notwig_core::{AssetId, AudioAssetBuffer, EngineMsg, PlaybackSchedule, RtEvent, TimeMus};
 use notwig_dsp::CompiledPlan;
 
+use crate::control::{ControlHandle, EngineData, PreparedRuntime};
 use crate::factory::{DeviceFactory, StockDeviceFactory};
 use crate::runtime::ActivePlan;
+
+/// The audio thread checks the shared control slot once per this many frames.
+/// This is deterministic and keeps the lock attempt off most callbacks.
+pub const DEFAULT_CONTROL_SYNC_FRAMES: u64 = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineConfig {
@@ -72,13 +77,17 @@ pub struct Engine {
     config: EngineConfig,
     plan: Option<Arc<CompiledPlan>>,
     schedule: Option<Arc<PlaybackSchedule>>,
-    assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
+    assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
     transport: TransportRuntime,
     runtime: Option<ActivePlan>,
     events: VecDeque<RtEvent>,
     factory: Arc<dyn DeviceFactory>,
     xruns: u64,
     all_notes_off: bool,
+    control: Option<ControlHandle>,
+    control_data: Box<EngineData>,
+    control_sync_frames: u64,
+    control_frames_until_sync: u64,
 }
 
 impl std::fmt::Debug for Engine {
@@ -104,14 +113,81 @@ impl Engine {
             config,
             plan: None,
             schedule: None,
-            assets: BTreeMap::new(),
+            assets: Arc::new(BTreeMap::new()),
             transport: TransportRuntime::default(),
             runtime: None,
             events: VecDeque::with_capacity(256),
             factory,
             xruns: 0,
             all_notes_off: false,
+            control: None,
+            control_data: Box::default(),
+            control_sync_frames: DEFAULT_CONTROL_SYNC_FRAMES,
+            control_frames_until_sync: DEFAULT_CONTROL_SYNC_FRAMES,
         }
+    }
+
+    /// Attach the app-side control slot. The audio thread pulls updates from
+    /// this handle at a fixed frame interval without blocking.
+    pub fn attach_control(&mut self, control: ControlHandle) {
+        self.control = Some(control);
+        self.control_frames_until_sync = self.control_sync_frames.max(1);
+    }
+
+    pub fn set_control_sync_frames(&mut self, frames: u64) {
+        self.control_sync_frames = frames.max(1);
+        self.control_frames_until_sync =
+            self.control_frames_until_sync.min(self.control_sync_frames);
+    }
+
+    /// Build a runtime on a loader/build thread. The audio thread only swaps
+    /// this prepared value into place.
+    pub fn prepare_runtime(
+        config: EngineConfig,
+        factory: Arc<dyn DeviceFactory>,
+        plan: Arc<CompiledPlan>,
+        schedule: Arc<PlaybackSchedule>,
+        assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
+    ) -> Result<Box<PreparedRuntime>, EngineError> {
+        let runtime = ActivePlan::build(
+            &plan,
+            &schedule,
+            Arc::clone(&assets),
+            config,
+            factory.as_ref(),
+        )?;
+        Ok(Box::new(PreparedRuntime {
+            plan,
+            schedule,
+            assets,
+            runtime,
+        }))
+    }
+
+    /// Construct an offline/test engine from a prepared runtime without
+    /// rebuilding processors.
+    #[must_use]
+    pub fn from_prepared(
+        config: EngineConfig,
+        factory: Arc<dyn DeviceFactory>,
+        prepared: Box<PreparedRuntime>,
+        transport: TransportRuntime,
+        all_notes_off: bool,
+    ) -> Self {
+        let PreparedRuntime {
+            plan,
+            schedule,
+            assets,
+            runtime,
+        } = *prepared;
+        let mut engine = Self::with_factory(config, factory);
+        engine.plan = Some(plan);
+        engine.schedule = Some(schedule);
+        engine.assets = assets;
+        engine.runtime = Some(runtime);
+        engine.transport = transport;
+        engine.all_notes_off = all_notes_off;
+        engine
     }
 
     #[must_use]
@@ -205,7 +281,7 @@ impl Engine {
                 }
             }
             EngineMsg::PrepareAudioAsset { asset_id, buffer } => {
-                self.assets.insert(asset_id, Arc::clone(&buffer));
+                Arc::make_mut(&mut self.assets).insert(asset_id, Arc::clone(&buffer));
                 if let Some(runtime) = &mut self.runtime {
                     runtime.set_asset(asset_id, buffer);
                 } else {
@@ -226,7 +302,7 @@ impl Engine {
         let runtime = ActivePlan::build(
             plan,
             schedule,
-            &self.assets,
+            Arc::clone(&self.assets),
             self.config,
             self.factory.as_ref(),
         )?;
@@ -253,6 +329,127 @@ impl Engine {
         out.extend(self.events.drain(..));
     }
 
+    fn maybe_sync_control(&mut self, frames: usize) {
+        let Some(control) = &self.control else {
+            return;
+        };
+        self.control_frames_until_sync =
+            self.control_frames_until_sync.saturating_sub(frames as u64);
+        if self.control_frames_until_sync > 0 {
+            return;
+        }
+        self.control_frames_until_sync = self.control_sync_frames.max(1);
+
+        // Never block the callback. If the app is publishing, skip this sync
+        // point and retry at the next interval.
+        let Ok(mut exchange) = control.exchange().try_lock() else {
+            return;
+        };
+        if !exchange.updated {
+            return;
+        }
+        let Some(incoming) = exchange.data.take() else {
+            exchange.updated = false;
+            return;
+        };
+        let retired = std::mem::replace(&mut self.control_data, incoming);
+        exchange.data = Some(retired);
+        exchange.updated = false;
+        drop(exchange);
+
+        self.apply_control_data();
+    }
+
+    fn apply_control_data(&mut self) {
+        if let Some(prepared) = self.control_data.prepared.take() {
+            let PreparedRuntime {
+                plan,
+                schedule,
+                assets,
+                runtime,
+            } = *prepared;
+            if let Some(old) = self.runtime.replace(runtime) {
+                self.control_data.retired_runtime = Some(old);
+            }
+            if let Some(old) = self.plan.replace(plan) {
+                self.control_data.retired_plan = Some(old);
+            }
+            if let Some(old) = self.schedule.replace(schedule) {
+                self.control_data.retired_schedule.push(old);
+            }
+            let old_assets = std::mem::replace(&mut self.assets, assets);
+            self.control_data.retired_assets.push(old_assets);
+
+            let latency = self.plan.as_ref().map_or(0, |plan| plan.total_latency);
+            self.push_event(RtEvent::LatencyChanged {
+                device_id: None,
+                samples: latency,
+            });
+        }
+
+        if let Some(assets) = self.control_data.assets.take() {
+            let old_assets = std::mem::replace(&mut self.assets, Arc::clone(&assets));
+            self.control_data.retired_assets.push(old_assets);
+            if let Some(runtime) = &mut self.runtime {
+                let old_runtime_assets = runtime.replace_assets(assets);
+                self.control_data.retired_assets.push(old_runtime_assets);
+            }
+        }
+
+        if let Some(schedule) = &self.control_data.schedule
+            && !self
+                .schedule
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, schedule))
+        {
+            let schedule = Arc::clone(schedule);
+            if let Some(old) = self.schedule.replace(Arc::clone(&schedule)) {
+                self.control_data.retired_schedule.push(old);
+            }
+            if let Some(runtime) = &mut self.runtime {
+                runtime.set_schedule(schedule);
+            }
+        }
+
+        if let Some(transport) = self.control_data.transport {
+            let jumped = (self.transport.playhead_samples as u64) != transport.playhead_samples;
+            self.transport.playing = transport.playing;
+            self.transport.playhead_samples = transport.playhead_samples as f64;
+            self.transport.loop_enabled = transport.loop_enabled;
+            if let (Some(start), Some(end)) =
+                (transport.loop_start_samples, transport.loop_end_samples)
+            {
+                self.transport.loop_start_samples = start;
+                self.transport.loop_end_samples = end;
+            }
+            if transport.stop || !transport.playing || jumped {
+                self.all_notes_off = true;
+            }
+        }
+
+        if let Some(runtime) = &mut self.runtime {
+            for update in &self.control_data.track_states {
+                runtime.set_track_state(
+                    update.track_id,
+                    update.mute,
+                    update.solo_effective,
+                    update.gain_db,
+                    update.pan,
+                );
+            }
+            for update in &self.control_data.params {
+                runtime.set_param(update.device_id, update.param_id, &update.value);
+            }
+            for preview in self.control_data.preview_notes.drain(..) {
+                runtime.queue_preview_note(preview);
+            }
+        }
+
+        if self.control_data.all_notes_off {
+            self.all_notes_off = true;
+        }
+    }
+
     pub fn process(&mut self, output: &mut [f32], frames: usize) -> Result<(), EngineError> {
         let channels = usize::from(self.config.channels.max(2));
         if output.len() < frames * channels {
@@ -261,6 +458,7 @@ impl Engine {
                 actual: output.len(),
             });
         }
+        self.maybe_sync_control(frames);
         if self.runtime.is_none() {
             return Err(EngineError::NoPlan);
         }
@@ -271,6 +469,9 @@ impl Engine {
             let range = written * 2..(written + count) * 2;
             self.process_chunk(&mut output[range], count)?;
             written += count;
+        }
+        if let Some(control) = &self.control {
+            control.store_playhead_samples(self.playhead_samples());
         }
         Ok(())
     }
@@ -283,11 +484,15 @@ impl Engine {
 
         if !self.transport.playing {
             if let Some(runtime) = &mut self.runtime {
-                runtime.initiate_all_notes_off();
+                // A stopped transport silences active notes once, but must keep
+                // rendering so UI-triggered preview notes can still sound.
+                if self.all_notes_off {
+                    runtime.initiate_all_notes_off();
+                    self.all_notes_off = false;
+                }
                 let start = self.transport.playhead_samples.max(0.0) as u64;
                 let _ = runtime.render(start, frames, stereo, false, false);
             }
-            self.all_notes_off = false;
             self.transport_tick();
             return Ok(());
         }
@@ -296,20 +501,16 @@ impl Engine {
         while written < frames {
             let remaining = frames - written;
             let mut segment = remaining;
-            if self.transport.loop_enabled
-                && self.transport.loop_end_samples > self.transport.loop_start_samples
-            {
-                let playhead = self.transport.playhead_samples.max(0.0) as u64;
-                if playhead >= self.transport.loop_end_samples {
-                    self.transport.playhead_samples = self.transport.loop_start_samples as f64;
-                    self.all_notes_off = true;
-                }
-                let available = self
-                    .transport
-                    .loop_end_samples
-                    .saturating_sub(self.transport.playhead_samples as u64)
-                    as usize;
-                segment = segment.min(available.max(1));
+            let loop_active = self.transport.loop_enabled
+                && self.transport.loop_end_samples > self.transport.loop_start_samples;
+            let playhead_before = self.transport.playhead_samples.max(0.0) as u64;
+            // Only wrap when the playhead actually crosses the loop end. A
+            // playhead already at or beyond the end keeps playing forward; it
+            // should not be yanked back to the loop start.
+            let crosses_loop_end = loop_active && playhead_before < self.transport.loop_end_samples;
+            if crosses_loop_end {
+                let available = self.transport.loop_end_samples - playhead_before;
+                segment = segment.min(usize::try_from(available).unwrap_or(usize::MAX));
             }
 
             if self.all_notes_off {
@@ -345,7 +546,7 @@ impl Engine {
 
             written += segment;
             self.transport.playhead_samples += segment as f64;
-            if self.transport.loop_enabled
+            if crosses_loop_end
                 && self.transport.playhead_samples as u64 >= self.transport.loop_end_samples
             {
                 self.transport.playhead_samples = self.transport.loop_start_samples as f64;

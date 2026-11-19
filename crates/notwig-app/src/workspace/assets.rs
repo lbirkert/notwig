@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use notwig_core::protocol::{CommandPayload, EngineMsg};
+use notwig_core::protocol::CommandPayload;
 use notwig_core::{AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, Id, TrackId};
 use uuid::Uuid;
 
@@ -31,10 +31,10 @@ impl Workspace {
         }
     }
 
-    fn prepare_asset(&self, asset_id: AssetId, buffer: Arc<AudioAssetBuffer>) {
-        if let Ok(mut engine) = self.engine.lock() {
-            let _ = engine.apply(EngineMsg::PrepareAudioAsset { asset_id, buffer });
-        }
+    fn prepare_asset(&mut self) {
+        let assets = Arc::new(self.assets.clone());
+        self.engine_control.data_mut().set_assets(assets);
+        self.engine_control.flush();
     }
 
     pub fn import_audio(&mut self, source: &Path) -> Result<AssetId, String> {
@@ -53,12 +53,12 @@ impl Workspace {
         self.peaks
             .insert(asset_id, compute_peaks(&imported.buffer, 2048));
         let buffer = Arc::new(imported.buffer);
-        self.assets.insert(asset_id, Arc::clone(&buffer));
+        self.assets.insert(asset_id, buffer);
         self.apply(CommandPayload::RegisterAsset {
             asset_id,
             entry: imported.entry,
         })?;
-        self.prepare_asset(asset_id, buffer);
+        self.prepare_asset();
         self.status = Some(format!("Imported {}", source.display()));
         Ok(asset_id)
     }
@@ -148,7 +148,7 @@ impl Workspace {
                 self.peaks.insert(asset_id, compute_peaks(&buffer, 2048));
                 let buffer = Arc::new(buffer);
                 self.assets.insert(asset_id, Arc::clone(&buffer));
-                self.prepare_asset(asset_id, buffer);
+                self.prepare_asset();
                 self.status = Some(format!("Relinked asset to {}", path.display()));
                 Ok(())
             }

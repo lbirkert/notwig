@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use notwig_core::{
-    AssetId, ClipId, Color, Db, DeviceChainId, DeviceId, DeviceKind, Pan, ParamId, ParamValue,
-    RangeMus, TimeMus, TrackId, TrackKind,
+    AssetId, ClipId, Color, Db, DeviceChainId, DeviceId, DeviceKind, NoteEntity, NoteId, Pan,
+    ParamId, ParamValue, RangeMus, TimeMus, TrackId, TrackKind,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +68,8 @@ pub enum UiIntent {
     PasteClips {
         at: TimeMus,
     },
+    SetClipboard(crate::Clipboard),
+    ClipboardError(String),
     DeleteSelection {
         clips: Vec<ClipId>,
         time: Option<(RangeMus, Vec<TrackId>)>,
@@ -112,6 +114,21 @@ pub enum UiIntent {
     SetClipSlices {
         clip_id: ClipId,
         slices: Vec<notwig_core::sequencer::AudioSlice>,
+    },
+    CreateMidiNote {
+        clip_id: ClipId,
+        note: NoteEntity,
+    },
+    EditMidiNotes {
+        clip_id: ClipId,
+        notes: Vec<NoteEntity>,
+        removed: Vec<NoteId>,
+    },
+    PreviewNote {
+        track_id: TrackId,
+        note_id: NoteId,
+        pitch: u8,
+        velocity: f32,
     },
     SetTrackMixer {
         track_id: TrackId,
@@ -158,6 +175,7 @@ pub enum UiIntent {
         value: ParamValue,
     },
     RelinkAsset(AssetId),
+    Quit,
     NewProject,
     NewProjectAtRate(u32),
     OpenProject,

@@ -91,6 +91,7 @@ fn audio_doc() -> ProjectDoc {
                 id: asset,
                 kind: AssetKind::Audio,
                 uri: "assets/test.wav".into(),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -462,6 +463,143 @@ fn ui_renders_headless_without_panicking() {
     assert!(frames >= 2);
 }
 
+fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Text(text) => texts.push(text.galley.text().to_owned()),
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_text(shape, texts);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn footer_chrome_drops_workspace_labels_and_inert_icons() {
+    let doc = doc();
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = clip_editor_screen();
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut texts);
+    }
+    for removed in ["ARRANGE", "MIX", "EDIT", "CLICK"] {
+        assert!(
+            !texts.iter().any(|text| text == removed),
+            "{removed} should no longer render in the footer"
+        );
+    }
+    assert!(
+        texts.iter().any(|text| text.contains("Device Editor")),
+        "the device editor action should still render"
+    );
+    assert!(
+        texts.iter().any(|text| text == "FILE"),
+        "the top bar should still render"
+    );
+}
+
+#[test]
+fn help_window_lists_commands_and_current_bindings() {
+    use notwig_ui::{KeyChord, ShortcutCommand, Shortcuts};
+
+    let doc = doc();
+    let mut ui = NotwigUi::default();
+    let mut shortcuts = Shortcuts::default();
+    shortcuts.assign(
+        ShortcutCommand::GroupTracks,
+        KeyChord {
+            key: egui::Key::G,
+            command: false,
+            ctrl: false,
+            alt: true,
+            shift: false,
+        },
+    );
+    ui.set_shortcuts(shortcuts);
+    ui.show_help = true;
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    // Run two frames so egui lays out and paints the help window.
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(clip_editor_screen()),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(clip_editor_screen()),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut texts);
+    }
+    assert!(
+        texts.iter().any(|text| text.contains("Group Tracks")),
+        "help should include Group Tracks"
+    );
+    assert!(
+        texts.iter().any(|text| text.contains("Alt+G")),
+        "help should render the current binding"
+    );
+}
+
+#[test]
+fn toolbar_and_footer_use_lucide_glyphs() {
+    let doc = doc();
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = clip_editor_screen();
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut texts);
+    }
+    for (name, glyph) in [
+        ("play", '\u{e13c}'),
+        ("stop", '\u{e167}'),
+        ("loop", '\u{e411}'),
+        ("record", '\u{e345}'),
+        ("info", '\u{e0f9}'),
+        ("clip", '\u{e29b}'),
+    ] {
+        assert!(
+            texts.iter().any(|text| text.contains(glyph)),
+            "the {name} icon should render its Lucide glyph"
+        );
+    }
+}
+
 #[test]
 fn snapping_uses_sixteenth_grid_and_alt_bypasses() {
     let time = Rational::new(1, 3);
@@ -829,6 +967,7 @@ fn clip_editor_renders_audio_slices_headlessly() {
                 id: asset,
                 kind: AssetKind::Audio,
                 uri: "assets/test.wav".into(),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -1003,7 +1142,7 @@ fn clip_editor_copy_paste_uses_platform_clipboard_events() {
             .is_some_and(|state| state.selected_contains(slice)),
         "event click should select the slice"
     );
-    let _ = run_ui(
+    let copy_intents = run_ui(
         &ctx,
         &mut ui,
         &doc,
@@ -1011,6 +1150,14 @@ fn clip_editor_copy_paste_uses_platform_clipboard_events() {
         screen,
         vec![egui::Event::Copy],
     );
+    let clipboard = copy_intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipboard(clipboard) => Some(clipboard.clone()),
+            _ => None,
+        })
+        .expect("copy should publish an extract to the shared clipboard");
+    runtime.clipboard = clipboard;
     runtime.playhead = TimeMus::new(3, 1);
     let intents = run_ui(
         &ctx,
@@ -1136,4 +1283,39 @@ fn settings_page_renders_audio_options() {
         },
     );
     assert!(ui.settings_open);
+}
+
+#[test]
+fn dsp_analysis_window_renders_history_and_stats() {
+    use notwig_ui::{DspAnalysisView, RuntimeView};
+    let runtime = RuntimeView {
+        cpu_load: Some(42.0),
+        dsp: DspAnalysisView {
+            history: (0..200).map(|index| (index % 100) as f32).collect(),
+            block_size: 2048,
+            sample_rate: 48_000,
+            deadline_ms: 42.667,
+            load_avg_ms: 0.154,
+            load_max_ms: 0.608,
+            period_jitter_percent: 100.0,
+            input_latency_samples: 2882,
+            output_latency_samples: 2178,
+            timing: "Device".into(),
+        },
+        ..RuntimeView::default()
+    };
+    let mut ui = NotwigUi::default();
+    ui.dsp_open = true;
+    let ctx = egui::Context::default();
+    let screen = clip_editor_screen();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc(), &runtime);
+        },
+    );
+    assert!(ui.dsp_open);
 }

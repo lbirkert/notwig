@@ -12,7 +12,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 
 - The `egui` shell: top bar, transport strip, status bar, shortcuts, and windows.
 - Arranger view and timeline interactions.
-- Audio clip editor and device editor bottom panels.
+- Audio clip editor, MIDI piano roll, and device editor bottom panels.
 - Info panel for tracks, devices, clips, files, and time selections.
 - Device browser and parameter/EQ views.
 - Settings, render mixdown, and DSP load windows.
@@ -32,22 +32,29 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 
 | Module | Contents |
 |---|---|
-| `shell.rs` | App shell, top/status bars, layout, shortcuts |
-| `arranger.rs` | Track lanes and timeline clip interaction |
-| `timeline/` | Beat strip, clip visuals, waveform, grid, selection, drop preview, interaction math |
-| `panel/` | Shared panel chrome, device editor, audio clip editor |
-| `info/` | Left info panel sections |
-| `device/` | Device browser, parameter views, EQ |
-| `settings.rs`, `render.rs`, `dsp.rs` | Popup windows |
-| `widgets/` | Knob, fader, draggable number, formatting, snapping |
+| `views/shell.rs` | App shell, top/status bars, layout, shortcuts |
+| `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
+| `views/dsp.rs` | DSP load analysis window |
+| `views/info/` | Left info panel sections |
+| `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
+| `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
+| `views/piano_roll/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
+| `views/device_editor/` | Device panel, browser, parameter views, EQ |
+| `views/settings/mod.rs` | Settings window and category navigation |
+| `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
+| `commands.rs` | Shortcut command catalog, chords, bindings, and config |
+| `views/render.rs` | Render mixdown window |
+| `widgets/` | Knobs, faders, draggable numbers, form helpers, icons, theme |
+| `widgets/timeline/` | Beat strip, clip visuals, waveform, grid, selection, drop preview, interaction math |
+| `widgets/drop_target.rs` | Drag preview and drop-target resolution |
+| `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
 | `state.rs`, `intent.rs`, `runtime.rs` | View state, intents, runtime projection |
-| `theme.rs`, `icons.rs` | Visual tokens and icons |
 
 ## Tests
 
 Headless `egui` tests live in `tests/`. They cover rendering, selection,
-shortcuts, gestures, timeline math, widgets, and headless window layouts. Use
-`notwig_ui::test_api` only from tests.
+shortcuts, gestures, timeline math, widgets, piano roll editing, and headless
+window layouts. Use `notwig_ui::test_api` only from tests.
 
 See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the UI's place in
 the data flow.

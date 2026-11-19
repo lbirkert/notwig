@@ -307,12 +307,14 @@ pub enum EditFocus {
     #[default]
     Timeline,
     ClipEditor,
+    PianoRoll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenedEditor {
     DeviceEditor,
     ClipEditor,
+    PianoRoll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -333,9 +335,21 @@ pub struct UiState {
     pub selection: Selection,
     pub viewport: Viewport,
     pub notifications: Vec<Notification>,
+    pub peak_hold: std::collections::BTreeMap<TrackId, f32>,
 }
 
 impl UiState {
+    /// Records a block peak and returns the held maximum since the last reset.
+    pub fn record_peak(&mut self, track_id: TrackId, peak: f32) -> f32 {
+        let held = self.peak_hold.entry(track_id).or_insert(0.0);
+        *held = held.max(peak.max(0.0));
+        *held
+    }
+
+    pub fn reset_peak(&mut self, track_id: TrackId) {
+        self.peak_hold.remove(&track_id);
+    }
+
     pub fn notify(&mut self, kind: NotificationKind, message: impl Into<String>) {
         self.notifications.push(Notification {
             kind,

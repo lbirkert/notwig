@@ -5,6 +5,7 @@ use notwig_core::ids::{Asset as AssetMarker, Clip as ClipMarker, Note as NoteMar
 use notwig_core::protocol::CommandPayload;
 use notwig_core::sequencer::NoteEntity;
 use notwig_core::{ClipKind, ClipPayload, Db, DeviceKind, Id, Norm01, Rational, TrackKind};
+use notwig_ui::{NotwigUi, RuntimeView, UiIntent};
 use uuid::Uuid;
 
 fn temp_dir() -> PathBuf {
@@ -127,6 +128,7 @@ fn import_audio_at_places_clip_on_track() {
     assert_eq!(workspace.doc.assets.assets.len(), 1);
     let clip = workspace.doc.arranger.clips.values().next().unwrap();
     assert_eq!(clip.range.start, Rational::new(2, 1));
+    assert_eq!(clip.name.as_deref(), Some("tone.wav"));
     assert_eq!(workspace.assets.len(), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -228,6 +230,145 @@ fn copy_paste_and_time_range_edits_work() {
 }
 
 #[test]
+fn audio_editor_copy_replaces_the_arranger_clipboard() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Instrument).unwrap();
+    let instrument = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Instrument)
+        .unwrap()
+        .id;
+    workspace
+        .create_midi_clip(
+            instrument,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+        )
+        .unwrap();
+    let midi_clip = *workspace.doc.arranger.clips.keys().next().unwrap();
+    assert_eq!(workspace.copy_clips(&[midi_clip]), 1);
+    assert!(matches!(
+        workspace.clipboard(),
+        notwig_ui::Clipboard::Arranger(_)
+    ));
+
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let audio_track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(600));
+    workspace
+        .apply(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: notwig_core::AssetEntry {
+                id: asset,
+                kind: notwig_core::AssetKind::Audio,
+                uri: "assets/test.wav".into(),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(96_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        })
+        .unwrap();
+    let audio_clip = Id::<ClipMarker>::from_uuid(Uuid::from_u128(700));
+    let slice = notwig_core::SliceId::from_uuid(Uuid::from_u128(77));
+    workspace
+        .apply(CommandPayload::CreateClip {
+            id: audio_clip,
+            track_id: audio_track,
+            kind: ClipKind::Audio,
+            range: notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 96_000,
+                gain_db: Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                slices: vec![notwig_core::sequencer::AudioSlice {
+                    id: slice,
+                    start: Rational::zero(),
+                    source_start_sample: 0,
+                    source_end_sample: 48_000,
+                    gain_db: Db(0.0),
+                    asset_id: None,
+                }],
+                slices_enabled: true,
+            }),
+        })
+        .unwrap();
+
+    let mut ui = NotwigUi::default();
+    ui.state
+        .selection
+        .select_clip(audio_clip, audio_track, false);
+    ui.open_clip_editor(audio_clip);
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let runtime = RuntimeView {
+        clipboard: workspace.clipboard().clone(),
+        ..RuntimeView::default()
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &workspace.doc, &runtime);
+        },
+    );
+    ui.clip_editor
+        .as_mut()
+        .expect("clip editor open")
+        .select_node(slice, false);
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::Copy],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &workspace.doc, &runtime);
+        },
+    );
+    let clipboard = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipboard(clipboard) => Some(clipboard.clone()),
+            _ => None,
+        })
+        .expect("audio copy should publish an extract to the shared clipboard");
+    workspace.set_clipboard(clipboard);
+    assert!(matches!(
+        workspace.clipboard(),
+        notwig_ui::Clipboard::AudioClip(_)
+    ));
+
+    let err = workspace
+        .paste_clips(Rational::new(4, 1))
+        .expect_err("an audio extract must not paste into the arranger");
+    assert!(err.contains("another editor"));
+    assert_eq!(
+        workspace.doc.arranger.clips.len(),
+        2,
+        "the rejected paste must not change the arrangement"
+    );
+}
+
+#[test]
 fn node_duplicate_places_a_copy_after_the_source_clip() {
     let mut workspace = Workspace::new_empty().unwrap();
     workspace.create_track(TrackKind::Instrument).unwrap();
@@ -276,6 +417,7 @@ fn delete_time_range_splits_multiple_audio_slices() {
                 id: asset,
                 kind: notwig_core::AssetKind::Audio,
                 uri: "assets/test.wav".into(),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -379,6 +521,7 @@ fn adding_an_audio_event_keeps_the_clip_range() {
                     id: asset,
                     kind: notwig_core::AssetKind::Audio,
                     uri: format!("assets/{asset}.wav"),
+                    original_name: None,
                     hash: None,
                     format: "wav".into(),
                     sample_rate: Some(48_000),
@@ -504,6 +647,7 @@ fn copying_a_time_range_trims_audio_slice_windows() {
                 id: asset,
                 kind: notwig_core::AssetKind::Audio,
                 uri: "assets/copy.wav".into(),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -887,8 +1031,11 @@ fn inserting_stock_device_rebuilds_engine() {
         )
         .unwrap();
     assert_eq!(workspace.doc.devices.len(), 1);
-    let engine = workspace.engine.lock().unwrap();
-    assert!(engine.playhead_samples() < 1_000_000);
+    while workspace.engine_building() {
+        workspace.poll_engine_build();
+        std::thread::yield_now();
+    }
+    assert!(workspace.engine_ready());
 }
 
 #[test]
@@ -1083,7 +1230,7 @@ fn poll_engine_build_installs_engine_and_clears_state() {
         "unexpected engine build error: {:?}",
         workspace.error
     );
-    assert!(workspace.engine.lock().unwrap().playhead_samples() < 1_000_000);
+    assert!(workspace.engine_ready());
 }
 
 #[test]
@@ -1225,6 +1372,7 @@ fn creating_an_empty_audio_clip_keeps_it_silent() {
                 id: asset,
                 kind: notwig_core::AssetKind::Audio,
                 uri: "assets/silent.wav".into(),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -1272,6 +1420,7 @@ fn clip_range_changes_keep_audio_events_intact() {
                 id: asset,
                 kind: notwig_core::AssetKind::Audio,
                 uri: "assets/events.wav".into(),
+                original_name: None,
                 hash: None,
                 format: "wav".into(),
                 sample_rate: Some(48_000),
@@ -1317,7 +1466,102 @@ fn clip_range_changes_keep_audio_events_intact() {
     let ClipPayload::Audio(audio) = &clip.payload else {
         panic!("audio clip");
     };
-    assert_eq!(audio.slices, vec![slice]);
+    assert_eq!(audio.slices.len(), 1);
+    let shifted = &audio.slices[0];
+    assert_eq!(shifted.id, slice.id);
+    assert_eq!(shifted.source_start_sample, slice.source_start_sample);
+    assert_eq!(shifted.source_end_sample, slice.source_end_sample);
+    assert_eq!(
+        range.start + shifted.start,
+        slice.start,
+        "events stay anchored to absolute time"
+    );
+
+    let outside = notwig_core::sequencer::AudioSlice {
+        id: notwig_core::SliceId::from_uuid(Uuid::from_u128(904)),
+        start: Rational::new(-1, 1),
+        source_start_sample: 0,
+        source_end_sample: 48_000,
+        gain_db: Db(0.0),
+        asset_id: None,
+    };
+    workspace
+        .apply(CommandPayload::SetClipSlices {
+            clip_id,
+            slices: vec![outside],
+        })
+        .expect("audio events may extend beyond the clip container");
+}
+
+#[test]
+fn extending_an_audio_clip_left_adds_leading_silence() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(905));
+    workspace
+        .apply(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: notwig_core::AssetEntry {
+                id: asset,
+                kind: notwig_core::AssetKind::Audio,
+                uri: "assets/leading_silence.wav".into(),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(24_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        })
+        .unwrap();
+    let clip_id = Id::<ClipMarker>::from_uuid(Uuid::from_u128(906));
+    workspace
+        .apply(CommandPayload::CreateClip {
+            id: clip_id,
+            track_id: track,
+            kind: ClipKind::Audio,
+            range: notwig_core::RangeMus::new(Rational::new(1, 1), Rational::new(2, 1)).unwrap(),
+            payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 24_000,
+                gain_db: Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
+            }),
+        })
+        .unwrap();
+    workspace
+        .set_clip_range(
+            clip_id,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+        )
+        .expect("left extension should add silence, not reject");
+    let clip = &workspace.doc.arranger.clips[&clip_id];
+    assert_eq!(
+        clip.range,
+        notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap()
+    );
+    let ClipPayload::Audio(audio) = &clip.payload else {
+        panic!("audio clip");
+    };
+    assert!(audio.uses_slices());
+    assert_eq!(audio.slices.len(), 1);
+    assert_eq!(audio.slices[0].start, Rational::new(1, 1));
+    assert_eq!(audio.slices[0].source_start_sample, 0);
+    assert_eq!(audio.slices[0].source_end_sample, 24_000);
 }
 
 #[test]

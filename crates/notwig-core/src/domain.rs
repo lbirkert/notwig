@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
-use crate::ids::{AssetId, DeviceChainId, DeviceId, ParamId};
+use crate::ids::{AssetId, DeviceChainId, DeviceId, ParamId, TrackId};
 use crate::sequencer::ArrangerState;
 use crate::time::{Color, RangeMus, SampleRate, SchemaVersion, TimeMus};
 use crate::tracks::{RoutingGraph, Track, TrackForest};
@@ -105,6 +105,8 @@ pub struct AssetEntry {
     pub id: AssetId,
     pub kind: AssetKind,
     pub uri: String,
+    #[serde(default)]
+    pub original_name: Option<String>,
     pub hash: Option<String>,
     pub format: String,
     pub sample_rate: Option<u32>,
@@ -255,32 +257,8 @@ impl ProjectDoc {
     }
 
     #[must_use]
-    pub fn effective_solo(&self, id: crate::ids::TrackId) -> bool {
-        let any_solo = self.tracks.values().any(|track| track.mixer.solo);
-        if !any_solo {
-            return true;
-        }
-        let Some(track) = self.tracks.get(&id) else {
-            return false;
-        };
-        if track.kind == crate::tracks::TrackKind::Master || track.mixer.solo {
-            return true;
-        }
-        let mut current = track.parent;
-        while let Some(track_id) = current {
-            let Some(parent) = self.tracks.get(&track_id) else {
-                break;
-            };
-            if parent.mixer.solo {
-                return true;
-            }
-            current = parent.parent;
-        }
-        self.track_order.descendants(id).into_iter().any(|child| {
-            self.tracks
-                .get(&child)
-                .is_some_and(|track| track.mixer.solo)
-        })
+    pub fn effective_solo(&self, id: TrackId) -> bool {
+        SoloContext::new(self).is_effective(self, id)
     }
 
     pub fn validate(&self) -> Result<(), CoreError> {
@@ -380,6 +358,51 @@ impl ProjectDoc {
     pub fn allocate_revision(&mut self) -> u64 {
         self.revision = self.revision.saturating_add(1);
         self.revision
+    }
+}
+
+/// Cached solo state for evaluating a whole document consistently.
+///
+/// With no solos every track is audible. Otherwise the master and any soloed
+/// track are audible, as is any track with a soloed ancestor or descendant.
+#[derive(Debug, Clone, Copy)]
+pub struct SoloContext {
+    any_solo: bool,
+}
+
+impl SoloContext {
+    #[must_use]
+    pub fn new(doc: &ProjectDoc) -> Self {
+        Self {
+            any_solo: doc.tracks.values().any(|track| track.mixer.solo),
+        }
+    }
+
+    #[must_use]
+    pub fn is_effective(&self, doc: &ProjectDoc, id: TrackId) -> bool {
+        if !self.any_solo {
+            return true;
+        }
+        let Some(track) = doc.tracks.get(&id) else {
+            return false;
+        };
+        if track.kind == crate::tracks::TrackKind::Master || track.mixer.solo {
+            return true;
+        }
+        let mut current = track.parent;
+        while let Some(track_id) = current {
+            let Some(parent) = doc.tracks.get(&track_id) else {
+                break;
+            };
+            if parent.mixer.solo {
+                return true;
+            }
+            current = parent.parent;
+        }
+        doc.track_order
+            .descendants(id)
+            .into_iter()
+            .any(|child| doc.tracks.get(&child).is_some_and(|track| track.mixer.solo))
     }
 }
 

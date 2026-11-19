@@ -100,20 +100,24 @@ that needs them; most cross-layer types live in `notwig-core`.
 
 | Module | Responsibility |
 |---|---|
-| `shell.rs` | Top bar, transport, status bar, layout, shortcuts, notifications |
-| `arranger.rs` | Track lanes, timeline clips, drag/move/trim, selection gestures |
-| `timeline/` | Shared beat strip, clip visuals, waveform, grid, selection, drop preview, interaction math |
-| `panel/` | Bottom panels: shared chrome, device editor, audio clip editor |
-| `info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
-| `device/` | Device browser, parameter widgets, EQ display |
-| `settings.rs` | Settings window; currently the Audio page is implemented |
-| `render.rs` | Render mixdown window |
-| `dsp.rs` | DSP load analysis window |
-| `widgets/` | Reusable knob, fader, draggable number, formatting, snapping |
+| `views/shell.rs` | Top bar, transport, status bar, layout, shortcuts, notifications |
+| `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
+| `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
+| `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
+| `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
+| `views/piano_roll/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display |
+| `views/dsp.rs` | DSP load analysis window |
+| `views/settings/mod.rs` | Settings window and category navigation |
+| `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
+| `commands.rs` | Shortcut command catalog, chords, bindings, and config |
+| `views/render.rs` | Render mixdown window |
+| `widgets/` | Knobs, faders, draggable numbers, form helpers, icons, theme |
+| `widgets/timeline/` | Shared beat strip, clip visuals, waveform, grid, selection, drop preview, interaction math |
+| `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `state.rs` | Selection, viewport, open editor, notifications, edit focus |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
-| `theme.rs` / `icons.rs` | Visual tokens and icon helpers |
 
 ### `notwig-app` — composition and runtime policy
 
@@ -123,9 +127,12 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `gui.rs` | `eframe` app, intent handling, dialogs, plugin windows, runtime projection |
 | `workspace/mod.rs` | Project lifecycle, command application, undo/redo, tracks, devices, transport |
 | `workspace/assets.rs` | Asset loading, import, relink, peaks, engine asset preparation |
+| `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
+| `audio_config.rs` | Persisted audio driver/device/block-size config |
 | `plugins.rs` | Plugin catalog/cache/scanner subprocess glue |
+| `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Convert edit plans into `CommandPayload`s |
 | `history.rs` | Undo/redo stack with structural/non-structural entries |
 | `logging.rs` | `tracing` initialization |
@@ -143,7 +150,17 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Engine playback/rendering | `crates/notwig-engine/tests/` |
 | Plugin cache/types | `crates/notwig-plugins/tests/` |
 | UI headless rendering, gestures, state | `crates/notwig-ui/tests/` |
+| Piano roll interaction | `crates/notwig-ui/tests/piano_roll.rs` |
+| Clip visuals and trim | `crates/notwig-ui/tests/clip_trim.rs` |
+| Peak hold and reset | `crates/notwig-ui/tests/track_info.rs` |
+| Shortcut bindings and settings page | `crates/notwig-ui/tests/shortcuts.rs` |
 | Workspace and history integration | `crates/notwig-app/tests/` |
+| MIDI note editing through the workspace | `crates/notwig-app/tests/midi_editor.rs` |
+| Audio config persistence | `crates/notwig-app/tests/audio_config.rs` |
+| Session lock and recovery | `crates/notwig-app/tests/recovery.rs` |
+| Tempo, meters, and transport | `crates/notwig-app/tests/transport.rs` |
+| Latency compensation | `crates/notwig-engine/tests/pdc.rs` |
+| Loop wrapping | `crates/notwig-engine/tests/transport.rs` |
 
 UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 `notwig_ui::test_api` only from tests; it is `#[doc(hidden)]`.
@@ -168,6 +185,16 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 4. Add UI-specific presentation only if the generic device panel is insufficient.
 5. Add DSP rendering tests in `crates/notwig-dsp/tests/stock.rs`.
 
+### Add a keyboard shortcut
+
+1. Add a `ShortcutCommand` variant and its `CommandSpec` entry in
+   `notwig-ui/src/commands.rs`, including a stable id and defaults.
+2. Handle the command in `notwig-ui/src/views/shell.rs` (or the focused editor) with
+   `shortcuts.was_pressed(ctx, ShortcutCommand::YourCommand)`.
+3. Emit a `UiIntent` or call the existing workspace/UI behavior.
+4. Add the user-facing action to `docs/ROADMAP.md` when it lands.
+5. Add a config round-trip or capture test under `crates/notwig-ui/tests/`.
+
 ### Add a UI panel or window
 
 1. Keep view code in `notwig-ui`.
@@ -189,11 +216,11 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 These are the largest or most mixed modules. Split along concrete seams when
 changing them; do not add unrelated responsibilities.
 
-- `crates/notwig-ui/src/panel/clip_editor.rs` — view, gestures, lowering, and
+- `crates/notwig-ui/src/views/audio_editor/panel.rs` — view, gestures, lowering, and
   clip-specific state are all in one module.
-- `crates/notwig-ui/src/arranger.rs` — track lanes, clip interaction, and
+- `crates/notwig-ui/src/views/arranger/mod.rs` — track lanes, clip interaction, and
   timeline gestures are still coupled.
-- `crates/notwig-ui/src/shell.rs` — top bar, status bar, shortcuts, and windows.
+- `crates/notwig-ui/src/views/shell.rs` — top bar, status bar, shortcuts, and windows.
 - `crates/notwig-app/src/workspace/mod.rs` — still owns several command groups;
   asset, engine, and plugin concerns have already been extracted.
 

@@ -18,7 +18,7 @@ fn descriptor_from_info(
             i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
         });
     PluginDescriptor {
-        type_id: format!("{}.{}", format.prefix(), info.unique_id),
+        type_id: PluginDescriptor::type_id_for(format, &info.unique_id),
         format,
         path: info.path,
         name: info.name,
@@ -43,11 +43,7 @@ pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> truce_rack:
         },
         path: descriptor.path.clone(),
         unique_id: descriptor.uid.clone(),
-        format: match descriptor.format {
-            PluginFormat::Vst3 => "vst3",
-            PluginFormat::Au => "au",
-            PluginFormat::Vst2 => "vst2",
-        },
+        format: descriptor.format.prefix(),
         has_editor: true,
         accepts_midi: descriptor.is_instrument,
     }

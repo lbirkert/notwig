@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::engine_build::{EngineBuild, EngineBuildRequest};
 use crate::history::History;
@@ -13,23 +13,22 @@ use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlaybackSchedule
 use notwig_core::sequencer::MidiClipData;
 use notwig_core::{
     AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, DeviceChainId, DeviceId, DeviceKind, Id,
-    Meta, ProjectDoc, Rational, SampleRate, SchemaVersion, TrackId, TrackKind, apply,
+    Meta, NoteId, ProjectDoc, Rational, SampleRate, SchemaVersion, TrackId, TrackKind, apply,
 };
 use notwig_dsp::EngineCaps;
-use notwig_engine::{Engine, EngineConfig};
+use notwig_engine::{
+    ControlHandle, Engine, EngineControl, ParamUpdate, PreparedRuntime, PreviewNote,
+    TrackStateUpdate, TransportUpdate,
+};
 use notwig_plugins::PluginDescriptor;
-use notwig_ui::PluginEntry;
+use notwig_ui::{Clipboard, PluginEntry};
 use uuid::Uuid;
 
 use crate::edit_lowering::lower_arranger;
-use notwig_core::edit::{self, ArrangerModel, ClipContent, Extract, SelectionInfo};
+use notwig_core::edit::{self, ArrangerModel, ClipContent, SelectionInfo};
 
 mod assets;
-
-#[derive(Debug, Clone, Default)]
-struct Clipboard {
-    extract: Option<Extract<TrackId, ClipContent>>,
-}
+mod recovery;
 
 pub struct Workspace {
     pub doc: ProjectDoc,
@@ -37,7 +36,8 @@ pub struct Workspace {
     pub dirty: bool,
     pub assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
     pub peaks: BTreeMap<AssetId, Vec<f32>>,
-    pub engine: Arc<Mutex<Engine>>,
+    engine_control: EngineControl,
+    engine_ready: bool,
     pub plugins: Vec<PluginEntry>,
     plugin_descriptors: Vec<PluginDescriptor>,
     plugin_specs: BTreeMap<String, notwig_dsp::DeviceSpec>,
@@ -46,6 +46,7 @@ pub struct Workspace {
     pub last_autosave: std::time::Instant,
     pub play_start: Option<notwig_core::TimeMus>,
     pub audio_block_size: u32,
+    pub recovery_offered: bool,
     clipboard: Clipboard,
     history: History,
     engine_build: EngineBuild,
@@ -87,24 +88,26 @@ impl Workspace {
                 .join("; ");
             workspace.status = Some(format!("Project loaded with issues: {summary}"));
         }
+        workspace.recovery_offered = loaded.recovery_offered;
         if loaded.recovery_offered {
             workspace.status = Some("Recovery autosaves are available.".into());
         }
+        workspace.begin_session();
         Ok(workspace)
     }
 
     fn from_doc(doc: ProjectDoc, bundle: Option<PathBuf>, dirty: bool) -> Self {
-        let sample_rate = doc.meta.sample_rate.value();
         let plugin_descriptors = PluginCatalog::global().descriptors();
         let plugins = plugin_entries(&plugin_descriptors);
-        let engine = Arc::new(Mutex::new(Engine::new(EngineConfig::new(sample_rate, 512))));
+        let engine_control = EngineControl::new();
         let mut workspace = Self {
             doc,
             bundle,
             dirty,
             assets: BTreeMap::new(),
             peaks: BTreeMap::new(),
-            engine,
+            engine_control,
+            engine_ready: false,
             plugins,
             plugin_descriptors,
             plugin_specs: BTreeMap::new(),
@@ -113,6 +116,7 @@ impl Workspace {
             last_autosave: std::time::Instant::now(),
             play_start: None,
             audio_block_size: 512,
+            recovery_offered: false,
             clipboard: Clipboard::default(),
             history: History::default(),
             engine_build: EngineBuild::new(),
@@ -125,42 +129,35 @@ impl Workspace {
 
     #[allow(dead_code)]
     pub fn rebuild_engine(&mut self) -> Result<(), String> {
-        let preserved = self.preserved_playhead_samples();
-        let mut engine = self.build_engine()?;
-        self.apply_transport(&mut engine, preserved)?;
-        *self.engine.lock().map_err(|err| err.to_string())? = engine;
+        let prepared = self.engine_build_request().prepare()?;
+        self.install_prepared_runtime(prepared);
         Ok(())
     }
 
     fn preserved_playhead_samples(&self) -> u64 {
-        self.engine.lock().ok().map_or_else(
-            || {
-                self.doc
-                    .tempo_map()
-                    .mus_to_samples(self.doc.transport.playhead)
-            },
-            |engine| engine.playhead_samples(),
-        )
+        let engine_playhead = self.engine_control.handle().playhead_samples();
+        if engine_playhead > 0 {
+            engine_playhead
+        } else {
+            self.doc
+                .tempo_map()
+                .mus_to_samples(self.doc.transport.playhead)
+        }
     }
 
-    fn apply_transport(&self, engine: &mut Engine, preserved: u64) -> Result<(), String> {
-        let map = self.doc.tempo_map();
-        let (loop_start, loop_end) = self.doc.transport.loop_range.map_or((None, None), |range| {
-            (
-                Some(map.mus_to_samples(range.start)),
-                Some(map.mus_to_samples(range.end)),
-            )
-        });
-        engine
-            .apply(EngineMsg::SetTransport {
-                playing: self.doc.transport.playing,
-                playhead_samples: preserved,
-                loop_enabled: self.doc.transport.loop_enabled,
-                loop_start_samples: loop_start,
-                loop_end_samples: loop_end,
-                stop: false,
-            })
-            .map_err(|err| err.to_string())
+    #[must_use]
+    pub fn engine_control_handle(&self) -> ControlHandle {
+        self.engine_control.handle()
+    }
+
+    #[must_use]
+    pub fn engine_ready(&self) -> bool {
+        self.engine_ready
+    }
+
+    #[doc(hidden)]
+    pub fn offline_engine(&self) -> Result<Engine, String> {
+        self.build_engine()
     }
 
     fn build_engine(&self) -> Result<Engine, String> {
@@ -214,8 +211,8 @@ impl Workspace {
             return false;
         };
         match outcome {
-            Ok(engine) => {
-                self.install_built_engine(engine);
+            Ok(runtime) => {
+                self.install_prepared_runtime(runtime);
                 self.status = Some("Instruments and effects loaded.".into());
             }
             Err(err) => {
@@ -233,40 +230,59 @@ impl Workspace {
         true
     }
 
-    fn install_built_engine(&mut self, mut engine: Engine) {
-        let preserved = self.preserved_playhead_samples();
-        if let Err(err) = self.apply_transport(&mut engine, preserved) {
-            self.error = Some(err);
-        }
-        let old = match self.engine.lock() {
-            Ok(mut slot) => std::mem::replace(&mut *slot, engine),
-            Err(err) => {
-                self.error = Some(err.to_string());
-                return;
-            }
-        };
-        drop(old);
-        self.sync_engine();
+    fn install_prepared_runtime(&mut self, runtime: Box<PreparedRuntime>) {
+        let transport =
+            (!self.engine_ready).then(|| self.transport_update(self.preserved_playhead_samples()));
+        self.engine_ready = true;
+        self.publish_engine_control(transport, false, Some(runtime));
     }
 
     fn sync_engine(&mut self) {
+        self.publish_engine_control(None, false, None);
+    }
+
+    fn transport_update(&self, playhead_samples: u64) -> TransportUpdate {
+        let map = self.doc.tempo_map();
+        let (loop_start, loop_end) = self.doc.transport.loop_range.map_or((None, None), |range| {
+            (
+                Some(map.mus_to_samples(range.start)),
+                Some(map.mus_to_samples(range.end)),
+            )
+        });
+        TransportUpdate {
+            playing: self.doc.transport.playing,
+            playhead_samples,
+            loop_enabled: self.doc.transport.loop_enabled,
+            loop_start_samples: loop_start,
+            loop_end_samples: loop_end,
+            stop: false,
+        }
+    }
+
+    fn publish_engine_control(
+        &mut self,
+        transport: Option<TransportUpdate>,
+        all_notes_off: bool,
+        prepared: Option<Box<PreparedRuntime>>,
+    ) {
         let schedule = Arc::new(PlaybackSchedule::from_doc(&self.doc));
-        let track_states: Vec<EngineMsg> = self
-            .doc
-            .tracks
-            .values()
-            .map(|track| EngineMsg::SetTrackState {
+        let data = self.engine_control.data_mut();
+        if let Some(prepared) = prepared {
+            data.set_prepared_runtime(prepared);
+        }
+        data.set_schedule(schedule);
+        for track in self.doc.tracks.values() {
+            data.push_track_state(TrackStateUpdate {
                 track_id: track.id,
                 mute: track.mixer.mute,
                 solo_effective: self.doc.effective_solo(track.id),
                 gain_db: track.mixer.volume_db,
                 pan: track.mixer.pan,
-            })
-            .collect();
-        let mut messages = track_states;
+            });
+        }
         for device in self.doc.devices.values() {
             for (param_id, value) in &device.param_values {
-                messages.push(EngineMsg::SetParam {
+                data.push_param(ParamUpdate {
                     device_id: device.id,
                     param_id: *param_id,
                     value: value.clone(),
@@ -274,20 +290,22 @@ impl Workspace {
                 });
             }
         }
-        let Ok(mut engine) = self.engine.lock() else {
-            return;
-        };
-        if engine
-            .apply(EngineMsg::UpdateSchedule { schedule })
-            .is_err()
-        {
-            return;
+        if let Some(transport) = transport {
+            data.set_transport(transport);
         }
-        for message in messages {
-            if engine.apply(message).is_err() {
-                break;
-            }
+        if all_notes_off {
+            data.request_all_notes_off();
         }
+        self.engine_control.flush();
+    }
+
+    /// Re-publish transport and force a fresh prepared runtime after the audio
+    /// stream is recreated.
+    pub fn engine_audio_restarted(&mut self) {
+        self.engine_ready = false;
+        let transport = self.transport_update(self.preserved_playhead_samples());
+        self.publish_engine_control(Some(transport), false, None);
+        self.request_engine_rebuild();
     }
 
     pub fn apply(&mut self, payload: CommandPayload) -> Result<(), String> {
@@ -306,12 +324,9 @@ impl Workspace {
                 }
                 if structural {
                     self.request_engine_rebuild();
-                } else if let Ok(mut engine) = self.engine.lock() {
-                    for message in result.engine_msgs {
-                        if engine.apply(message).is_err() {
-                            break;
-                        }
-                    }
+                } else {
+                    let (transport, all_notes_off) = control_updates(result.engine_msgs);
+                    self.publish_engine_control(transport, all_notes_off, None);
                 }
                 self.error = None;
                 Ok(())
@@ -361,9 +376,21 @@ impl Workspace {
                 .clone()
                 .ok_or_else(|| "project has no bundle path; use Save As".to_string())?,
         };
+        let previous = self.bundle.clone();
         notwig_project::save(&self.doc, &path).map_err(|err| err.to_string())?;
         self.bundle = Some(path.clone());
+        if previous.as_deref() != Some(path.as_path())
+            && let Some(previous) = previous
+            && let Err(err) = notwig_project::remove_session_lock(&previous)
+        {
+            tracing::warn!(
+                path = %previous.display(),
+                error = %err,
+                "could not remove old session lock"
+            );
+        }
         self.dirty = false;
+        self.begin_session();
         self.status = Some(format!("Saved {}", path.display()));
         Ok(path)
     }
@@ -404,6 +431,19 @@ impl Workspace {
             loop_enabled: None,
             loop_range: None,
         })
+    }
+
+    /// Stage a short, UI-triggered note preview for the audio engine.
+    pub fn preview_note(&mut self, track_id: TrackId, note_id: NoteId, pitch: u8, velocity: f32) {
+        self.engine_control
+            .data_mut()
+            .push_preview_note(PreviewNote {
+                track_id,
+                note_id,
+                pitch,
+                velocity,
+            });
+        self.engine_control.flush();
     }
 
     pub fn play(&mut self) -> Result<(), String> {
@@ -506,6 +546,33 @@ impl Workspace {
                 notes: Vec::new(),
             }),
         })
+    }
+
+    pub fn create_note(
+        &mut self,
+        clip_id: ClipId,
+        note: notwig_core::NoteEntity,
+    ) -> Result<(), String> {
+        self.apply(CommandPayload::CreateNote { clip_id, note })
+    }
+
+    pub fn edit_notes(
+        &mut self,
+        clip_id: ClipId,
+        notes: Vec<notwig_core::NoteEntity>,
+        removed: Vec<notwig_core::NoteId>,
+    ) -> Result<(), String> {
+        let mut payloads = Vec::new();
+        if !removed.is_empty() {
+            payloads.push(CommandPayload::DeleteNotes {
+                clip_id,
+                note_ids: removed,
+            });
+        }
+        if !notes.is_empty() {
+            payloads.push(CommandPayload::SetNotes { clip_id, notes });
+        }
+        self.apply_batch(payloads)
     }
 
     pub fn create_audio_clip(
@@ -965,7 +1032,7 @@ impl Workspace {
         let range =
             notwig_core::RangeMus::new(start, start + length).map_err(|err| err.to_string())?;
         let id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
-        self.apply(CommandPayload::CreateClip {
+        let mut payloads = vec![CommandPayload::CreateClip {
             id,
             track_id,
             kind: notwig_core::ClipKind::Audio,
@@ -981,7 +1048,19 @@ impl Workspace {
                 slices: Vec::new(),
                 slices_enabled: false,
             }),
-        })
+        }];
+        if let Some(name) = entry.original_name {
+            payloads.push(CommandPayload::EditClip {
+                clip_id: id,
+                range: None,
+                name: Some(Some(name)),
+                muted: None,
+                content_start: None,
+                content_length: None,
+                audio: None,
+            });
+        }
+        self.apply_batch(payloads)
     }
 
     pub fn relocate_clips(
@@ -1109,12 +1188,9 @@ impl Workspace {
         self.history.record(before, structural);
         if structural {
             self.request_engine_rebuild();
-        } else if let Ok(mut engine) = self.engine.lock() {
-            for message in engine_msgs {
-                if engine.apply(message).is_err() {
-                    break;
-                }
-            }
+        } else {
+            let (transport, all_notes_off) = control_updates(engine_msgs);
+            self.publish_engine_control(transport, all_notes_off, None);
         }
         self.error = None;
         Ok(())
@@ -1133,7 +1209,7 @@ impl Workspace {
         match result {
             Ok(extract) => {
                 let count = extract.fragments.len();
-                self.clipboard.extract = Some(extract);
+                self.clipboard = Clipboard::Arranger(extract);
                 self.status = Some("Copied selection.".into());
                 self.error = None;
                 count
@@ -1177,7 +1253,7 @@ impl Workspace {
             self.error = Some(err);
             return 0;
         }
-        self.clipboard.extract = Some(extract);
+        self.clipboard = Clipboard::Arranger(extract);
         self.status = Some("Cut selection.".into());
         count
     }
@@ -1186,8 +1262,12 @@ impl Workspace {
         &mut self,
         at: notwig_core::TimeMus,
     ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
-        let Some(extract) = self.clipboard.extract.clone() else {
-            return Ok(SelectionInfo::default());
+        let extract = match &self.clipboard {
+            Clipboard::Arranger(extract) => extract.clone(),
+            Clipboard::Empty => return Ok(SelectionInfo::default()),
+            Clipboard::AudioClip(_) => {
+                return Err("Clipboard belongs to another editor.".into());
+            }
         };
         let plan = {
             let model = ArrangerModel::new(&self.doc);
@@ -1196,6 +1276,15 @@ impl Workspace {
         let selection = self.lower_and_apply(plan)?.unwrap_or_default();
         self.status = Some("Pasted selection.".into());
         Ok(selection)
+    }
+
+    #[must_use]
+    pub fn clipboard(&self) -> &Clipboard {
+        &self.clipboard
+    }
+
+    pub fn set_clipboard(&mut self, clipboard: Clipboard) {
+        self.clipboard = clipboard;
     }
 
     pub fn delete_selection(
@@ -1300,4 +1389,37 @@ impl Workspace {
             .map_err(|err| err.to_string())?;
         Ok(output.len() / 2)
     }
+}
+
+fn control_updates(messages: Vec<EngineMsg>) -> (Option<TransportUpdate>, bool) {
+    let mut transport = None;
+    let mut all_notes_off = false;
+    for message in messages {
+        match message {
+            EngineMsg::SetTransport {
+                playing,
+                playhead_samples,
+                loop_enabled,
+                loop_start_samples,
+                loop_end_samples,
+                stop,
+            } => {
+                transport = Some(TransportUpdate {
+                    playing,
+                    playhead_samples,
+                    loop_enabled,
+                    loop_start_samples,
+                    loop_end_samples,
+                    stop,
+                });
+            }
+            EngineMsg::AllNotesOff => all_notes_off = true,
+            EngineMsg::ApplyPlan { .. }
+            | EngineMsg::SetParam { .. }
+            | EngineMsg::SetTrackState { .. }
+            | EngineMsg::UpdateSchedule { .. }
+            | EngineMsg::PrepareAudioAsset { .. } => {}
+        }
+    }
+    (transport, all_notes_off)
 }

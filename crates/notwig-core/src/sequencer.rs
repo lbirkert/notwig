@@ -266,11 +266,9 @@ impl AudioClipData {
                         reason: "audio slice references missing asset".into(),
                     });
                 }
-                if slice.start < TimeMus::zero() || slice.start >= range.length() {
-                    return Err(CoreError::ValidationFailed {
-                        reason: "audio slice must lie inside the clip".into(),
-                    });
-                }
+                // Audio events may extend beyond the clip container. The engine
+                // clips them to the container for playback, and the audio editor
+                // still shows the hidden part.
             }
         } else {
             let duration = self.source_duration();

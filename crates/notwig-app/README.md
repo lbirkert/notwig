@@ -17,8 +17,10 @@ domain or DSP logic belongs in lower crates, not here.
 - `Workspace`: document mutation, command application, undo/redo, tracks,
   devices, transport, and project lifecycle policy.
 - Asset import/relink/preparation for the engine.
+- Session lock lifecycle and the startup autosave recovery flow.
 - Async engine build queue, poll, install, and transport preservation.
 - CPAL audio stream, device options, snapshots, DSP timing, and xruns.
+- Per-user persistence of audio driver, device, and block size.
 - Plugin catalog: scan subprocess, cache loading, and workspace descriptors.
 - Edit-plan lowering into commands.
 - Native plugin editor windows.
@@ -41,8 +43,10 @@ domain or DSP logic belongs in lower crates, not here.
 | `gui.rs` | `eframe` app, intent handling, dialogs, plugin windows |
 | `workspace/mod.rs` | Project lifecycle, commands, history, tracks/devices/transport |
 | `workspace/assets.rs` | Asset load/import/relink/peaks/engine prepare |
+| `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `engine_build.rs` | Async engine build lifecycle |
 | `audio.rs` | CPAL stream, options, snapshot, DSP timing |
+| `audio_config.rs` | Persisted audio driver/device/block-size config |
 | `plugins.rs` | Plugin catalog/scanner/cache glue |
 | `edit_lowering.rs` | Edit plan to command lowering |
 | `history.rs` | Undo/redo stack |
@@ -51,4 +55,5 @@ domain or DSP logic belongs in lower crates, not here.
 ## Tests
 
 Integration tests in `tests/` cover workspace commands, undo/redo, async engine
-builds, sample-rate changes, clip operations, and import/render flows.
+builds, sample-rate changes, clip operations, import/render flows, MIDI note
+editing, audio config persistence, and session recovery.

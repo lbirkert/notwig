@@ -5,7 +5,7 @@ use std::time::Instant;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 use notwig_core::{RtEvent, TrackId};
-use notwig_engine::Engine;
+use notwig_engine::{ControlHandle, Engine, EngineConfig};
 use notwig_ui::MeterValues;
 
 #[derive(Debug, Clone, Default)]
@@ -15,6 +15,8 @@ pub struct AudioSettings {
     pub sample_rate: Option<u32>,
     pub block_size: u32,
 }
+
+const DSP_HISTORY: usize = 200;
 
 #[derive(Debug, Clone, Default)]
 pub struct AudioSnapshot {
@@ -30,6 +32,32 @@ pub struct AudioSnapshot {
     pub xruns: u64,
     pub cpu_load: Option<f32>,
     pub error: Option<String>,
+    pub dsp: notwig_ui::DspAnalysisView,
+    load_ms_history: Vec<f32>,
+    jitter_history: Vec<f32>,
+}
+
+impl AudioSnapshot {
+    /// Meters are only meaningful while transport is running. Stopping or
+    /// pausing playback must drop stale peak values instead of leaving the last
+    /// active block on screen.
+    #[must_use]
+    pub fn meters_for_display(&self, playing: bool) -> BTreeMap<TrackId, MeterValues> {
+        if self.running && playing {
+            self.meters.clone()
+        } else {
+            BTreeMap::new()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DspSample {
+    usage_percent: f32,
+    load_ms: f32,
+    jitter_percent: f32,
+    frames: u32,
+    output_latency_samples: u64,
 }
 
 pub struct AudioService {
@@ -61,9 +89,9 @@ pub fn settings_view(
 }
 
 impl AudioService {
-    pub fn start(engine: Arc<Mutex<Engine>>, project_rate: u32) -> Result<Self, String> {
+    pub fn start(control: ControlHandle, project_rate: u32) -> Result<Self, String> {
         Self::start_with(
-            engine,
+            control,
             project_rate,
             &AudioSettings {
                 sample_rate: Some(project_rate),
@@ -73,7 +101,7 @@ impl AudioService {
     }
 
     pub fn start_with(
-        engine: Arc<Mutex<Engine>>,
+        control: ControlHandle,
         project_rate: u32,
         settings: &AudioSettings,
     ) -> Result<Self, String> {
@@ -96,6 +124,11 @@ impl AudioService {
         } else {
             cpal::BufferSize::Default
         };
+        let deadline_ms = if settings.block_size > 0 {
+            settings.block_size as f32 / config.sample_rate as f32 * 1000.0
+        } else {
+            0.0
+        };
         let snapshot = Arc::new(Mutex::new(AudioSnapshot {
             running: false,
             driver: settings.driver.clone(),
@@ -104,8 +137,22 @@ impl AudioService {
             channels: config.channels,
             block_size: settings.block_size,
             error: None,
+            dsp: notwig_ui::DspAnalysisView {
+                sample_rate: config.sample_rate,
+                block_size: settings.block_size,
+                deadline_ms,
+                history: Vec::with_capacity(DSP_HISTORY),
+                ..notwig_ui::DspAnalysisView::default()
+            },
+            load_ms_history: Vec::with_capacity(DSP_HISTORY),
+            jitter_history: Vec::with_capacity(DSP_HISTORY),
             ..AudioSnapshot::default()
         }));
+        let mut engine = Engine::new(EngineConfig::new(
+            config.sample_rate,
+            settings.block_size.max(16) as usize,
+        ));
+        engine.attach_control(control);
         let stream = match sample_format {
             SampleFormat::F32 => build::<f32>(&device, config, engine, Arc::clone(&snapshot)),
             SampleFormat::I16 => build::<i16>(&device, config, engine, Arc::clone(&snapshot)),
@@ -234,7 +281,7 @@ fn choose_config(device: &cpal::Device, project_rate: u32) -> Option<StreamConfi
 fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
-    engine: Arc<Mutex<Engine>>,
+    mut engine: Engine,
     snapshot: Arc<Mutex<AudioSnapshot>>,
 ) -> Result<cpal::Stream, String>
 where
@@ -242,28 +289,52 @@ where
 {
     let channels = usize::from(config.channels.max(1));
     let sample_rate = config.sample_rate;
-    let mut scratch: Vec<f32> = Vec::new();
+    let initial_frames = match config.buffer_size {
+        cpal::BufferSize::Fixed(frames) => usize::try_from(frames).unwrap_or(1024),
+        cpal::BufferSize::Default => 1024,
+    };
+    let mut scratch: Vec<f32> = vec![0.0; initial_frames.max(1) * 2];
+    let mut events = Vec::with_capacity(4096);
+    let mut last_callback: Option<Instant> = None;
     let error_snapshot = Arc::clone(&snapshot);
     device
         .build_output_stream(
             config,
-            move |data: &mut [T], _| {
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
                 let frames = data.len() / channels;
                 if frames == 0 {
                     return;
                 }
-                scratch.resize(frames * 2, 0.0);
+                if scratch.len() < frames * 2 {
+                    scratch.resize(frames * 2, 0.0);
+                }
                 let mut processed = false;
                 let started = Instant::now();
-                if let Ok(mut engine) = engine.try_lock() {
-                    if engine.process(&mut scratch[..frames * 2], frames).is_ok() {
-                        processed = true;
-                        let block_seconds = frames as f64 / f64::from(sample_rate.max(1));
-                        let load = (started.elapsed().as_secs_f64() / block_seconds) as f32;
-                        let mut events = Vec::new();
-                        engine.drain_events(&mut events);
-                        update_snapshot(&snapshot, &engine, &events, Some(load * 100.0));
-                    }
+                let period = last_callback.map(|previous| (started - previous).as_secs_f64());
+                last_callback = Some(started);
+                if engine.process(&mut scratch[..frames * 2], frames).is_ok() {
+                    processed = true;
+                    let block_seconds = frames as f64 / f64::from(sample_rate.max(1));
+                    let elapsed = started.elapsed();
+                    let timestamp = info.timestamp();
+                    let output_latency_samples = (timestamp
+                        .playback
+                        .duration_since(timestamp.callback)
+                        .as_secs_f64()
+                        * f64::from(sample_rate))
+                    .round() as u64;
+                    let dsp = DspSample {
+                        usage_percent: (elapsed.as_secs_f64() / block_seconds * 100.0) as f32,
+                        load_ms: elapsed.as_secs_f64() as f32 * 1000.0,
+                        jitter_percent: period.map_or(0.0, |period| {
+                            ((period - block_seconds).abs() / block_seconds * 100.0) as f32
+                        }),
+                        frames: frames as u32,
+                        output_latency_samples,
+                    };
+                    events.clear();
+                    engine.drain_events(&mut events);
+                    update_snapshot(&snapshot, &engine, &events, dsp);
                 }
                 for (frame_index, frame) in data.chunks_mut(channels).enumerate() {
                     let left = if processed {
@@ -300,14 +371,54 @@ fn update_snapshot(
     snapshot: &Arc<Mutex<AudioSnapshot>>,
     engine: &Engine,
     events: &[RtEvent],
-    cpu_load: Option<f32>,
+    dsp: DspSample,
 ) {
     let Ok(mut snapshot) = snapshot.try_lock() else {
         return;
     };
     snapshot.playhead_samples = engine.playhead_samples();
     snapshot.playing = engine.transport().playing;
-    snapshot.cpu_load = cpu_load;
+    if !snapshot.playing {
+        snapshot.meters.clear();
+    }
+    snapshot.cpu_load = Some(dsp.usage_percent);
+    snapshot.block_size = dsp.frames;
+    snapshot.dsp.sample_rate = snapshot.sample_rate;
+
+    snapshot.load_ms_history.push(dsp.load_ms);
+    if snapshot.load_ms_history.len() > DSP_HISTORY {
+        snapshot.load_ms_history.remove(0);
+    }
+    snapshot.jitter_history.push(dsp.jitter_percent);
+    if snapshot.jitter_history.len() > DSP_HISTORY {
+        snapshot.jitter_history.remove(0);
+    }
+    let load_avg =
+        snapshot.load_ms_history.iter().sum::<f32>() / snapshot.load_ms_history.len().max(1) as f32;
+    let load_max = snapshot
+        .load_ms_history
+        .iter()
+        .copied()
+        .fold(0.0_f32, f32::max);
+    let jitter_max = snapshot
+        .jitter_history
+        .iter()
+        .copied()
+        .fold(0.0_f32, f32::max);
+
+    snapshot.dsp.history.push(dsp.usage_percent);
+    if snapshot.dsp.history.len() > DSP_HISTORY {
+        snapshot.dsp.history.remove(0);
+    }
+    let rate = snapshot.dsp.sample_rate.max(1) as f32;
+    snapshot.dsp.block_size = dsp.frames;
+    snapshot.dsp.deadline_ms = dsp.frames as f32 / rate * 1000.0;
+    snapshot.dsp.load_avg_ms = load_avg;
+    snapshot.dsp.load_max_ms = load_max;
+    snapshot.dsp.period_jitter_percent = jitter_max;
+    snapshot.dsp.output_latency_samples = dsp.output_latency_samples;
+    snapshot.dsp.input_latency_samples = 0;
+    snapshot.dsp.timing = "Device".into();
     for event in events {
         match event {
             RtEvent::Meters {

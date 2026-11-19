@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, mpsc};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
@@ -7,7 +7,7 @@ use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
 use notwig_core::{DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
 use notwig_plugins::NativePluginWindow;
-use notwig_ui::{DropAudioTarget, MeterValues, NotificationKind, NotwigUi, RuntimeView, UiIntent};
+use notwig_ui::{DropAudioTarget, NotificationKind, NotwigUi, RuntimeView, UiIntent};
 
 use crate::audio::AudioService;
 use crate::workspace::Workspace;
@@ -49,6 +49,7 @@ struct NotwigApp {
     dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
     pending_drops: Vec<(PathBuf, DropAudioTarget, TimeMus)>,
     plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
+    recovery_error: Option<String>,
 }
 
 impl NotwigApp {
@@ -57,7 +58,7 @@ impl NotwigApp {
             Some(path) => Workspace::open(path),
             None => Workspace::new_empty(),
         };
-        let workspace = match opened {
+        let mut workspace = match opened {
             Ok(workspace) => workspace,
             Err(err) => {
                 let mut workspace = Workspace::new_empty().expect("create fallback workspace");
@@ -66,13 +67,17 @@ impl NotwigApp {
             }
         };
         let fallback_playhead = workspace.doc.transport.playhead.as_f64();
-        let audio_settings = crate::audio::AudioSettings {
-            driver: String::new(),
-            device: String::new(),
-            sample_rate: Some(workspace.doc.meta.sample_rate.value()),
-            block_size: workspace.audio_block_size,
-        };
         let audio_options = AudioService::available_options();
+        let mut audio_settings =
+            crate::audio_config::validated(crate::audio_config::load(), &audio_options);
+        audio_settings.sample_rate = Some(workspace.doc.meta.sample_rate.value());
+        if audio_settings.block_size == 0 {
+            audio_settings.block_size = workspace.audio_block_size;
+        }
+        if workspace.audio_block_size != audio_settings.block_size {
+            workspace.audio_block_size = audio_settings.block_size;
+            workspace.request_engine_rebuild();
+        }
         let mut app = Self {
             workspace,
             ui: NotwigUi::default(),
@@ -84,7 +89,9 @@ impl NotwigApp {
             dialog_rx: None,
             pending_drops: Vec::new(),
             plugin_editors: Vec::new(),
+            recovery_error: None,
         };
+        app.ui.set_shortcuts(crate::shortcuts::load());
         app.restart_audio();
         app
     }
@@ -93,11 +100,14 @@ impl NotwigApp {
         self.audio = None;
         let rate = self.workspace.doc.meta.sample_rate.value();
         match AudioService::start_with(
-            Arc::clone(&self.workspace.engine),
+            self.workspace.engine_control_handle(),
             rate,
             &self.audio_settings,
         ) {
-            Ok(audio) => self.audio = Some(audio),
+            Ok(audio) => {
+                self.audio = Some(audio);
+                self.workspace.engine_audio_restarted();
+            }
             Err(err) => self.workspace.status = Some(err),
         }
     }
@@ -117,11 +127,7 @@ impl NotwigApp {
         } else {
             fallback_time
         };
-        let meters = if snapshot.running {
-            snapshot.meters.clone()
-        } else {
-            std::collections::BTreeMap::<notwig_core::TrackId, MeterValues>::new()
-        };
+        let meters = snapshot.meters_for_display(self.workspace.doc.transport.playing);
         let status = snapshot
             .error
             .clone()
@@ -157,6 +163,8 @@ impl NotwigApp {
             dirty: self.workspace.dirty,
             saving: false,
             audio_settings,
+            dsp: snapshot.dsp.clone(),
+            clipboard: self.workspace.clipboard().clone(),
         }
     }
 
@@ -210,11 +218,75 @@ impl NotwigApp {
         self.ui.state.notify(NotificationKind::Error, message);
     }
 
+    fn report<T>(&mut self, result: Result<T, String>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(err) => {
+                self.notify_error(err);
+                None
+            }
+        }
+    }
+
     fn notify_info(&mut self, message: String) {
         self.ui
             .state
             .notify(NotificationKind::Info, message.clone());
         self.workspace.status = Some(message);
+    }
+
+    fn show_recovery_dialog(&mut self, ctx: &egui::Context) {
+        if !self.workspace.recovery_offered {
+            return;
+        }
+        let mut recover = false;
+        let mut discard = false;
+        egui::Modal::new(egui::Id::new("recovery-modal")).show(ctx, |ui| {
+            ui.set_max_width(460.0);
+            ui.heading("Recover unsaved changes?");
+            ui.label("A previous session did not close cleanly. Autosave snapshots are available.");
+            ui.label(format!("Project: {}", self.workspace.doc.meta.name));
+            if let Some(bundle) = &self.workspace.bundle {
+                ui.label(format!("Bundle: {}", bundle.display()));
+            }
+            if let Some(error) = &self.recovery_error {
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Recover latest autosave").clicked() {
+                    recover = true;
+                }
+                if ui.button("Discard").clicked() {
+                    discard = true;
+                }
+            });
+        });
+        if recover {
+            match self.workspace.recover_latest_autosave() {
+                Ok(()) => {
+                    self.recovery_error = None;
+                    self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                    self.ui.state.selection.clear();
+                    self.restart_audio();
+                    self.notify_info("Recovered latest autosave.".into());
+                }
+                Err(err) => {
+                    self.recovery_error = Some(format!("Could not recover autosave: {err}"));
+                }
+            }
+        } else if discard {
+            match self.workspace.discard_recovery() {
+                Ok(()) => {
+                    self.recovery_error = None;
+                    self.workspace.begin_session();
+                    self.notify_info("Discarded recovery autosaves.".into());
+                }
+                Err(err) => {
+                    self.recovery_error = Some(format!("Could not discard autosaves: {err}"));
+                }
+            }
+        }
     }
 
     fn open_plugin_window(&mut self, device_id: DeviceId) {
@@ -247,48 +319,40 @@ impl NotwigApp {
         match intent {
             UiIntent::Play => {
                 let result = self.workspace.play();
-                if let Err(err) = result {
-                    self.notify_error(err);
-                }
+                let _ = self.report(result);
             }
             UiIntent::Pause => {
                 self.sync_playhead();
-                if let Err(err) = self.workspace.pause() {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.pause();
+                let _ = self.report(result);
             }
             UiIntent::Stop => {
-                if let Err(err) = self.workspace.stop() {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.stop();
+                let _ = self.report(result);
                 self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
             }
             UiIntent::ToggleLoop => {
-                if let Err(err) = self.workspace.toggle_loop() {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.toggle_loop();
+                let _ = self.report(result);
             }
             UiIntent::SetTempo(tempo_bpm) => {
-                if let Err(err) = self.workspace.apply(CommandPayload::SetTempo { tempo_bpm }) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.apply(CommandPayload::SetTempo { tempo_bpm });
+                let _ = self.report(result);
             }
             UiIntent::SetTimeSignature {
                 numerator,
                 denominator,
             } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::SetTimeSignature {
+                let result = self.workspace.apply(CommandPayload::SetTimeSignature {
                     numerator,
                     denominator,
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
             }
             UiIntent::SetPlayhead(time) => {
                 self.fallback_playhead = time.as_f64();
-                if let Err(err) = self.workspace.set_playhead(time) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.set_playhead(time);
+                let _ = self.report(result);
             }
             UiIntent::SetPlayStart(time) => {
                 if self.workspace.doc.transport.playing {
@@ -296,34 +360,32 @@ impl NotwigApp {
                 } else {
                     self.workspace.play_start = Some(time);
                     self.fallback_playhead = time.as_f64();
-                    if let Err(err) = self.workspace.set_playhead(time) {
-                        self.notify_error(err);
-                    }
+                    let result = self.workspace.set_playhead(time);
+                    let _ = self.report(result);
                 }
             }
             UiIntent::SetLoopRange(range) => {
-                if let Err(err) = self.workspace.apply(CommandPayload::SetTransport {
+                let result = self.workspace.apply(CommandPayload::SetTransport {
                     playing: None,
                     playhead: None,
                     loop_enabled: Some(true),
                     loop_range: Some(Some(range)),
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
             }
-            UiIntent::SelectTrack(_) | UiIntent::SelectClip(_) | UiIntent::SelectDevice(_) => {}
+            UiIntent::Quit
+            | UiIntent::SelectTrack(_)
+            | UiIntent::SelectClip(_)
+            | UiIntent::SelectDevice(_) => {}
             UiIntent::CreateTrack(kind) => {
-                if let Err(err) = self.workspace.create_track(kind) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.create_track(kind);
+                let _ = self.report(result);
             }
             UiIntent::DeleteTrack(track_id) => {
-                if let Err(err) = self
+                let result = self
                     .workspace
-                    .apply(CommandPayload::DeleteTrack { id: track_id })
-                {
-                    self.notify_error(err);
-                }
+                    .apply(CommandPayload::DeleteTrack { id: track_id });
+                let _ = self.report(result);
             }
             UiIntent::DuplicateTrack(track_id) => match self.workspace.duplicate_track(track_id) {
                 Ok(track) => {
@@ -333,46 +395,39 @@ impl NotwigApp {
                 Err(err) => self.notify_error(err),
             },
             UiIntent::DeleteClip(clip_id) => {
-                if let Err(err) = self.workspace.delete_selection(&[clip_id], None) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.delete_selection(&[clip_id], None);
+                let _ = self.report(result);
             }
             UiIntent::CreateMidiClip { track_id, range } => {
-                if let Err(err) = self.workspace.create_midi_clip(track_id, range) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.create_midi_clip(track_id, range);
+                let _ = self.report(result);
             }
             UiIntent::CreateAudioClip { track_id, range } => {
-                if let Err(err) = self.workspace.create_audio_clip(track_id, range) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.create_audio_clip(track_id, range);
+                let _ = self.report(result);
             }
             UiIntent::EditClipRange { clip_id, range } => {
-                if let Err(err) = self.workspace.trim_clip(clip_id, range) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.trim_clip(clip_id, range);
+                let _ = self.report(result);
             }
             UiIntent::SetClipRange { clip_id, range } => {
-                if let Err(err) = self.workspace.set_clip_range(clip_id, range) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.set_clip_range(clip_id, range);
+                let _ = self.report(result);
             }
             UiIntent::MoveClip {
                 clip_id,
                 track_id,
                 range,
             } => {
-                if let Err(err) = self.workspace.relocate_clips(&[(clip_id, track_id, range)]) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.relocate_clips(&[(clip_id, track_id, range)]);
+                let _ = self.report(result);
             }
             UiIntent::MoveClips { clips } => {
-                if let Err(err) = self.workspace.relocate_clips(&clips) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.relocate_clips(&clips);
+                let _ = self.report(result);
             }
             UiIntent::SetClipMuted { clip_id, muted } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::EditClip {
+                let result = self.workspace.apply(CommandPayload::EditClip {
                     clip_id,
                     range: None,
                     name: None,
@@ -380,9 +435,8 @@ impl NotwigApp {
                     content_start: None,
                     content_length: None,
                     audio: None,
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
             }
             UiIntent::DuplicateClip { clip_id } => match self.workspace.duplicate_clip(clip_id) {
                 Ok(new_id) => {
@@ -430,6 +484,12 @@ impl NotwigApp {
                 Ok(_) => self.notify_error("Clipboard is empty.".into()),
                 Err(err) => self.notify_error(err),
             },
+            UiIntent::SetClipboard(clipboard) => {
+                self.workspace.set_clipboard(clipboard);
+            }
+            UiIntent::ClipboardError(message) => {
+                self.notify_error(message);
+            }
             UiIntent::DeleteSelection { clips, time } => {
                 match self.workspace.delete_selection(&clips, time) {
                     Ok(info) => self.ui.state.selection.apply_info(&info),
@@ -454,44 +514,37 @@ impl NotwigApp {
                 Err(err) => self.notify_error(err),
             },
             UiIntent::SetTrackColor { track_id, color } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::SetTrackColor {
+                let result = self.workspace.apply(CommandPayload::SetTrackColor {
                     id: track_id,
                     color,
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
             }
             UiIntent::RenameTrack { track_id, name } => {
-                if let Err(err) = self
+                let result = self
                     .workspace
-                    .apply(CommandPayload::RenameTrack { id: track_id, name })
-                {
-                    self.notify_error(err);
-                }
+                    .apply(CommandPayload::RenameTrack { id: track_id, name });
+                let _ = self.report(result);
             }
             UiIntent::SetTrackActive { track_id, active } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::SetTrackActive {
+                let result = self.workspace.apply(CommandPayload::SetTrackActive {
                     id: track_id,
                     active,
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
             }
             UiIntent::SetTrackComment { track_id, comment } => {
-                if let Err(err) = self.workspace.apply(CommandPayload::SetTrackComment {
+                let result = self.workspace.apply(CommandPayload::SetTrackComment {
                     id: track_id,
                     comment,
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
             }
             UiIntent::MoveTrack { id, parent, index } => {
-                if let Err(err) =
-                    self.workspace
-                        .apply(CommandPayload::MoveTrack { id, parent, index })
-                {
-                    self.notify_error(err);
-                }
+                let result = self
+                    .workspace
+                    .apply(CommandPayload::MoveTrack { id, parent, index });
+                let _ = self.report(result);
             }
             UiIntent::GroupTracks { tracks } => match self.workspace.group_tracks(&tracks) {
                 Ok(group) => {
@@ -501,17 +554,34 @@ impl NotwigApp {
                 Err(err) => self.notify_error(err),
             },
             UiIntent::SetClipSlices { clip_id, slices } => {
-                if let Err(err) = self
+                let result = self
                     .workspace
-                    .apply(CommandPayload::SetClipSlices { clip_id, slices })
-                {
-                    self.notify_error(err);
-                }
+                    .apply(CommandPayload::SetClipSlices { clip_id, slices });
+                let _ = self.report(result);
             }
+            UiIntent::CreateMidiNote { clip_id, note } => {
+                let result = self.workspace.create_note(clip_id, note);
+                let _ = self.report(result);
+            }
+            UiIntent::EditMidiNotes {
+                clip_id,
+                notes,
+                removed,
+            } => {
+                let result = self.workspace.edit_notes(clip_id, notes, removed);
+                let _ = self.report(result);
+            }
+            UiIntent::PreviewNote {
+                track_id,
+                note_id,
+                pitch,
+                velocity,
+            } => self
+                .workspace
+                .preview_note(track_id, note_id, pitch, velocity),
             UiIntent::SplitClip { clip_id, at } => {
-                if let Err(err) = self.workspace.split_clip(clip_id, at) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.split_clip(clip_id, at);
+                let _ = self.report(result);
             }
             UiIntent::SetTrackMixer {
                 track_id,
@@ -520,12 +590,10 @@ impl NotwigApp {
                 mute,
                 solo,
             } => {
-                if let Err(err) = self
+                let result = self
                     .workspace
-                    .set_mixer(track_id, volume_db, pan, mute, solo)
-                {
-                    self.notify_error(err);
-                }
+                    .set_mixer(track_id, volume_db, pan, mute, solo);
+                let _ = self.report(result);
             }
             UiIntent::InsertStockDevice {
                 chain_id,
@@ -534,9 +602,8 @@ impl NotwigApp {
                 index,
                 ..
             } => {
-                if let Err(err) = self.workspace.insert_stock(chain_id, &type_id, kind, index) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.insert_stock(chain_id, &type_id, kind, index);
+                let _ = self.report(result);
             }
             UiIntent::InsertPlugin {
                 chain_id,
@@ -567,26 +634,21 @@ impl NotwigApp {
                 }
             }
             UiIntent::InsertAudioClip { track_id, asset_id } => {
-                if let Err(err) = self.workspace.insert_audio_clip(track_id, asset_id) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.insert_audio_clip(track_id, asset_id);
+                let _ = self.report(result);
             }
             UiIntent::RemoveDevice(device_id) => {
-                if let Err(err) = self
+                let result = self
                     .workspace
-                    .apply(CommandPayload::RemoveDevice { device_id })
-                {
-                    self.notify_error(err);
-                }
+                    .apply(CommandPayload::RemoveDevice { device_id });
+                let _ = self.report(result);
             }
             UiIntent::OpenPluginWindow { device_id } => self.open_plugin_window(device_id),
             UiIntent::SetDeviceBypass { device_id, bypass } => {
-                if let Err(err) = self
+                let result = self
                     .workspace
-                    .apply(CommandPayload::SetDeviceBypass { device_id, bypass })
-                {
-                    self.notify_error(err);
-                }
+                    .apply(CommandPayload::SetDeviceBypass { device_id, bypass });
+                let _ = self.report(result);
             }
             UiIntent::SetParam {
                 device_id,
@@ -594,14 +656,13 @@ impl NotwigApp {
                 value,
             } => {
                 let raw_value = value.as_f64();
-                if let Err(err) = self.workspace.apply(CommandPayload::SetParam {
+                let result = self.workspace.apply(CommandPayload::SetParam {
                     device_id,
                     param_id,
                     value,
                     ramp: None,
-                }) {
-                    self.notify_error(err);
-                }
+                });
+                let _ = self.report(result);
                 if let Some(value) = raw_value
                     && let Some((_, window)) = self
                         .plugin_editors
@@ -640,7 +701,11 @@ impl NotwigApp {
                 self.workspace.request_engine_rebuild();
                 self.audio_options = AudioService::available_options();
                 self.restart_audio();
-                self.notify_info("Audio settings applied.".into());
+                if let Err(err) = crate::audio_config::save(&self.audio_settings) {
+                    self.notify_error(format!("Audio settings applied but not saved: {err}"));
+                } else {
+                    self.notify_info("Audio settings applied.".into());
+                }
             }
             UiIntent::NewProject | UiIntent::NewProjectAtRate(_) => {
                 let rate = match intent {
@@ -649,7 +714,9 @@ impl NotwigApp {
                 };
                 match Workspace::new_empty_at(rate) {
                     Ok(workspace) => {
+                        self.workspace.end_session();
                         self.workspace = workspace;
+                        self.recovery_error = None;
                         self.fallback_playhead = 0.0;
                         self.restart_audio();
                         self.notify_info("New project created.".into());
@@ -685,16 +752,14 @@ impl NotwigApp {
                 });
             }
             UiIntent::Undo => {
-                if let Err(err) = self.workspace.undo() {
-                    self.notify_error(err);
-                } else {
+                let result = self.workspace.undo();
+                if self.report(result).is_some() {
                     self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
                 }
             }
             UiIntent::Redo => {
-                if let Err(err) = self.workspace.redo() {
-                    self.notify_error(err);
-                } else {
+                let result = self.workspace.redo();
+                if self.report(result).is_some() {
                     self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
                 }
             }
@@ -751,7 +816,11 @@ impl NotwigApp {
                 };
                 match Workspace::open(&path) {
                     Ok(workspace) => {
+                        if self.workspace.bundle.as_deref() != Some(path.as_path()) {
+                            self.workspace.end_session();
+                        }
                         self.fallback_playhead = workspace.doc.transport.playhead.as_f64();
+                        self.recovery_error = None;
                         self.workspace = workspace;
                         self.restart_audio();
                         self.notify_info(format!("Opened {}", path.display()));
@@ -794,26 +863,23 @@ impl NotwigApp {
                 let Some(path) = path else {
                     return;
                 };
-                if let Err(err) = self.workspace.import_audio(&path) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.import_audio(&path);
+                let _ = self.report(result);
             }
             DialogAction::Relink(asset_id) => {
                 let Some(path) = path else {
                     return;
                 };
-                if let Err(err) = self.workspace.relink_asset(asset_id, &path) {
-                    self.notify_error(err);
-                }
+                let result = self.workspace.relink_asset(asset_id, &path);
+                let _ = self.report(result);
             }
         }
     }
 
     fn perform_drop(&mut self, path: PathBuf, target: DropAudioTarget, at: TimeMus) {
         if let DropAudioTarget::ClipEditor { clip_id } = target {
-            if let Err(err) = self.workspace.import_audio_slice(&path, clip_id, at) {
-                self.notify_error(err);
-            }
+            let result = self.workspace.import_audio_slice(&path, clip_id, at);
+            let _ = self.report(result);
             return;
         }
         let track_id = match target {
@@ -833,9 +899,8 @@ impl NotwigApp {
             }
         };
         if let Some(track_id) = track_id {
-            if let Err(err) = self.workspace.import_audio_at(&path, track_id, at) {
-                self.notify_error(err);
-            }
+            let result = self.workspace.import_audio_at(&path, track_id, at);
+            let _ = self.report(result);
         }
     }
 }
@@ -857,14 +922,13 @@ impl eframe::App for NotwigApp {
             let param_id =
                 notwig_core::ParamId::from_uuid(uuid::Uuid::from_u128(u128::from(raw_id)));
             self.ui.last_touched_param.insert(device_id, param_id);
-            if let Err(err) = self.workspace.apply(CommandPayload::SetParam {
+            let result = self.workspace.apply(CommandPayload::SetParam {
                 device_id,
                 param_id,
                 value: notwig_core::ParamValue::F64(value),
                 ramp: None,
-            }) {
-                self.notify_error(err);
-            }
+            });
+            let _ = self.report(result);
         }
         let dialog_open = self.dialog_rx.is_some();
         let dirty = if self.workspace.dirty { "*" } else { "" };
@@ -897,7 +961,16 @@ impl eframe::App for NotwigApp {
         }
         let intents = self.ui.show(ctx, &self.workspace.doc, &runtime);
         for intent in intents {
-            self.handle_intent(intent);
+            if matches!(intent, UiIntent::Quit) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                self.handle_intent(intent);
+            }
+        }
+        self.show_recovery_dialog(ctx);
+        if self.ui.take_shortcuts_dirty() {
+            let result = crate::shortcuts::save(self.ui.shortcuts());
+            let _ = self.report(result);
         }
         self.workspace.autosave_if_due();
         if dialog_open {
@@ -912,6 +985,13 @@ impl eframe::App for NotwigApp {
         }
         if self.workspace.engine_building() {
             ctx.request_repaint_after(Duration::from_millis(50));
+        }
+    }
+
+    fn on_exit(&mut self) {
+        self.workspace.end_session();
+        if let Err(err) = crate::audio_config::save(&self.audio_settings) {
+            tracing::warn!(error = %err, "could not save audio settings on exit");
         }
     }
 }

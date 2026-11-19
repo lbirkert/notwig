@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use notwig_core::{
-    Db, DeviceChainId, DeviceId, Pan, ParamId, ParamValue, ProjectDoc, SendId, TrackId, TrackKind,
-    TrackOutput,
+    Db, DeviceChainId, DeviceId, Pan, ParamId, ParamValue, ProjectDoc, SendId, SoloContext,
+    TrackId, TrackKind, TrackOutput,
 };
 
 use crate::devices::{DeviceSpec, EngineCaps, RenderConfig};
@@ -34,6 +34,9 @@ pub struct PlanSend {
     pub amount_db: Db,
     pub pre_fader: bool,
     pub enabled: bool,
+    /// Extra delay applied to the send source so it enters the destination
+    /// track's input at the same alignment as its other inputs.
+    pub latency_samples: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -62,7 +65,18 @@ pub struct PlanTrack {
     pub parent: Option<TrackId>,
     pub output: TrackOutput,
     pub sends: Vec<PlanSend>,
+    /// Latency of this track's own (active, non-bypassed) device chain.
     pub latency_samples: u32,
+    /// Alignment delay applied to clip material before this track's devices so
+    /// it lines up with routed and send input. Incoming connections are aligned
+    /// to this same label by the engine.
+    pub input_latency: u32,
+    /// Timeline label of this track's output buffer:
+    /// `input_latency + latency_samples`.
+    pub output_latency: u32,
+    /// Compensated latency from this track's input node to the master output.
+    /// Equal to `total_latency - input_latency`, so the maximum over all tracks
+    /// is the plan's `total_latency`.
     pub latency_to_master: u32,
 }
 
@@ -126,7 +140,11 @@ pub fn compile(
                 false,
             ),
         };
-        let latency_samples = spec.latency_samples;
+        let latency_samples = if instance.bypass {
+            0
+        } else {
+            spec.latency_samples
+        };
         devices.insert(
             instance.id,
             PlanDevice {
@@ -147,7 +165,7 @@ pub fn compile(
         );
     }
 
-    let any_solo = doc.tracks.values().any(|track| track.mixer.solo);
+    let solo = SoloContext::new(doc);
     let mut tracks = BTreeMap::new();
     for track in doc.tracks.values() {
         if !doc.chains.contains_key(&track.main_chain) {
@@ -156,7 +174,11 @@ pub fn compile(
                 chain: track.main_chain,
             });
         }
-        let latency_samples = chain_latency(doc, &devices, track.main_chain);
+        let latency_samples = if track.active {
+            chain_latency(doc, &devices, track.main_chain)
+        } else {
+            0
+        };
         tracks.insert(
             track.id,
             PlanTrack {
@@ -167,7 +189,7 @@ pub fn compile(
                 pan: track.mixer.pan,
                 mute: track.mixer.mute,
                 active: track.active,
-                solo_effective: solo_effective(doc, track.id, any_solo),
+                solo_effective: solo.is_effective(doc, track.id),
                 parent: track.parent,
                 output: track.io.audio_out,
                 sends: track
@@ -179,9 +201,12 @@ pub fn compile(
                         amount_db: send.amount_db,
                         pre_fader: send.pre_fader,
                         enabled: send.enabled,
+                        latency_samples: 0,
                     })
                     .collect(),
                 latency_samples,
+                input_latency: 0,
+                output_latency: 0,
                 latency_to_master: 0,
             },
         );
@@ -192,15 +217,7 @@ pub fn compile(
     process_order.retain(|id| *id != master);
     process_order.push(master);
 
-    let mut memo = BTreeMap::new();
-    let mut total_latency = 0;
-    for id in tracks.keys().copied().collect::<Vec<_>>() {
-        let latency = path_latency(&tracks, id, master, &mut memo, &mut BTreeSet::new())?;
-        total_latency = total_latency.max(latency);
-        if let Some(track) = tracks.get_mut(&id) {
-            track.latency_to_master = latency;
-        }
-    }
+    let total_latency = compute_latency_labels(master, &mut tracks)?;
 
     Ok(CompiledPlan {
         config,
@@ -221,72 +238,153 @@ fn chain_latency(
     let mut total: u32 = 0;
     if let Some(devices_in_chain) = doc.chains.get(&chain) {
         for id in &devices_in_chain.devices {
-            if let Some(device) = devices.get(id) {
-                total = total.saturating_add(device.latency_samples);
-                for child in &device.child_chains {
-                    total = total.saturating_add(chain_latency(doc, devices, *child));
-                }
+            let Some(device) = devices.get(id) else {
+                continue;
+            };
+            if device.bypass {
+                continue;
+            }
+            total = total.saturating_add(device.latency_samples);
+            for child in &device.child_chains {
+                total = total.saturating_add(chain_latency(doc, devices, *child));
             }
         }
     }
     total
 }
 
-fn solo_effective(doc: &ProjectDoc, id: TrackId, any_solo: bool) -> bool {
-    if !any_solo {
-        return true;
-    }
-    let Some(track) = doc.tracks.get(&id) else {
-        return false;
-    };
-    if track.kind == TrackKind::Master || track.mixer.solo {
-        return true;
-    }
-    let mut current = track.parent;
-    while let Some(track_id) = current {
-        let Some(parent) = doc.tracks.get(&track_id) else {
-            break;
-        };
-        if parent.mixer.solo {
-            return true;
-        }
-        current = parent.parent;
-    }
-    doc.track_order
-        .descendants(id)
-        .into_iter()
-        .any(|child| doc.tracks.get(&child).is_some_and(|t| t.mixer.solo))
+#[derive(Clone, Copy)]
+enum LatencyEdgeKind {
+    Output,
+    Send { pre_fader: bool },
 }
 
-fn path_latency(
-    tracks: &BTreeMap<TrackId, PlanTrack>,
-    id: TrackId,
-    master: TrackId,
-    memo: &mut BTreeMap<TrackId, u32>,
-    visiting: &mut BTreeSet<TrackId>,
-) -> Result<u32, GraphError> {
-    if let Some(value) = memo.get(&id) {
-        return Ok(*value);
+#[derive(Clone, Copy)]
+struct LatencyEdge {
+    target: TrackId,
+    kind: LatencyEdgeKind,
+}
+
+fn track_output_target(track: &PlanTrack, master: TrackId) -> Option<TrackId> {
+    match track.output {
+        TrackOutput::Track(target) => Some(target),
+        TrackOutput::Default => track.parent.or((track.id != master).then_some(master)),
+        TrackOutput::None => None,
     }
-    if !visiting.insert(id) {
+}
+
+/// Aligns every input to a track against the latest input arriving there.
+///
+/// A track's `input_latency` is the maximum output label of all main-routed and
+/// enabled send inputs (clip material starts at zero). Each connection is then
+/// delayed by the difference between the destination's input label and its own
+/// label, so the engine never needs to compensate twice along a path. The master
+/// output label is the plan's total latency, and every track's clip material
+/// reaches the master at that same label because clip input is delayed by
+/// `input_latency`.
+fn compute_latency_labels(
+    master: TrackId,
+    tracks: &mut BTreeMap<TrackId, PlanTrack>,
+) -> Result<u32, GraphError> {
+    let mut outgoing: BTreeMap<TrackId, Vec<LatencyEdge>> = BTreeMap::new();
+    let mut indegree: BTreeMap<TrackId, usize> = tracks.keys().map(|id| (*id, 0)).collect();
+    for track in tracks.values() {
+        if let Some(target) = track_output_target(track, master) {
+            if target != track.id && tracks.contains_key(&target) {
+                outgoing.entry(track.id).or_default().push(LatencyEdge {
+                    target,
+                    kind: LatencyEdgeKind::Output,
+                });
+            }
+        }
+        for send in &track.sends {
+            if send.enabled && send.target != track.id && tracks.contains_key(&send.target) {
+                outgoing.entry(track.id).or_default().push(LatencyEdge {
+                    target: send.target,
+                    kind: LatencyEdgeKind::Send {
+                        pre_fader: send.pre_fader,
+                    },
+                });
+            }
+        }
+    }
+    for edges in outgoing.values() {
+        for edge in edges {
+            if let Some(degree) = indegree.get_mut(&edge.target) {
+                *degree += 1;
+            }
+        }
+    }
+
+    let mut ready: BTreeSet<TrackId> = indegree
+        .iter()
+        .filter(|(_, degree)| **degree == 0)
+        .map(|(id, _)| *id)
+        .collect();
+    let mut order = Vec::with_capacity(tracks.len());
+    while let Some(id) = ready.iter().next().copied() {
+        ready.remove(&id);
+        order.push(id);
+        if let Some(edges) = outgoing.get(&id) {
+            for edge in edges {
+                if let Some(degree) = indegree.get_mut(&edge.target) {
+                    *degree = degree.saturating_sub(1);
+                    if *degree == 0 {
+                        ready.insert(edge.target);
+                    }
+                }
+            }
+        }
+    }
+    if order.len() != tracks.len() {
         return Err(GraphError::Cycle);
     }
-    let track = tracks.get(&id).ok_or(GraphError::MissingTrack { id })?;
-    let own = track.latency_samples;
-    let target = match track.output {
-        TrackOutput::Track(target) => Some(target),
-        TrackOutput::Default => track.parent.or((id != master).then_some(master)),
-        TrackOutput::None => None,
-    };
-    let latency = if let Some(target) = target {
-        if target == id {
-            return Err(GraphError::Cycle);
+
+    let mut inputs: BTreeMap<TrackId, u32> = tracks.keys().map(|id| (*id, 0)).collect();
+    let mut outputs: BTreeMap<TrackId, u32> = BTreeMap::new();
+    for id in &order {
+        let Some(track) = tracks.get(id) else {
+            continue;
+        };
+        let input = inputs.get(id).copied().unwrap_or(0);
+        let output = input.saturating_add(track.latency_samples);
+        outputs.insert(*id, output);
+        if let Some(edges) = outgoing.get(id) {
+            for edge in edges {
+                let label = match edge.kind {
+                    LatencyEdgeKind::Output => output,
+                    LatencyEdgeKind::Send { pre_fader } => {
+                        if pre_fader {
+                            input
+                        } else {
+                            output
+                        }
+                    }
+                };
+                if let Some(slot) = inputs.get_mut(&edge.target) {
+                    *slot = (*slot).max(label);
+                }
+            }
         }
-        own.saturating_add(path_latency(tracks, target, master, memo, visiting)?)
-    } else {
-        own
-    };
-    visiting.remove(&id);
-    memo.insert(id, latency);
-    Ok(latency)
+    }
+
+    let total = outputs.get(&master).copied().unwrap_or(0);
+    for (id, track) in tracks.iter_mut() {
+        let input = inputs.get(id).copied().unwrap_or(0);
+        track.input_latency = input;
+        track.output_latency = outputs.get(id).copied().unwrap_or(input);
+    }
+    for track in tracks.values_mut() {
+        let input = track.input_latency;
+        let output = track.output_latency;
+        for send in &mut track.sends {
+            let target_input = inputs.get(&send.target).copied().unwrap_or(0);
+            let label = if send.pre_fader { input } else { output };
+            send.latency_samples = target_input.saturating_sub(label);
+        }
+    }
+    for track in tracks.values_mut() {
+        track.latency_to_master = total.saturating_sub(track.input_latency);
+    }
+    Ok(total)
 }

@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, mpsc};
 
-use notwig_core::protocol::{EngineMsg, PlanHandle, PlaybackSchedule};
+use notwig_core::protocol::PlaybackSchedule;
 use notwig_core::{AssetId, AudioAssetBuffer, ProjectDoc};
-use notwig_dsp::EngineCaps;
-use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory};
+use notwig_dsp::{CompiledPlan, EngineCaps};
+use notwig_engine::{
+    DeviceFactory, Engine, EngineConfig, PluginDeviceFactory, PreparedRuntime, TransportRuntime,
+};
 use notwig_plugins::PluginDescriptor;
 
 use crate::plugins::new_plugin_host;
@@ -19,8 +21,16 @@ pub(crate) struct EngineBuildRequest {
     pub(crate) max_block_size: usize,
 }
 
+type BuildParts = (
+    EngineConfig,
+    Arc<dyn DeviceFactory>,
+    Arc<CompiledPlan>,
+    Arc<PlaybackSchedule>,
+    BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
+);
+
 impl EngineBuildRequest {
-    pub(crate) fn build(self) -> Result<Engine, String> {
+    fn parts(self) -> Result<BuildParts, String> {
         let Self {
             doc,
             caps,
@@ -30,38 +40,46 @@ impl EngineBuildRequest {
             sample_rate,
             max_block_size,
         } = self;
-        let plan = notwig_dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?;
+        let plan =
+            Arc::new(notwig_dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?);
+        let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
         let config = EngineConfig::new(sample_rate, max_block_size);
-        let factory = Arc::new(PluginDeviceFactory::new(
+        let factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::new(
             new_plugin_host(),
             plugin_descriptors,
         ));
-        let mut engine = Engine::with_factory(config, factory);
-        engine
-            .apply(EngineMsg::UpdateSchedule {
-                schedule: Arc::new(PlaybackSchedule::from_doc(&doc)),
-            })
-            .map_err(|err| err.to_string())?;
-        engine
-            .apply(EngineMsg::ApplyPlan {
-                plan: PlanHandle::new(plan),
-            })
-            .map_err(|err| err.to_string())?;
-        for (asset_id, buffer) in &assets {
-            engine
-                .apply(EngineMsg::PrepareAudioAsset {
-                    asset_id: *asset_id,
-                    buffer: Arc::clone(buffer),
-                })
-                .map_err(|err| err.to_string())?;
-        }
-        Ok(engine)
+        Ok((config, factory, plan, schedule, assets))
+    }
+
+    pub(crate) fn build(self) -> Result<Engine, String> {
+        let (config, factory, plan, schedule, assets) = self.parts()?;
+        let prepared = Engine::prepare_runtime(
+            config,
+            Arc::clone(&factory),
+            plan,
+            schedule,
+            Arc::new(assets),
+        )
+        .map_err(|err| err.to_string())?;
+        Ok(Engine::from_prepared(
+            config,
+            factory,
+            prepared,
+            TransportRuntime::default(),
+            false,
+        ))
+    }
+
+    pub(crate) fn prepare(self) -> Result<Box<PreparedRuntime>, String> {
+        let (config, factory, plan, schedule, assets) = self.parts()?;
+        Engine::prepare_runtime(config, factory, plan, schedule, Arc::new(assets))
+            .map_err(|err| err.to_string())
     }
 }
 
 #[derive(Default)]
 pub(crate) struct EngineBuild {
-    receiver: Option<mpsc::Receiver<Result<Engine, String>>>,
+    receiver: Option<mpsc::Receiver<Result<Box<PreparedRuntime>, String>>>,
     queued: bool,
     requests: u64,
 }
@@ -80,7 +98,7 @@ impl EngineBuild {
         self.spawn(request)
     }
 
-    pub(crate) fn poll(&mut self) -> Option<Result<Engine, String>> {
+    pub(crate) fn poll(&mut self) -> Option<Result<Box<PreparedRuntime>, String>> {
         let receiver = self.receiver.as_ref()?;
         match receiver.try_recv() {
             Ok(outcome) => {
@@ -116,12 +134,7 @@ impl EngineBuild {
     }
 
     fn spawn(&mut self, request: EngineBuildRequest) -> Result<(), String> {
-        let (sender, receiver) = mpsc::channel();
-        std::thread::Builder::new()
-            .name("notwig-engine-build".into())
-            .spawn(move || {
-                let _ = sender.send(request.build());
-            })
+        let receiver = notwig_engine::RuntimeLoader::spawn(move || request.prepare())
             .map_err(|err| format!("Could not start engine build: {err}"))?;
         self.receiver = Some(receiver);
         Ok(())

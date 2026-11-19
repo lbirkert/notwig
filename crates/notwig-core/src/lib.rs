@@ -12,7 +12,7 @@ pub mod tracks;
 pub use apply::{ApplyResult, apply};
 pub use domain::{
     AssetEntry, AssetIndex, AssetKind, AudioAssetBuffer, DeviceChain, DeviceInstance, DeviceKind,
-    Meta, ParamValue, ProjectDoc, SCHEMA_VERSION, StateBlobRef, TransportDoc,
+    Meta, ParamValue, ProjectDoc, SCHEMA_VERSION, SoloContext, StateBlobRef, TransportDoc,
 };
 pub use ids::{
     AssetId, ClipId, DeviceChainId, DeviceId, Entity, Id, NoteId, ParamId, SendId, SliceId, TrackId,

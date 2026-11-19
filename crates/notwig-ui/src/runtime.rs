@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use notwig_core::{AssetId, DeviceKind, TimeMus, TrackId};
 
+use crate::clipboard::Clipboard;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MeterValues {
     pub peak_l: f32,
@@ -51,6 +53,37 @@ pub struct AudioSettingsView {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DspAnalysisView {
+    pub history: Vec<f32>,
+    pub block_size: u32,
+    pub sample_rate: u32,
+    pub deadline_ms: f32,
+    pub load_avg_ms: f32,
+    pub load_max_ms: f32,
+    pub period_jitter_percent: f32,
+    pub input_latency_samples: u64,
+    pub output_latency_samples: u64,
+    pub timing: String,
+}
+
+impl Default for DspAnalysisView {
+    fn default() -> Self {
+        Self {
+            history: Vec::new(),
+            block_size: 512,
+            sample_rate: 48_000,
+            deadline_ms: 512.0 / 48_000.0 * 1000.0,
+            load_avg_ms: 0.0,
+            load_max_ms: 0.0,
+            period_jitter_percent: 0.0,
+            input_latency_samples: 0,
+            output_latency_samples: 0,
+            timing: "Device".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeView {
     pub playing: bool,
     pub playhead: TimeMus,
@@ -65,6 +98,8 @@ pub struct RuntimeView {
     pub dirty: bool,
     pub saving: bool,
     pub audio_settings: AudioSettingsView,
+    pub dsp: DspAnalysisView,
+    pub clipboard: Clipboard,
 }
 
 impl Default for RuntimeView {
@@ -83,6 +118,8 @@ impl Default for RuntimeView {
             dirty: false,
             saving: false,
             audio_settings: AudioSettingsView::default(),
+            dsp: DspAnalysisView::default(),
+            clipboard: Clipboard::default(),
         }
     }
 }

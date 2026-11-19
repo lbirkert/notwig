@@ -3,23 +3,92 @@ use std::sync::Arc;
 
 use notwig_core::{
     AssetId, AudioAssetBuffer, ClipPayload, Db, DeviceChainId, DeviceId, NoteId, Pan, ParamId,
-    ParamValue, PlaybackSchedule, TrackId, TrackOutput,
+    ParamValue, PlaybackSchedule, SendId, TrackId, TrackOutput,
 };
 use notwig_dsp::{
     CompiledPlan, DeviceProcessor, NoteEvent, NoteKind, PlanTrack, ProcessContext, RenderConfig,
     TransportInfo,
 };
 
+use crate::control::PreviewNote;
 use crate::engine::{EngineConfig, EngineError};
 use crate::factory::DeviceFactory;
+
+const PREVIEW_POOL_CAPACITY: usize = 32;
+const PREVIEW_LENGTH_MS: u64 = 160;
+
+#[derive(Debug, Clone, Copy)]
+struct PreviewSlot {
+    track_id: TrackId,
+    note_id: NoteId,
+    pitch: u8,
+    velocity: f32,
+    on_emitted: bool,
+    frames_until_off: u32,
+}
+
+#[derive(Debug)]
+struct DelayLine {
+    buffer: Vec<f32>,
+    pos: usize,
+}
+
+impl DelayLine {
+    fn new(samples: u32) -> Self {
+        Self {
+            buffer: vec![0.0; samples as usize * 2],
+            pos: 0,
+        }
+    }
+
+    fn process(&mut self, input: &[f32], output: &mut [f32], frames: usize) {
+        let len = self.buffer.len() / 2;
+        if len == 0 {
+            output[..frames * 2].copy_from_slice(&input[..frames * 2]);
+            return;
+        }
+        let mut pos = self.pos % len;
+        for frame in 0..frames {
+            for channel in 0..2 {
+                let index = pos * 2 + channel;
+                output[frame * 2 + channel] = self.buffer[index];
+                self.buffer[index] = input[frame * 2 + channel];
+            }
+            pos = (pos + 1) % len;
+        }
+        self.pos = pos;
+    }
+
+    fn process_in_place(&mut self, audio: &mut [f32], frames: usize) {
+        let len = self.buffer.len() / 2;
+        if len == 0 {
+            return;
+        }
+        let mut pos = self.pos % len;
+        for frame in 0..frames {
+            for channel in 0..2 {
+                let index = pos * 2 + channel;
+                std::mem::swap(&mut audio[frame * 2 + channel], &mut self.buffer[index]);
+            }
+            pos = (pos + 1) % len;
+        }
+        self.pos = pos;
+    }
+
+    fn reset(&mut self) {
+        self.buffer.fill(0.0);
+        self.pos = 0;
+    }
+}
 
 #[derive(Debug)]
 pub struct TrackRuntime {
     pub plan: PlanTrack,
     pub buffer: Vec<f32>,
     pub pre_fader: Vec<f32>,
-    pub delay: Vec<f32>,
-    pub delay_pos: usize,
+    input_delay: DelayLine,
+    main_delay: DelayLine,
+    send_delays: BTreeMap<SendId, DelayLine>,
     pub peak_l: f32,
     pub peak_r: f32,
     pub rms_l: f32,
@@ -27,18 +96,20 @@ pub struct TrackRuntime {
 }
 
 impl TrackRuntime {
-    fn new(plan: PlanTrack, config: RenderConfig, total_latency: u32) -> Self {
+    fn new(plan: PlanTrack, config: RenderConfig, main_delay_samples: u32) -> Self {
         let frames = config.max_block_size.max(1);
+        let send_delays = plan
+            .sends
+            .iter()
+            .map(|send| (send.id, DelayLine::new(send.latency_samples)))
+            .collect();
         Self {
+            input_delay: DelayLine::new(plan.input_latency),
+            main_delay: DelayLine::new(main_delay_samples),
+            send_delays,
             plan,
             buffer: vec![0.0; frames * 2],
             pre_fader: vec![0.0; frames * 2],
-            delay: if total_latency > 0 {
-                vec![0.0; total_latency as usize * 2]
-            } else {
-                Vec::new()
-            },
-            delay_pos: 0,
             peak_l: 0.0,
             peak_r: 0.0,
             rms_l: 0.0,
@@ -49,8 +120,11 @@ impl TrackRuntime {
     fn reset(&mut self) {
         self.buffer.fill(0.0);
         self.pre_fader.fill(0.0);
-        self.delay.fill(0.0);
-        self.delay_pos = 0;
+        self.input_delay.reset();
+        self.main_delay.reset();
+        for delay in self.send_delays.values_mut() {
+            delay.reset();
+        }
         self.peak_l = 0.0;
         self.peak_r = 0.0;
         self.rms_l = 0.0;
@@ -67,18 +141,21 @@ pub struct ActivePlan {
     processors: Vec<Option<Box<dyn DeviceProcessor>>>,
     processor_index: BTreeMap<DeviceId, usize>,
     schedule: Arc<PlaybackSchedule>,
-    assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
+    assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
     active_notes: BTreeMap<TrackId, BTreeMap<NoteId, (u8, f32)>>,
+    preview_pool: [Option<PreviewSlot>; PREVIEW_POOL_CAPACITY],
+    preview_length_frames: u32,
     panic_pending: bool,
     tempo_bpm: f64,
     sample_rate: u32,
+    route_scratch: Vec<f32>,
 }
 
 impl ActivePlan {
     pub(crate) fn build(
         plan: &Arc<CompiledPlan>,
         schedule: &Arc<PlaybackSchedule>,
-        assets: &BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
+        assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
         engine_config: EngineConfig,
         factory: &dyn DeviceFactory,
     ) -> Result<Self, EngineError> {
@@ -91,10 +168,12 @@ impl ActivePlan {
         let order = processing_order(plan)?;
         let mut tracks = BTreeMap::new();
         for (id, track) in &plan.tracks {
-            tracks.insert(
-                *id,
-                TrackRuntime::new(track.clone(), config, plan.total_latency),
-            );
+            let main_delay = output_target(track, plan.master)
+                .and_then(|target| plan.tracks.get(&target))
+                .map_or(0, |target| {
+                    target.input_latency.saturating_sub(track.output_latency)
+                });
+            tracks.insert(*id, TrackRuntime::new(track.clone(), config, main_delay));
         }
         let mut processors = Vec::new();
         let mut processor_index = BTreeMap::new();
@@ -128,16 +207,24 @@ impl ActivePlan {
             processors,
             processor_index,
             schedule: Arc::clone(schedule),
-            assets: assets.clone(),
+            assets,
             active_notes: BTreeMap::new(),
+            preview_pool: [None; PREVIEW_POOL_CAPACITY],
+            preview_length_frames: u32::try_from(
+                u64::from(plan.config.sample_rate) * PREVIEW_LENGTH_MS / 1000,
+            )
+            .unwrap_or(u32::MAX)
+            .max(1),
             panic_pending: false,
             tempo_bpm: plan.config.tempo_bpm,
             sample_rate: plan.config.sample_rate,
+            route_scratch: vec![0.0; config.max_block_size.max(1) * 2],
         })
     }
 
     pub fn reset(&mut self) {
         self.active_notes.clear();
+        self.preview_pool = [None; PREVIEW_POOL_CAPACITY];
         self.panic_pending = false;
         for track in self.tracks.values_mut() {
             track.reset();
@@ -152,7 +239,28 @@ impl ActivePlan {
     }
 
     pub(crate) fn set_asset(&mut self, asset_id: AssetId, buffer: Arc<AudioAssetBuffer>) {
-        self.assets.insert(asset_id, buffer);
+        Arc::make_mut(&mut self.assets).insert(asset_id, buffer);
+    }
+
+    pub(crate) fn replace_assets(
+        &mut self,
+        assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
+    ) -> Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>> {
+        std::mem::replace(&mut self.assets, assets)
+    }
+
+    pub(crate) fn queue_preview_note(&mut self, preview: PreviewNote) {
+        let Some(slot) = self.preview_pool.iter_mut().find(|slot| slot.is_none()) else {
+            return;
+        };
+        *slot = Some(PreviewSlot {
+            track_id: preview.track_id,
+            note_id: preview.note_id,
+            pitch: preview.pitch,
+            velocity: preview.velocity.clamp(0.0, 1.0),
+            on_emitted: false,
+            frames_until_off: self.preview_length_frames,
+        });
     }
 
     pub fn initiate_all_notes_off(&mut self) {
@@ -217,6 +325,11 @@ impl ActivePlan {
         if include_clips {
             self.render_audio_clips(start_sample, frames);
         }
+        for track in self.tracks.values_mut() {
+            track
+                .input_delay
+                .process_in_place(&mut track.buffer, frames);
+        }
         let mut events = self.collect_events(start_sample, frames, include_clips);
 
         let map = notwig_core::TempoMap {
@@ -236,21 +349,29 @@ impl ActivePlan {
             transport: &transport,
         };
 
-        let order = self.order.clone();
-        for id in &order {
-            let Some(chain) = self.tracks.get(id).map(|track| track.plan.main_chain) else {
+        for index in 0..self.order.len() {
+            let id = self.order[index];
+            let Some(chain) = self.tracks.get(&id).map(|track| track.plan.main_chain) else {
                 continue;
             };
-            let device_ids = self.chains.get(&chain).cloned().unwrap_or_default();
-            let track_events = events.remove(id).unwrap_or_default();
-            let is_master = *id == self.master;
+            let device_count = self.chains.get(&chain).map_or(0, Vec::len);
+            let track_events = events.remove(&id).unwrap_or_default();
+            let is_master = id == self.master;
             {
-                let track = self.tracks.get_mut(id).expect("track exists");
+                let track = self.tracks.get_mut(&id).expect("track exists");
                 if track.plan.sends.iter().any(|send| send.pre_fader) {
                     track.pre_fader[..frames * 2].copy_from_slice(&track.buffer[..frames * 2]);
                 }
                 if track.plan.active {
-                    for device_id in device_ids {
+                    for device_index in 0..device_count {
+                        let Some(device_id) = self
+                            .chains
+                            .get(&chain)
+                            .and_then(|devices| devices.get(device_index))
+                            .copied()
+                        else {
+                            continue;
+                        };
                         let Some(index) = self.processor_index.get(&device_id).copied() else {
                             continue;
                         };
@@ -265,11 +386,11 @@ impl ActivePlan {
                 }
             }
 
-            self.apply_track_gain_and_pan(*id, frames);
+            self.apply_track_gain_and_pan(id, frames);
             if !is_master {
-                self.route_track(*id, frames);
+                self.route_track(id, frames);
             }
-            self.update_meters(*id, frames);
+            self.update_meters(id, frames);
         }
 
         if let Some(master) = self.tracks.get(&self.master) {
@@ -302,6 +423,8 @@ impl ActivePlan {
                     continue;
                 }
                 if audio.uses_slices() {
+                    let clip_start = i64::try_from(clip_start).unwrap_or(i64::MAX);
+                    let clip_end = i64::try_from(clip_end).unwrap_or(i64::MAX);
                     for slice in &audio.slices {
                         let Some(asset) =
                             self.assets.get(&slice.asset_id.unwrap_or(audio.asset_id))
@@ -311,15 +434,33 @@ impl ActivePlan {
                         if asset.channels == 0 {
                             continue;
                         }
-                        let slice_start = map
-                            .mus_to_samples(clip.range.start + slice.start)
-                            .min(clip_end);
+                        let source_len = i64::try_from(
+                            slice
+                                .source_end_sample
+                                .saturating_sub(slice.source_start_sample),
+                        )
+                        .unwrap_or(i64::MAX);
+                        if source_len <= 0 {
+                            continue;
+                        }
+                        let slice_start = clip_start + map.samples_delta(slice.start);
+                        let slice_end = slice_start.saturating_add(source_len);
+                        let visible_start = slice_start.max(clip_start).max(0);
+                        let visible_end = slice_end.min(clip_end);
+                        if visible_end <= visible_start {
+                            continue;
+                        }
+                        let source_offset = u64::try_from(visible_start - slice_start).unwrap_or(0);
+                        let source_start = slice.source_start_sample.saturating_add(source_offset);
+                        if source_start >= slice.source_end_sample {
+                            continue;
+                        }
                         render_audio_region(
                             track,
                             asset,
-                            slice_start,
-                            clip_end,
-                            slice.source_start_sample,
+                            u64::try_from(visible_start).unwrap_or(0),
+                            u64::try_from(visible_end).unwrap_or(0),
+                            source_start,
                             slice.source_end_sample,
                             slice.gain_db.to_gain().0,
                             0,
@@ -376,6 +517,21 @@ impl ActivePlan {
                         velocity: *velocity,
                     });
                 }
+            }
+            for index in 0..self.preview_pool.len() {
+                let Some(preview) = self.preview_pool[index].take() else {
+                    continue;
+                };
+                if !preview.on_emitted || !self.tracks.contains_key(&preview.track_id) {
+                    continue;
+                }
+                events.entry(preview.track_id).or_default().push(NoteEvent {
+                    sample_offset: 0,
+                    kind: NoteKind::Off,
+                    note_id: preview.note_id,
+                    pitch: preview.pitch,
+                    velocity: preview.velocity,
+                });
             }
             self.active_notes.clear();
             self.panic_pending = false;
@@ -446,6 +602,49 @@ impl ActivePlan {
                 }
             }
         }
+        let frames_u32 = u32::try_from(frames).unwrap_or(u32::MAX);
+        for index in 0..self.preview_pool.len() {
+            let Some(mut preview) = self.preview_pool[index] else {
+                continue;
+            };
+            if !self.tracks.contains_key(&preview.track_id) {
+                self.preview_pool[index] = None;
+                continue;
+            }
+            let list = events.entry(preview.track_id).or_default();
+            let just_started = !preview.on_emitted;
+            if just_started {
+                list.push(NoteEvent {
+                    sample_offset: 0,
+                    kind: NoteKind::On,
+                    note_id: preview.note_id,
+                    pitch: preview.pitch,
+                    velocity: preview.velocity,
+                });
+                preview.on_emitted = true;
+            }
+            if preview.frames_until_off <= frames_u32 {
+                let offset = preview
+                    .frames_until_off
+                    .min(frames.saturating_sub(1) as u32);
+                let offset = if just_started && offset == 0 && frames > 1 {
+                    1
+                } else {
+                    offset
+                };
+                list.push(NoteEvent {
+                    sample_offset: offset,
+                    kind: NoteKind::Off,
+                    note_id: preview.note_id,
+                    pitch: preview.pitch,
+                    velocity: preview.velocity,
+                });
+                self.preview_pool[index] = None;
+            } else {
+                preview.frames_until_off -= frames_u32;
+                self.preview_pool[index] = Some(preview);
+            }
+        }
         for list in events.values_mut() {
             list.sort_by(|a, b| {
                 a.sample_offset
@@ -478,39 +677,26 @@ impl ActivePlan {
         let Some(track) = self.tracks.get(&id) else {
             return;
         };
-        let target = match track.plan.output {
-            TrackOutput::Track(target) => Some(target),
-            TrackOutput::Default => track
-                .plan
-                .parent
-                .or((id != self.master).then_some(self.master)),
-            TrackOutput::None => None,
-        };
-        let sends = track.plan.sends.clone();
+        let target = output_target(&track.plan, self.master);
+        let send_count = track.plan.sends.len();
         if let Some(target_id) = target {
             if target_id != id {
                 self.mix_main(id, target_id, frames);
             }
         }
-        for send in sends {
+        for index in 0..send_count {
+            let Some(send) = self
+                .tracks
+                .get(&id)
+                .and_then(|track| track.plan.sends.get(index))
+                .cloned()
+            else {
+                continue;
+            };
             if !send.enabled || send.target == id {
                 continue;
             }
-            let gain = send.amount_db.to_gain().0;
-            let source_is_pre = send.pre_fader;
-            let Some(source_track) = self.tracks.get(&id) else {
-                continue;
-            };
-            let source: Vec<f32> = if source_is_pre {
-                source_track.pre_fader[..frames * 2].to_vec()
-            } else {
-                source_track.buffer[..frames * 2].to_vec()
-            };
-            if let Some(target) = self.tracks.get_mut(&send.target) {
-                for (dst, src) in target.buffer[..frames * 2].iter_mut().zip(source.iter()) {
-                    *dst += *src * gain;
-                }
-            }
+            self.mix_send(id, &send, frames);
         }
     }
 
@@ -518,56 +704,78 @@ impl ActivePlan {
         if source == target || !self.tracks.contains_key(&target) {
             return;
         }
-        let delay_frames = self.tracks.get(&source).map_or(0, |track| {
-            self.max_latency()
-                .saturating_sub(track.plan.latency_to_master)
-        });
-        let src = self
+        // Pad only this connection by the difference between the destination's
+        // input label and the source's output label. Downstream connections pad
+        // themselves, so nested groups are not compensated twice.
+        let delay_frames = self
             .tracks
             .get(&source)
-            .map(|track| track.buffer[..frames * 2].to_vec())
-            .unwrap_or_default();
-        let routed = if delay_frames == 0 {
-            src
-        } else {
-            let Some(mut source_track) = self.tracks.remove(&source) else {
+            .zip(self.tracks.get(&target))
+            .map_or(0, |(source, target)| {
+                target
+                    .plan
+                    .input_latency
+                    .saturating_sub(source.plan.output_latency)
+            });
+        {
+            let Some(source_track) = self.tracks.get_mut(&source) else {
                 return;
             };
-            let delay_len = source_track.delay.len() / 2;
-            if delay_len == 0 {
-                self.tracks.insert(source, source_track);
-                return;
+            let TrackRuntime {
+                buffer, main_delay, ..
+            } = source_track;
+            let scratch = &mut self.route_scratch[..frames * 2];
+            if delay_frames == 0 {
+                scratch.copy_from_slice(&buffer[..frames * 2]);
+            } else {
+                main_delay.process(&buffer[..frames * 2], scratch, frames);
             }
-            let mut delayed = vec![0.0; frames * 2];
-            let mut pos = source_track.delay_pos % delay_len;
-            for frame in 0..frames {
-                for channel in 0..2 {
-                    let index = pos * 2 + channel;
-                    delayed[frame * 2 + channel] = source_track.delay[index];
-                    source_track.delay[index] = src[frame * 2 + channel];
-                }
-                pos = (pos + 1) % delay_len;
-            }
-            source_track.delay_pos = pos;
-            self.tracks.insert(source, source_track);
-            delayed
-        };
+        }
         if let Some(target_track) = self.tracks.get_mut(&target) {
             for (dst, sample) in target_track.buffer[..frames * 2]
                 .iter_mut()
-                .zip(routed.iter())
+                .zip(self.route_scratch[..frames * 2].iter())
             {
                 *dst += *sample;
             }
         }
     }
 
-    fn max_latency(&self) -> u32 {
-        self.tracks
-            .values()
-            .map(|track| track.plan.latency_to_master)
-            .max()
-            .unwrap_or(0)
+    fn mix_send(&mut self, source: TrackId, send: &notwig_dsp::PlanSend, frames: usize) {
+        let Some(source_track) = self.tracks.get_mut(&source) else {
+            return;
+        };
+        // Pre-fader sends carry the track input label; post-fader sends carry the
+        // track output label. The plan stores the padding to the destination's
+        // input label so the send and direct paths stay phase-coherent.
+        let TrackRuntime {
+            buffer,
+            pre_fader,
+            send_delays,
+            ..
+        } = source_track;
+        let input = if send.pre_fader {
+            &pre_fader[..frames * 2]
+        } else {
+            &buffer[..frames * 2]
+        };
+        let scratch = &mut self.route_scratch[..frames * 2];
+        if send.latency_samples == 0 {
+            scratch.copy_from_slice(input);
+        } else if let Some(delay) = send_delays.get_mut(&send.id) {
+            delay.process(input, scratch, frames);
+        } else {
+            scratch.copy_from_slice(input);
+        }
+        let gain = send.amount_db.to_gain().0;
+        if let Some(target) = self.tracks.get_mut(&send.target) {
+            for (dst, sample) in target.buffer[..frames * 2]
+                .iter_mut()
+                .zip(self.route_scratch[..frames * 2].iter())
+            {
+                *dst += *sample * gain;
+            }
+        }
     }
 
     fn update_meters(&mut self, id: TrackId, frames: usize) {
@@ -652,6 +860,14 @@ fn sample_frame(asset: &AudioAssetBuffer, frame: u64) -> (f32, f32) {
             asset.samples.get(start).copied().unwrap_or(0.0),
             asset.samples.get(start + 1).copied().unwrap_or(0.0),
         ),
+    }
+}
+
+fn output_target(track: &PlanTrack, master: TrackId) -> Option<TrackId> {
+    match track.output {
+        TrackOutput::Track(target) => Some(target),
+        TrackOutput::Default => track.parent.or((track.id != master).then_some(master)),
+        TrackOutput::None => None,
     }
 }
 

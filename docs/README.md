@@ -9,9 +9,11 @@ entry point for contributors and agents.
 |---|---|
 | Understand what Notwig does and what comes next | [`ROADMAP.md`](ROADMAP.md) |
 | Understand how the system is put together | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| Change real-time audio/control behavior | [`AUDIO_ENGINE.md`](AUDIO_ENGINE.md) |
 | Find where code lives and how to extend it | [`CODE_STRUCTURE.md`](CODE_STRUCTURE.md) |
 | Change editing behavior | [`EDITING.md`](EDITING.md) |
 | Add or change tests for editing | [`EDITING_TESTING.md`](EDITING_TESTING.md) |
+| Test the system and find coverage gaps | [`TESTING.md`](TESTING.md) |
 
 Each crate also has a `README.md` with its exact responsibility, public
 surface, and boundaries:
@@ -40,6 +42,7 @@ surface, and boundaries:
 3. Lower it from the UI through `notwig-app`.
 4. Add the UI affordance in `notwig-ui`.
 5. Test at the lowest useful layer and add an integration test at the seam.
+6. Check [`TESTING.md`](TESTING.md) for the expected coverage level.
 
 ### Changing editing behavior
 

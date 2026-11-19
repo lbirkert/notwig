@@ -16,7 +16,8 @@ not persist device instance state.
 - Parameter specifications, ranges, smoothing, and normalized mapping.
 - `DeviceRegistry` for resolving type IDs to specs and processors.
 - Graph compilation from `ProjectDoc` into a `CompiledPlan` with track/device
-  order, sends, chains, and latency.
+  order, sends, chains, and per-track input/output latency labels for
+  compensation.
 - Stock device definitions and processors: EQ, Tool, and Chain.
 - EQ magnitude response used by the UI.
 
@@ -40,5 +41,6 @@ not persist device instance state.
 
 ## Tests
 
-`tests/stock.rs` covers stock device behavior and plan compilation. DSP changes
-should include a rendering/behavior test, not only a compile check.
+`tests/stock.rs` covers stock device behavior and plan compilation.
+`tests/graph.rs` covers bypass, nested-chain, and inactive-track latency.
+DSP changes should include a rendering/behavior test, not only a compile check.

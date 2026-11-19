@@ -1,4 +1,4 @@
-use notwig_core::{Pan, Rational, SampleRate, TempoMap};
+use notwig_core::{Db, Pan, Rational, SampleRate, TempoMap};
 
 #[test]
 fn rational_normalizes() {
@@ -22,4 +22,18 @@ fn constant_power_pan_is_minus_three_db_center() {
     let channel_db = 20.0 * l.log10();
     assert!((channel_db + 3.0103).abs() < 0.01);
     assert!((l - r).abs() < 1e-6);
+}
+
+#[test]
+fn db_gain_f32_and_f64_agree() {
+    for db in [
+        -96.0_f32, -60.0, -24.0, -6.0, -1.0, 0.0, 1.0, 6.0, 24.0, 48.0,
+    ] {
+        let f32_gain = f64::from(Db(db).to_gain().0);
+        let f64_gain = Db(db).to_gain_f64();
+        assert!(
+            (f32_gain - f64_gain).abs() <= f64_gain.abs() * 1e-6,
+            "db {db}: f32 gain {f32_gain} vs f64 gain {f64_gain}"
+        );
+    }
 }

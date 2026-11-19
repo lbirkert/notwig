@@ -1,0 +1,1 @@
+- Resizing an audio event leftwards at the beginning of its source cannot add silence yet. `AudioSlice` has no silent-prefix field, so the gesture stops at the source boundary. Resizing an audio clip leftwards does add leading silence.

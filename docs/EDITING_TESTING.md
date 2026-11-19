@@ -291,5 +291,5 @@ The editing abstraction is done when all of these are true.
 - Gesture tests prove the trim routing rule and no ratcheting.
 - The fuzz target has run without a crash.
 - The arranger and audio clip editor no longer have their own copy, cut, paste, duplicate, delete, or trim math.
-- The clip editor and arranger share the clipboard and selection types from core.
+- The clip editor and arranger share the workspace clipboard and the core selection types.
 - `cargo clippy` is clean and the full workspace test suite passes.

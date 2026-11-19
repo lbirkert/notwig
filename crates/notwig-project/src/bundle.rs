@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use notwig_core::{ProjectDoc, SCHEMA_VERSION};
+use notwig_core::{CoreError, ProjectDoc, SCHEMA_VERSION};
 
 use crate::error::ProjectError;
+use crate::fsutil;
 use crate::manifest::{Manifest, ManifestIssue};
 
 #[derive(Debug, Clone)]
@@ -21,17 +22,13 @@ pub struct SaveResult {
 pub fn save(doc: &ProjectDoc, bundle: &Path) -> Result<SaveResult, ProjectError> {
     doc.validate()
         .map_err(|err| ProjectError::Invalid(err.to_string()))?;
-    std::fs::create_dir_all(bundle)?;
+    fsutil::ensure_dir(bundle)?;
     for dir in ["assets", "state", "autosave", "peaks", "cache"] {
-        std::fs::create_dir_all(bundle.join(dir))?;
+        fsutil::ensure_dir(&bundle.join(dir))?;
     }
     let manifest = Manifest::new(doc);
-    let value = serde_json::to_value(&manifest)?;
-    let text = serde_json::to_string_pretty(&value)?;
     let target = bundle.join("project.json");
-    let temporary = bundle.join("project.json.tmp");
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, &target)?;
+    fsutil::write_json_atomic(&target, &manifest)?;
     Ok(SaveResult {
         path: target,
         revision: doc.revision,
@@ -50,16 +47,13 @@ pub fn open(bundle: &Path) -> Result<LoadResult, ProjectError> {
     let value: serde_json::Value = serde_json::from_str(&text)?;
     let mut doc = if value.get("doc").is_some() {
         let manifest: Manifest = serde_json::from_value(value)?;
-        check_schema(manifest.schema)?;
+        validate_manifest_schema(&manifest)?;
         manifest.doc
     } else {
-        let doc: ProjectDoc = serde_json::from_value(value)?;
-        check_schema(doc.schema)?;
-        doc
+        parse_doc_value(value)?
     };
     let mut issues = Vec::new();
-    normalize_loaded(&mut doc);
-    if let Err(err) = doc.validate() {
+    if let Err(err) = normalize_and_validate(&mut doc) {
         issues.push(ManifestIssue {
             entity: "document".into(),
             message: err.to_string(),
@@ -83,6 +77,24 @@ pub fn open(bundle: &Path) -> Result<LoadResult, ProjectError> {
     })
 }
 
+fn parse_doc_value(value: serde_json::Value) -> Result<ProjectDoc, ProjectError> {
+    let doc: ProjectDoc = serde_json::from_value(value)?;
+    check_schema(doc.schema)?;
+    Ok(doc)
+}
+
+fn validate_manifest_schema(manifest: &Manifest) -> Result<(), ProjectError> {
+    check_schema(manifest.schema)?;
+    check_schema(manifest.doc.schema)?;
+    if manifest.schema != manifest.doc.schema {
+        return Err(ProjectError::Schema(format!(
+            "manifest schema {:?} does not match document schema {:?}",
+            manifest.schema, manifest.doc.schema
+        )));
+    }
+    Ok(())
+}
+
 fn check_schema(schema: notwig_core::SchemaVersion) -> Result<(), ProjectError> {
     if schema.major != SCHEMA_VERSION.major {
         return Err(ProjectError::UnsupportedVersion(format!(
@@ -93,17 +105,45 @@ fn check_schema(schema: notwig_core::SchemaVersion) -> Result<(), ProjectError> 
     Ok(())
 }
 
+fn normalize_and_validate(doc: &mut ProjectDoc) -> Result<(), CoreError> {
+    normalize_loaded(doc);
+    doc.validate()
+}
+
 fn normalize_loaded(doc: &mut ProjectDoc) {
     doc.transport.playing = false;
     doc.transport.recording = false;
 }
 
+pub fn session_lock_path(bundle: &Path) -> PathBuf {
+    bundle.join("session.lock")
+}
+
+pub fn has_session_lock(bundle: &Path) -> bool {
+    session_lock_path(bundle).exists()
+}
+
+pub fn create_session_lock(bundle: &Path) -> Result<PathBuf, ProjectError> {
+    std::fs::create_dir_all(bundle)?;
+    let path = session_lock_path(bundle);
+    let contents = format!("pid={}\n", std::process::id());
+    std::fs::write(&path, contents)?;
+    Ok(path)
+}
+
+pub fn remove_session_lock(bundle: &Path) -> Result<(), ProjectError> {
+    let path = session_lock_path(bundle);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.into()),
+    }
+}
+
 pub fn autosave(doc: &ProjectDoc, bundle: &Path, timestamp: i64) -> Result<PathBuf, ProjectError> {
     let dir = bundle.join("autosave");
-    std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("snapshot-{}-{timestamp}.json", doc.revision));
-    let text = serde_json::to_string_pretty(&serde_json::to_value(doc)?)?;
-    std::fs::write(&path, text)?;
+    fsutil::write_json_atomic(&path, doc)?;
     Ok(path)
 }
 
@@ -126,11 +166,9 @@ pub fn load_latest_autosave(bundle: &Path) -> Result<Option<ProjectDoc>, Project
         return Ok(None);
     };
     let text = std::fs::read_to_string(path)?;
-    let mut doc: ProjectDoc = serde_json::from_str(&text)?;
-    check_schema(doc.schema)?;
-    normalize_loaded(&mut doc);
-    doc.validate()
-        .map_err(|err| ProjectError::Invalid(err.to_string()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)?;
+    let mut doc = parse_doc_value(value)?;
+    normalize_and_validate(&mut doc).map_err(|err| ProjectError::Invalid(err.to_string()))?;
     Ok(Some(doc))
 }
 

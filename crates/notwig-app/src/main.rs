@@ -15,7 +15,6 @@ use notwig_core::{
 use notwig_dsp::EngineCaps;
 use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory};
 use notwig_project::{ProjectError, import_asset, open, save, write_wav_f32};
-use notwig_ui::scene_summary;
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -395,7 +394,6 @@ fn render_doc(
 
 fn print_info(bundle: &Path) -> Result<(), AppError> {
     let loaded = open(bundle)?;
-    let summary = scene_summary(&loaded.doc);
     println!("project: {}", loaded.doc.meta.name);
     println!("path: {}", bundle.display());
     println!("sample rate: {}", loaded.doc.meta.sample_rate.value());
@@ -404,10 +402,10 @@ fn print_info(bundle: &Path) -> Result<(), AppError> {
         "time signature: {}/{}",
         loaded.doc.meta.time_sig_num, loaded.doc.meta.time_sig_den
     );
-    println!("tracks: {}", summary.tracks);
-    println!("clips: {}", summary.clips);
-    println!("devices: {}", summary.devices);
-    println!("assets: {}", summary.assets);
+    println!("tracks: {}", loaded.doc.tracks.len());
+    println!("clips: {}", loaded.doc.arranger.clips.len());
+    println!("devices: {}", loaded.doc.devices.len());
+    println!("assets: {}", loaded.doc.assets.assets.len());
     for issue in &loaded.issues {
         println!("warning: {}: {}", issue.entity, issue.message);
     }

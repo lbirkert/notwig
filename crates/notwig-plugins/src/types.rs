@@ -53,6 +53,13 @@ pub struct PluginDescriptor {
     pub modified_utc: i64,
 }
 
+impl PluginDescriptor {
+    #[must_use]
+    pub fn type_id_for(format: PluginFormat, uid: &str) -> String {
+        format!("{}.{}", format.prefix(), uid)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginCapabilities {
     pub audio_inputs: u16,
@@ -61,7 +68,12 @@ pub struct PluginCapabilities {
     pub produces_notes: bool,
     pub has_editor: bool,
     pub supports_state: bool,
+    /// Whether the host adapter can query latency for this instance.
     pub reports_latency: bool,
+    /// Reported processing latency in samples; only meaningful when
+    /// `reports_latency` is true.
+    #[serde(default)]
+    pub latency_samples: u32,
 }
 
 impl Default for PluginCapabilities {
@@ -74,6 +86,7 @@ impl Default for PluginCapabilities {
             has_editor: false,
             supports_state: true,
             reports_latency: false,
+            latency_samples: 0,
         }
     }
 }
