@@ -9,23 +9,41 @@ Example extension devices for Notwig, built as a core wasm module against the
 
 `notwig.ext.devices.limiter`
 
-A simple stereo-linked peak limiter:
+A stereo-linked peak limiter with live meters and a dynamics graph:
 
 - **Threshold**: -24 dB to 0 dB, default -6 dB.
 - **Release**: 0.01 s to 0.5 s, default 0.1 s.
-- Instant attack, release-smoothed gain recovery, zero reported latency.
+- 64-sample lookahead (~1.33 ms at 48 kHz) with instant gain reduction inside the lookahead window and release-smoothed recovery. Reports 64 samples of latency for delay compensation.
+- A stereo output meter with peak hold.
+- A 50-frame peak-history graph. The signal is drawn as a filled envelope, the
+  threshold as a blue line, and local gain reduction lowers that threshold line
+  at each point where the limiter is working.
+- A live gain-reduction readout in the graph.
 
-The panel is drawn dynamically each frame with `DeviceExtension::draw`. The
-device uses the shared `UiContext` layout helpers and widgets: a `section`
-header, a horizontal row with two `knob` widgets, a `divider`, a descriptive
-`label`, and a `Reset` `button`. Knob drags update the local DSP parameters and
-emit `PanelAction::SetParamNormalized` through
-`UiContext::set_param_normalized`; Reset restores the defaults and emits
-`PanelAction::SetParamValue` through `UiContext::set_param_value`. DSP runs over
-interleaved `f32` samples in extension linear memory. The manifest also includes
-a short description and `icon.png` for the extension explorer.
+### Gate
 
-The device is implemented with the SDK trait and registered from the macro
+`notwig.ext.devices.gate`
+
+A stereo-linked noise gate with the same graph and meter treatment:
+
+- **Threshold**: -80 dB to 0 dB, default -40 dB.
+- **Attack**: 0.001 s to 0.1 s, default 0.005 s.
+- **Hold**: 0 s to 0.5 s, default 0.05 s.
+- **Release**: 0.01 s to 1 s, default 0.1 s.
+- **Range**: -80 dB to 0 dB, default -80 dB.
+- A fixed blue threshold line, a filled input envelope, and an amber gate-gain
+  line showing when the gate opens and closes.
+- A stereo output meter with peak hold and an OPEN/CLOSED readout.
+
+Both panels are drawn dynamically each frame with `DeviceExtension::draw` and
+request repaint so the meters animate while visible. Meter and history data come
+from the engine-measured `DeviceMeterSnapshot` exposed through
+`UiContext::device_meter()`, because the panel runs in a separate extension
+instance from the audio processor. The shared stereo meter painter lives in
+`notwig_ext_api::ui`, so other extension devices can reuse it. The graph and
+history ring are local to this crate and shared by both devices.
+
+The devices are implemented with the SDK trait and registered from the macro
 entrypoint:
 
 ```rust
@@ -34,14 +52,15 @@ use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
 #[notwig_extension]
 pub fn extension(extension: &mut Extension) {
     extension.register_device::<LimiterDevice>();
+    extension.register_device::<GateDevice>();
 }
 ```
 
-`LimiterDevice` implements `DeviceExtension`, providing `spec`, `draw`,
-`prepare`, `set_param`, `process`, and `latency`. Interaction state is retained
-by the extension runtime and the host widget renderer; the device keeps only its
-own parameter values. The generated ABI exports and all heap/store/pointer
-plumbing come from `notwig-ext-api`.
+Each device implements `DeviceExtension`, providing `spec`, `draw`, `prepare`,
+`set_param`, `process`, and `latency`. Interaction state is retained by the
+extension runtime and the host widget renderer; the devices keep only their own
+parameter values and display state. The generated ABI exports and all
+heap/store/pointer plumbing come from `notwig-ext-api`.
 
 ## Build
 
@@ -68,23 +87,24 @@ directory:
 ```
 
 Then open **Settings > Extensions** and press **Reload extensions**. The
-Limiter appears under **Extensions** in the Add Device browser.
+Limiter and Gate appear under **Extensions** in the Add Device browser.
 
 The manifest uses `"api_version": 2` to match the current extension ABI.
 
 ## Notes
 
 - Heap, device-store, pointer/audio helpers, and the wasm exports are generated
-  by the SDK and `#[notwig_extension]`. This crate contains only the limiter
-  implementation and its spec/panel.
+  by the SDK and `#[notwig_extension]`. This crate contains only the device
+  implementations and their spec/panel code.
 - `notwig_alloc` uses the SDK's fixed bump heap so pointers stay stable for the
   lifetime of the module instance.
 - The extension crate does not enable `unsafe`; generated code keeps its
   `no_mangle` attributes inside an SDK-generated module.
-- The limiter does not need note events or persistent state blobs yet.
+- The devices do not need note events or persistent state blobs yet.
+- Display state is rebuilt when the engine rebuilds a device instance.
 
 ## Tests
 
-`tests/limiter.rs` checks the serialized device spec, drives `draw` through
-`RecordUi`/`UiContext` and validates the resulting panel, and covers threshold
-limiting, release recovery, and parameter rejection.
+`tests/limiter.rs` covers the limiter spec, panel draw list, threshold limiting,
+release recovery, and parameter rejection. `tests/gate.rs` covers the gate spec,
+panel draw list, opening/closing behavior, and parameter rejection.

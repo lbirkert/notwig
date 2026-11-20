@@ -5,6 +5,8 @@ use notwig_core::{DeviceId, DeviceKind, TrackId};
 use notwig_dsp::{CompiledPlan, PlanDevice, ProcessContext, RenderConfig, TransportInfo};
 use notwig_ext::ExtensionHost;
 
+const LOOKAHEAD_SAMPLES: u32 = 64;
+
 fn built_extension() -> Option<Vec<u8>> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest_dir.parent()?.parent()?;
@@ -33,8 +35,17 @@ fn built_limiter_extension_loads_and_processes_audio() {
 
     let host = ExtensionHost::load(&root, &BTreeMap::new()).unwrap();
     let specs = host.specs();
-    assert_eq!(specs.len(), 1);
-    assert_eq!(specs[0].name, "Limiter");
+    assert_eq!(specs.len(), 2);
+    let limiter_spec = specs
+        .iter()
+        .find(|spec| spec.type_id == "notwig.ext.devices.limiter")
+        .expect("limiter spec");
+    assert_eq!(limiter_spec.name, "Limiter");
+    assert!(
+        specs
+            .iter()
+            .any(|spec| spec.type_id == "notwig.ext.devices.gate")
+    );
 
     let config = RenderConfig {
         sample_rate: 48_000,
@@ -49,17 +60,17 @@ fn built_limiter_extension_loads_and_processes_audio() {
         tracks: BTreeMap::new(),
         devices: BTreeMap::new(),
         chains: BTreeMap::new(),
-        total_latency: 0,
+        total_latency: LOOKAHEAD_SAMPLES,
     };
     let device = PlanDevice {
         id: DeviceId::nil(),
         type_id: "notwig.ext.devices.limiter".into(),
         kind: DeviceKind::AudioFx,
-        spec: specs[0].clone(),
+        spec: limiter_spec.clone(),
         param_values: BTreeMap::new(),
         bypass: false,
         child_chains: Vec::new(),
-        latency_samples: 0,
+        latency_samples: LOOKAHEAD_SAMPLES,
         resolved: true,
     };
     let mut processor = host
@@ -91,6 +102,6 @@ fn built_limiter_extension_loads_and_processes_audio() {
         peak >= threshold - 1e-3,
         "peak {peak} was below {threshold}"
     );
-    assert_eq!(processor.latency().samples, 0);
+    assert_eq!(processor.latency().samples, LOOKAHEAD_SAMPLES);
     let _ = std::fs::remove_dir_all(root);
 }

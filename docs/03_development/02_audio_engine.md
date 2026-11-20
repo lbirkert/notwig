@@ -93,6 +93,11 @@ Normal mixer, parameter, schedule, and asset updates omit `PreparedRuntime`, so
 the existing DSP runtime and its delay lines, active notes, and processor state
 stay in place.
 
+The runtime measures each device's input and output peaks around `process` and
+keeps them in an `ActivePlan` map. `Engine::device_meter_snapshot` exposes that
+map to the app so extension panels can render meters without processing audio in
+the UI thread.
+
 ### Transport is one-shot
 
 Transport updates carry a playhead target and are only applied when a transport

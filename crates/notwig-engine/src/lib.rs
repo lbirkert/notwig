@@ -14,4 +14,4 @@ pub use engine::{
 };
 pub use factory::PluginDeviceFactory;
 pub use notwig_dsp::{CompositeDeviceFactory, DeviceFactory, StockDeviceFactory};
-pub use runtime::{ActivePlan, TrackRuntime};
+pub use runtime::{ActivePlan, DeviceMeterRuntime, TrackRuntime};

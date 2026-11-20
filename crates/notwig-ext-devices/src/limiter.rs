@@ -1,9 +1,19 @@
-use notwig_core::{DeviceKind, ParamId, ParamValue, SchemaVersion};
+use notwig_core::{DeviceKind, ParamId, SchemaVersion};
 use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
-use notwig_ext_api::{DeviceExtension, UiContext, button, divider, knob, label, section};
+use notwig_ext_api::{
+    Align, DeviceExtension, DeviceMeterSnapshot, METER_MIN_DB, Point, Size, UiContext, knob,
+    paint_stereo_meter, section,
+};
 use uuid::Uuid;
 
+use crate::dynamics::{
+    History, HistorySample, ThresholdCurve, follow_peak, linear_to_db, paint_history_graph,
+};
+
 pub const TYPE_ID: &str = "notwig.ext.devices.limiter";
+
+/// Fixed lookahead in samples (~1.33 ms at 48 kHz).
+pub const LOOKAHEAD_SAMPLES: u32 = 64;
 
 const THRESHOLD_UUID: u128 = 0x4c49_4d49_5445_5200_0000_0000_0000_0001;
 const RELEASE_UUID: u128 = 0x4c49_4d49_5445_5200_0000_0000_0000_0002;
@@ -15,6 +25,11 @@ const MIN_THRESHOLD_DB: f64 = -24.0;
 const MAX_THRESHOLD_DB: f64 = 0.0;
 const MIN_RELEASE_SECONDS: f64 = 0.01;
 const MAX_RELEASE_SECONDS: f64 = 0.5;
+
+const METER_WIDTH: f32 = 40.0;
+const GRAPH_HEIGHT: f32 = 116.0;
+const KNOB_WIDTH: f32 = 78.0;
+const KNOB_HEIGHT: f32 = 58.0;
 
 #[must_use]
 pub fn threshold_id() -> ParamId {
@@ -43,6 +58,17 @@ pub struct LimiterDevice {
     release_seconds: f64,
     release_coeff: f32,
     gain: f32,
+    lookahead: usize,
+    delay: Vec<f32>,
+    delay_pos: usize,
+    gain_history: Vec<f32>,
+    gain_pos: usize,
+    history: History,
+    level_db: f32,
+    meter_left_db: f32,
+    meter_right_db: f32,
+    meter_peak_db: f32,
+    gain_reduction_db: f32,
 }
 
 impl Default for LimiterDevice {
@@ -55,6 +81,17 @@ impl Default for LimiterDevice {
             release_seconds: DEFAULT_RELEASE_SECONDS,
             release_coeff: 0.0,
             gain: 1.0,
+            lookahead: LOOKAHEAD_SAMPLES as usize,
+            delay: Vec::new(),
+            delay_pos: 0,
+            gain_history: Vec::new(),
+            gain_pos: 0,
+            history: History::new(),
+            level_db: METER_MIN_DB,
+            meter_left_db: METER_MIN_DB,
+            meter_right_db: METER_MIN_DB,
+            meter_peak_db: METER_MIN_DB,
+            gain_reduction_db: 0.0,
         };
         limiter.update_threshold();
         limiter.update_release();
@@ -71,6 +108,40 @@ impl LimiterDevice {
         let samples = (self.release_seconds * self.sample_rate).max(1.0);
         self.release_coeff = (1.0 - (-1.0 / samples).exp()) as f32;
         self.release_coeff = self.release_coeff.clamp(0.0, 1.0);
+    }
+
+    fn reset_meters(&mut self) {
+        self.history = History::new();
+        self.level_db = METER_MIN_DB;
+        self.meter_left_db = METER_MIN_DB;
+        self.meter_right_db = METER_MIN_DB;
+        self.meter_peak_db = METER_MIN_DB;
+        self.gain_reduction_db = 0.0;
+    }
+
+    fn update_meters(&mut self, meter: DeviceMeterSnapshot) {
+        let input_peak = meter.input_peak_l.max(meter.input_peak_r);
+        let output_peak = meter.output_peak_l.max(meter.output_peak_r);
+        let level_db = follow_peak(self.level_db, linear_to_db(input_peak), 0.8);
+        self.level_db = level_db;
+        let gain_db = if input_peak > 1e-6 {
+            linear_to_db((output_peak / input_peak).clamp(0.0, 1.0))
+        } else {
+            self.gain_reduction_db
+        };
+        self.gain_reduction_db = gain_db;
+        self.history.push(HistorySample { level_db, gain_db });
+
+        self.meter_left_db =
+            follow_peak(self.meter_left_db, linear_to_db(meter.output_peak_l), 0.8);
+        self.meter_right_db =
+            follow_peak(self.meter_right_db, linear_to_db(meter.output_peak_r), 0.8);
+        let peak_db = self.meter_left_db.max(self.meter_right_db);
+        if peak_db >= self.meter_peak_db {
+            self.meter_peak_db = peak_db;
+        } else {
+            self.meter_peak_db = (self.meter_peak_db - 0.25).max(METER_MIN_DB);
+        }
     }
 }
 
@@ -118,7 +189,7 @@ impl DeviceExtension for LimiterDevice {
                     DEFAULT_RELEASE_SECONDS,
                 ),
             ],
-            latency_samples: 0,
+            latency_samples: LOOKAHEAD_SAMPLES,
             name: "Limiter".into(),
             vendor: "Notwig".into(),
             ui: DeviceUiSpec::custom(format!("ext:{TYPE_ID}"), Some(240.0)),
@@ -126,13 +197,50 @@ impl DeviceExtension for LimiterDevice {
     }
 
     fn draw(&mut self, ui: &mut UiContext<'_>) {
+        self.update_meters(ui.device_meter());
         section(ui, "Limiter");
 
-        let knob_size = ui.style().knob_size;
+        let width = ui.available_rect().width();
+        let spacing = ui.style().spacing.width;
+        ui.horizontal(|ui| {
+            let graph_width = (width - METER_WIDTH - spacing).max(60.0);
+            let graph_rect = ui.allocate(Size::new(graph_width, GRAPH_HEIGHT));
+            let theme = ui.theme();
+            paint_history_graph(
+                ui.painter(),
+                &theme,
+                graph_rect,
+                &self.history,
+                self.threshold_db as f32,
+                ThresholdCurve::FollowGain,
+                false,
+            );
+            let font = ui.mono_font();
+            let text = format!("GR {:.1} dB", self.gain_reduction_db);
+            ui.painter().text(
+                Point::new(graph_rect.min.x + 6.0, graph_rect.min.y + 5.0),
+                &text,
+                font,
+                theme.text_muted,
+                Align::left_top(),
+            );
+
+            let meter_rect = ui.allocate(Size::new(METER_WIDTH, GRAPH_HEIGHT));
+            let to_linear = |db: f32| 10.0_f32.powf(db / 20.0);
+            paint_stereo_meter(
+                ui.painter(),
+                &theme,
+                meter_rect,
+                to_linear(self.meter_left_db),
+                to_linear(self.meter_right_db),
+                to_linear(self.meter_peak_db),
+            );
+        });
+
         let mut threshold_change = None;
         let mut release_change = None;
         ui.horizontal(|ui| {
-            let threshold_rect = ui.allocate(knob_size);
+            let threshold_rect = ui.allocate(Size::new(KNOB_WIDTH, KNOB_HEIGHT));
             let threshold_ui_id = ui.id("threshold");
             threshold_change = knob(
                 ui,
@@ -144,7 +252,7 @@ impl DeviceExtension for LimiterDevice {
                 "Threshold",
             );
 
-            let release_rect = ui.allocate(knob_size);
+            let release_rect = ui.allocate(Size::new(KNOB_WIDTH, KNOB_HEIGHT));
             let release_ui_id = ui.id("release");
             release_change = knob(
                 ui,
@@ -171,24 +279,20 @@ impl DeviceExtension for LimiterDevice {
             ui.set_param_normalized(release_id(), norm);
         }
 
-        divider(ui);
-        label(ui, "Simple peak limiter");
-
-        if button(ui, "Reset").clicked() {
-            self.threshold_db = DEFAULT_THRESHOLD_DB;
-            self.release_seconds = DEFAULT_RELEASE_SECONDS;
-            self.update_threshold();
-            self.update_release();
-            ui.set_param_value(threshold_id(), ParamValue::F64(DEFAULT_THRESHOLD_DB));
-            ui.set_param_value(release_id(), ParamValue::F64(DEFAULT_RELEASE_SECONDS));
-        }
+        ui.request_repaint();
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {
         self.sample_rate = f64::from(sample_rate.max(1));
         self.channels = usize::from(channels.max(1));
         self.gain = 1.0;
+        self.lookahead = LOOKAHEAD_SAMPLES as usize;
+        self.delay = vec![0.0; self.lookahead * self.channels];
+        self.delay_pos = 0;
+        self.gain_history = vec![1.0; self.lookahead + 1];
+        self.gain_pos = 0;
         self.update_release();
+        self.reset_meters();
     }
 
     fn set_param(&mut self, param_id: ParamId, value: f64) -> bool {
@@ -207,9 +311,18 @@ impl DeviceExtension for LimiterDevice {
 
     fn process(&mut self, samples: &mut [f32]) {
         let channels = self.channels.max(1);
+        let lookahead = self.lookahead;
+        if lookahead == 0
+            || self.delay.len() < lookahead * channels
+            || self.gain_history.len() < lookahead + 1
+        {
+            return;
+        }
         let threshold = self.threshold;
         let release_coeff = self.release_coeff;
         let mut gain = self.gain;
+        let mut delay_pos = self.delay_pos;
+        let mut gain_pos = self.gain_pos;
         for frame in samples.chunks_mut(channels) {
             let peak = frame
                 .iter()
@@ -219,19 +332,32 @@ impl DeviceExtension for LimiterDevice {
             } else {
                 1.0
             };
-            if target < gain {
-                gain = target;
+
+            // Hold the required gain for the full lookahead window so the
+            // reduction is already active when the delayed peak arrives.
+            self.gain_history[gain_pos] = target;
+            gain_pos = (gain_pos + 1) % self.gain_history.len();
+            let window_gain = self.gain_history.iter().copied().fold(1.0_f32, f32::min);
+            if window_gain < gain {
+                gain = window_gain;
             } else {
-                gain += (target - gain) * release_coeff;
+                gain += (window_gain - gain) * release_coeff;
             }
-            for sample in frame {
-                *sample *= gain;
+
+            for (channel, sample) in frame.iter_mut().enumerate() {
+                let index = delay_pos * channels + channel;
+                let delayed = self.delay[index];
+                self.delay[index] = *sample;
+                *sample = delayed * gain;
             }
+            delay_pos = (delay_pos + 1) % lookahead;
         }
         self.gain = gain;
+        self.delay_pos = delay_pos;
+        self.gain_pos = gain_pos;
     }
 
     fn latency(&self) -> u32 {
-        0
+        LOOKAHEAD_SAMPLES
     }
 }

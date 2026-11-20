@@ -15,7 +15,9 @@ use notwig_ui::test_api::audio_editor::{
     lower_slice_plan, playhead_for_strip, set_drag_origin_start, slice_drag, slice_geometry,
     slice_model, source_duration,
 };
-use notwig_ui::{ClipEditorState, Clipboard, EditFocus, NotwigUi, RuntimeView, UiIntent};
+use notwig_ui::{
+    AudioWaveform, ClipEditorState, Clipboard, EditFocus, NotwigUi, RuntimeView, UiIntent,
+};
 use uuid::Uuid;
 
 fn map() -> TempoMap {
@@ -225,7 +227,10 @@ fn additive_node_selection_preserves_bar_selection_and_uses_node_mode() {
 fn clicking_empty_lane_creates_a_zero_width_time_selection() {
     let (doc, clip) = panel_doc(0);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.25; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
     let mut ui = NotwigUi::default();
     if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
         ui.state
@@ -278,7 +283,10 @@ fn clicking_empty_lane_creates_a_zero_width_time_selection() {
 fn copying_in_the_audio_editor_uses_the_shared_clipboard() {
     let (doc, clip) = panel_doc(0);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.25; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
     let mut ui = NotwigUi::default();
     if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
         ui.state
@@ -322,7 +330,10 @@ fn audio_editor_rejects_an_arranger_clipboard_on_paste() {
     let arranger_extract =
         edit::copy(&ArrangerModel::new(&doc), &Selection::objects([clip])).expect("arranger copy");
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.25; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
     runtime.clipboard = Clipboard::Arranger(arranger_extract);
     let mut ui = NotwigUi::default();
     if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
@@ -947,7 +958,10 @@ fn emit_keeps_events_outside_the_clip_range() {
 fn clip_editor_panel_resizes_with_its_single_handle() {
     let (doc, clip) = panel_doc(0);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.25; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
     let mut ui = NotwigUi::default();
     if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
         ui.state
@@ -1011,7 +1025,10 @@ fn clip_editor_panel_resizes_with_its_single_handle() {
 fn clip_editor_panel_collapses_below_the_resize_threshold() {
     let (doc, clip) = panel_doc(0);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.25; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
     let mut ui = NotwigUi::default();
     if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
         ui.state

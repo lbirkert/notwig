@@ -23,3 +23,13 @@
 - Make https://notwig.lbirkert.com/extensions.json the default extension index.
 - Web needs a loading spinner while WASM is loading.
 - Shift clicking the drag handle (currently on the title of a lane) causes multi selection of lanes to fail.
+- Having a plugin window opened should still allow for playback (using space) like Bitwig does.
+- Removing a device needs to close the plugin window.
+- Info panel has weird black area to the right that should be removed.
+- Engine loop end changes bar (keeps timing I think) when tempo is changed while playing.
+- Latency of whole device chain should be displayed in the info panel below the last device as a small text (e.g. 20ms).
+- Shift + Move should allow moving without grid snapping
+- Grid snapping is clamped (I think) to max 16th notes and is still! too small for any given zoom level
+- clip start/end resize handles should not extend up to the playstart so that the playstart is settable to the clip start/end
+- creating a note needs to update the time selection to note min/max
+

@@ -109,7 +109,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Extension ABI helpers | ✅ Implemented | ⭐⭐⭐ | `notwig-ext-api/tests/abi_helpers.rs` covers the const `DeviceStore` and handle lifecycle. |
 | Extension index and config | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/index_config.rs` covers index parsing/validation and legacy config migration. |
 | Extension ZIP install | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/install.rs` covers root/nested layouts, unsafe paths, ID mismatch, replacement, and uninstall. |
-| Limiter example device | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the device spec, panel draw list, threshold limiting, and release recovery. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports. |
+| Limiter and gate example devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the limiter spec, panel draw list, lookahead transient catching, threshold limiting, and release recovery. `notwig-ext-devices/tests/gate.rs` covers the gate spec, panel draw list, and open/close behavior. `notwig-ext-api/tests/ui_context.rs` covers the shared stereo meter. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports. |
 | Edit lowering ID remap | 🧪 Partial | ⭐⭐⭐⭐⭐ | Covered through app tests, not isolated unit tests. |
 | Snap and grid math | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Waveform peak mapping | ✅ Implemented | ⭐⭐⭐ | |

@@ -61,15 +61,18 @@ crossfades, reverse, and time stretching are not implemented.
 
 ## Waveform and navigation
 
-The waveform is drawn from cached peak data. Zoom and pan use the same gestures
-as the arranger:
+The waveform is drawn from cached signed min/max data. When you zoom in far
+enough, it switches to a graph of the individual samples, so you can see the
+waveform rise and fall around zero rather than only its absolute peak. Zoom and
+pan use the same gestures as the arranger:
 
 - pinch to zoom;
 - middle-drag horizontally to pan, vertically to zoom;
 - horizontal scrollbar to scroll.
 
-The editor draws the grid and ruler across the visible range, including areas
-outside the clip. The content shading shows where the clip actually plays.
+You can zoom in to sample-level detail. The editor draws the grid and ruler
+across the visible range, including areas outside the clip. The content shading
+shows where the clip actually plays.
 
 ## What happens at the edges
 

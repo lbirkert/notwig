@@ -188,6 +188,17 @@ fn commands_are_recorded_in_paint_order() {
 }
 
 #[test]
+fn stereo_meter_paints_inside_its_rect() {
+    let input = UiInput::default();
+    let mut memory = UiMemory::new();
+    let panel = frame(&input, &mut memory, |ui| {
+        notwig_ext_api::stereo_meter(ui, Size::new(20.0, 80.0), 1.0, 0.0, 0.5);
+    });
+    panel.validate().unwrap();
+    assert!(panel.commands.len() > 4);
+}
+
+#[test]
 fn horizontal_row_advances_the_vertical_cursor() {
     let input = UiInput::default();
     let mut memory = UiMemory::new();

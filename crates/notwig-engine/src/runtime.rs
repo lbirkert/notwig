@@ -80,6 +80,15 @@ impl DelayLine {
     }
 }
 
+/// Input and output peaks measured around one device in the processing chain.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct DeviceMeterRuntime {
+    pub input_peak_l: f32,
+    pub input_peak_r: f32,
+    pub output_peak_l: f32,
+    pub output_peak_r: f32,
+}
+
 #[derive(Debug)]
 pub struct TrackRuntime {
     pub plan: PlanTrack,
@@ -139,6 +148,7 @@ pub struct ActivePlan {
     chains: BTreeMap<DeviceChainId, Vec<DeviceId>>,
     processors: Vec<Option<Box<dyn DeviceProcessor>>>,
     processor_index: BTreeMap<DeviceId, usize>,
+    device_meters: BTreeMap<DeviceId, DeviceMeterRuntime>,
     schedule: Arc<PlaybackSchedule>,
     assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
     active_notes: BTreeMap<TrackId, BTreeMap<NoteId, (u8, f32)>>,
@@ -205,6 +215,7 @@ impl ActivePlan {
             chains,
             processors,
             processor_index,
+            device_meters: BTreeMap::new(),
             schedule: Arc::clone(schedule),
             assets,
             active_notes: BTreeMap::new(),
@@ -231,6 +242,7 @@ impl ActivePlan {
         for processor in self.processors.iter_mut().flatten() {
             processor.reset();
         }
+        self.device_meters.clear();
     }
 
     pub(crate) fn set_schedule(&mut self, schedule: Arc<PlaybackSchedule>) {
@@ -321,6 +333,13 @@ impl ActivePlan {
         self.tracks
             .iter()
             .map(|(id, track)| (*id, track.peak_l, track.peak_r, track.rms_l, track.rms_r))
+            .collect()
+    }
+
+    pub fn device_meter_snapshot(&self) -> Vec<(DeviceId, DeviceMeterRuntime)> {
+        self.device_meters
+            .iter()
+            .map(|(id, meter)| (*id, *meter))
             .collect()
     }
 
@@ -420,10 +439,23 @@ impl ActivePlan {
                             continue;
                         };
                         if let Some(processor) = self.processors[index].as_mut() {
+                            let (input_peak_l, input_peak_r) =
+                                stereo_peaks(&track.buffer[..frames * 2]);
                             let _ = processor.process(
                                 &ctx,
                                 &mut track.buffer[..frames * 2],
                                 &track_events,
+                            );
+                            let (output_peak_l, output_peak_r) =
+                                stereo_peaks(&track.buffer[..frames * 2]);
+                            self.device_meters.insert(
+                                device_id,
+                                DeviceMeterRuntime {
+                                    input_peak_l,
+                                    input_peak_r,
+                                    output_peak_l,
+                                    output_peak_r,
+                                },
                             );
                         }
                     }
@@ -853,6 +885,16 @@ impl ActivePlan {
         track.rms_l = (sum_l / frames).sqrt() as f32;
         track.rms_r = (sum_r / frames).sqrt() as f32;
     }
+}
+
+fn stereo_peaks(samples: &[f32]) -> (f32, f32) {
+    let mut peak_l = 0.0_f32;
+    let mut peak_r = 0.0_f32;
+    for frame in samples.chunks_exact(2) {
+        peak_l = peak_l.max(frame[0].abs());
+        peak_r = peak_r.max(frame[1].abs());
+    }
+    (peak_l, peak_r)
 }
 
 fn kind_rank(kind: NoteKind) -> u8 {

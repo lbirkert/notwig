@@ -183,6 +183,7 @@ fn loads_device_spec_and_draws_panel() {
         params: BTreeMap::new(),
         theme: ThemeSnapshot::default(),
         input: notwig_ext_api::UiInput::default(),
+        meter: notwig_ext_api::DeviceMeterSnapshot::default(),
     };
     let draw = panel
         .draw_device_panel("com.test.gain", &context)
@@ -209,6 +210,7 @@ fn extension_panel_actions_survive_host_draw() {
         params: BTreeMap::new(),
         theme: ThemeSnapshot::default(),
         input: notwig_ext_api::UiInput::default(),
+        meter: notwig_ext_api::DeviceMeterSnapshot::default(),
     };
     let draw = panel
         .draw_device_panel("com.test.gain", &context)

@@ -79,7 +79,8 @@ that needs them; most cross-layer types live in `notwig-core`.
 |---|---|
 | `bundle.rs` | `*.notwig` save/open/autosave/recovery |
 | `manifest.rs` | Versioned JSON manifest and load issues |
-| `assets.rs` | Audio decode, offline resampling, import, WAV f32 export |
+| `assets.rs` | Audio decode, import, content-addressed persistence, WAV f32 export |
+| `resample.rs` | `rubato`-based offline sample-rate conversion |
 | `error.rs` | `ProjectError` |
 
 ### `notwig-dsp` — device contracts and plan compilation
@@ -142,15 +143,17 @@ frame that carries input and returns draw commands plus host actions.
 
 | Module | Responsibility |
 |---|---|
-| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, parameter IDs |
-| `lib.rs` | `#[notwig_extension]` entrypoint registering `LimiterDevice` |
+| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
+| `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
+| `dynamics.rs` | Shared 50-frame peak/gain history and history-graph painter |
+| `lib.rs` | `#[notwig_extension]` entrypoint registering both devices |
 
 ### `notwig-engine` — real-time execution
 
 | Module | Responsibility |
 |---|---|
 | `engine.rs` | Transport, plan/schedule application, block processing, offline render |
-| `runtime.rs` | Active plan instances, track/device runtime state, event collection |
+| `runtime.rs` | Active plan instances, track/device runtime state, track and per-device meter snapshots, event collection |
 | `factory.rs` | Stock and plugin device factories |
 
 ### `notwig-plugins` — plugin hosting
@@ -181,8 +184,9 @@ frame that carries input and returns draw commands plus host actions.
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
 | `widgets/` | Knobs, faders, draggable numbers, form helpers, icons, theme |
-| `widgets/timeline/` | Shared beat strip, clip visuals, waveform, grid, selection, drop preview, interaction math |
+| `widgets/timeline/` | Shared beat strip, clip visuals, grid, selection, drop preview, interaction math |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
+| `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |
 | `state.rs` | Selection, viewport, open editor, notifications, edit focus |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
@@ -194,7 +198,7 @@ frame that carries input and returns draw commands plus host actions.
 | `main.rs` | CLI entrypoint, demo/new/render/info/scan commands |
 | `gui.rs` | `eframe` app, intent handling, dialogs, plugin windows, runtime projection |
 | `workspace/mod.rs` | Project lifecycle, command application, undo/redo, tracks, devices, transport |
-| `workspace/assets.rs` | Asset loading, import, relink, peaks, engine asset preparation |
+| `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |
 | `web/storage.rs` | OPFS and File System Access project storage |
@@ -232,7 +236,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/` |
 | Extension draw/panel validation | `crates/notwig-ext-api/tests/` |
 | Extension ABI helpers | `crates/notwig-ext-api/tests/abi_helpers.rs` |
-| Limiter example device | `crates/notwig-ext-devices/tests/` |
+| Limiter and gate example devices | `crates/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext-api/tests/index_config.rs` |
 | Extension ZIP install | `crates/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |

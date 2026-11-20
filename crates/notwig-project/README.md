@@ -17,8 +17,9 @@ real-time code.
 - Autosave snapshots, cleanup, and recovery detection.
 - `session.lock` creation/removal helpers used by the app to detect unclean exits.
 - WAV/AIFF/MP3/FLAC/OGG decoding through `symphonia`.
-- Offline resampling to the project sample rate.
-- Managed asset copies under `assets/`.
+- Offline resampling to the project sample rate with `rubato`.
+- Managed content-addressed asset copies under `assets/`, hashed from the encoded
+  WAV bytes before they are written.
 - WAV/AIFF/FLAC/MP3/OGG writing with bit depth where applicable, optional dithering and normalization.
 - `ProjectError` and load-issue reporting.
 
@@ -54,7 +55,8 @@ temp-file-and-rename writes.
 |---|---|
 | `bundle.rs` | Save/open/autosave/recovery |
 | `manifest.rs` | Manifest, schema version, load issues |
-| `assets.rs` | Decode, resample, and import audio assets |
+| `assets.rs` | Decode, import, hash, and persist audio assets |
+| `resample.rs` | `rubato`-based offline sample-rate conversion |
 | `export.rs` | WAV/AIFF/FLAC/MP3/OGG export, bit depth, dithering, normalization |
 | `fsutil.rs` | Atomic file/JSON writes and directory creation |
 | `error.rs` | `ProjectError` |

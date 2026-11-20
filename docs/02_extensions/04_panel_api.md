@@ -48,6 +48,7 @@ retained by the host per device instance.
 | `set_param_normalized` / `set_param_value` | Queue a parameter action. |
 | `set_cursor` / `request_repaint` | Queue host UI actions. |
 | `style()`, `theme()`, `input()` | Style metrics, theme colors, frame input. |
+| `device_meter()` | Latest engine-measured input/output peaks for this device. |
 | `font()`, `mono_font()`, `text_size()`, `small_text_size()` | Font requests. |
 
 `UiContext` never exposes `egui`. The host sends a serialized `UiInput` and
@@ -62,11 +63,36 @@ Shared widgets allocate their own rect and draw themselves:
 | `button(ui, text)` | `Response` |
 | `knob(ui, id, rect, value_norm, default_norm, bipolar, label)` | `Option<f32>` when the normalized value changed |
 | `toggle(ui, id, rect, active, text)` | `Option<bool>` when clicked |
+| `stereo_meter(ui, size, peak_left, peak_right, peak_hold)` | Allocated `Rect` |
 | `label(ui, text)`, `section(ui, title)`, `divider(ui)` | Allocated `Rect` |
 
 The `paint_*` functions (`paint_button`, `paint_knob`, `paint_toggle`,
-`paint_label`, `paint_section`, `paint_divider`) draw a widget into an existing
-rect when you need custom layout or interaction.
+`paint_label`, `paint_section`, `paint_divider`, `paint_stereo_meter`) draw a
+widget into an existing rect when you need custom layout or interaction.
+
+`stereo_meter` takes linear peak amplitudes (`0.0..`). It maps them to dBFS with
+the same -60 dB floor as the host track meters, draws green/amber/red zones, and
+adds a peak-hold line from the linear `peak_hold` value. `METER_MIN_DB` exposes
+that floor.
+
+### Device metering
+
+The engine measures each device's input and output peaks every block and passes
+them to the panel through `ui.device_meter()`:
+
+```rust
+let meter = ui.device_meter();
+let input = meter.input_peak_l.max(meter.input_peak_r);
+let output = meter.output_peak_l.max(meter.output_peak_r);
+```
+
+Each field is a linear peak amplitude. The values are zero while playback is
+stopped or when the device is inactive. Use them to drive a `stereo_meter` and
+to build display history such as a limiter graph. The panel instance itself does
+not process audio, so do not expect local DSP state to contain meter data.
+
+Retain display history on the device and call `ui.request_repaint()` while the
+panel is visible so meters animate.
 
 The knob changes by vertical drag. Hold **Shift** for fine adjustment.
 Double-clicking a knob resets it to `default_norm`.

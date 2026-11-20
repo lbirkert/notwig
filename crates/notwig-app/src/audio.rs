@@ -5,8 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
-use notwig_core::{RtEvent, TrackId};
+use notwig_core::{DeviceId, RtEvent, TrackId};
 use notwig_engine::{ControlHandle, Engine, EngineConfig};
+use notwig_ext_api::DeviceMeterSnapshot;
 use notwig_ui::MeterValues;
 
 #[derive(Debug, Clone, Default)]
@@ -31,6 +32,7 @@ pub struct AudioSnapshot {
     pub playhead_updated: Option<Instant>,
     pub playing: bool,
     pub meters: BTreeMap<TrackId, MeterValues>,
+    pub device_meters: BTreeMap<DeviceId, DeviceMeterSnapshot>,
     pub xruns: u64,
     pub cpu_load: Option<f32>,
     pub error: Option<String>,
@@ -48,6 +50,18 @@ impl AudioSnapshot {
     pub fn meters_for_display(&self, playing: bool) -> BTreeMap<TrackId, MeterValues> {
         if self.running && playing {
             self.meters.clone()
+        } else {
+            BTreeMap::new()
+        }
+    }
+
+    #[must_use]
+    pub fn device_meters_for_display(
+        &self,
+        playing: bool,
+    ) -> BTreeMap<DeviceId, DeviceMeterSnapshot> {
+        if self.running && playing {
+            self.device_meters.clone()
         } else {
             BTreeMap::new()
         }
@@ -408,6 +422,20 @@ fn update_snapshot(
     snapshot.playing = engine.transport().playing;
     if !snapshot.playing {
         snapshot.meters.clear();
+    }
+    snapshot.device_meters.clear();
+    if snapshot.playing {
+        for (device_id, meter) in engine.device_meter_snapshot() {
+            snapshot.device_meters.insert(
+                device_id,
+                DeviceMeterSnapshot {
+                    input_peak_l: meter.input_peak_l,
+                    input_peak_r: meter.input_peak_r,
+                    output_peak_l: meter.output_peak_l,
+                    output_peak_r: meter.output_peak_r,
+                },
+            );
+        }
     }
     snapshot.cpu_load = Some(dsp.usage_percent);
     snapshot.block_size = dsp.frames;

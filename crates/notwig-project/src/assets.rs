@@ -5,12 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::ProjectError;
 use crate::fsutil;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResampleQuality {
-    Standard,
-    High,
-}
+use crate::resample::{ResampleQuality, resample};
 
 #[derive(Debug, Clone)]
 pub struct ImportedAsset {
@@ -169,74 +164,6 @@ fn decode_symphonia(extension: &str, bytes: Vec<u8>) -> Result<AudioAssetBuffer,
     })
 }
 
-pub fn resample(
-    input: &AudioAssetBuffer,
-    target_rate: u32,
-    quality: ResampleQuality,
-) -> Result<AudioAssetBuffer, ProjectError> {
-    if target_rate == 0 {
-        return Err(ProjectError::Resample(
-            "target rate must be positive".into(),
-        ));
-    }
-    if input.sample_rate == target_rate {
-        return Ok(input.clone());
-    }
-    let channels = usize::from(input.channels.max(1));
-    let in_frames = input.samples.len() / channels;
-    let ratio = f64::from(target_rate) / f64::from(input.sample_rate);
-    let out_frames = (in_frames as f64 * ratio).round() as usize;
-    let mut samples = vec![0.0_f32; out_frames * channels];
-    let radius = match quality {
-        ResampleQuality::Standard => 1,
-        ResampleQuality::High => 3,
-    };
-    let mut weights = Vec::with_capacity((radius * 2 + 1) as usize);
-    for out_frame in 0..out_frames {
-        let position = out_frame as f64 / ratio;
-        let center = position.floor() as isize;
-        weights.clear();
-        let mut sum_weight = 0.0_f64;
-        for tap in -radius..=radius {
-            let distance = position - (center + tap) as f64;
-            let weight = if radius == 1 {
-                (1.0 - distance.abs()).max(0.0)
-            } else {
-                sinc(distance) * sinc(distance / radius as f64)
-            };
-            weights.push((center + tap, weight));
-            sum_weight += weight;
-        }
-        if sum_weight.abs() < 1e-12 {
-            continue;
-        }
-        for channel in 0..channels {
-            let mut value = 0.0_f64;
-            for (index, weight) in &weights {
-                if *index >= 0 && (*index as usize) < in_frames {
-                    value +=
-                        f64::from(input.samples[*index as usize * channels + channel]) * weight;
-                }
-            }
-            samples[out_frame * channels + channel] = (value / sum_weight) as f32;
-        }
-    }
-    Ok(AudioAssetBuffer {
-        sample_rate: target_rate,
-        channels: input.channels,
-        samples,
-    })
-}
-
-fn sinc(value: f64) -> f64 {
-    if value.abs() < 1e-12 {
-        1.0
-    } else {
-        let x = std::f64::consts::PI * value;
-        x.sin() / x
-    }
-}
-
 pub fn write_wav_f32(
     path: &Path,
     sample_rate: u32,
@@ -319,8 +246,12 @@ pub fn import_asset(
     let assets_dir = bundle.join("assets");
     fsutil::ensure_dir(&assets_dir)?;
     let temporary = assets_dir.join(format!("{asset_id}.wav.tmp"));
-    write_wav_f32(&temporary, project_rate, channels, &buffer.samples)?;
-    let hash = hash_file(&temporary)?;
+    // Hash the bytes we are about to write instead of reading the file back:
+    // the encoded WAV is identical either way, and this avoids a full-file
+    // read on every import.
+    let wav_bytes = write_wav_f32_bytes(project_rate, channels, &buffer.samples)?;
+    let hash = hash_bytes(&wav_bytes);
+    std::fs::write(&temporary, &wav_bytes)?;
     let file_name = format!("{hash}.wav");
     let final_path = assets_dir.join(&file_name);
     fsutil::finalize_atomic(&temporary, &final_path)?;
@@ -352,9 +283,8 @@ fn duplicate_mono(samples: &[f32]) -> Vec<f32> {
     out
 }
 
-fn hash_file(path: &Path) -> Result<String, ProjectError> {
-    let bytes = std::fs::read(path)?;
+fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }

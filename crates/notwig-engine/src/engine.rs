@@ -210,6 +210,17 @@ impl Engine {
         &self.transport
     }
 
+    /// Returns the latest per-device input/output peaks.
+    #[must_use]
+    pub fn device_meter_snapshot(
+        &self,
+    ) -> Vec<(notwig_core::DeviceId, crate::runtime::DeviceMeterRuntime)> {
+        self.runtime
+            .as_ref()
+            .map(ActivePlan::device_meter_snapshot)
+            .unwrap_or_default()
+    }
+
     pub fn apply(&mut self, message: EngineMsg) -> Result<(), EngineError> {
         match message {
             EngineMsg::ApplyPlan { plan } => {

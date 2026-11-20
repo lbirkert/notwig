@@ -1,11 +1,10 @@
-use std::collections::BTreeMap;
-
 use egui::{Align2, Color32, CornerRadius, FontId, Painter, Rect, Stroke, StrokeKind};
 use notwig_core::sequencer::{AudioClipData, AudioSlice, ClipKind, ClipPayload, MidiClipData};
-use notwig_core::{AssetId, ClipEntity, ProjectDoc, RangeMus};
+use notwig_core::{ClipEntity, ProjectDoc, RangeMus};
 
 use crate::theme;
 use crate::timeline::TimelineGrid;
+use crate::waveform::{WaveformCache, draw_waveform};
 
 pub(crate) struct ClipVisual {
     pub clip_rect: Rect,
@@ -43,7 +42,7 @@ pub(crate) fn draw_clip_visual(
     range: RangeMus,
     lane_rect: Rect,
     grid: TimelineGrid,
-    waveforms: &BTreeMap<AssetId, Vec<f32>>,
+    waveforms: &WaveformCache,
     selected: bool,
     preview: bool,
 ) -> Option<ClipVisual> {
@@ -168,105 +167,6 @@ fn draw_midi_preview(painter: &Painter, rect: Rect, range: RangeMus, midi: &Midi
     }
 }
 
-pub(crate) fn draw_waveform(
-    painter: &Painter,
-    full_rect: Rect,
-    clip_rect: Rect,
-    peaks: &[f32],
-    asset_samples: u64,
-    source_start: u64,
-    source_end: u64,
-) {
-    if peaks.is_empty() {
-        return;
-    }
-    let Some((rect, start, end)) = waveform_region(
-        full_rect,
-        clip_rect,
-        asset_samples,
-        source_start,
-        source_end,
-    ) else {
-        return;
-    };
-    let center = rect.center().y;
-    let half = rect.height() * 0.34;
-    let steps = (rect.width() / 2.0).max(1.0) as usize;
-    let span = end - start;
-    let last_peak = peaks.len().saturating_sub(1);
-    let source_at = |t: f64| start + t * span;
-    for step in 0..steps {
-        let t0 = step as f64 / steps as f64;
-        let t1 = (step + 1) as f64 / steps as f64;
-        let first = peak_index(source_at(t0), asset_samples, peaks.len()).min(last_peak);
-        let last = peak_index(source_at(t1), asset_samples, peaks.len()).min(last_peak);
-        let peak = average_peak(peaks, first, last);
-        let x = rect.left() + t0 as f32 * rect.width();
-        painter.line_segment(
-            [
-                egui::pos2(x, center - peak * half),
-                egui::pos2(x, center + peak * half),
-            ],
-            Stroke::new(1.0_f32, Color32::from_black_alpha(120)),
-        );
-    }
-}
-
-fn average_peak(peaks: &[f32], first: usize, last: usize) -> f32 {
-    if peaks.is_empty() {
-        return 0.0;
-    }
-    let first = first.min(peaks.len() - 1);
-    let last = last.min(peaks.len() - 1).max(first);
-    let sum: f32 = peaks[first..=last].iter().sum();
-    (sum / (last - first + 1) as f32).clamp(0.0, 1.0)
-}
-
-pub(crate) fn waveform_region(
-    full_rect: Rect,
-    clip_rect: Rect,
-    asset_samples: u64,
-    source_start: u64,
-    source_end: u64,
-) -> Option<(Rect, f64, f64)> {
-    if full_rect.width() <= 0.0 || source_end <= source_start {
-        return None;
-    }
-    let visible = full_rect.intersect(clip_rect);
-    if visible.width() < 2.0 {
-        return None;
-    }
-    let to_source = |x: f32| {
-        let t = f64::from(((x - full_rect.left()) / full_rect.width()).clamp(0.0, 1.0));
-        source_start as f64 + t * (source_end - source_start) as f64
-    };
-    let visible_start = to_source(visible.left());
-    let visible_end = to_source(visible.right());
-    let span = visible_end - visible_start;
-    if span <= 0.0 {
-        return None;
-    }
-    let available_start = visible_start.clamp(0.0, asset_samples as f64);
-    let available_end = visible_end.clamp(0.0, asset_samples as f64);
-    if available_end <= available_start {
-        return None;
-    }
-    let u0 = ((available_start - visible_start) / span) as f32;
-    let u1 = ((available_end - visible_start) / span) as f32;
-    let rect = Rect::from_min_max(
-        egui::pos2(visible.left() + u0 * visible.width(), visible.top()),
-        egui::pos2(visible.left() + u1 * visible.width(), visible.bottom()),
-    );
-    Some((rect, available_start, available_end))
-}
-
-fn peak_index(source_sample: f64, asset_samples: u64, peaks: usize) -> usize {
-    if asset_samples == 0 || peaks == 0 {
-        return 0;
-    }
-    ((source_sample / asset_samples as f64) * peaks as f64) as usize
-}
-
 pub(crate) fn audio_slices(clip: &ClipEntity, audio: &AudioClipData) -> Vec<AudioSlice> {
     if audio.uses_slices() {
         return audio.slices.clone();
@@ -287,26 +187,19 @@ pub(crate) fn draw_audio_slices(
     doc: &ProjectDoc,
     clip: &ClipEntity,
     audio: &AudioClipData,
-    waveforms: &BTreeMap<AssetId, Vec<f32>>,
+    waveforms: &WaveformCache,
     body_rect: Rect,
     grid: TimelineGrid,
     lane_left: f32,
     lane_top: f32,
 ) {
-    let asset_samples = doc
-        .assets
-        .assets
-        .get(&audio.asset_id)
-        .and_then(|asset| asset.duration_samples)
-        .unwrap_or(audio.source_end_sample);
     if !audio.uses_slices() {
-        if let Some(peaks) = waveforms.get(&audio.asset_id) {
+        if let Some(waveform) = waveforms.get(&audio.asset_id) {
             draw_waveform(
                 painter,
                 body_rect,
                 body_rect,
-                peaks,
-                asset_samples,
+                waveform,
                 audio.source_start_sample,
                 audio.source_end_sample,
             );
@@ -326,15 +219,9 @@ pub(crate) fn draw_audio_slices(
         let clip_rect = Rect::from_min_max(egui::pos2(body_rect.left(), lane_top), body_rect.max);
         let rect = full_rect.intersect(clip_rect);
         let asset_id = slice.asset_id.unwrap_or(audio.asset_id);
-        let Some(peaks) = waveforms.get(&asset_id) else {
+        let Some(waveform) = waveforms.get(&asset_id) else {
             continue;
         };
-        let asset_samples = doc
-            .assets
-            .assets
-            .get(&asset_id)
-            .and_then(|asset| asset.duration_samples)
-            .unwrap_or(slice.source_end_sample);
         if rect.width() > 1.0 {
             let audio_start = start + map.samples_to_mus(slice.silent_prefix_samples);
             let audio_duration = map.samples_to_mus(slice.audio_samples());
@@ -349,8 +236,7 @@ pub(crate) fn draw_audio_slices(
                 painter,
                 audio_rect,
                 clip_rect,
-                peaks,
-                asset_samples,
+                waveform,
                 slice.source_start_sample,
                 slice.source_end_sample,
             );
@@ -363,14 +249,6 @@ pub mod test_api {
     #[allow(clippy::wildcard_imports)]
     use super::*;
 
-    pub fn average_peak(peaks: &[f32], first: usize, last: usize) -> f32 {
-        super::average_peak(peaks, first, last)
-    }
-
-    pub fn peak_index(source_sample: f64, asset_samples: u64, peaks: usize) -> usize {
-        super::peak_index(source_sample, asset_samples, peaks)
-    }
-
     pub fn clip_label(clip: &ClipEntity) -> String {
         super::clip_label(clip)
     }
@@ -381,21 +259,5 @@ pub mod test_api {
 
     pub fn clip_color(doc: &ProjectDoc, clip: &ClipEntity) -> Color32 {
         super::clip_color(doc, clip)
-    }
-
-    pub fn waveform_region(
-        full_rect: Rect,
-        clip_rect: Rect,
-        asset_samples: u64,
-        source_start: u64,
-        source_end: u64,
-    ) -> Option<(Rect, f64, f64)> {
-        super::waveform_region(
-            full_rect,
-            clip_rect,
-            asset_samples,
-            source_start,
-            source_end,
-        )
     }
 }

@@ -7,10 +7,11 @@ mod export;
 mod fsutil;
 mod manifest;
 mod probe;
+mod resample;
 
 pub use assets::{
-    ImportedAsset, ResampleQuality, decode_audio, decode_audio_bytes, import_asset, resample,
-    write_wav_f32, write_wav_f32_bytes,
+    ImportedAsset, decode_audio, decode_audio_bytes, import_asset, write_wav_f32,
+    write_wav_f32_bytes,
 };
 pub use bundle::{
     BundleFiles, LoadResult, SaveResult, autosave, cleanup_autosaves, create_session_lock,
@@ -21,3 +22,4 @@ pub use error::ProjectError;
 pub use export::{ExportBitDepth, ExportFormat, ExportOptions, write_audio_export};
 pub use manifest::{Manifest, ManifestIssue};
 pub use probe::{AudioProbe, probe_audio};
+pub use resample::{ResampleQuality, resample};

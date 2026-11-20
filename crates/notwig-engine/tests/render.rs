@@ -230,6 +230,24 @@ fn stock_device_changes_audio() {
         .iter()
         .fold(0.0_f32, |acc, value| acc.max(value.abs()));
     assert!(peak < 0.01, "device should attenuate output, peak={peak}");
+
+    let device_id = id::<DeviceMarker>(300);
+    let meter = engine
+        .device_meter_snapshot()
+        .into_iter()
+        .find_map(|(id, meter)| (id == device_id).then_some(meter))
+        .expect("device meter snapshot");
+    assert!(
+        meter.input_peak_l > 0.4,
+        "input peak was {}",
+        meter.input_peak_l
+    );
+    assert!(
+        meter.output_peak_l < meter.input_peak_l * 0.01,
+        "output peak {} was not attenuated below input peak {}",
+        meter.output_peak_l,
+        meter.input_peak_l
+    );
 }
 
 #[test]

@@ -45,7 +45,8 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
 | `widgets/` | Knobs, faders, draggable numbers, form helpers, icons, theme |
-| `widgets/timeline/` | Beat strip, clip visuals, waveform, grid, selection, drop preview, interaction math |
+| `widgets/timeline/` | Beat strip, clip visuals, grid, selection, drop preview, interaction math |
+| `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, and sample-level drawing |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
 | `state.rs`, `intent.rs`, `runtime.rs` | View state, intents, runtime projection |

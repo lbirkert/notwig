@@ -420,6 +420,11 @@ impl NotwigUi {
                                     device,
                                     spec,
                                     doc.meta.sample_rate.value(),
+                                    runtime
+                                        .device_meters
+                                        .get(&device.id)
+                                        .copied()
+                                        .unwrap_or_default(),
                                     Vec2::new(body_width - 8.0, height - 4.0),
                                 )
                             });

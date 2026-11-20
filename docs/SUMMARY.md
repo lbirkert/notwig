@@ -36,3 +36,4 @@
 - [Crate Reference](03_development/07_crate_reference.md)
 - [DSP Implementation and Performance](03_development/08_dsp_performance.md)
 - [Audio Import and Analysis Performance](03_development/09_audio_import_performance.md)
+- [Waveform Rendering](03_development/10_waveform_rendering.md)

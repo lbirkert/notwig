@@ -1,6 +1,6 @@
 use crate::clock::{Duration, Instant};
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 use eframe::egui;
 #[cfg(not(target_arch = "wasm32"))]
@@ -653,6 +653,8 @@ impl NotwigApp {
             fallback_time
         };
         let meters = snapshot.meters_for_display(self.workspace.doc.transport.playing);
+        let device_meters =
+            snapshot.device_meters_for_display(self.workspace.doc.transport.playing);
         let status = snapshot
             .error
             .clone()
@@ -677,10 +679,11 @@ impl NotwigApp {
                 .workspace
                 .play_start
                 .unwrap_or(self.workspace.doc.transport.playhead),
-            waveforms: self.workspace.peaks.clone(),
+            waveforms: Arc::clone(&self.workspace.waveforms),
             audio_durations: self.audio_durations.clone(),
             audio_analysis_pending: self.audio_analysis_pending.clone(),
             meters,
+            device_meters,
             xruns: snapshot.xruns,
             cpu_load: snapshot.cpu_load,
             status,
@@ -852,7 +855,9 @@ impl NotwigApp {
             self.notify_error("Plugin is not installed or was not found.".into());
             return;
         };
-        match NativePluginWindow::open(&descriptor) {
+        let sample_rate = self.workspace.doc.meta.sample_rate.value();
+        let monitor = self.workspace.monitor(device_id);
+        match NativePluginWindow::open(&descriptor, sample_rate, Some(monitor)) {
             Ok(mut window) => {
                 if let Some(state) = self.workspace.plugin_state(device_id) {
                     let _ = window.load_state(state);

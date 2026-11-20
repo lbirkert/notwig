@@ -269,7 +269,7 @@ impl Default for Viewport {
 
 impl Viewport {
     pub const MIN_PPB: f32 = 4.0;
-    pub const MAX_PPB: f32 = 800.0;
+    pub const MAX_PPB: f32 = 1_000_000.0;
 
     #[must_use]
     pub fn beat_to_x(self, beat: TimeMus, timeline_left: f32) -> f32 {

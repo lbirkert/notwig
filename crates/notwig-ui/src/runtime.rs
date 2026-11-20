@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use notwig_core::{AssetId, DeviceKind, TimeMus, TrackId};
-use notwig_ext_api::{ExtensionIndexEntry, ExtensionInfo};
+use notwig_core::{AssetId, DeviceId, DeviceKind, TimeMus, TrackId};
+use notwig_ext_api::{DeviceMeterSnapshot, ExtensionIndexEntry, ExtensionInfo};
 
 use crate::clipboard::Clipboard;
+use crate::waveform::{AudioWaveform, WaveformCache};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MeterValues {
@@ -90,7 +92,8 @@ pub struct RuntimeView {
     pub playhead: TimeMus,
     pub play_start: TimeMus,
     pub meters: BTreeMap<TrackId, MeterValues>,
-    pub waveforms: BTreeMap<AssetId, Vec<f32>>,
+    pub device_meters: BTreeMap<DeviceId, DeviceMeterSnapshot>,
+    pub waveforms: Arc<WaveformCache>,
     pub audio_durations: BTreeMap<PathBuf, Option<f64>>,
     pub audio_analysis_pending: BTreeSet<PathBuf>,
     pub xruns: u64,
@@ -120,7 +123,8 @@ impl Default for RuntimeView {
             playhead: TimeMus::zero(),
             play_start: TimeMus::zero(),
             meters: BTreeMap::new(),
-            waveforms: BTreeMap::new(),
+            device_meters: BTreeMap::new(),
+            waveforms: Arc::default(),
             audio_durations: BTreeMap::new(),
             audio_analysis_pending: BTreeSet::new(),
             xruns: 0,
@@ -142,5 +146,11 @@ impl Default for RuntimeView {
             extension_index_loading: false,
             extension_index_loaded: false,
         }
+    }
+}
+
+impl RuntimeView {
+    pub fn insert_waveform(&mut self, asset_id: AssetId, waveform: AudioWaveform) {
+        Arc::make_mut(&mut self.waveforms).insert(asset_id, waveform);
     }
 }

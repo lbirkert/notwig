@@ -5,8 +5,8 @@ mod widgets;
 pub use drawer::{Align, Drawer, Font};
 pub use record::RecordDrawer;
 pub use widgets::{
-    button, divider, knob, label, paint_button, paint_divider, paint_knob, paint_label,
-    paint_section, paint_toggle, section, toggle,
+    METER_MIN_DB, button, divider, knob, label, paint_button, paint_divider, paint_knob,
+    paint_label, paint_section, paint_stereo_meter, paint_toggle, section, stereo_meter, toggle,
 };
 
 use std::collections::hash_map::DefaultHasher;
@@ -14,7 +14,7 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
-use crate::context::ThemeSnapshot;
+use crate::context::{DeviceMeterSnapshot, ThemeSnapshot};
 use crate::draw::{FontFamily, MAX_ACTIONS, VerticalAlign};
 use crate::geometry::{Point, Rect, Size};
 use crate::panel::{PanelAction, PanelCommand, PanelDraw};
@@ -581,19 +581,38 @@ pub struct UiContext<'a> {
     id_stack: Vec<u64>,
     style: Style,
     clips: Vec<Rect>,
+    meter: DeviceMeterSnapshot,
 }
 
 impl<'a> UiContext<'a> {
     /// Creates a UI context for a panel target.
     #[must_use]
     pub fn new(backend: &'a mut dyn UiBackend, style: Style, target: Rect) -> Self {
+        Self::new_with_meter(backend, style, target, DeviceMeterSnapshot::default())
+    }
+
+    /// Creates a UI context with the latest device meter snapshot.
+    #[must_use]
+    pub fn new_with_meter(
+        backend: &'a mut dyn UiBackend,
+        style: Style,
+        target: Rect,
+        meter: DeviceMeterSnapshot,
+    ) -> Self {
         Self {
             backend,
             layout: LayoutState::new(target, Direction::Vertical),
             id_stack: Vec::new(),
             style,
             clips: vec![target],
+            meter,
         }
+    }
+
+    /// Returns the latest input/output peaks measured by the engine.
+    #[must_use]
+    pub const fn device_meter(&self) -> DeviceMeterSnapshot {
+        self.meter
     }
 
     /// Returns the remaining panel-local space.
@@ -637,6 +656,7 @@ impl<'a> UiContext<'a> {
             id_stack: self.id_stack.clone(),
             style: self.style,
             clips: self.clips.clone(),
+            meter: self.meter,
         };
         let clip_count = child.clips.len();
         add(&mut child);

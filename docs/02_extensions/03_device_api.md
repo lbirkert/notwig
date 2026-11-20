@@ -158,6 +158,20 @@ fn prepare(&mut self, sample_rate: u32, channels: u16) {
 }
 ```
 
+## Metering
+
+The engine measures the signal before and after every device and exposes it to
+the panel as a `DeviceMeterSnapshot` through `UiContext::device_meter()`. The
+four fields are linear peak amplitudes:
+
+- `input_peak_l`, `input_peak_r`
+- `output_peak_l`, `output_peak_r`
+
+Use the ratio of output to input to display device gain reduction. The panel is
+a separate extension instance from the audio processor, so display state must
+come from this snapshot rather than from fields updated in `process`. Values are
+zero while playback is stopped.
+
 ## Latency
 
 Return nonzero latency only when the device actually delays its output. The

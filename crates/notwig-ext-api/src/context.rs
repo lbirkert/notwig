@@ -43,6 +43,19 @@ impl Default for ThemeSnapshot {
     }
 }
 
+/// Input and output peaks measured for one device during the latest block.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct DeviceMeterSnapshot {
+    /// Left-channel peak before the device.
+    pub input_peak_l: f32,
+    /// Right-channel peak before the device.
+    pub input_peak_r: f32,
+    /// Left-channel peak after the device.
+    pub output_peak_l: f32,
+    /// Right-channel peak after the device.
+    pub output_peak_r: f32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceDrawContext {
     pub device_id: String,
@@ -58,4 +71,7 @@ pub struct DeviceDrawContext {
     /// Pointer, modifier, and focus snapshot for this frame.
     #[serde(default)]
     pub input: UiInput,
+    /// Latest input/output peaks measured by the engine.
+    #[serde(default)]
+    pub meter: DeviceMeterSnapshot,
 }

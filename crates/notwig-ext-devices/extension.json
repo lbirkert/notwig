@@ -13,8 +13,12 @@
     {
       "name": "Notwig Stock Limiter",
       "type_id": "notwig.ext.devices.limiter"
+    },
+    {
+      "name": "Notwig Stock Gate",
+      "type_id": "notwig.ext.devices.gate"
     }
   ],
-  "description": "A simple stereo-linked peak limiter with threshold and release controls.",
+  "description": "Stereo-linked peak limiter and gate with meters and live dynamics graphs.",
   "image": "icon.png"
 }

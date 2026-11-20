@@ -206,7 +206,8 @@ impl Extension {
                 let style = Style::from_theme(context.theme);
                 let mut record = RecordUi::new(&context.input, &mut slot.ui_memory);
                 {
-                    let mut ui = UiContext::new(&mut record, style, target);
+                    let mut ui =
+                        UiContext::new_with_meter(&mut record, style, target, context.meter);
                     slot.instance.draw(&mut ui);
                 }
                 let panel = record.into_panel();

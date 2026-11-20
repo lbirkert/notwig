@@ -14,7 +14,7 @@ pub mod ui;
 
 pub use abi::{ABI_VERSION, AbiStatus, pack_ptr_len, unpack_ptr_len};
 pub use config::{CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig};
-pub use context::{DeviceDrawContext, ThemeSnapshot};
+pub use context::{DeviceDrawContext, DeviceMeterSnapshot, ThemeSnapshot};
 pub use draw::{
     DrawCommand, DrawError, DrawList, FontFamily, MAX_ACTIONS, MAX_COMMANDS, MAX_OUTPUT_BYTES,
     MAX_PATH_POINTS, MAX_TEXT_BYTES, VerticalAlign,
@@ -31,6 +31,6 @@ pub use ui::{
     Sense, Style, UiBackend, UiContext, UiEvent, UiId, UiInput, UiMemory,
 };
 pub use ui::{
-    button, divider, knob, label, paint_button, paint_divider, paint_knob, paint_label,
-    paint_section, paint_toggle, section, toggle,
+    METER_MIN_DB, button, divider, knob, label, paint_button, paint_divider, paint_knob,
+    paint_label, paint_section, paint_stereo_meter, paint_toggle, section, stereo_meter, toggle,
 };

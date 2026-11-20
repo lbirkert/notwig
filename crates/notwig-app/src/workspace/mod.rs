@@ -26,7 +26,7 @@ use notwig_engine::{
     TrackStateUpdate, TransportUpdate,
 };
 use notwig_plugins::{PluginDescriptor, PluginState};
-use notwig_ui::{Clipboard, PluginEntry};
+use notwig_ui::{Clipboard, PluginEntry, WaveformCache};
 use uuid::Uuid;
 
 use crate::edit_lowering::lower_arranger;
@@ -43,7 +43,7 @@ pub struct Workspace {
     pub bundle: Option<PathBuf>,
     pub dirty: bool,
     pub assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
-    pub peaks: BTreeMap<AssetId, Vec<f32>>,
+    pub waveforms: Arc<WaveformCache>,
     pending_import_dirs: BTreeMap<AssetId, PathBuf>,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pending_audio_imports: std::collections::BTreeSet<AssetId>,
@@ -116,7 +116,7 @@ impl Workspace {
             bundle,
             dirty,
             assets: BTreeMap::new(),
-            peaks: BTreeMap::new(),
+            waveforms: Arc::default(),
             pending_import_dirs: BTreeMap::new(),
             pending_audio_imports: std::collections::BTreeSet::new(),
             plugin_states: BTreeMap::new(),
@@ -638,14 +638,14 @@ impl Workspace {
                 notwig_project::ResampleQuality::High,
             )
             .map_err(|err| err.to_string())?;
-            self.peaks
-                .insert(asset_id, assets::compute_peaks(&converted, 2048));
+            let converted = Arc::new(converted);
+            self.insert_waveform(asset_id, Arc::clone(&converted));
             self.persist_asset_file(asset_id, &converted)?;
             if let Some(entry) = self.doc.assets.assets.get_mut(&asset_id) {
                 entry.sample_rate = Some(rate.value());
                 entry.duration_samples = Some(converted.frame_count());
             }
-            self.assets.insert(asset_id, Arc::new(converted));
+            self.assets.insert(asset_id, converted);
         }
 
         for clip in self.doc.arranger.clips.values_mut() {

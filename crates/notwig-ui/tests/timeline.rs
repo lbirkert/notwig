@@ -3,10 +3,10 @@ use notwig_core::edit::Edge;
 use notwig_core::{RangeMus, TimeMus};
 use notwig_ui::Viewport;
 use notwig_ui::test_api::timeline::TimelineGrid;
-use notwig_ui::test_api::timeline::clip::{average_peak, peak_index, waveform_region};
 use notwig_ui::test_api::timeline::{
     navigation_update, pointer_delta, resize_loop_edge, selection_range, snapped_delta, trim_range,
 };
+use notwig_ui::test_api::waveform::waveform_region;
 
 #[test]
 fn coordinates_round_trip_and_snap() {
@@ -15,23 +15,6 @@ fn coordinates_round_trip_and_snap() {
     assert!((x - 138.0).abs() < 0.01);
     assert_eq!(grid.beat_for_x(x, 10.0), TimeMus::new(2, 1));
     assert_eq!(grid.snap(TimeMus::new(9, 32), false), TimeMus::new(1, 4));
-}
-
-#[test]
-fn waveform_source_samples_map_to_asset_peaks_without_stretching() {
-    assert_eq!(peak_index(0.0, 1_000, 10), 0);
-    assert_eq!(peak_index(500.0, 1_000, 10), 5);
-    assert_eq!(peak_index(750.0, 1_000, 10), 7);
-    assert_eq!(peak_index(999.0, 1_000, 10), 9);
-}
-
-#[test]
-fn waveform_step_averages_peaks_in_its_source_range() {
-    let peaks = [0.0, 0.5, 1.0, 0.0];
-    assert_eq!(average_peak(&peaks, 0, 2), 0.5);
-    assert_eq!(average_peak(&peaks, 1, 1), 0.5);
-    assert_eq!(average_peak(&peaks, 2, 3), 0.5);
-    assert_eq!(average_peak(&[], 0, 0), 0.0);
 }
 
 #[test]

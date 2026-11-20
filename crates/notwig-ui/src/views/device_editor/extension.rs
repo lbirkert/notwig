@@ -4,7 +4,8 @@ use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 use notwig_core::{DeviceInstance, Norm01, ParamValue};
 use notwig_dsp::{DeviceSpec, ParamKind};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, PanelAction, PanelCommand, PanelDraw, ThemeSnapshot, UiInput,
+    Color, DeviceDrawContext, DeviceMeterSnapshot, PanelAction, PanelCommand, PanelDraw,
+    ThemeSnapshot, UiInput,
 };
 
 use super::drawer::{EguiDrawer, to_egui_cursor, ui_input};
@@ -18,12 +19,13 @@ impl NotwigUi {
         device: &DeviceInstance,
         spec: &DeviceSpec,
         sample_rate: u32,
+        meter: DeviceMeterSnapshot,
         size: Vec2,
     ) -> bool {
         let selected = self.state.selection.devices.contains(&device.id);
         let (target, _) = ui.allocate_exact_size(size, Sense::hover());
         let input = ui_input(ui, target);
-        let context = device_context(device, spec, sample_rate, size, selected, input);
+        let context = device_context(device, spec, sample_rate, selected, meter, input, size);
         let panel = {
             let Some(host) = self.device_panel_host.as_mut() else {
                 return false;
@@ -210,9 +212,10 @@ fn device_context(
     device: &DeviceInstance,
     spec: &DeviceSpec,
     sample_rate: u32,
-    size: Vec2,
     selected: bool,
+    meter: DeviceMeterSnapshot,
     input: UiInput,
+    size: Vec2,
 ) -> DeviceDrawContext {
     DeviceDrawContext {
         device_id: device.id.to_string(),
@@ -230,6 +233,7 @@ fn device_context(
             .collect::<BTreeMap<_, _>>(),
         theme: theme_snapshot(),
         input,
+        meter,
     }
 }
 

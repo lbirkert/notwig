@@ -5,6 +5,9 @@ use super::drawer::{Align, Drawer, Font};
 use super::{CursorIcon, Response, Sense, UiContext, UiId};
 use crate::context::ThemeSnapshot;
 
+/// Lowest level, in dBFS, shown by [`stereo_meter`].
+pub const METER_MIN_DB: f32 = -60.0;
+
 /// Draws a standard button into a rectangle.
 pub fn paint_button(
     drawer: &mut dyn Drawer,
@@ -109,6 +112,84 @@ pub fn paint_knob(
             Stroke::new(1.5, theme.text_muted),
         );
     }
+}
+
+/// Draws a stereo peak meter from linear peak amplitudes.
+///
+/// `peak_hold` draws a thin hold line when it is greater than zero. The meter
+/// uses green, amber, and red zones and the same -60 dBFS floor as the host
+/// track meters.
+pub fn paint_stereo_meter(
+    drawer: &mut dyn Drawer,
+    theme: &ThemeSnapshot,
+    rect: Rect,
+    peak_left: f32,
+    peak_right: f32,
+    peak_hold: f32,
+) {
+    let gap = 2.0;
+    let bar_width = ((rect.width() - gap) * 0.5).max(1.0);
+    for (index, peak) in [peak_left, peak_right].into_iter().enumerate() {
+        let x = rect.min.x + index as f32 * (bar_width + gap);
+        let bar = Rect::new(
+            Point::new(x, rect.min.y),
+            Point::new(x + bar_width, rect.max.y),
+        );
+        drawer.fill_rect(bar, 1.0, theme.panel);
+        let level = meter_level(peak);
+        let top = bar.max.y - bar.height() * level;
+        let visible = Rect::new(Point::new(x, top), Point::new(x + bar_width, bar.max.y));
+        let green = Rect::new(
+            Point::new(x, bar.min.y + bar.height() * 0.25),
+            Point::new(x + bar_width, bar.max.y),
+        );
+        let yellow = Rect::new(
+            Point::new(x, bar.min.y + bar.height() * 0.08),
+            Point::new(x + bar_width, bar.min.y + bar.height() * 0.25),
+        );
+        let red = Rect::new(
+            Point::new(x, bar.min.y),
+            Point::new(x + bar_width, bar.min.y + bar.height() * 0.08),
+        );
+        for (zone, color) in [
+            (green, Color::rgb(91, 196, 88)),
+            (yellow, Color::rgb(218, 165, 61)),
+            (red, Color::rgb(224, 80, 66)),
+        ] {
+            let clipped = zone.intersect(visible);
+            if clipped.is_ordered() && clipped.height() > 0.0 {
+                drawer.fill_rect(clipped, 0.0, color);
+            }
+        }
+    }
+    if peak_hold > 0.0 {
+        let y = rect.max.y - rect.height() * meter_level(peak_hold);
+        drawer.line(
+            Point::new(rect.min.x, y),
+            Point::new(rect.max.x, y),
+            Stroke::new(1.0, theme.text),
+        );
+    }
+    drawer.stroke_rect(rect, 1.0, Stroke::new(1.0, theme.grid));
+}
+
+fn meter_level(peak: f32) -> f32 {
+    let db = 20.0 * peak.max(1e-6).log10();
+    ((db - METER_MIN_DB) / (0.0 - METER_MIN_DB)).clamp(0.0, 1.0)
+}
+
+/// Allocates and draws a stereo peak meter.
+pub fn stereo_meter(
+    ui: &mut UiContext<'_>,
+    size: Size,
+    peak_left: f32,
+    peak_right: f32,
+    peak_hold: f32,
+) -> Rect {
+    let rect = ui.allocate(size);
+    let theme = ui.theme();
+    paint_stereo_meter(ui.painter(), &theme, rect, peak_left, peak_right, peak_hold);
+    rect
 }
 
 /// Draws a text label placed at the top-left of a rectangle.

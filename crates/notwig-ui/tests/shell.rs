@@ -3,7 +3,7 @@ use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::sequencer::{AudioClipData, ClipKind, ClipPayload, FadeShape, MidiClipData};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_ui::{NotwigUi, RuntimeView, UiIntent, snap_16};
+use notwig_ui::{AudioWaveform, NotwigUi, RuntimeView, UiIntent, snap_16};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -141,7 +141,10 @@ fn cutting_clip_editor_bar_selection_from_ui_emits_slices() {
     let doc = audio_doc();
     let clip = id::<Clip>(60);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.5; 128]),
+    );
     let mut ui = NotwigUi::default();
     open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
@@ -382,7 +385,10 @@ fn finder_audio_drop_targets_the_clip_editor() {
     let doc = audio_doc();
     let clip = id::<Clip>(60);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.5; 128]),
+    );
     let mut ui = NotwigUi::default();
     open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
@@ -1013,7 +1019,7 @@ fn clip_editor_renders_audio_slices_headlessly() {
     .unwrap()
     .doc;
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(asset, vec![0.5; 128]);
+    runtime.insert_waveform(asset, AudioWaveform::from_samples(vec![0.5; 128]));
     let mut ui = NotwigUi::default();
     open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
@@ -1112,7 +1118,10 @@ fn clip_editor_copy_paste_uses_platform_clipboard_events() {
     let doc = audio_doc();
     let clip = id::<Clip>(60);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.5; 128]),
+    );
     let mut ui = NotwigUi::default();
     open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();
@@ -1196,7 +1205,10 @@ fn clip_editor_event_body_moves_outside_the_clip() {
     let doc = audio_doc();
     let clip = id::<Clip>(60);
     let mut runtime = RuntimeView::default();
-    runtime.waveforms.insert(id::<Asset>(600), vec![0.5; 128]);
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.5; 128]),
+    );
     let mut ui = NotwigUi::default();
     open_clip_editor(&mut ui, &doc, clip);
     let ctx = egui::Context::default();

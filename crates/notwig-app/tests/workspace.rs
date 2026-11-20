@@ -1809,11 +1809,11 @@ fn staged_audio_import_creates_the_clip_before_analysis_finishes() {
         .stage_audio_clip_import(&source, track, Rational::zero())
         .unwrap();
     assert_eq!(workspace.doc.arranger.clips.len(), 1);
-    assert!(workspace.peaks.is_empty());
+    assert!(workspace.waveforms.is_empty());
     assert!(workspace.save(Some(&dir.join("Pending.notwig"))).is_err());
     let imported = notwig_project::import_asset(&source, &target, asset_id, 48_000).unwrap();
     workspace.complete_audio_import(asset_id, imported).unwrap();
-    assert!(!workspace.peaks.is_empty());
+    assert!(!workspace.waveforms.is_empty());
     assert!(workspace.save(Some(&dir.join("Done.notwig"))).is_ok());
     std::fs::remove_dir_all(dir).unwrap();
 }

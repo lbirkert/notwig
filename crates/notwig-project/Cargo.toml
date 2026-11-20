@@ -13,6 +13,7 @@ hound.workspace = true
 ogg.workspace = true
 rusty_mp3.workspace = true
 rusty_vorbis.workspace = true
+rubato = "4.0"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"

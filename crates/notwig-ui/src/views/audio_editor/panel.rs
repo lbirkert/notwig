@@ -381,13 +381,7 @@ impl NotwigUi {
                     };
                     painter.rect_filled(slice_rect, CornerRadius::same(3), color);
                     let asset_id = slice.asset_id.unwrap_or(audio.asset_id);
-                    if let Some(peaks) = runtime.waveforms.get(&asset_id) {
-                        let asset_samples = doc
-                            .assets
-                            .assets
-                            .get(&asset_id)
-                            .and_then(|asset| asset.duration_samples)
-                            .unwrap_or(source_end);
+                    if let Some(waveform) = runtime.waveforms.get(&asset_id) {
                         let audio_start = start + map.samples_to_mus(geometry.silent_prefix);
                         let audio_duration =
                             map.samples_to_mus(source_end.saturating_sub(source_start));
@@ -399,12 +393,11 @@ impl NotwigUi {
                             egui::pos2(audio_x1, slice_top),
                             egui::pos2(audio_x2.max(audio_x1 + 1.0), slice_bottom),
                         );
-                        crate::timeline::draw_waveform(
+                        crate::waveform::draw_waveform(
                             &painter,
                             audio_rect.shrink2(Vec2::new(2.0, 4.0)),
                             lanes,
-                            peaks,
-                            asset_samples,
+                            waveform,
                             source_start,
                             source_end,
                         );

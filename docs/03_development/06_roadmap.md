@@ -231,7 +231,7 @@ Dependencies worth planning around:
 | Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | Insert points exist, drag does not. |
 | Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/AU plugin latency are compensated. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |
-| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM devices provide metadata, DSP, and custom panels; `notwig-ext-devices` ships a limiter example. No note-event forwarding or device state blobs yet. |
+| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM devices provide metadata, DSP, and custom panels; `notwig-ext-devices` ships a limiter and gate with live meters and dynamics graphs. No note-event forwarding or device state blobs yet. |
 
 ## Plugins
 
