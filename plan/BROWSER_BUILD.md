@@ -50,6 +50,8 @@ WebAssembly instead of `wasmtime` or native VST3/AU hosting.
 - Lower-latency AudioWorklet output where the host can provide
   cross-origin isolation.
 - Web Worker based engine builds and audio analysis for large projects.
+- A worker-owned storage service using OPFS `createSyncAccessHandle` for
+  synchronous reads/writes off the UI thread.
 - Streaming/lazy asset loading instead of loading an entire bundle into memory.
 
 ## 2. Why the project does not build for the browser today
