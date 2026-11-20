@@ -17,8 +17,12 @@
     {
       "name": "Notwig Stock Gate",
       "type_id": "notwig.ext.devices.gate"
+    },
+    {
+      "name": "Notwig Stock Synth",
+      "type_id": "notwig.ext.devices.synth"
     }
   ],
-  "description": "Stereo-linked peak limiter and gate with meters and live dynamics graphs.",
+  "description": "Stereo-linked limiter, gate, and a simple polyphonic synthesizer.",
   "image": "icon.png"
 }

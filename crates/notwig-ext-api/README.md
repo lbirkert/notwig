@@ -4,18 +4,20 @@ Author-facing SDK and shared, render-neutral boundary types for Notwig
 extensions and the UI:
 
 - immediate-mode panel UI: `UiContext`, `UiInput`, `UiMemory`, `Sense`,
-  `Response`, and the shared `button`, `knob`, `toggle`, `label`, `section`, and
-  `divider` widgets;
+  `Response`, and the shared `button`, `knob`, `toggle`, `dropdown`, `label`,
+  `section`, `divider`, and stereo-meter widgets;
 - render-neutral painting: the `Drawer` primitive trait, `RecordDrawer`,
   `DrawCommand`/`DrawList`, and `paint_*` widget helpers;
 - device panel frames (`PanelDraw`, `PanelCommand`, `PanelAction`) and
   `DevicePanelHost`;
 - device panel draw context and theme tokens (`DeviceDrawContext` includes the
-  per-frame `UiInput`);
+  per-frame `UiInput` and engine-measured device peaks);
+- note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
 - extension manifest types and ABI constants;
 - reusable wasm ABI helpers: a stable bump heap, handle-keyed `DeviceStore`,
   and safe pointer/audio slice wrappers;
-- `DeviceExtension` and `Extension` for registering device implementations;
+- `DeviceExtension` and `Extension` for registering device implementations and
+  delivering note events before each processed block;
 - the `#[notwig_extension]` attribute macro, re-exported from
   `notwig-ext-macros`.
 

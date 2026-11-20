@@ -6,6 +6,7 @@ use notwig_dsp::DeviceSpec;
 use crate::abi::{AbiStatus, DeviceStore, packed_pointer, with_audio_frames};
 use crate::context::DeviceDrawContext;
 use crate::geometry::{Point, Rect, Size};
+use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 use crate::ui::{RecordUi, Style, UiContext, UiMemory};
 
 /// A device implemented by a WASM extension.
@@ -42,6 +43,12 @@ pub trait DeviceExtension: Send + Sized + 'static {
         false
     }
 
+    /// Handles one note event before [`process`](Self::process) runs.
+    ///
+    /// Events are delivered in block order and `sample_offset` is relative to
+    /// the start of the upcoming block. Effect devices can ignore this hook.
+    fn note_event(&mut self, _event: NoteEvent) {}
+
     /// Processes interleaved `f32` samples in place.
     fn process(&mut self, samples: &mut [f32]);
 
@@ -55,6 +62,7 @@ trait DeviceInstance: Send {
     fn draw(&mut self, ui: &mut UiContext<'_>);
     fn prepare(&mut self, sample_rate: u32, channels: u16);
     fn set_param(&mut self, param_id: ParamId, value: f64) -> bool;
+    fn note_event(&mut self, event: NoteEvent);
     fn process(&mut self, samples: &mut [f32]);
     fn latency(&self) -> u32;
 }
@@ -70,6 +78,10 @@ impl<T: DeviceExtension> DeviceInstance for T {
 
     fn set_param(&mut self, param_id: ParamId, value: f64) -> bool {
         DeviceExtension::set_param(self, param_id, value)
+    }
+
+    fn note_event(&mut self, event: NoteEvent) {
+        DeviceExtension::note_event(self, event);
     }
 
     fn process(&mut self, samples: &mut [f32]) {
@@ -168,9 +180,20 @@ impl Extension {
             .with(handle, |slot| slot.instance.set_param(param_id, value))
     }
 
-    /// Processes one block of interleaved audio.
-    pub fn process(&self, handle: i32, audio_ptr: i32, frames: usize) -> Result<(), AbiStatus> {
+    /// Processes one block of interleaved audio after delivering note events.
+    pub fn process(
+        &self,
+        handle: i32,
+        audio_ptr: i32,
+        frames: usize,
+        events: &[u8],
+    ) -> Result<(), AbiStatus> {
         let processed = self.instances.with(handle, |slot| {
+            for bytes in events.chunks_exact(NOTE_EVENT_BYTES) {
+                if let Some(event) = decode_note_event(bytes) {
+                    slot.instance.note_event(event);
+                }
+            }
             let channels = slot.channels.max(1);
             with_audio_frames(audio_ptr, frames, channels, |samples| {
                 slot.instance.process(samples);

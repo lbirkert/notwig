@@ -12,7 +12,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 
 - The `egui` shell: top bar, transport strip, status bar, shortcuts, and windows.
 - Arranger view and timeline interactions.
-- Audio clip editor, MIDI MIDI editor, and device editor bottom panels.
+- Audio clip editor, MIDI editor, and device editor bottom panels.
 - Info panel for tracks, devices, clips, files, and time selections.
 - Device browser and parameter/EQ views.
 - Settings, render mixdown, and DSP load windows.
@@ -39,7 +39,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter views, EQ |
+| `views/device_editor/` | Device panel, browser, parameter views, EQ, renderer dispatch, extension panel adapter |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |

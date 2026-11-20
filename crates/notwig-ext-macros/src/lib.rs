@@ -39,7 +39,7 @@ pub fn notwig_extension(_attr: TokenStream, item: TokenStream) -> TokenStream {
             use std::sync::{Mutex, MutexGuard, OnceLock};
 
             use notwig_ext_api::abi::{alloc, free, read_param_id, with_bytes, with_str};
-            use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension};
+            use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension, NOTE_EVENT_BYTES};
 
             static EXTENSION: OnceLock<Mutex<Extension>> = OnceLock::new();
 
@@ -132,8 +132,8 @@ pub fn notwig_extension(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 handle: i32,
                 audio_ptr: i32,
                 frames: i32,
-                _events_ptr: i32,
-                _event_count: i32,
+                events_ptr: i32,
+                event_count: i32,
                 _sample_position: i64,
                 _playing: i32,
             ) -> i32 {
@@ -143,10 +143,26 @@ pub fn notwig_extension(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 if frames == 0 {
                     return AbiStatus::Ok.as_i32();
                 }
-                match extension_state().process(handle, audio_ptr, frames) {
-                    Ok(()) => AbiStatus::Ok.as_i32(),
-                    Err(status) => status.as_i32(),
-                }
+                let status = if event_count == 0 {
+                    match extension_state().process(handle, audio_ptr, frames, &[]) {
+                        Ok(()) => AbiStatus::Ok,
+                        Err(status) => status,
+                    }
+                } else {
+                    let Some(events_len) =
+                        event_count.checked_mul(NOTE_EVENT_BYTES as i32)
+                    else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    with_bytes(events_ptr, events_len, |events| {
+                        match extension_state().process(handle, audio_ptr, frames, events) {
+                            Ok(()) => AbiStatus::Ok,
+                            Err(status) => status,
+                        }
+                    })
+                    .unwrap_or(AbiStatus::InvalidArgument)
+                };
+                status.as_i32()
             }
 
             #[unsafe(no_mangle)]

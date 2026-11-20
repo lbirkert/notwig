@@ -29,7 +29,7 @@ These stay outside the core and become extensions: the clip launcher and scenes,
 
 ## Where the code stands
 
-The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3 and AU plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. A WASM extension host adds user-provided devices with DSP and custom panels.
+The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3, VST2, and AU plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. A WASM extension host adds user-provided devices with DSP and custom panels.
 
 The largest gaps are automation, recording, and warping.
 
@@ -37,15 +37,18 @@ The largest gaps are automation, recording, and warping.
 
 The current priorities, in order:
 
-1. MIDI editing and a MIDI editor.
-2. Audio editing and warping.
-3. Plugin host depth.
+1. Audio editing and warping.
+2. Recording, input routing, and monitoring.
+3. Automation lanes and editing.
+4. Plugin host depth.
 
-After those, the core needs automation and recording. The real-time-safe engine boundary, recovery UI, settings persistence, plugin state, and hosted-plugin latency reporting are in place.
+The MIDI editor, real-time-safe engine boundary, recovery UI, settings
+persistence, plugin state, and hosted-plugin latency reporting are in place.
+Warping remains the top audio priority; recording and automation are the
+largest missing core workflows.
 
 Dependencies worth planning around:
 
-- A MIDI editor needs note editing commands, shared selection, and a shared clipboard.
 - Warping needs a tempo map and an audio stretch engine.
 - Recording needs input devices, monitoring, and punch handling.
 - Automation needs stable parameter target IDs and an automation lane model.
@@ -61,8 +64,8 @@ Dependencies worth planning around:
 | Undo and redo | ✅ Implemented | ⭐⭐⭐⭐⭐ | Full-document snapshots, 200 entries. Transport and loop changes are excluded. Drag and parameter changes are not coalesced. |
 | Autosave | 🧪 Partial | ⭐⭐⭐⭐ | Writes every 60 seconds when dirty. The startup recovery modal offers the latest autosave when a session lock exists. |
 | Crash recovery | ✅ Implemented | ⭐⭐⭐⭐ | `session.lock` is created on open/save and removed on clean exit. A recovery modal loads or discards the latest autosave. Lock and workspace recovery paths are tested; the modal has no headless render test. |
-| Audio asset import | ✅ Implemented | ⭐⭐⭐⭐⭐ | WAV, AIFF, and MP3 are covered. Files are resampled offline and stored as content-addressed float WAV. |
-| FLAC and OGG import | 🧪 Partial | ⭐⭐⭐ | Routed through Symphonia but not covered by tests. |
+| Audio asset import | ✅ Implemented | ⭐⭐⭐⭐⭐ | WAV, AIFF, and MP3 import paths are covered by tests. Files are resampled offline and stored as content-addressed float WAV. |
+| FLAC and OGG import | 🧪 Partial | ⭐⭐⭐ | Routed through Symphonia; probe and export round-trips are covered, but import-decode tests are still missing. |
 | Asset relink | 🧪 Partial | ⭐⭐⭐ | Stores a path and decodes it. It does not copy the file into the bundle or verify the hash. |
 | Asset garbage collection | 📋 Planned | ⭐⭐ |  |
 | Recent projects | 📋 Planned | ⭐⭐ |  |
@@ -109,12 +112,12 @@ Dependencies worth planning around:
 | Output routing | 🧪 Partial | ⭐⭐⭐⭐ | Engine routes track to track. No UI. |
 | Bus and return tracks | 🚫 Not Planned | ⭐⭐⭐⭐⭐ | Bus FX exists as a track kind. There is no return or send-return pairing. Not planned. |
 | Sidechain routing | 📋 Planned | ⭐⭐⭐⭐ | The routing graph can represent sidechain audio. No command or engine path creates it. |
-| VCA groups | 📋 Planned | ⭐⭐⭐ |  |
+| VCA groups | 🚫 Not Planned | ⭐⭐⭐ |  |
 | Track freeze and bounce in place | 📋 Planned | ⭐⭐⭐ |  |
 | Track templates | 🚫 Not Planned | ⭐⭐ |  |
-| Dedicated mixer view | 📋 Planned | ⭐⭐⭐⭐⭐ | Mixer controls live in track headers and the inspector. |
+| Dedicated mixer view | 🚫 Not Planned | ⭐⭐⭐⭐⭐ | Mixer controls live in track headers and the inspector. |
 | Channel strip processing | 📋 Planned | ⭐⭐⭐⭐ | EQ and dynamics on every channel. |
-| Peak and RMS meters | 🧪 Partial | ⭐⭐⭐⭐ | The engine computes both. The UI draws instantaneous peak only, with no hold or clip flag. |
+| Peak and RMS meters | 🧪 Partial | ⭐⭐⭐⭐ | The engine computes peak and RMS. The UI draws peak with hold and click-to-reset; RMS display and a clip flag are missing. |
 | Record arm and monitoring | 📋 Planned | ⭐⭐⭐⭐⭐ | Buttons are painted but inert. |
 | Hybrid tracks | 🚫 Not Planned | ⭐ | Bitwig-specific. Extension point. |
 | Clip launcher and scenes | 🚫 Not Planned | ⭐ | Extension point. |
@@ -145,7 +148,7 @@ Dependencies worth planning around:
 | Clip automation envelopes | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Ripple edit | 📋 Planned | ⭐⭐ |  |
 | Take lanes | 📋 Planned | ⭐⭐⭐⭐ |  |
-| Comping | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
+| Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Arranger sections | 📋 Planned | ⭐⭐⭐ |  |
 | Clip launcher | 🚫 Not Planned | ⭐ | Extension point. |
 
@@ -191,7 +194,8 @@ Dependencies worth planning around:
 | Audio quantize and groove | 📋 Planned | ⭐⭐⭐ |  |
 | Audio recording | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Loop and punch recording | 📋 Planned | ⭐⭐⭐⭐ |  |
-| Comping and takes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
+| Take lanes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
+| Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Input monitoring | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Input routing | 📋 Planned | ⭐⭐⭐⭐⭐ | Input fields exist but are always empty. |
 | Mono and stereo track formats | 📋 Planned | ⭐⭐⭐⭐ | Engine and assets are stereo today. |
@@ -224,30 +228,30 @@ Dependencies worth planning around:
 | Tool | ✅ Implemented | ⭐⭐⭐⭐ | Input gain, output gain, pan, width, polarity, and dry/wet. |
 | EQ | ✅ Implemented | ⭐⭐⭐⭐⭐ | Four bands with bell, shelves, high pass, and low pass, plus shift and output gain. |
 | Chain | ✅ Implemented | ⭐⭐⭐⭐ | Input gain, output gain, and dry/wet container. |
-| Stock instruments | 📋 Planned | ⭐⭐ | Start with one simple synth and one sampler. |
+| Stock instruments | 📋 Planned | ⭐⭐ | Start with one simple synth and one sampler. A WASM synth example ships in `notwig-ext-devices`, but no stock instrument exists yet. |
 | Stock effects | 📋 Planned | ⭐⭐⭐ | Delay, reverb, compressor, limiter, filter, saturation, and chorus. |
 | Device presets | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Device A/B compare | 🚫 Not Planned | ⭐⭐⭐ | Disable the plugin to compare A/B. |
 | Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | Insert points exist, drag does not. |
-| Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/AU plugin latency are compensated. |
+| Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |
-| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM devices provide metadata, DSP, and custom panels; `notwig-ext-devices` ships a limiter and gate with live meters and dynamics graphs. No note-event forwarding or device state blobs yet. |
+| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM devices provide metadata, DSP, custom panels, and note events; `notwig-ext-devices` ships a limiter, gate, and a simple polyphonic synth. Device state blobs are still deferred. |
 
 ## Plugins
 
 | Feature | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| VST3 hosting | 🧪 Partial | ⭐⭐⭐⭐⭐ | In-process load and process. No integration tests; the plugin API cannot report latency yet. |
-| AU hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process on macOS. No integration tests. |
+| VST3 hosting | 🧪 Partial | ⭐⭐⭐⭐⭐ | In-process load and process. No real-plugin integration tests; latency is queried through the vendored wrapper. |
+| AU hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process on macOS. No real-plugin integration tests. |
 | CLAP hosting | 📋 Planned | ⭐⭐⭐⭐ |  |
-| VST2 hosting | 📋 Planned | ⭐ |  |
+| VST2 hosting | 🧪 Partial | ⭐ | Enabled on native macOS builds through the vendored wrapper. No real-plugin integration tests. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐⭐ | Scan runs in a child process. Cache is JSON with failure counts. |
 | Native plugin editor | 🧪 Partial | ⭐⭐⭐⭐ | macOS only, uses a separate plugin instance, and polls parameters. |
 | Plugin parameter UI | 🧪 Partial | ⭐⭐⭐⭐ | Generic parameter list. UUID to `u32` conversion truncates plugin parameter IDs. |
 | Plugin state save and restore | ✅ Implemented | ⭐⭐⭐⭐⭐ | Native editor state is saved on close/exit, stored under `state/` in the bundle, and restored when plugin instances are rebuilt. |
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | Output events are collected and discarded. |
 | Sidechain and multi-out buses | 📋 Planned | ⭐⭐⭐⭐ |  |
-| Plugin latency compensation | ✅ Implemented | ⭐⭐⭐⭐⭐ | The plan and engine compensate non-zero device latency, including latency queried from vendored VST3/AU wrappers. |
+| Plugin latency compensation | ✅ Implemented | ⭐⭐⭐⭐⭐ | The plan and engine compensate non-zero device latency, including latency queried from vendored VST3/VST2/AU wrappers. |
 | Out-of-process hosting | 📋 Planned | ⭐⭐⭐⭐ | Crash isolation and sandboxing. |
 | Plugin crash recovery | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Plugin preset management | 📋 Planned | ⭐⭐⭐ |  |
@@ -257,8 +261,8 @@ Dependencies worth planning around:
 | Feature | Status | Importance | Notes |
 | --- | --- | --- | --- |
 | WASM extension host | ✅ Implemented | ⭐⭐⭐⭐ | `wasmtime` host, core wasm ABI, user-directory discovery, compiled module cache. |
-| Extension device DSP | 🧪 Partial | ⭐⭐⭐⭐ | Block `f32` processing, parameters, dynamic latency. Note events and state blobs are not forwarded yet. |
-| Extension device panels | ✅ Implemented | ⭐⭐⭐⭐ | Render-neutral draw commands plus native knob/toggle commands, with generic fallback. |
+| Extension device DSP | 🧪 Partial | ⭐⭐⭐⭐ | Block `f32` processing, parameters, dynamic latency, and note events are forwarded. Persistent device state blobs are not. |
+| Extension device panels | ✅ Implemented | ⭐⭐⭐⭐ | Render-neutral draw commands plus native knob/toggle/dropdown commands, with generic fallback. |
 | Extension trust levels | ✅ Implemented | ⭐⭐⭐⭐ | Trusted, Limited (fuel), and DrawOnly. Persisted per extension. |
 | Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |
@@ -278,7 +282,7 @@ Dependencies worth planning around:
 | Mixer view | 🚫 Not Planned | ⭐⭐ | Not required in core. Mixing works through track headers and the inspector. |
 | Automation editor | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Project and asset browser | 📋 Planned | ⭐⭐⭐ | Only the device browser exists. |
-| Settings | 🧪 Partial | ⭐⭐⭐⭐ | Audio and Shortcuts pages. General and Appearance are placeholders. |
+| Settings | ✅ Implemented | ⭐⭐⭐⭐ | Audio, Shortcuts, and Extensions pages. |
 | DSP load window | ✅ Implemented | ⭐⭐ | Shows callback history, average and max load, deadline, jitter, and output latency. The window render is tested. |
 | Render mixdown dialog | ✅ Implemented | ⭐⭐⭐⭐ | Choose format, bit depth, dithering, normalization, stems, range, and output path. |
 | Notifications and help windows | 🧪 Partial | ⭐⭐ | Implemented but unreachable from the shell. |

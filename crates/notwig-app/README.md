@@ -24,6 +24,8 @@ domain or DSP logic belongs in lower crates, not here.
 - CPAL audio stream, device options, snapshots, DSP timing, and xruns.
 - Per-user persistence of audio driver, device, and block size.
 - Plugin catalog: scan subprocess, cache loading, and workspace descriptors.
+- Extension manager: config/index sources, ZIP install/uninstall, trust levels,
+  host lifecycle, and app synchronization.
 - Edit-plan lowering into commands.
 - Native plugin editor windows.
 - Dialog and drag-drop coordination.
@@ -41,6 +43,7 @@ domain or DSP logic belongs in lower crates, not here.
 
 | Module | Contents |
 |---|---|
+| `lib.rs` | Shared native/browser library surface |
 | `main.rs` | CLI, demo project, offline render/info commands |
 | `gui.rs` | `eframe` app, intent handling, native dialogs, plugin windows |
 | `web/mod.rs` | Browser app construction |
@@ -52,7 +55,13 @@ domain or DSP logic belongs in lower crates, not here.
 | `engine_build.rs` | Async engine build lifecycle |
 | `audio.rs` | CPAL stream, options, snapshot, DSP timing |
 | `audio_config.rs` | Persisted audio driver/device/block-size config |
-| `plugins.rs` | Plugin catalog/scanner/cache glue |
+| `plugins/mod.rs` | Target-selected plugin catalog exports |
+| `plugins/native.rs` | Plugin catalog, scan subprocess, and cache glue |
+| `plugins/web.rs` | Empty browser plugin catalog |
+| `extensions/mod.rs` | Target-selected extension manager and events |
+| `extensions/native.rs` | Extension config/index fetch, install/uninstall, wasmtime host lifecycle |
+| `extensions/web.rs` | Browser extension host, package loading, and app sync |
+| `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Edit plan to command lowering |
 | `history.rs` | Undo/redo stack |
 | `logging.rs` | Tracing setup |

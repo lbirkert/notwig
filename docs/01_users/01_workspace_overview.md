@@ -90,7 +90,7 @@ instead of controls.
 
 ## Status bar
 
-The status bar contains three controls:
+The status bar contains three toggle buttons plus a device editor text button:
 
 - **Info** toggles the left info panel.
 - **Sliders** toggles the device editor.

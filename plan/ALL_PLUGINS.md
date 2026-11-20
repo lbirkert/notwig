@@ -1,0 +1,2 @@
+- also support clap and lv2
+- think about whether AAX is possible

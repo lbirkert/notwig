@@ -48,7 +48,8 @@ Required exports: `notwig_abi_version`, `notwig_alloc`, `notwig_free`, and the
 `notwig_device_*` family (`describe`, `create`, `destroy`, `prepare`,
 `set_param`, `process`, `latency`, `draw`). Metadata, parameter values, and
 panel draw output cross the boundary as JSON; audio crosses as interleaved
-`f32` samples in extension linear memory.
+`f32` samples and note events cross as fixed-size `NoteEvent` records passed to
+`process` when the device declares a note input.
 
 Host imports are limited to `notwig.host.log` and `notwig.host.notify`.
 

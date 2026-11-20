@@ -61,6 +61,8 @@ Integration tests live in `tests/`:
 
 - `edit_algebra.rs` — algebra unit tests, laws, and property tests.
 - `domain_flow.rs` — command application and document flows.
+- `midi_notes.rs` — MIDI note command validation and editing.
+- `schedule_emission.rs` — playback schedule extraction from the document.
 - `time.rs`, `ids.rs` — time and identity behavior.
 
 See [`docs/03_development/03_editing.md`](../../docs/03_development/03_editing.md) for the editing contract.

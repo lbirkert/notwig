@@ -10,8 +10,8 @@ my-project.notwig/
   project.json       manifest and document
   assets/            imported audio, stored as content-addressed float WAV
   autosave/          timed snapshots while the project is dirty
-  state/             reserved for runtime state
-  peaks/             reserved for waveform cache
+  state/             persisted plugin state blobs
+  peaks/             reserved for the waveform cache
   cache/             reserved for derived data
 ```
 
@@ -28,7 +28,7 @@ Notwig also accepts a project folder that contains the bundle layout. Use
 more audio files from Finder directly onto an audio track, the arranger, or the
 audio clip editor.
 
-- WAV, AIFF, and MP3 are the supported import paths today.
+- WAV, AIFF, MP3, FLAC, and OGG are the supported import paths today.
 - Imported audio is decoded and resampled to the project sample rate, then
   stored as float WAV inside the bundle.
 - Dragging several files onto a track places the first file at the drop point

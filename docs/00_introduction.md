@@ -14,10 +14,10 @@ ideas.
 Notwig can:
 
 - create, save, and reopen directory-based project bundles;
-- import WAV, AIFF, and MP3 audio, then arrange audio and MIDI clips;
+- import WAV, AIFF, MP3, FLAC, and OGG audio, then arrange audio and MIDI clips;
 - edit audio clip events, MIDI notes, and time selections;
-- host stock Tool, EQ, and Chain devices plus VST3, AU, and WASM extension
-  devices;
+- host stock Tool, EQ, and Chain devices plus VST3, VST2, AU, and WASM
+  extension devices;
 - mix tracks with volume, pan, mute, and solo, with latency compensation;
 - loop playback and render an offline mixdown to several audio formats.
 

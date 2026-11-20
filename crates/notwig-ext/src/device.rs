@@ -5,6 +5,7 @@ use notwig_dsp::{
     CompiledPlan, DeviceFactory, DeviceProcessor, GraphError, Latency, NoteEvent, PlanDevice,
     ProcessContext, ProcessStatus, RenderConfig,
 };
+use notwig_ext_api::{NOTE_EVENT_BYTES, NoteEvent as ExtensionNoteEvent, encode_note_event};
 
 use crate::abi::ExtensionInstance;
 use crate::compiled::LoadedExtensions;
@@ -60,7 +61,9 @@ impl DeviceFactory for ExtensionDeviceFactory {
             instance,
             handle,
             audio_ptr: 0,
+            events_ptr: 0,
             scratch: Vec::new(),
+            event_scratch: Vec::new(),
             channels: 2,
             latency_samples: device.spec.latency_samples,
             reported: false,
@@ -72,7 +75,9 @@ struct WasmDeviceProcessor {
     instance: ExtensionInstance,
     handle: i32,
     audio_ptr: i32,
+    events_ptr: i32,
     scratch: Vec<u8>,
+    event_scratch: Vec<u8>,
     channels: usize,
     latency_samples: u32,
     reported: bool,
@@ -114,6 +119,14 @@ impl DeviceProcessor for WasmDeviceProcessor {
                     reason: error.to_string(),
                 })?;
         self.scratch.resize(bytes, 0);
+        let event_bytes = config.max_block_size.max(1) * NOTE_EVENT_BYTES;
+        self.events_ptr =
+            self.instance
+                .alloc_audio(event_bytes)
+                .map_err(|error| GraphError::DeviceError {
+                    reason: error.to_string(),
+                })?;
+        self.event_scratch.resize(event_bytes, 0);
         self.latency_samples = self.latency_samples.max(self.instance.latency(self.handle));
         Ok(())
     }
@@ -132,7 +145,7 @@ impl DeviceProcessor for WasmDeviceProcessor {
         &mut self,
         ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        _events: &[NoteEvent],
+        events: &[NoteEvent],
     ) -> ProcessStatus {
         if audio.is_empty() {
             return ProcessStatus::default();
@@ -144,6 +157,26 @@ impl DeviceProcessor for WasmDeviceProcessor {
                 overloaded: true,
                 produced_silence: false,
             };
+        }
+        let max_events = self.event_scratch.len() / NOTE_EVENT_BYTES;
+        let event_count = events.len().min(max_events);
+        for (index, event) in events[..event_count].iter().enumerate() {
+            let encoded = encode_note_event(&ExtensionNoteEvent::from(*event));
+            let start = index * NOTE_EVENT_BYTES;
+            self.event_scratch[start..start + NOTE_EVENT_BYTES].copy_from_slice(&encoded);
+        }
+        let event_bytes = event_count * NOTE_EVENT_BYTES;
+        if event_bytes > 0 {
+            if let Err(error) = self
+                .instance
+                .write_bytes(self.events_ptr, &self.event_scratch[..event_bytes])
+            {
+                self.report(error);
+                return ProcessStatus {
+                    overloaded: true,
+                    produced_silence: false,
+                };
+            }
         }
         for (chunk, sample) in self.scratch[..bytes]
             .chunks_exact_mut(std::mem::size_of::<f32>())
@@ -162,12 +195,13 @@ impl DeviceProcessor for WasmDeviceProcessor {
             };
         }
         let frames = audio.len() / self.channels;
+        let events_ptr = if event_count == 0 { 0 } else { self.events_ptr };
         let status = match self.instance.process(
             self.handle,
             self.audio_ptr,
             frames,
-            0,
-            0,
+            events_ptr,
+            event_count,
             ctx.sample_position,
             ctx.playing,
         ) {

@@ -36,7 +36,7 @@ candidate next milestones, and deferred scope live in the
 ## Build and run
 
 Requirements: a recent Rust toolchain, macOS, and the platform audio/plugin SDKs
-needed by `cpal` and `truce-rack`.
+needed by `cpal` and the vendored `notwig-rack` host.
 
 ```sh
 cargo run -p notwig-app
@@ -56,8 +56,8 @@ python3 -m http.server --directory target/web 8080
 ```
 
 The browser build uses the File System Access API and Origin Private File
-System for project storage, and WebAudio through CPAL. Native VST3/AU plugins
-are unavailable. Trusted extensions run through the browser WebAssembly host:
+System for project storage, and WebAudio through CPAL. Native VST3/VST2/AU
+plugins are unavailable. Trusted extensions run through the browser WebAssembly host:
 the stock extension is fetched from the same origin, and trusted ZIP packages
 can be installed into browser storage. Untrusted extension modes are not
 supported in the browser. Audio starts after the first user gesture, and

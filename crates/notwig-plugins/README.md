@@ -30,7 +30,7 @@ crate.
 ## Does not own
 
 - Plugin scan policy, background process launching, or UI cache display (see
-  `notwig-app/src/plugins.rs` and `notwig-ui/src/views/device_editor/`).
+  `notwig-app/src/plugins/` and `notwig-ui/src/views/device_editor/`).
 - Device graph placement or real-time execution (see `notwig-dsp` and
   `notwig-engine`).
 - Project persistence of device instances (see `notwig-core` and

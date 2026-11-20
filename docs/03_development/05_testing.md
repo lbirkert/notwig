@@ -39,11 +39,15 @@ cargo test --workspace
 cargo test -p notwig-core
 cargo test -p notwig-engine --test render
 cargo test -p notwig-ui --test audio_editor
+cargo bench -p notwig-dsp
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-The suite lives under `crates/*/tests/`. There are no inline unit test modules, fuzz targets, or benchmark harnesses yet. Rows in the tables below summarize test groups. One row can cover several test functions.
+The suite lives under `crates/*/tests/`. There is one inline unit-test module
+(`notwig-dsp/src/monitor.rs`), one Criterion benchmark harness
+(`crates/notwig-dsp/benches/dsp.rs`), and no `cargo fuzz` target yet. Rows in the
+tables below summarize test groups. One row can cover several test functions.
 
 ## End-to-end tests
 
@@ -80,7 +84,9 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Bundle save and open | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Autosave list and load | ✅ Implemented | ⭐⭐⭐⭐ | |
 | WAV, AIFF, and MP3 decode and resample | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
-| FLAC and OGG decode and resample | 📋 Planned | ⭐⭐⭐ | Code paths exist. No fixtures or tests. |
+| FLAC and OGG decode and resample | 🧪 Partial | ⭐⭐⭐ | Probe and export round-trips are tested. Import-decode coverage is still missing. |
+| Audio probe and multi-format export | ✅ Implemented | ⭐⭐⭐⭐ | `probe.rs` covers header probing and duration for all formats; `export.rs` covers WAV/AIFF/FLAC/MP3/OGG writing, bit depth, dithering, and normalization. |
+| Asset hashing and import dedupe | ✅ Implemented | ⭐⭐⭐⭐ | `import_hash.rs` covers content-addressed filenames, dedupe, and temp-file cleanup. |
 | Engine render through master | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Stock device processing | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Nested chain processing | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
@@ -88,7 +94,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Engine control exchange and prepared runtimes | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/control.rs` covers the shared slot, fixed-frame sync interval, prepared-runtime installation, transport application, and playhead publication. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Real VST3 or AU load and process | 📋 Planned | ⭐⭐⭐⭐⭐ | Needs a plugin fixture or CI plugin bundle. |
-| Plugin delay compensation across tracks | 🧪 Partial | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks and send-vs-direct phase coherence. Hosted plugin latency is queried through the vendored VST3/AU wrappers but is not exercised by the headless test suite. |
+| Plugin delay compensation across tracks | 🧪 Partial | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks and send-vs-direct phase coherence. Hosted plugin latency is queried through the vendored VST3/VST2/AU wrappers but is not exercised by the headless test suite. |
 
 ## Unit tests
 
@@ -109,7 +115,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Extension ABI helpers | ✅ Implemented | ⭐⭐⭐ | `notwig-ext-api/tests/abi_helpers.rs` covers the const `DeviceStore` and handle lifecycle. |
 | Extension index and config | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/index_config.rs` covers index parsing/validation and legacy config migration. |
 | Extension ZIP install | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/install.rs` covers root/nested layouts, unsafe paths, ID mismatch, replacement, and uninstall. |
-| Limiter and gate example devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the limiter spec, panel draw list, lookahead transient catching, threshold limiting, and release recovery. `notwig-ext-devices/tests/gate.rs` covers the gate spec, panel draw list, and open/close behavior. `notwig-ext-api/tests/ui_context.rs` covers the shared stereo meter. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports. |
+| Limiter, gate, and synth example devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the limiter spec, panel draw list, lookahead transient catching, threshold limiting, and release recovery. `notwig-ext-devices/tests/gate.rs` covers the gate spec, panel draw list, and open/close behavior. `notwig-ext-devices/tests/synth.rs` covers the synth spec, panel, oscillator modes, note on/off, and ADSR release. `notwig-ext-api/tests/ui_context.rs` covers the shared stereo meter and dropdown. `notwig-ext-api/tests/note_events.rs` covers note-event wire encoding. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports and synth note playback. |
 | Edit lowering ID remap | 🧪 Partial | ⭐⭐⭐⭐⭐ | Covered through app tests, not isolated unit tests. |
 | Snap and grid math | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Waveform peak mapping | ✅ Implemented | ⭐⭐⭐ | |
@@ -118,7 +124,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Summary counts | ✅ Implemented | ⭐⭐ | |
 | Shortcut config round-trip | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Audio settings config round-trip | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-app/tests/audio_config.rs` covers round-trip, malformed/missing files, missing/extra fields, and device validation. |
-| Asset content hash | 🧪 Partial | ⭐⭐⭐⭐ | Import checks file existence. The hash is not asserted. |
+| Asset content hash | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-project/tests/import_hash.rs` asserts the stored filename and manifest hash are SHA-256 of the stored bytes. |
 | Sample-rate conversion quality | 📋 Planned | ⭐⭐⭐⭐ | |
 | Denormal and NaN handling | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Automation curve math | 📋 Planned | ⭐⭐⭐⭐⭐ | |
@@ -128,9 +134,14 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 
 | Test | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| Shell renders headlessly | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-ui/tests/shell.rs`. |
+| Shell renders headlessly | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-ui/tests/shell.rs`; `shell_internal.rs` covers editor exclusivity and shortcut routing. |
+| Arranger interaction | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/arranger.rs` covers zoom/pan stability, clip creation rules, track drag/reorder, and context selection. |
+| Timeline math and waveform mapping | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/timeline.rs` covers coordinates, snapping, trim clamps, loop edges, and visible source windows. |
+| View state and selection | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/state.rs` covers selection modes, retention, and notification expiry. |
+| Clipboard and edit helpers | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/edit.rs` and `clip_chrome.rs`. |
+| Widget and waveform primitives | ✅ Implemented | ⭐⭐⭐ | `notwig-ui/tests/widgets.rs`, `waveform.rs`, and `device_browser.rs`. |
 | Arranger zoom and pan | ✅ Implemented | ⭐⭐⭐ | |
-| Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | 28 tests in `audio_editor.rs`. |
+| Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | 40 tests in `audio_editor.rs`. |
 | Audio editor trim and clip bounds | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Audio editor copy, cut, paste, duplicate, delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Drop target resolution | ✅ Implemented | ⭐⭐⭐⭐ | |
@@ -247,7 +258,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Zoom keeps the beat under the pointer fixed | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Minimum selection clamps instead of collapsing | 📋 Planned | ⭐⭐⭐⭐ | |
 | Shared beat strip maps to the same beat in both editors | 📋 Planned | ⭐⭐⭐⭐ | |
-| Event edits never emit a container range change | 🧪 Partial | ⭐⭐⭐⭐⭐ | `emit_keeps_events_outside_clip_range` covers emission. Add assertions for move, trim, paste, and duplicate. |
+| Event edits never emit a container range change | 🧪 Partial | ⭐⭐⭐⭐⭐ | `emit_keeps_events_outside_the_clip_range` covers emission. Add assertions for move, trim, paste, and duplicate. |
 
 ### Editing invariants
 
@@ -319,7 +330,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Audio events outside the clip container | ✅ Implemented | ⭐⭐⭐⭐⭐ | Core validation, engine clipping, and the audio editor gesture are covered. |
 | PDC across tracks and nested groups | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks. |
 | PDC with sends | ✅ Implemented | ⭐⭐⭐⭐⭐ | Send and direct paths stay phase-coherent in `pdc.rs`. |
-| Plugin latency reporting | ✅ Implemented | ⭐⭐⭐⭐⭐ | The vendored VST3/AU wrappers query latency; capability defaults and PDC plumbing are tested. |
+| Plugin latency reporting | ✅ Implemented | ⭐⭐⭐⭐⭐ | The vendored VST3/VST2/AU wrappers query latency; capability defaults and PDC plumbing are tested. |
 | Xrun detection and recovery | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Audio callback allocation and lock checks | 🧪 Partial | ⭐⭐⭐⭐⭐ | The control slot uses `try_lock` and prepared swaps; scratch/output/event buffers are reused. Snapshot meter inserts and plugin callbacks still need allocator instrumentation. |
 | Seek and stop reset behavior | 🧪 Partial | ⭐⭐⭐⭐ | Stop note-off is tested. Plugin and effect tails are not. |
@@ -337,12 +348,12 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Parameter enumeration and updates | 📋 Planned | ⭐⭐⭐⭐ | |
 | Native editor open and parameter sync | 📋 Planned | ⭐⭐⭐ | Manual path. |
 | Plugin state save and restore | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| Plugin latency query | ✅ Implemented | ⭐⭐⭐⭐⭐ | VST3 and AU wrappers expose latency to the adapter. |
+| Plugin latency query | ✅ Implemented | ⭐⭐⭐⭐⭐ | VST3, VST2, and AU wrappers expose latency to the adapter. |
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | |
 | Sidechain and multi-out | 📋 Planned | ⭐⭐⭐⭐ | |
 | Out-of-process crash isolation | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | CLAP hosting | 📋 Planned | ⭐⭐⭐⭐ | |
-| VST2 hosting | 🚫 Not Planned | ⭐ | |
+| VST2 hosting | 🧪 Partial | ⭐ | The adapter is enabled on native macOS builds; no real-plugin integration test. |
 
 ## Persistence and recovery tests
 
@@ -368,7 +379,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | --- | --- | --- | --- |
 | Audio callback has no heap allocation | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Audio callback has no blocking locks | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| Bounded engine command queue | 📋 Planned | ⭐⭐⭐⭐⭐ | |
+| Bounded engine command queue | 🚫 Not Planned | ⭐⭐⭐⭐⭐ | No command queue by design; the app swaps prepared `EngineData`. |
 | Large project load and render | 📋 Planned | ⭐⭐⭐⭐ | |
 | Many tracks and devices stress | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Plugin scan does not block the UI | 🧪 Partial | ⭐⭐⭐⭐ | A child process exists. No timing test. |
@@ -396,8 +407,8 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Editing consistency matrix | 📋 Planned | ⭐⭐⭐⭐⭐ | One fixture per operation across the arranger and audio editor. |
 | Boundary and trim regression suite | 📋 Planned | ⭐⭐⭐⭐⭐ | Events outside the container, leftward trim, hit-target precedence, and zoom. |
 | PDC and plugin latency suite | 🧪 Partial | ⭐⭐⭐⭐⭐ | Tracks, nested groups, sends, bypassed devices, and inactive tracks are covered. Hosted plugin latency is queryable through the vendored wrappers. |
-| Real plugin host integration | 📋 Planned | ⭐⭐⭐⭐⭐ | VST3 and AU fixtures in CI. |
-| Engine realtime safety checks | 📋 Planned | ⭐⭐⭐⭐⭐ | Allocation, locks, and queue bounds. |
+| Real plugin host integration | 📋 Planned | ⭐⭐⭐⭐⭐ | VST3, VST2, and AU fixtures in CI. |
+| Engine realtime safety checks | 📋 Planned | ⭐⭐⭐⭐⭐ | Allocation and lock behavior; the prepared-data swap replaces a command queue. |
 | DSP numeric stability suite | 📋 Planned | ⭐⭐⭐⭐⭐ | NaN, denormals, extremes, and the sample-rate matrix. |
 | Project recovery and migration suite | 🧪 Partial | ⭐⭐⭐⭐⭐ | Autosave recovery and corrupt autosaves are covered. Corrupt manifests and schema migration are not. |
 | Long-run soak test | 📋 Planned | ⭐⭐⭐⭐⭐ | Multi-hour playback with meters and plugins. |
@@ -411,4 +422,4 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 - DSP tests cover stock processing and block sizes. They do not cover long runs, sample-rate changes, denormals, or NaN input.
 - PDC for tracks, nested groups, sends, bypasses, and inactive tracks is tested. Hosted plugin latency is queried but real plugin hosting is not exercised headlessly.
 - Autosave recovery and session locks are tested. Schema migration and corrupt project manifests are not.
-- Realtime safety is not measured. Add allocation, lock, and queue checks before treating the engine as stable.
+- Realtime safety is not measured. Add allocation and lock checks before treating the engine as stable.

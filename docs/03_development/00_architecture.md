@@ -18,7 +18,7 @@ notwig-dsp  <-----  notwig-plugins
   |  device plans    |  hosted instruments/effects
   v                  v
 notwig-core  <-----  notwig-project
-   domain, protocol     bundles, assets, WAV import/export
+   domain, protocol     bundles, assets, audio import/export
 ```
 
 Dependency direction is inward:
@@ -28,7 +28,8 @@ Dependency direction is inward:
 - `notwig-dsp` depends on core.
 - `notwig-plugins` depends on core and DSP contracts.
 - `notwig-engine` depends on core, DSP, and plugins.
-- `notwig-ui` depends on core, project, and DSP; it does not depend on engine internals.
+- `notwig-ui` depends on core, project, DSP, and the extension API; it does not
+  depend on engine internals.
 - `notwig-app` composes everything and owns process-level concerns.
 
 ## State model
@@ -124,12 +125,14 @@ project.notwig/
   assets/            imported audio files
   peaks/             reserved for waveform data
   autosave/          snapshot-<revision>-<timestamp>.json
-  state/             reserved for runtime state
+  state/             persisted plugin state blobs
   cache/             reserved for derived data
 ```
 
 `notwig-project` validates the schema major version, normalizes volatile fields
-(playing/recording), and reports missing assets as load issues. The app creates
+(playing/recording), and reports missing assets as load issues. Hosted plugin
+state blobs are written under `state/`; `peaks/` and `cache/` remain reserved.
+The app creates
 `session.lock` when a bundle is opened or saved and removes it on clean exit.
 When a lock and autosave snapshots are both present, the app offers to recover
 the latest autosave or discard it before continuing.
@@ -159,9 +162,9 @@ under `/app/` beside the mdBook documentation.
 | Crate | Owns | Must not |
 |---|---|---|
 | `notwig-core` | Domain types, IDs, time, tracks, sequencer, command protocol, edit algebra | I/O, UI, real-time processing, ID allocation |
-| `notwig-project` | Bundle read/write, autosave/recovery, audio import/decode/resample, WAV export | UI, real-time processing |
-| `notwig-dsp` | Device/parameter contracts, registry, graph compilation, stock devices | Audio callback, persisted instance state |
-| `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, manifests, ABI wire types | `egui`, `wasmtime`, I/O, canonical state |
+| `notwig-project` | Bundle read/write, autosave/recovery, audio probe/import/decode/resample/export | UI, real-time processing |
+| `notwig-dsp` | Device/parameter contracts, registry, factories, graph compilation, stock devices, editor monitoring | Audio callback, persisted instance state |
+| `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, note-event wire types, manifests, ABI helpers | `egui`, `wasmtime`, I/O, canonical state |
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Runtime host behavior |
 | `notwig-ext` | Extension discovery, native wasmtime and trusted browser WebAssembly hosts, WASM device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-ext-devices` | Example and stock extension devices built against the SDK | Host behavior or UI code |

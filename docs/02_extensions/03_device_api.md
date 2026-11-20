@@ -23,6 +23,7 @@ pub trait DeviceExtension: Send + Sized + 'static {
     fn set_param(&mut self, _param_id: notwig_core::ParamId, _value: f64) -> bool {
         false
     }
+    fn note_event(&mut self, _event: notwig_ext_api::NoteEvent) {}
     fn process(&mut self, samples: &mut [f32]);
     fn latency(&self) -> u32 {
         0
@@ -38,9 +39,11 @@ pub trait DeviceExtension: Send + Sized + 'static {
 3. `prepare(sample_rate, channels)` is called before the instance processes
    audio, and again when the engine format changes.
 4. `set_param(id, value)` is called for host parameter changes.
-5. `process(samples)` runs in the audio callback.
-6. `draw(ui)` runs once per UI frame while the panel is visible.
-7. `latency()` is queried by the engine for delay compensation.
+5. `note_event(event)` is called for each note event before the block is
+   processed. Events are ordered by block sample offset.
+6. `process(samples)` runs in the audio callback.
+7. `draw(ui)` runs once per UI frame while the panel is visible.
+8. `latency()` is queried by the engine for delay compensation.
 
 The host keeps one `UiMemory` per instance. Device state that is not a parameter
 belongs in the device struct and is rebuilt if the engine rebuilds instances.
@@ -203,11 +206,32 @@ fn set_param(&mut self, param_id: ParamId, value: f64) -> bool {
 The host uses the return value to decide whether the parameter was accepted.
 Unrecognized IDs must not change device state.
 
+## Note events
+
+Instrument and note-effect devices receive note events through
+`note_event`. The event uses `notwig_ext_api::NoteEvent`:
+
+```rust
+pub struct NoteEvent {
+    pub sample_offset: u32,
+    pub kind: NoteKind, // On or Off
+    pub pitch: u8,
+    pub velocity: f32,
+}
+```
+
+`sample_offset` is relative to the start of the upcoming block. `note_event`
+runs before `process`, so an instrument can queue events and apply them at the
+matching frame while synthesizing. The host truncates events if a block contains
+more than can fit in the prepared event buffer.
+
+Declare an instrument with `DeviceKind::Instrument` and a `NoteEvent` input port.
+Instrument tracks may host at most one instrument.
+
 ## Current limits
 
-Extension devices process audio only. Note events, MIDI input, and persistent
-device state blobs are not forwarded to extension devices yet. Store user-facing
-state as declared parameters so the host can persist and restore it through the
-normal parameter path.
+Persistent device state blobs are not forwarded to extension devices yet. Store
+user-facing state as declared parameters so the host can persist and restore it
+through the normal parameter path.
 
 Next: [Panel API](04_panel_api.md).

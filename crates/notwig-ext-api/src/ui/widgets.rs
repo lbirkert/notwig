@@ -114,6 +114,149 @@ pub fn paint_knob(
     }
 }
 
+/// Paints a closed dropdown header into a rectangle.
+pub fn paint_dropdown(
+    drawer: &mut dyn Drawer,
+    theme: &ThemeSnapshot,
+    rect: Rect,
+    text: &str,
+    open: bool,
+) {
+    drawer.fill_rect(
+        rect,
+        4.0,
+        if open {
+            theme.grid_strong
+        } else {
+            theme.panel_light
+        },
+    );
+    drawer.stroke_rect(rect, 4.0, Stroke::new(1.0, theme.grid));
+    drawer.text(
+        Point::new(rect.min.x + 7.0, rect.center().y),
+        text,
+        Font::new(FontFamily::Proportional, 11.0),
+        theme.text,
+        Align::new(
+            crate::geometry::TextAlign::Left,
+            crate::draw::VerticalAlign::Center,
+        ),
+    );
+    let arrow_x = rect.max.x - 11.0;
+    let arrow_y = rect.center().y;
+    drawer.path(
+        &[
+            Point::new(arrow_x - 4.0, arrow_y - 2.0),
+            Point::new(arrow_x, arrow_y + 2.0),
+            Point::new(arrow_x + 4.0, arrow_y - 2.0),
+        ],
+        true,
+        Some(theme.text_muted),
+        None,
+    );
+}
+
+fn paint_dropdown_item(
+    drawer: &mut dyn Drawer,
+    theme: &ThemeSnapshot,
+    rect: Rect,
+    text: &str,
+    selected: bool,
+    hovered: bool,
+) {
+    let fill = if hovered {
+        theme.grid_strong
+    } else if selected {
+        theme.panel
+    } else {
+        theme.panel_light
+    };
+    drawer.fill_rect(rect, 0.0, fill);
+    drawer.text(
+        Point::new(rect.min.x + 7.0, rect.center().y),
+        text,
+        Font::new(FontFamily::Proportional, 11.0),
+        if selected { theme.accent } else { theme.text },
+        Align::new(
+            crate::geometry::TextAlign::Left,
+            crate::draw::VerticalAlign::Center,
+        ),
+    );
+}
+
+/// Draws a dropdown header at `rect` and its option list when open.
+///
+/// Call this after the rest of the panel so the option list paints and
+/// hit-tests above other widgets. The caller owns the `open` flag and the
+/// retained header rect. Returns the newly selected index when clicked.
+pub fn dropdown(
+    ui: &mut UiContext<'_>,
+    id: UiId,
+    rect: Rect,
+    selected: usize,
+    options: &[&str],
+    open: &mut bool,
+) -> Option<usize> {
+    let theme = ui.theme();
+    paint_dropdown(
+        ui.painter(),
+        &theme,
+        rect,
+        options.get(selected).copied().unwrap_or(""),
+        *open,
+    );
+
+    if !*open {
+        let response = ui.interact(id, rect, Sense::click());
+        if response.hovered() {
+            ui.set_cursor(CursorIcon::PointingHand);
+        }
+        if response.clicked() {
+            *open = true;
+        }
+        return None;
+    }
+
+    let backdrop = ui.interact(
+        ui.id(("dropdown-backdrop", id)),
+        ui.clip_rect(),
+        Sense::click(),
+    );
+    let header = ui.interact(id, rect, Sense::click());
+    let item_height = 20.0;
+    let mut chosen = None;
+    for (index, option) in options.iter().enumerate() {
+        let item_rect = Rect::from_min_size(
+            Point::new(rect.min.x, rect.max.y + index as f32 * item_height),
+            Size::new(rect.width(), item_height),
+        );
+        let response = ui.interact(
+            ui.id(("dropdown-item", id, index)),
+            item_rect,
+            Sense::click(),
+        );
+        paint_dropdown_item(
+            ui.painter(),
+            &theme,
+            item_rect,
+            option,
+            index == selected,
+            response.hovered(),
+        );
+        if response.hovered() {
+            ui.set_cursor(CursorIcon::PointingHand);
+        }
+        if response.clicked() {
+            chosen = Some(index);
+        }
+    }
+
+    if chosen.is_some() || header.clicked() || backdrop.clicked() {
+        *open = false;
+    }
+    chosen
+}
+
 /// Draws a stereo peak meter from linear peak amplitudes.
 ///
 /// `peak_hold` draws a thin hold line when it is greater than zero. The meter

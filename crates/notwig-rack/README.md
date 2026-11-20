@@ -68,7 +68,7 @@ directly instead of the umbrella.
 
 - Package, library, and module names use the `notwig-rack` prefix.
 - Latency reporting is part of the `PluginCore` trait and implemented by the
-  VST3 and AU wrappers.
+  VST3, VST2, and AU wrappers.
 - VST2 is a first-class host format rather than "not planned".
 - `notwig-rack-vst2` is new in this fork.
 

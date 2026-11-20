@@ -1,6 +1,6 @@
 use notwig_core::{ParamId, ParamValue};
 use notwig_ext_api::{
-    PanelAction, PanelCommand, button,
+    PanelAction, PanelCommand, button, dropdown,
     geometry::{Point, Rect, Size},
     knob,
     ui::{RecordUi, Sense, Style, UiContext, UiId, UiInput, UiMemory},
@@ -196,6 +196,54 @@ fn stereo_meter_paints_inside_its_rect() {
     });
     panel.validate().unwrap();
     assert!(panel.commands.len() > 4);
+}
+
+#[test]
+fn dropdown_opens_and_selects_an_option() {
+    let mut memory = UiMemory::new();
+    let rect = Rect::from_min_size(Point::new(10.0, 10.0), Size::new(100.0, 20.0));
+    let options = ["Sine", "Square"];
+    let mut open = false;
+    let mut input = pos(20.0, 15.0);
+
+    let _ = frame(&input, &mut memory, |ui| {
+        dropdown(ui, UiId::new(1), rect, 0, &options, &mut open);
+    });
+    input.pointer.primary_pressed = true;
+    input.pointer.primary_down = true;
+    let _ = frame(&input, &mut memory, |ui| {
+        dropdown(ui, UiId::new(1), rect, 0, &options, &mut open);
+    });
+    input.pointer.primary_pressed = false;
+    input.pointer.primary_down = false;
+    input.pointer.primary_released = true;
+    let _ = frame(&input, &mut memory, |ui| {
+        dropdown(ui, UiId::new(1), rect, 0, &options, &mut open);
+    });
+    assert!(open, "dropdown did not open");
+
+    input.pointer.pos = Some(Point::new(20.0, 40.0));
+    input.pointer.primary_released = false;
+    let _ = frame(&input, &mut memory, |ui| {
+        dropdown(ui, UiId::new(1), rect, 0, &options, &mut open);
+    });
+
+    input.pointer.primary_pressed = true;
+    input.pointer.primary_down = true;
+    input.pointer.primary_released = false;
+    let _ = frame(&input, &mut memory, |ui| {
+        dropdown(ui, UiId::new(1), rect, 0, &options, &mut open);
+    });
+
+    input.pointer.primary_pressed = false;
+    input.pointer.primary_down = false;
+    input.pointer.primary_released = true;
+    let mut chosen = None;
+    let _ = frame(&input, &mut memory, |ui| {
+        chosen = dropdown(ui, UiId::new(1), rect, 0, &options, &mut open);
+    });
+    assert_eq!(chosen, Some(0));
+    assert!(!open, "dropdown did not close after selection");
 }
 
 #[test]

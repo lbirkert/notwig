@@ -15,6 +15,7 @@ and test layer before editing.
   scripts/                   extension package/index build scripts
   .github/workflows/         CI, including GitHub Pages publishing
   docs/                      mdBook sources, ordered by audience
+  web/                       static browser host page and styles
   plan/                      scratch/planning notes (not part of the stable docs)
   crates/
     notwig-core/
@@ -41,7 +42,8 @@ workspace enforces `#![forbid(unsafe_code)]` and a strict Clippy policy.
 ```text
 notwig-web -> notwig-app (wasm target only)
 notwig-app -> notwig-ui, notwig-core, notwig-project,
-              notwig-engine, notwig-plugins, notwig-dsp, notwig-ext
+              notwig-engine, notwig-plugins, notwig-dsp,
+              notwig-ext, notwig-ext-api
 notwig-ui -> notwig-core, notwig-project, notwig-dsp, notwig-ext-api
 notwig-ext -> notwig-core, notwig-dsp, notwig-ext-api
 notwig-ext-api -> notwig-core, notwig-dsp, notwig-ext-macros
@@ -79,8 +81,11 @@ that needs them; most cross-layer types live in `notwig-core`.
 |---|---|
 | `bundle.rs` | `*.notwig` save/open/autosave/recovery |
 | `manifest.rs` | Versioned JSON manifest and load issues |
-| `assets.rs` | Audio decode, import, content-addressed persistence, WAV f32 export |
+| `assets.rs` | Audio decode, import, content-addressed persistence, float WAV writing |
+| `probe.rs` | Header-only duration, sample-rate, and channel probe for import previews |
 | `resample.rs` | `rubato`-based offline sample-rate conversion |
+| `export.rs` | WAV/AIFF/FLAC/MP3/OGG export with bit depth, dithering, and normalization |
+| `fsutil.rs` | Atomic file/JSON writes and directory creation |
 | `error.rs` | `ProjectError` |
 
 ### `notwig-dsp` — device contracts and plan compilation
@@ -92,6 +97,8 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `registry.rs` | Type ID to device spec/processor resolution |
 | `graph.rs` | Compile `ProjectDoc` into a `CompiledPlan` (tracks, sends, chains, latency) |
 | `stock.rs` | Stock EQ, Tool, and Chain definitions/processors |
+| `factory.rs` | `DeviceFactory` trait, stock factory, and composite factory |
+| `monitor.rs` | Lock-free per-device audio monitor ring for plugin editor meters |
 | `smoothing.rs` | Parameter smoothing primitives |
 
 ### `notwig-ext-api` — extension SDK and render-neutral drawing
@@ -104,16 +111,17 @@ frame that carries input and returns draw commands plus host actions.
 | `geometry.rs` | `Point`, `Rect`, `Color`, `Stroke`, text alignment |
 | `draw.rs` | `DrawList`/`DrawCommand` and validation limits |
 | `panel.rs` | `PanelDraw`/`PanelCommand`, `PanelAction`, `DevicePanelHost` |
-| `context.rs` | `DeviceDrawContext` (including `UiInput`) and theme snapshot |
+| `context.rs` | `DeviceDrawContext` (including `UiInput` and device meters) and theme snapshot |
 | `ui/mod.rs` | `UiContext`, layout, `Sense`/`Response`, `UiInput`, `UiMemory`, `RecordUi` |
 | `ui/drawer.rs` | `Drawer` primitive painter, `Font`, `Align` |
 | `ui/record.rs` | `RecordDrawer` command buffering for the WASM boundary |
-| `ui/widgets.rs` | Shared `button`/`knob`/`toggle`/`label`/`section`/`divider` widgets and `paint_*` helpers |
+| `ui/widgets.rs` | Shared `button`/`knob`/`toggle`/`dropdown`/`label`/`section`/`divider`/meter widgets and `paint_*` helpers |
 | `manifest.rs` | extension manifest/capability/device declaration types |
 | `status.rs` | `TrustLevel`, `ExtensionStatus`, `ExtensionInfo`, settings |
 | `config.rs` | Versioned user config, default index URL, legacy migration |
 | `index.rs` | Extension index entry/device types and validation |
-| `extension.rs` | `DeviceExtension`, `Extension`, registration and per-device draw dispatch |
+| `note.rs` | Extension note events and their fixed-size ABI wire format |
+| `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device draw dispatch |
 | `abi.rs` | ABI version (`2`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with const construction |
@@ -145,14 +153,16 @@ frame that carries input and returns draw commands plus host actions.
 |---|---|
 | `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
 | `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
+| `synth.rs` | Polyphonic synth `DeviceExtension` impl: oscillator, ADSR, note handling |
 | `dynamics.rs` | Shared 50-frame peak/gain history and history-graph painter |
-| `lib.rs` | `#[notwig_extension]` entrypoint registering both devices |
+| `lib.rs` | `#[notwig_extension]` entrypoint registering all devices |
 
 ### `notwig-engine` — real-time execution
 
 | Module | Responsibility |
 |---|---|
 | `engine.rs` | Transport, plan/schedule application, block processing, offline render |
+| `control.rs` | `EngineData`, `EngineControl`, `ControlHandle`, `PreparedRuntime`, `RuntimeLoader` |
 | `runtime.rs` | Active plan instances, track/device runtime state, track and per-device meter snapshots, event collection |
 | `factory.rs` | Stock and plugin device factories |
 
@@ -161,11 +171,11 @@ frame that carries input and returns draw commands plus host actions.
 | Module | Responsibility |
 |---|---|
 | `host.rs` | `PluginHost` and `HostAdapter` boundary |
-| `adapters.rs` | VST3/AU adapters built on vendored `truce-rack` |
+| `adapters.rs` | VST3/VST2/AU adapters built on vendored `notwig-rack` |
 | `cache.rs` | Persisted plugin scan cache |
 | `types.rs` | Format-agnostic descriptors, states, capabilities, errors |
 | `native_editor.rs` | Native plugin editor window lifecycle |
-| `rack.rs` | Vendored `truce-rack` integration details and latency reporting |
+| `rack.rs` | Vendored `notwig-rack` integration details and latency reporting |
 
 ### `notwig-ui` — views and interaction
 
@@ -177,7 +187,7 @@ frame that carries input and returns draw commands plus host actions.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display; extension panel adapter (`EguiUi`/`EguiDrawer`) for `UiContext` interaction and `DrawCommand` replay |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; extension panel adapter (`EguiUi`/`EguiDrawer`) for `UiContext` interaction and `DrawCommand` replay |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
@@ -187,6 +197,7 @@ frame that carries input and returns draw commands plus host actions.
 | `widgets/timeline/` | Shared beat strip, clip visuals, grid, selection, drop preview, interaction math |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |
+| `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
 | `state.rs` | Selection, viewport, open editor, notifications, edit focus |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
@@ -195,6 +206,7 @@ frame that carries input and returns draw commands plus host actions.
 
 | Module | Responsibility |
 |---|---|
+| `lib.rs` | Shared native/browser library surface and module wiring |
 | `main.rs` | CLI entrypoint, demo/new/render/info/scan commands |
 | `gui.rs` | `eframe` app, intent handling, dialogs, plugin windows, runtime projection |
 | `workspace/mod.rs` | Project lifecycle, command application, undo/redo, tracks, devices, transport |
@@ -206,8 +218,12 @@ frame that carries input and returns draw commands plus host actions.
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
 | `audio_config.rs` | Persisted audio driver/device/block-size config |
-| `plugins.rs` | Plugin catalog/cache/scanner subprocess glue |
-| `extensions.rs` | Extension config/index fetch, install/uninstall jobs, host lifecycle, app sync |
+| `plugins/mod.rs` | Target-selected plugin catalog exports |
+| `plugins/native.rs` | Plugin catalog, scan subprocess, and cache glue |
+| `plugins/web.rs` | Empty browser plugin catalog |
+| `extensions/mod.rs` | Target-selected extension manager and events |
+| `extensions/native.rs` | Config/index fetch, install/uninstall jobs, wasmtime host lifecycle |
+| `extensions/web.rs` | Browser extension host, package loading, and app sync |
 | `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Convert edit plans into `CommandPayload`s |
 | `history.rs` | Undo/redo stack with structural/non-structural entries |
@@ -228,34 +244,48 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 
 | Area | Location |
 |---|---|
-| Domain apply/protocol | `crates/notwig-core/tests/` |
+| Domain apply/protocol | `crates/notwig-core/tests/domain_flow.rs`, `schedule_emission.rs` |
 | Edit algebra/properties | `crates/notwig-core/tests/edit_algebra.rs` |
-| Project bundles and assets | `crates/notwig-project/tests/` |
+| MIDI note commands | `crates/notwig-core/tests/midi_notes.rs` |
+| Time and IDs | `crates/notwig-core/tests/time.rs`, `ids.rs` |
+| Project bundles, autosave, and recovery | `crates/notwig-project/tests/bundle.rs` |
+| Audio probing, export, hashing, resampling | `crates/notwig-project/tests/probe.rs`, `export.rs`, `import_hash.rs`, `resample.rs` |
 | Browser bundle/files and byte audio I/O | `crates/notwig-project/tests/browser_io.rs` |
-| DSP plans and stock devices | `crates/notwig-dsp/tests/` |
-| Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/` |
-| Extension draw/panel validation | `crates/notwig-ext-api/tests/` |
+| DSP plans and stock devices | `crates/notwig-dsp/tests/graph.rs`, `stock.rs` |
+| Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/abi.rs` |
+| Extension draw/panel validation | `crates/notwig-ext-api/tests/draw_validation.rs` |
 | Extension ABI helpers | `crates/notwig-ext-api/tests/abi_helpers.rs` |
-| Limiter and gate example devices | `crates/notwig-ext-devices/tests/` |
+| Shared UI widgets and context | `crates/notwig-ext-api/tests/ui_context.rs` |
+| Limiter, gate, and synth example devices | `crates/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext-api/tests/index_config.rs` |
 | Extension ZIP install | `crates/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |
-| Built limiter loads through the host | `crates/notwig-ext/tests/limiter_extension.rs` |
-| Engine playback/rendering | `crates/notwig-engine/tests/` |
+| Built limiter/synth load through the host | `crates/notwig-ext/tests/limiter_extension.rs` |
+| Engine playback/rendering | `crates/notwig-engine/tests/render.rs` |
+| Control exchange and prepared runtimes | `crates/notwig-engine/tests/control.rs` |
+| MIDI preview note-offs | `crates/notwig-engine/tests/preview.rs` |
+| Latency compensation | `crates/notwig-engine/tests/pdc.rs` |
+| Loop wrapping and transport | `crates/notwig-engine/tests/transport.rs` |
 | Plugin cache/types | `crates/notwig-plugins/tests/` |
-| UI headless rendering, gestures, state | `crates/notwig-ui/tests/` |
+| Arranger interaction and track moves | `crates/notwig-ui/tests/arranger.rs` |
+| Timeline math, waveform mapping, trim | `crates/notwig-ui/tests/timeline.rs`, `clip_trim.rs` |
+| Shell internals and editor exclusivity | `crates/notwig-ui/tests/shell_internal.rs` |
+| View state and selection | `crates/notwig-ui/tests/state.rs` |
+| Clipboard and edit helpers | `crates/notwig-ui/tests/edit.rs`, `clip_chrome.rs` |
+| Widget math | `crates/notwig-ui/tests/widgets.rs` |
+| Waveform pyramid | `crates/notwig-ui/tests/waveform.rs` |
+| Device browser | `crates/notwig-ui/tests/device_browser.rs` |
 | Extension device panels | `crates/notwig-ui/tests/extension_panel.rs` |
 | MIDI editor interaction | `crates/notwig-ui/tests/midi_editor.rs` |
-| Clip visuals and trim | `crates/notwig-ui/tests/clip_trim.rs` |
 | Peak hold and reset | `crates/notwig-ui/tests/track_info.rs` |
 | Shortcut bindings and settings page | `crates/notwig-ui/tests/shortcuts.rs` |
-| Workspace and history integration | `crates/notwig-app/tests/` |
+| Workspace integration | `crates/notwig-app/tests/workspace.rs` |
+| CLI demo flow | `crates/notwig-app/tests/cli.rs` |
+| Undo/redo history | `crates/notwig-app/tests/history.rs` |
 | MIDI note editing through the workspace | `crates/notwig-app/tests/midi_editor.rs` |
 | Audio config persistence | `crates/notwig-app/tests/audio_config.rs` |
 | Session lock and recovery | `crates/notwig-app/tests/recovery.rs` |
 | Tempo, meters, and transport | `crates/notwig-app/tests/transport.rs` |
-| Latency compensation | `crates/notwig-engine/tests/pdc.rs` |
-| Loop wrapping | `crates/notwig-engine/tests/transport.rs` |
 
 UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 `notwig_ui::test_api` only from tests; it is `#[doc(hidden)]`.
@@ -295,7 +325,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 1. Keep view code in `notwig-ui`.
 2. Emit `UiIntent`; do not mutate `ProjectDoc` directly.
 3. Put behavior in `Workspace` or `gui.rs`.
-4. Reuse `widgets/`, `timeline/`, and `form.rs` helpers instead of local copies.
+4. Reuse `widgets/`, `widgets/timeline/`, and `widgets/form.rs` helpers instead of local copies.
 5. Add a headless render test in `crates/notwig-ui/tests/`.
 
 ### Add an extension device
@@ -304,8 +334,9 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    default features and build the crate as a `cdylib` for
    `wasm32-unknown-unknown`.
 2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
-   `draw(&mut UiContext)`, and keep DSP in `process` over interleaved `f32`
-   audio. Register the type with `#[notwig_extension]`.
+   `draw(&mut UiContext)`, keep DSP in `process` over interleaved `f32` audio,
+   and handle `note_event` if the device declares a note input. Register the
+   type with `#[notwig_extension]`.
 3. In `draw`, use the shared widgets or `UiContext::painter`, keep IDs stable
    with `ui.id("...")`, and emit parameter changes through
    `set_param_normalized`/`set_param_value`. The host validates the resulting

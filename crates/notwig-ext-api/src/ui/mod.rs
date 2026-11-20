@@ -5,8 +5,9 @@ mod widgets;
 pub use drawer::{Align, Drawer, Font};
 pub use record::RecordDrawer;
 pub use widgets::{
-    METER_MIN_DB, button, divider, knob, label, paint_button, paint_divider, paint_knob,
-    paint_label, paint_section, paint_stereo_meter, paint_toggle, section, stereo_meter, toggle,
+    METER_MIN_DB, button, divider, dropdown, knob, label, paint_button, paint_divider,
+    paint_dropdown, paint_knob, paint_label, paint_section, paint_stereo_meter, paint_toggle,
+    section, stereo_meter, toggle,
 };
 
 use std::collections::hash_map::DefaultHasher;

@@ -19,6 +19,8 @@ not persist device instance state.
   order, sends, chains, and per-track input/output latency labels for
   compensation.
 - Stock device definitions and processors: EQ, Tool, and Chain.
+- Device factories that instantiate stock, extension, and hosted processors.
+- Lock-free audio monitoring for plugin editor instances.
 - EQ magnitude response used by the UI.
 
 ## Does not own
@@ -37,6 +39,8 @@ not persist device instance state.
 | `registry.rs` | Type ID resolution |
 | `graph.rs` | `compile` and `CompiledPlan` |
 | `stock.rs` | EQ/Tool/Chain specs and processors |
+| `factory.rs` | `DeviceFactory`, stock factory, and composite factory |
+| `monitor.rs` | Lock-free audio monitor ring for plugin editor instances |
 | `smoothing.rs` | Smoothing primitives |
 
 ## Tests

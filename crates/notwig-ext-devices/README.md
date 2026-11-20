@@ -35,13 +35,28 @@ A stereo-linked noise gate with the same graph and meter treatment:
   line showing when the gate opens and closes.
 - A stereo output meter with peak hold and an OPEN/CLOSED readout.
 
-Both panels are drawn dynamically each frame with `DeviceExtension::draw` and
-request repaint so the meters animate while visible. Meter and history data come
-from the engine-measured `DeviceMeterSnapshot` exposed through
+### Synth
+
+`notwig.ext.devices.synth`
+
+A simple polyphonic synthesizer:
+
+- **Oscillator**: Sine, Square, Saw, or Triangle.
+- **Volume ADSR**: Attack, Decay, Sustain, and Release.
+- 16 voices with pitch-matched note on/off handling and a fixed per-voice gain.
+- Receives note events through the extension note-event ABI.
+
+The panel uses the shared `dropdown` widget for the oscillator and four knobs
+for the ADSR. The dropdown list is drawn last so it overlays the rest of the
+panel and closes when clicking outside it.
+
+All panels are drawn dynamically each frame with `DeviceExtension::draw` and
+request repaint so they animate while visible. Meter and history data come from
+the engine-measured `DeviceMeterSnapshot` exposed through
 `UiContext::device_meter()`, because the panel runs in a separate extension
 instance from the audio processor. The shared stereo meter painter lives in
 `notwig_ext_api::ui`, so other extension devices can reuse it. The graph and
-history ring are local to this crate and shared by both devices.
+history ring are local to this crate and shared by the limiter and gate.
 
 The devices are implemented with the SDK trait and registered from the macro
 entrypoint:
@@ -53,6 +68,7 @@ use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
 pub fn extension(extension: &mut Extension) {
     extension.register_device::<LimiterDevice>();
     extension.register_device::<GateDevice>();
+    extension.register_device::<SynthDevice>();
 }
 ```
 
@@ -87,7 +103,7 @@ directory:
 ```
 
 Then open **Settings > Extensions** and press **Reload extensions**. The
-Limiter and Gate appear under **Extensions** in the Add Device browser.
+Limiter, Gate, and Synth appear under **Extensions** in the Add Device browser.
 
 The manifest uses `"api_version": 2` to match the current extension ABI.
 
@@ -100,11 +116,15 @@ The manifest uses `"api_version": 2` to match the current extension ABI.
   lifetime of the module instance.
 - The extension crate does not enable `unsafe`; generated code keeps its
   `no_mangle` attributes inside an SDK-generated module.
-- The devices do not need note events or persistent state blobs yet.
+- The synth receives note events through the extension note-event ABI. None of
+  the devices use persistent state blobs yet.
 - Display state is rebuilt when the engine rebuilds a device instance.
 
 ## Tests
 
-`tests/limiter.rs` covers the limiter spec, panel draw list, threshold limiting,
-release recovery, and parameter rejection. `tests/gate.rs` covers the gate spec,
-panel draw list, opening/closing behavior, and parameter rejection.
+`tests/limiter.rs` covers the limiter spec, panel draw list, lookahead,
+threshold limiting, release recovery, and parameter rejection. `tests/gate.rs`
+covers the gate spec, panel draw list, opening/closing behavior, and parameter
+rejection. `tests/synth.rs` covers the synth spec, panel, oscillator modes,
+note on/off, ADSR release, and parameter rejection. `notwig-ext/tests` also
+loads the built wasm and checks that the synth plays notes through the real ABI.

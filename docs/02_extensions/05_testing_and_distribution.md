@@ -15,15 +15,20 @@ Most extension behavior can be tested without the wasm host:
 The `notwig-ext-devices` limiter and gate are the reference projects:
 
 - `crates/notwig-ext-api/tests/ui_context.rs` covers click, drag, clipping,
-  stereo-meter painting, and action output through `RecordUi`.
+  stereo-meter painting, dropdown selection, and action output through
+  `RecordUi`.
+- `crates/notwig-ext-api/tests/note_events.rs` covers the note-event wire format.
 - `crates/notwig-ext-api/tests/draw_validation.rs` covers command and geometry
   limits.
 - `crates/notwig-ext-devices/tests/limiter.rs` exercises the limiter spec, panel
   output, threshold limiting, release recovery, and parameter rejection.
 - `crates/notwig-ext-devices/tests/gate.rs` exercises the gate spec, panel
   output, open/close behavior, and parameter rejection.
+- `crates/notwig-ext-devices/tests/synth.rs` exercises the synth spec, panel,
+  oscillator modes, note on/off, ADSR release, and parameter rejection.
 - `crates/notwig-ext/tests/limiter_extension.rs` loads the built extension
-  through the real wasm host when the module is present.
+  through the real wasm host when the module is present, including synth note
+  playback.
 - `crates/notwig-ui/tests/extension_panel.rs` covers host-side panel replay and
   invalid-command fallback.
 

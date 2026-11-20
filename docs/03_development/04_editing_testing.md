@@ -191,7 +191,10 @@ Fixtures:
 - `MidiFixture`: notes on two pitch lanes, including overlapping notes on different pitches and a note that crosses the selection boundary.
 - `AutomationFixture`: points on two parameter lanes, including points exactly on the selection boundaries.
 
-The future MIDI and automation fixtures may drive a test-only document model until those editors exist. The suite must not be weakened for them. If a rule cannot be expressed, the abstraction is missing something.
+The MIDI fixture can use the real `MidiModel`. The future automation fixture may
+drive a test-only document model until that editor exists. The suite must not be
+weakened for it. If a rule cannot be expressed, the abstraction is missing
+something.
 
 ## 7. Lowering and undo tests
 

@@ -8,12 +8,12 @@ This page is a quick map of the workspace crates. Each crate also has a
 | Crate | Owns | Depends on |
 | --- | --- | --- |
 | `notwig-core` | Domain document, IDs, time, tracks, clips, command protocol, editing algebra | No workspace crates |
-| `notwig-project` | Project bundles, manifests, autosave/recovery, audio decode/resample/export | `notwig-core` |
-| `notwig-dsp` | Device and parameter contracts, registry, graph compilation, stock devices | `notwig-core` |
-| `notwig-ext-api` | Extension SDK, render-neutral draw/panel types, manifests, ABI helpers | `notwig-core`, `notwig-dsp`, `notwig-ext-macros` |
+| `notwig-project` | Project bundles, manifests, autosave/recovery, audio probe/decode/resample/export | `notwig-core` |
+| `notwig-dsp` | Device and parameter contracts, registry, factories, graph compilation, stock devices, editor monitoring | `notwig-core` |
+| `notwig-ext-api` | Extension SDK, render-neutral draw/panel types, note events, manifests, ABI helpers | `notwig-core`, `notwig-dsp`, `notwig-ext-macros` |
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Proc-macro support only |
 | `notwig-ext` | Extension discovery, wasmtime host, WASM DSP, panel host | `notwig-core`, `notwig-dsp`, `notwig-ext-api` |
-| `notwig-ext-devices` | Limiter example device and stock WASM extension | `notwig-core`, `notwig-dsp`, `notwig-ext-api` |
+| `notwig-ext-devices` | Limiter, gate, and synth example devices and stock WASM extension | `notwig-core`, `notwig-dsp`, `notwig-ext-api` |
 | `notwig-engine` | Real-time playback, runtime plans, scheduling, transport, meters | `notwig-core`, `notwig-dsp`, `notwig-plugins` |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance and editor lifecycle | `notwig-core`, `notwig-dsp` |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | `notwig-core`, `notwig-project`, `notwig-dsp`, `notwig-ext-api` |
@@ -34,7 +34,7 @@ is excluded from the main workspace and its lint policy.
 | Extension API, draw commands, ABI wire types | `notwig-ext-api` |
 | Extension loading, trust levels, WASM device runtime | `notwig-ext` |
 | Playback, scheduling, transport, latency compensation | `notwig-engine` |
-| VST3/AU discovery and hosting | `notwig-plugins` |
+| VST3/VST2/AU discovery and hosting | `notwig-plugins` |
 | View, widget, gesture, editor UI | `notwig-ui` |
 | Intent handling, workspace policy, audio device, dialogs | `notwig-app` |
 | Browser startup, OPFS storage, WebAudio gate | `notwig-app::web`, `notwig-web` |
@@ -67,3 +67,9 @@ is excluded from the main workspace and its lint policy.
 - [Editing Testing](04_editing_testing.md) — test strategy for editing.
 - [Testing](05_testing.md) — coverage map and test gaps.
 - [Roadmap](06_roadmap.md) — implemented, partial, planned, and dropped scope.
+- [DSP Implementation and Performance](08_dsp_performance.md) — stock DSP
+  internals, benchmarks, and optimization notes.
+- [Audio Import and Analysis Performance](09_audio_import_performance.md) —
+  probing, decoding, resampling, and import cost.
+- [Waveform Rendering](10_waveform_rendering.md) — waveform data model, level
+  selection, and render modes.

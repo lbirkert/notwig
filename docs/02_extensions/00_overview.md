@@ -62,4 +62,4 @@ An extension cannot:
 4. [Panel API](04_panel_api.md) covers layout, widgets, input, actions, and
    custom drawing.
 5. [Testing and Distribution](05_testing_and_distribution.md) covers tests,
-   the example limiter and gate, packaging, and index publishing.
+   the example limiter, gate, and synth, packaging, and index publishing.

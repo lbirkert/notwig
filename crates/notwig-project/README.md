@@ -16,6 +16,7 @@ real-time code.
 - The versioned JSON manifest and schema-major checks.
 - Autosave snapshots, cleanup, and recovery detection.
 - `session.lock` creation/removal helpers used by the app to detect unclean exits.
+- Header-only audio probing for duration, sample rate, and channels during import previews.
 - WAV/AIFF/MP3/FLAC/OGG decoding through `symphonia`.
 - Offline resampling to the project sample rate with `rubato`.
 - Managed content-addressed asset copies under `assets/`, hashed from the encoded
@@ -56,6 +57,7 @@ temp-file-and-rename writes.
 | `bundle.rs` | Save/open/autosave/recovery |
 | `manifest.rs` | Manifest, schema version, load issues |
 | `assets.rs` | Decode, import, hash, and persist audio assets |
+| `probe.rs` | Header-only duration, sample-rate, and channel probing |
 | `resample.rs` | `rubato`-based offline sample-rate conversion |
 | `export.rs` | WAV/AIFF/FLAC/MP3/OGG export, bit depth, dithering, normalization |
 | `fsutil.rs` | Atomic file/JSON writes and directory creation |

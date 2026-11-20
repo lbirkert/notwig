@@ -8,6 +8,7 @@ pub mod extension;
 pub mod geometry;
 pub mod index;
 pub mod manifest;
+pub mod note;
 pub mod panel;
 pub mod status;
 pub mod ui;
@@ -23,6 +24,7 @@ pub use extension::{DeviceExtension, Extension};
 pub use geometry::{Color, Point, Rect, Size, Stroke, TextAlign};
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry};
 pub use manifest::{ExtensionCapability, ExtensionDeviceDecl, ExtensionManifest, ManifestError};
+pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
 pub use notwig_ext_macros::notwig_extension;
 pub use panel::{DevicePanelHost, PanelAction, PanelCommand, PanelDraw};
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus, TrustLevel};
@@ -31,6 +33,7 @@ pub use ui::{
     Sense, Style, UiBackend, UiContext, UiEvent, UiId, UiInput, UiMemory,
 };
 pub use ui::{
-    METER_MIN_DB, button, divider, knob, label, paint_button, paint_divider, paint_knob,
-    paint_label, paint_section, paint_stereo_meter, paint_toggle, section, stereo_meter, toggle,
+    METER_MIN_DB, button, divider, dropdown, knob, label, paint_button, paint_divider,
+    paint_dropdown, paint_knob, paint_label, paint_section, paint_stereo_meter, paint_toggle,
+    section, stereo_meter, toggle,
 };

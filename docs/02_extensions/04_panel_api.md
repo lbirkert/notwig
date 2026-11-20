@@ -63,12 +63,19 @@ Shared widgets allocate their own rect and draw themselves:
 | `button(ui, text)` | `Response` |
 | `knob(ui, id, rect, value_norm, default_norm, bipolar, label)` | `Option<f32>` when the normalized value changed |
 | `toggle(ui, id, rect, active, text)` | `Option<bool>` when clicked |
+| `dropdown(ui, id, rect, selected, options, open)` | `Option<usize>` when an item is chosen; `open` is caller-owned popup state |
 | `stereo_meter(ui, size, peak_left, peak_right, peak_hold)` | Allocated `Rect` |
 | `label(ui, text)`, `section(ui, title)`, `divider(ui)` | Allocated `Rect` |
 
 The `paint_*` functions (`paint_button`, `paint_knob`, `paint_toggle`,
-`paint_label`, `paint_section`, `paint_divider`, `paint_stereo_meter`) draw a
-widget into an existing rect when you need custom layout or interaction.
+`paint_label`, `paint_section`, `paint_divider`, `paint_stereo_meter`,
+`paint_dropdown`) draw a widget into an existing rect when you need custom
+layout or interaction.
+
+`dropdown` keeps its open state in a `bool` owned by the device. Allocate the
+header rect during layout, then call `dropdown` after the rest of the panel so
+its option list paints and hit-tests above other widgets. Clicking outside the
+list closes it.
 
 `stereo_meter` takes linear peak amplitudes (`0.0..`). It maps them to dBFS with
 the same -60 dB floor as the host track meters, draws green/amber/red zones, and
