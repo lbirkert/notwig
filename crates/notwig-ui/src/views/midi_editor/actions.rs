@@ -2,6 +2,7 @@ use notwig_core::edit;
 use notwig_core::{ClipEntity, MidiClipData, RangeMus, TimeMus};
 
 use crate::commands::{KeyChord, ShortcutCommand};
+use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
 use crate::state::EditFocus;
 use crate::widgets::snap_time;
@@ -9,19 +10,20 @@ use crate::widgets::snap_time;
 use super::geometry::{clamp_pitch_shift, content_time_from_beat};
 use super::model::Pitch;
 use super::model::{MidiModel, apply_note_lowered, lower_note_plan};
-use super::state::PianoRollState;
+use super::state::MidiEditorState;
 use crate::views::arranger::edit::paste_target;
 
-pub(super) fn handle_piano_roll_actions(
+pub(super) fn handle_midi_editor_actions(
     ui: &mut NotwigUi,
     ctx: &egui::Context,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     clip: &ClipEntity,
     grid: TimeMus,
     playhead: TimeMus,
+    tempo_bpm: f64,
 ) {
-    if ui.edit_focus != EditFocus::PianoRoll {
+    if ui.edit_focus != EditFocus::MidiEditor {
         return;
     }
     if ui.shortcut_editor.capture.is_some() {
@@ -67,7 +69,16 @@ pub(super) fn handle_piano_roll_actions(
     let selection = state.selection();
 
     if !selection.objects.is_empty() {
-        move_selection_with_arrows(ui, ctx, state, midi, grid, &selection);
+        move_selection_with_arrows(
+            ui,
+            ctx,
+            state,
+            midi,
+            grid,
+            &selection,
+            clip.track_id,
+            tempo_bpm,
+        );
     }
 
     if !selection.is_empty() {
@@ -80,6 +91,7 @@ pub(super) fn handle_piano_roll_actions(
                 let lowered = lower_note_plan(midi.length, &midi.notes, plan);
                 apply_note_lowered(ui, state, midi, lowered);
                 state.clipboard.extract = Some(extract);
+                ctx.copy_text("notwig-midi-notes".into());
             }
         } else {
             if copy {
@@ -89,6 +101,7 @@ pub(super) fn handle_piano_roll_actions(
                 };
                 if let Ok(extract) = extract {
                     state.clipboard.extract = Some(extract);
+                    ctx.copy_text("notwig-midi-notes".into());
                 }
             }
             if delete {
@@ -123,6 +136,7 @@ pub(super) fn handle_piano_roll_actions(
     }
 
     if duplicate && !selection.is_empty() {
+        let mut duplicate_shift = None;
         let plan = if selection.objects.is_empty() {
             let model = MidiModel::new(midi);
             edit::duplicate(&model, &selection)
@@ -140,6 +154,7 @@ pub(super) fn handle_piano_roll_actions(
                     let offset = state
                         .time_selection()
                         .map_or(extract.length, RangeMus::length);
+                    duplicate_shift = Some(offset);
                     let at = bounding_start + offset;
                     edit::paste(&model, &extract, at)
                 }
@@ -150,6 +165,9 @@ pub(super) fn handle_piano_roll_actions(
         if let Ok(plan) = plan {
             let lowered = lower_note_plan(midi.length, &midi.notes, plan);
             apply_note_lowered(ui, state, midi, lowered);
+            if let Some(offset) = duplicate_shift {
+                state.shift_time_selection(offset);
+            }
         }
     }
 }
@@ -157,10 +175,12 @@ pub(super) fn handle_piano_roll_actions(
 fn move_selection_with_arrows(
     ui: &mut NotwigUi,
     ctx: &egui::Context,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     grid: TimeMus,
     selection: &edit::Selection<Pitch, notwig_core::NoteId>,
+    track_id: notwig_core::TrackId,
+    tempo_bpm: f64,
 ) {
     let (left, right, up, down, shift) = ctx.input(|input| {
         (
@@ -209,5 +229,38 @@ fn move_selection_with_arrows(
     if let Ok(plan) = plan {
         let lowered = lower_note_plan(midi.length, &midi.notes, plan);
         apply_note_lowered(ui, state, midi, lowered);
+        if left || right {
+            let delta = if left { TimeMus::zero() - grid } else { grid };
+            state.shift_time_selection(delta);
+        }
+        let now = ctx.input(|input| input.time);
+        for note_id in &selection.objects {
+            preview_note_after_move(ui, state, midi, track_id, *note_id, tempo_bpm, now);
+        }
     }
+}
+
+fn preview_note_after_move(
+    ui: &mut NotwigUi,
+    state: &mut MidiEditorState,
+    midi: &MidiClipData,
+    track_id: notwig_core::TrackId,
+    note_id: notwig_core::NoteId,
+    tempo_bpm: f64,
+    now: f64,
+) {
+    let Some(note) = midi.notes.iter().find(|note| note.id == note_id) else {
+        return;
+    };
+    let seconds = note.length.as_f64() * 60.0 / tempo_bpm.max(1.0);
+    state
+        .preview_highlights
+        .insert(note.pitch, now + seconds.max(0.08));
+    ui.emit(UiIntent::PreviewNote {
+        track_id,
+        note_id,
+        pitch: note.pitch,
+        velocity: note.velocity.0,
+        length_mus: Some(note.length),
+    });
 }

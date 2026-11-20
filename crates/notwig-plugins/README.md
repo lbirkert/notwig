@@ -12,7 +12,8 @@ macOS uses `truce-rack`; format-specific types stay inside this crate.
 ## Owns
 
 - `PluginHost` and the `HostAdapter` boundary.
-- VST3/AU adapters (feature-gated) backed by `truce-rack`.
+- VST3/AU adapters (feature-gated) backed by the vendored `notwig-truce-rack`
+  crates under `crates/notwig-truce-rack/`.
 - Plugin scan cache read/write. Cache persistence is best-effort and not part of
   project recovery, so it intentionally does not share `notwig-project`'s atomic
   write helper.
@@ -20,8 +21,9 @@ macOS uses `truce-rack`; format-specific types stay inside this crate.
   `PluginState`, capabilities, formats, and `PluginError`.
 - Native plugin editor window lifecycle.
 - Instantiation, parameter descriptions, state save/restore, and latency
-  reporting through the format-agnostic API. The `truce-rack` 1.1.5 adapter
-  cannot query plugin latency, so it reports zero with `reports_latency: false`.
+  reporting through the format-agnostic API. The vendored `truce-rack` wrappers
+  query VST3 `getLatencySamples` and AU `kAudioUnitProperty_Latency`, so the
+  adapter publishes real latency with `reports_latency: true`.
 
 ## Does not own
 

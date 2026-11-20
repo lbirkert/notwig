@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use egui::{Color32, Rect, RichText};
@@ -15,8 +15,13 @@ use crate::state::{EditFocus, NotificationKind, OpenedEditor, UiState};
 use crate::theme;
 use crate::views::audio_editor::ClipEditorState;
 use crate::views::device_editor::{DeviceBrowserState, EqDrag};
-use crate::views::piano_roll::PianoRollState;
+use crate::views::midi_editor::MidiEditorState;
 use notwig_core::edit::SelectionMode;
+
+const TOP_BAR_HEIGHT: f32 = 34.0;
+const TOP_BAR_ICON: f32 = 30.0;
+const TOP_BAR_FONT: f32 = 12.0;
+const TOP_BAR_READOUT_FONT: f32 = 11.0;
 
 pub struct NotwigUi {
     pub state: UiState,
@@ -36,6 +41,7 @@ pub struct NotwigUi {
     pub show_help: bool,
     pub track_rows: BTreeMap<TrackId, Rect>,
     pub last_track_rows: BTreeMap<TrackId, Rect>,
+    pub collapsed_tracks: BTreeSet<TrackId>,
     pub timeline_width: f32,
     pub timeline_left: f32,
     pub arranger_rect: Rect,
@@ -45,12 +51,11 @@ pub struct NotwigUi {
     pub eq_range: f32,
     pub eq_drag: Option<EqDrag>,
     pub drag_preview: Option<DragPreview>,
-    pub duration_cache: HashMap<PathBuf, Option<f64>>,
     pub expanded_chains: BTreeSet<notwig_core::DeviceChainId>,
     pub clip_editor: Option<ClipEditorState>,
     pub clip_editor_content_rect: Rect,
-    pub piano_roll: Option<PianoRollState>,
-    pub piano_roll_content_rect: Rect,
+    pub midi_editor: Option<MidiEditorState>,
+    pub midi_editor_content_rect: Rect,
     pub edit_focus: EditFocus,
     pub plugin_search: BTreeMap<notwig_core::DeviceId, String>,
     pub last_touched_param: BTreeMap<notwig_core::DeviceId, notwig_core::ParamId>,
@@ -67,6 +72,8 @@ pub struct NotwigUi {
     pub render_open: bool,
     pub render_start: notwig_core::TimeMus,
     pub render_end: notwig_core::TimeMus,
+    pub render_options: crate::intent::ExportOptions,
+    pub render_progress: Option<f32>,
     pub platform_pointer: Option<egui::Pos2>,
     pub analyzer_pre: bool,
     pub analyzer_post: bool,
@@ -96,6 +103,7 @@ impl Default for NotwigUi {
             show_help: false,
             track_rows: BTreeMap::new(),
             last_track_rows: BTreeMap::new(),
+            collapsed_tracks: BTreeSet::new(),
             timeline_width: 800.0,
             timeline_left: 230.0,
             arranger_rect: Rect::NOTHING,
@@ -105,12 +113,11 @@ impl Default for NotwigUi {
             eq_range: 10.0,
             eq_drag: None,
             drag_preview: None,
-            duration_cache: HashMap::new(),
             expanded_chains: BTreeSet::new(),
             clip_editor: None,
             clip_editor_content_rect: Rect::NOTHING,
-            piano_roll: None,
-            piano_roll_content_rect: Rect::NOTHING,
+            midi_editor: None,
+            midi_editor_content_rect: Rect::NOTHING,
             edit_focus: EditFocus::Timeline,
             plugin_search: BTreeMap::new(),
             last_touched_param: BTreeMap::new(),
@@ -127,6 +134,8 @@ impl Default for NotwigUi {
             render_open: false,
             render_start: notwig_core::TimeMus::zero(),
             render_end: notwig_core::TimeMus::zero(),
+            render_options: crate::intent::ExportOptions::default(),
+            render_progress: None,
             platform_pointer: None,
             analyzer_pre: true,
             analyzer_post: false,
@@ -166,7 +175,7 @@ impl NotwigUi {
             .collect();
         self.last_track_rows = std::mem::take(&mut self.track_rows);
         self.handle_dropped_files(ctx, doc);
-        self.update_drag_preview(ctx, doc);
+        self.update_drag_preview(ctx, doc, runtime);
         self.track_rows.clear();
         self.handle_shortcuts(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
@@ -174,7 +183,7 @@ impl NotwigUi {
         self.info_panel(ctx, doc, runtime);
         match self.currently_opened {
             Some(OpenedEditor::ClipEditor) => self.clip_editor_panel(ctx, doc, runtime),
-            Some(OpenedEditor::PianoRoll) => self.piano_roll_panel(ctx, doc, runtime),
+            Some(OpenedEditor::MidiEditor) => self.midi_editor_panel(ctx, doc, runtime),
             Some(OpenedEditor::DeviceEditor) => self.device_panel(ctx, doc, runtime),
             None => {}
         }
@@ -201,6 +210,13 @@ impl NotwigUi {
         if self.show_help {
             self.help_window(ctx);
         }
+        if runtime.engine_crashed {
+            self.engine_crash_overlay(ctx);
+        }
+        if let Some(progress) = self.render_progress {
+            self.render_progress_overlay(ctx, progress);
+        }
+        self.notification_overlay(ctx);
         std::mem::take(&mut self.intents)
     }
 
@@ -231,15 +247,15 @@ impl NotwigUi {
     pub fn open_clip_editor(&mut self, clip_id: notwig_core::ClipId) {
         self.currently_opened = Some(OpenedEditor::ClipEditor);
         self.clip_editor = Some(ClipEditorState::new(clip_id));
-        self.piano_roll = None;
+        self.midi_editor = None;
         self.edit_focus = EditFocus::ClipEditor;
     }
 
-    pub fn open_piano_roll(&mut self, clip_id: notwig_core::ClipId) {
-        self.currently_opened = Some(OpenedEditor::PianoRoll);
-        self.piano_roll = Some(PianoRollState::new(clip_id));
+    pub fn open_midi_editor(&mut self, clip_id: notwig_core::ClipId) {
+        self.currently_opened = Some(OpenedEditor::MidiEditor);
+        self.midi_editor = Some(MidiEditorState::new(clip_id));
         self.clip_editor = None;
-        self.edit_focus = EditFocus::PianoRoll;
+        self.edit_focus = EditFocus::MidiEditor;
     }
 
     pub fn open_editor_for_clip(&mut self, doc: &ProjectDoc, clip_id: notwig_core::ClipId) {
@@ -250,7 +266,7 @@ impl NotwigUi {
             .selection
             .select_clip(clip_id, clip.track_id, false);
         match &clip.payload {
-            notwig_core::ClipPayload::Midi(_) => self.open_piano_roll(clip_id),
+            notwig_core::ClipPayload::Midi(_) => self.open_midi_editor(clip_id),
             notwig_core::ClipPayload::Audio(_) => self.open_clip_editor(clip_id),
         }
     }
@@ -258,30 +274,30 @@ impl NotwigUi {
     pub fn close_clip_editor(&mut self) {
         if matches!(
             self.currently_opened,
-            Some(OpenedEditor::ClipEditor | OpenedEditor::PianoRoll)
+            Some(OpenedEditor::ClipEditor | OpenedEditor::MidiEditor)
         ) {
             self.currently_opened = None;
         }
         self.clip_editor = None;
-        self.piano_roll = None;
+        self.midi_editor = None;
         self.edit_focus = EditFocus::Timeline;
     }
 
-    pub fn close_piano_roll(&mut self) {
+    pub fn close_midi_editor(&mut self) {
         self.close_clip_editor();
     }
 
     pub fn open_device_editor(&mut self) {
         self.currently_opened = Some(OpenedEditor::DeviceEditor);
         self.clip_editor = None;
-        self.piano_roll = None;
+        self.midi_editor = None;
         self.edit_focus = EditFocus::Timeline;
     }
 
     pub fn close_editor(&mut self) {
         self.currently_opened = None;
         self.clip_editor = None;
-        self.piano_roll = None;
+        self.midi_editor = None;
         self.edit_focus = EditFocus::Timeline;
     }
 
@@ -296,7 +312,7 @@ impl NotwigUi {
     pub fn toggle_clip_editor(&mut self, doc: &ProjectDoc) {
         if matches!(
             self.currently_opened,
-            Some(OpenedEditor::ClipEditor | OpenedEditor::PianoRoll)
+            Some(OpenedEditor::ClipEditor | OpenedEditor::MidiEditor)
         ) {
             self.close_clip_editor();
             return;
@@ -311,13 +327,13 @@ impl NotwigUi {
             return;
         }
         if let Some(clip_id) = self.selected_midi_clip(doc) {
-            self.open_piano_roll(clip_id);
+            self.open_midi_editor(clip_id);
         } else if let Some(clip_id) = self.selected_audio_clip(doc) {
             self.open_clip_editor(clip_id);
         } else {
             self.currently_opened = Some(OpenedEditor::ClipEditor);
             self.clip_editor = None;
-            self.piano_roll = None;
+            self.midi_editor = None;
             self.edit_focus = EditFocus::ClipEditor;
         }
     }
@@ -399,15 +415,15 @@ impl NotwigUi {
                     (None, _) => self.clip_editor = None,
                 }
             }
-            Some(OpenedEditor::PianoRoll) => {
+            Some(OpenedEditor::MidiEditor) => {
                 let selected = self.selected_midi_clip(doc);
                 match (
                     selected,
-                    self.piano_roll.as_ref().map(|state| state.clip_id),
+                    self.midi_editor.as_ref().map(|state| state.clip_id),
                 ) {
                     (Some(id), Some(current)) if current == id => {}
-                    (Some(id), _) => self.piano_roll = Some(PianoRollState::new(id)),
-                    (None, _) => self.piano_roll = None,
+                    (Some(id), _) => self.midi_editor = Some(MidiEditorState::new(id)),
+                    (None, _) => self.midi_editor = None,
                 }
             }
             _ => {}
@@ -432,10 +448,10 @@ impl NotwigUi {
         let clip_editor_focused = self.edit_focus == EditFocus::ClipEditor
             && self.currently_opened == Some(OpenedEditor::ClipEditor)
             && self.clip_editor.is_some();
-        let piano_roll_focused = self.edit_focus == EditFocus::PianoRoll
-            && self.currently_opened == Some(OpenedEditor::PianoRoll)
-            && self.piano_roll.is_some();
-        let editor_focused = clip_editor_focused || piano_roll_focused;
+        let midi_editor_focused = self.edit_focus == EditFocus::MidiEditor
+            && self.currently_opened == Some(OpenedEditor::MidiEditor)
+            && self.midi_editor.is_some();
+        let editor_focused = clip_editor_focused || midi_editor_focused;
         let time = self
             .state
             .selection
@@ -554,11 +570,55 @@ impl NotwigUi {
         }
         if self
             .shortcuts
+            .was_pressed(ctx, ShortcutCommand::NewInstrumentTrack)
+        {
+            self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
+        }
+        if self
+            .shortcuts
+            .was_pressed(ctx, ShortcutCommand::NewAudioTrack)
+        {
+            self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+        }
+        if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::JoinClips) {
+            let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
+            if clips.len() >= 2 {
+                self.emit(UiIntent::JoinClips { clips });
+            }
+        }
+        if self
+            .shortcuts
             .was_pressed(ctx, ShortcutCommand::GroupTracks)
         {
             let tracks: Vec<_> = self.state.selection.tracks.iter().copied().collect();
             if !tracks.is_empty() {
                 self.emit(UiIntent::GroupTracks { tracks });
+            }
+        }
+        if self
+            .shortcuts
+            .was_pressed(ctx, ShortcutCommand::ToggleTrackActive)
+        {
+            let tracks: Vec<_> = self
+                .state
+                .selection
+                .tracks
+                .iter()
+                .copied()
+                .filter(|track| {
+                    doc.tracks
+                        .get(track)
+                        .is_some_and(|track| track.kind != TrackKind::Master)
+                })
+                .collect();
+            let active = tracks
+                .iter()
+                .any(|track| doc.tracks.get(track).is_some_and(|track| track.active));
+            for track in tracks {
+                self.emit(UiIntent::SetTrackActive {
+                    track_id: track,
+                    active: !active,
+                });
             }
         }
         if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate) {
@@ -673,11 +733,11 @@ impl NotwigUi {
             .frame(
                 egui::Frame::new()
                     .fill(theme::PANEL_LIGHT)
-                    .inner_margin(egui::Margin::symmetric(8, 4)),
+                    .inner_margin(egui::Margin::symmetric(8, 2)),
             )
             .show(ctx, |ui| {
                 ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), 42.0),
+                    egui::vec2(ui.available_width(), TOP_BAR_HEIGHT),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
                         self.file_menu(ui, doc, runtime);
@@ -690,7 +750,7 @@ impl NotwigUi {
                         if icon_button_sized(
                             ui,
                             play_icon,
-                            egui::vec2(42.0, 42.0),
+                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
                             runtime.playing,
                             if runtime.playing { "Pause" } else { "Play" },
                         )
@@ -702,8 +762,14 @@ impl NotwigUi {
                                 self.emit(UiIntent::Play);
                             }
                         }
-                        if icon_button_sized(ui, Icon::Stop, egui::vec2(42.0, 42.0), false, "Stop")
-                            .clicked()
+                        if icon_button_sized(
+                            ui,
+                            Icon::Stop,
+                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
+                            false,
+                            "Stop",
+                        )
+                        .clicked()
                         {
                             self.emit(UiIntent::Stop);
                         }
@@ -711,7 +777,7 @@ impl NotwigUi {
                         if icon_button_sized(
                             ui,
                             Icon::Loop,
-                            egui::vec2(42.0, 42.0),
+                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
                             doc.transport.loop_enabled,
                             "Toggle loop",
                         )
@@ -719,20 +785,34 @@ impl NotwigUi {
                         {
                             self.emit(UiIntent::ToggleLoop);
                         }
+                        if icon_button_sized(
+                            ui,
+                            Icon::Metronome,
+                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
+                            doc.transport.metronome_enabled,
+                            "Toggle metronome",
+                        )
+                        .clicked()
+                        {
+                            self.emit(UiIntent::ToggleMetronome);
+                        }
                         let engine_width = 400.0;
                         let total_width = ui.max_rect().width();
                         let left_used = ui.cursor().left() - ui.max_rect().left();
                         ui.add_space(((total_width - engine_width) * 0.5 - left_used).max(0.0));
                         ui.allocate_ui_with_layout(
-                            egui::vec2(engine_width, 42.0),
+                            egui::vec2(engine_width, TOP_BAR_HEIGHT),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
                                 egui::Frame::new()
                                     .fill(Color32::from_rgb(16, 17, 21))
                                     .corner_radius(egui::CornerRadius::same(4))
-                                    .inner_margin(egui::Margin::symmetric(8, 4))
+                                    .inner_margin(egui::Margin::symmetric(8, 2))
                                     .show(ui, |ui| {
-                                        ui.set_min_size(egui::vec2(engine_width - 16.0, 34.0));
+                                        ui.set_min_size(egui::vec2(
+                                            engine_width - 16.0,
+                                            TOP_BAR_HEIGHT - 8.0,
+                                        ));
                                         ui.horizontal(|ui| {
                                             if cpu_component(
                                                 ui,
@@ -749,7 +829,7 @@ impl NotwigUi {
                                                     Some(Color32::from_rgb(104, 164, 236));
                                                 ui.style_mut().text_styles.insert(
                                                     egui::TextStyle::Button,
-                                                    egui::FontId::monospace(15.0),
+                                                    egui::FontId::monospace(TOP_BAR_FONT),
                                                 );
                                                 if ui
                                                     .add(
@@ -771,7 +851,7 @@ impl NotwigUi {
                                                     Some(Color32::from_rgb(104, 164, 236));
                                                 ui.style_mut().text_styles.insert(
                                                     egui::TextStyle::Button,
-                                                    egui::FontId::monospace(15.0),
+                                                    egui::FontId::monospace(TOP_BAR_FONT),
                                                 );
                                                 if ui
                                                     .add(
@@ -788,7 +868,7 @@ impl NotwigUi {
                                             });
                                             ui.label(
                                                 RichText::new("/")
-                                                    .size(15.0)
+                                                    .size(TOP_BAR_FONT)
                                                     .monospace()
                                                     .color(theme::TEXT_MUTED),
                                             );
@@ -797,7 +877,7 @@ impl NotwigUi {
                                                 .selected_text(
                                                     RichText::new(denominator.to_string())
                                                         .monospace()
-                                                        .size(15.0)
+                                                        .size(TOP_BAR_FONT)
                                                         .color(Color32::from_rgb(104, 164, 236)),
                                                 )
                                                 .width(32.0)
@@ -829,7 +909,7 @@ impl NotwigUi {
                                                             doc.meta.time_sig_num,
                                                         ))
                                                         .monospace()
-                                                        .size(13.0)
+                                                        .size(TOP_BAR_READOUT_FONT)
                                                         .color(blue),
                                                     );
                                                     ui.label(
@@ -838,7 +918,7 @@ impl NotwigUi {
                                                             doc.meta.tempo_bpm,
                                                         ))
                                                         .monospace()
-                                                        .size(13.0)
+                                                        .size(TOP_BAR_READOUT_FONT)
                                                         .color(blue),
                                                     );
                                                 });
@@ -858,7 +938,8 @@ impl NotwigUi {
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui, doc: &ProjectDoc, runtime: &RuntimeView) {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 42.0), egui::Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(64.0, TOP_BAR_ICON), egui::Sense::click());
         let painter = ui.painter();
         painter.rect_filled(
             rect,
@@ -879,20 +960,12 @@ impl NotwigUi {
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "FILE",
-            egui::FontId::monospace(11.0),
+            egui::FontId::monospace(10.0),
             Color32::WHITE,
         );
         egui::Popup::menu(&response).show(|ui| {
-            if ui.button("New Project (48 kHz)").clicked() {
+            if ui.button("New Project").clicked() {
                 self.emit(UiIntent::NewProject);
-                ui.close();
-            }
-            if ui.button("New Project (44.1 kHz)").clicked() {
-                self.emit(UiIntent::NewProjectAtRate(44_100));
-                ui.close();
-            }
-            if ui.button("New Project (96 kHz)").clicked() {
-                self.emit(UiIntent::NewProjectAtRate(96_000));
                 ui.close();
             }
             if ui.button("Open Project…").clicked() {
@@ -955,7 +1028,7 @@ impl NotwigUi {
                             Icon::Clip,
                             matches!(
                                 self.currently_opened,
-                                Some(OpenedEditor::ClipEditor | OpenedEditor::PianoRoll)
+                                Some(OpenedEditor::ClipEditor | OpenedEditor::MidiEditor)
                             ),
                             "Toggle clip / MIDI editor",
                         )
@@ -976,6 +1049,109 @@ impl NotwigUi {
                     },
                 );
             });
+    }
+
+    fn notification_overlay(&mut self, ctx: &egui::Context) {
+        self.state
+            .expire_notifications(ctx.input(|input| input.time));
+        if self.state.notifications.is_empty() {
+            return;
+        }
+        let notes = self.state.notifications.clone();
+        let offset_y = if self.render_progress.is_some() {
+            118.0
+        } else {
+            12.0
+        };
+        let mut dismiss = None;
+        egui::Area::new(egui::Id::new("notifications-overlay"))
+            .anchor(egui::Align2::RIGHT_TOP, [-12.0, offset_y])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.set_width(300.0);
+                for (index, note) in notes.iter().enumerate() {
+                    let color = match note.kind {
+                        NotificationKind::Info => theme::TEXT_MUTED,
+                        NotificationKind::Warning => theme::ACCENT,
+                        NotificationKind::Error => Color32::from_rgb(240, 120, 110),
+                    };
+                    egui::Frame::new()
+                        .fill(theme::PANEL_LIGHT)
+                        .stroke(egui::Stroke::new(1.0_f32, color))
+                        .inner_margin(egui::Margin::symmetric(10, 8))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::Label::new(RichText::new(&note.message).color(color))
+                                        .wrap(),
+                                );
+                                if ui.small_button("×").clicked() {
+                                    dismiss = Some(index);
+                                }
+                            });
+                            if let Some(progress) = note.progress {
+                                ui.add(egui::ProgressBar::new(progress.clamp(0.0, 1.0)));
+                            }
+                        });
+                    ui.add_space(6.0);
+                }
+            });
+        if let Some(index) = dismiss {
+            self.state.remove_notification(index);
+        }
+    }
+
+    fn engine_crash_overlay(&mut self, ctx: &egui::Context) {
+        let mut restart = false;
+        egui::Area::new(egui::Id::new("engine-crash"))
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 54.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(58, 26, 28))
+                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(240, 120, 110)))
+                    .inner_margin(egui::Margin::symmetric(14, 10))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(
+                                    "The audio engine crashed. Playback is stopped to protect the app.",
+                                )
+                                .color(Color32::from_rgb(255, 200, 195)),
+                            );
+                            if ui.button("Restart engine").clicked() {
+                                restart = true;
+                            }
+                        });
+                    });
+            });
+        if restart {
+            self.emit(UiIntent::RestartAudioEngine);
+        }
+    }
+
+    fn render_progress_overlay(&mut self, ctx: &egui::Context, progress: f32) {
+        let mut cancel = false;
+        egui::Area::new(egui::Id::new("render-progress"))
+            .anchor(egui::Align2::RIGHT_TOP, [-12.0, 12.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(theme::PANEL_LIGHT)
+                    .stroke(egui::Stroke::new(1.0_f32, theme::GRID_STRONG))
+                    .inner_margin(egui::Margin::same(10))
+                    .show(ui, |ui| {
+                        ui.set_width(260.0);
+                        ui.label(RichText::new("Rendering mixdown").strong());
+                        ui.add(egui::ProgressBar::new(progress.clamp(0.0, 1.0)).show_percentage());
+                        if ui.button("Cancel").clicked() {
+                            cancel = true;
+                        }
+                    });
+            });
+        if cancel {
+            self.emit(UiIntent::CancelRender);
+        }
     }
 
     fn notifications_window(&mut self, ctx: &egui::Context) {
@@ -1114,7 +1290,12 @@ impl NotwigUi {
         Some((state.clip_id, at))
     }
 
-    fn update_drag_preview(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
+    fn update_drag_preview(
+        &mut self,
+        ctx: &egui::Context,
+        doc: &ProjectDoc,
+        runtime: &RuntimeView,
+    ) {
         let hovered: Vec<PathBuf> = ctx.input(|input| {
             input
                 .raw
@@ -1159,29 +1340,26 @@ impl NotwigUi {
             );
             (target, at)
         };
-        let seconds = if let Some(cached) = self.duration_cache.get(&path) {
-            *cached
-        } else {
-            let duration = notwig_project::decode_audio(&path)
+        let known = runtime.audio_durations.get(&path).copied();
+        let seconds = known.flatten().or_else(|| {
+            notwig_project::probe_audio(&path)
                 .ok()
-                .map(|buffer| buffer.frame_count() as f64 / f64::from(buffer.sample_rate.max(1)));
-            self.duration_cache.insert(path.clone(), duration);
-            duration
-        };
-        let Some(seconds) = seconds else {
-            self.drag_preview = None;
-            return;
-        };
-        let beats = seconds * doc.meta.tempo_bpm / 60.0;
-        let duration = notwig_core::TimeMus::new(
-            (beats.max(1.0 / 16.0) * 1_000_000.0).round() as i64,
-            1_000_000,
-        );
+                .map(|probe| probe.duration_seconds)
+        });
+        let analyzing = seconds.is_none() && runtime.audio_analysis_pending.contains(&path);
+        if seconds.is_none() && !analyzing && !runtime.audio_durations.contains_key(&path) {
+            self.emit(UiIntent::AnalyzeAudioDuration(path.clone()));
+        }
+        let beats = seconds.map_or(4.0, |seconds| {
+            (seconds * doc.meta.tempo_bpm / 60.0).max(1.0 / 16.0)
+        });
+        let duration = notwig_core::TimeMus::new((beats * 1_000_000.0).round() as i64, 1_000_000);
         self.drag_preview = Some(DragPreview {
             path,
             target,
             at,
             duration,
+            analyzing: seconds.is_none(),
         });
     }
 
@@ -1314,7 +1492,8 @@ fn footer_action(ui: &mut egui::Ui, action: &str, tooltip: &str) -> bool {
 }
 
 pub(crate) fn cpu_component(ui: &mut egui::Ui, cpu: f32) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(60.0, 34.0), egui::Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(56.0, TOP_BAR_HEIGHT - 8.0), egui::Sense::click());
     let painter = ui.painter();
     let icon = Rect::from_center_size(
         egui::pos2(rect.left() + 9.0, rect.center().y),
@@ -1360,7 +1539,8 @@ pub(crate) fn cpu_component(ui: &mut egui::Ui, cpu: f32) -> egui::Response {
 }
 
 fn record_button(ui: &mut egui::Ui) {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(42.0, 42.0), egui::Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON), egui::Sense::click());
     let painter = ui.painter();
     painter.rect_filled(
         rect,
@@ -1402,7 +1582,10 @@ fn format_position_time(time: notwig_core::TimeMus, tempo_bpm: f64) -> String {
 
 fn master_meter(ui: &mut egui::Ui, meter: Option<&crate::runtime::MeterValues>) {
     let meter = meter.copied().unwrap_or_default();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 32.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(14.0, TOP_BAR_HEIGHT - 10.0),
+        egui::Sense::hover(),
+    );
     crate::widgets::draw_stereo_meter(ui.painter(), rect, meter.peak_l, meter.peak_r);
 }
 

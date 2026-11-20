@@ -1,6 +1,6 @@
 use notwig_core::ids::{Clip, Device, DeviceChain, Track};
 use notwig_core::{Id, RangeMus, TimeMus};
-use notwig_ui::{Selection, Viewport};
+use notwig_ui::{NotificationKind, Selection, UiState, Viewport};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -93,4 +93,95 @@ fn selection_retain_prunes_primary() {
     selection.tracks.retain(|track| *track == a);
     assert_eq!(selection.tracks.len(), 1);
     assert_eq!(selection.primary_track(), Some(a));
+}
+
+#[test]
+fn track_selection_supports_add_and_range() {
+    let a = id::<Track>(30);
+    let b = id::<Track>(31);
+    let c = id::<Track>(32);
+    let d = id::<Track>(33);
+    let order = [a, b, c, d];
+
+    let mut selection = Selection::default();
+    selection.select_track(b, false);
+    selection.add_track(d);
+    assert_eq!(selection.tracks.len(), 2);
+    assert!(selection.tracks.contains(&b));
+    assert!(selection.tracks.contains(&d));
+
+    selection.select_track_range(b, d, &order);
+    assert_eq!(selection.tracks.len(), 3);
+    assert!(selection.tracks.contains(&b));
+    assert!(selection.tracks.contains(&c));
+    assert!(selection.tracks.contains(&d));
+    assert_eq!(selection.primary_track(), Some(d));
+
+    selection.select_track_range(d, a, &order);
+    assert_eq!(selection.tracks.len(), 4);
+    assert_eq!(selection.primary_track(), Some(a));
+}
+
+#[test]
+fn transient_notifications_expire_after_ttl() {
+    let mut state = UiState::default();
+    state.notify(NotificationKind::Info, "saved");
+    assert_eq!(state.notifications.len(), 1);
+    assert!(!state.notifications[0].persistent);
+    assert_eq!(state.notifications[0].progress, None);
+
+    state.expire_notifications(UiState::NOTIFICATION_TTL_SECONDS / 2.0);
+    assert_eq!(state.notifications.len(), 1);
+
+    state.expire_notifications(UiState::NOTIFICATION_TTL_SECONDS);
+    assert_eq!(state.notifications.len(), 0);
+}
+
+#[test]
+fn persistent_notifications_survive_ttl_until_removed() {
+    let mut state = UiState::default();
+    state.notify_persistent(NotificationKind::Warning, "rendering");
+
+    state.expire_notifications(UiState::NOTIFICATION_TTL_SECONDS * 100.0);
+    assert_eq!(state.notifications.len(), 1);
+    assert!(state.notifications[0].persistent);
+    assert!(!state.notifications[0].is_expired(1_000.0));
+
+    assert!(state.set_notification_progress(0, Some(0.42)));
+    assert_eq!(state.notifications[0].progress, Some(0.42));
+    assert!(state.set_notification_progress(0, Some(4.0)));
+    assert_eq!(state.notifications[0].progress, Some(1.0));
+    assert!(!state.set_notification_progress(9, Some(0.5)));
+
+    assert!(state.remove_notification(0).is_some());
+    assert_eq!(state.notifications.len(), 0);
+}
+
+#[test]
+fn notifications_created_after_clock_advances_use_current_time() {
+    let mut state = UiState::default();
+    state.expire_notifications(100.0);
+    state.notify(NotificationKind::Info, "late");
+    assert_eq!(state.notifications[0].created_at, 100.0);
+
+    state.expire_notifications(100.0 + UiState::NOTIFICATION_TTL_SECONDS - 0.5);
+    assert_eq!(state.notifications.len(), 1);
+
+    state.expire_notifications(100.0 + UiState::NOTIFICATION_TTL_SECONDS);
+    assert_eq!(state.notifications.len(), 0);
+}
+
+#[test]
+fn notification_cap_evicts_oldest_first() {
+    let mut state = UiState::default();
+    for index in 0..UiState::NOTIFICATION_CAP + 6 {
+        state.notify(NotificationKind::Info, format!("note {index}"));
+    }
+
+    assert_eq!(state.notifications.len(), UiState::NOTIFICATION_CAP);
+    assert_eq!(state.notifications.first().unwrap().message, "note 6");
+    assert_eq!(
+        state.notifications.last().unwrap().message,
+        format!("note {}", UiState::NOTIFICATION_CAP + 5)
+    );
 }

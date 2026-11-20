@@ -21,6 +21,7 @@ and test layer before editing.
     notwig-plugins/
     notwig-ui/
     notwig-app/
+    notwig-truce-rack/       vendored VST3/AU host crates (excluded from workspace lints)
 ```
 
 Every crate has a `README.md` describing its purpose and boundaries. The
@@ -90,11 +91,11 @@ that needs them; most cross-layer types live in `notwig-core`.
 | Module | Responsibility |
 |---|---|
 | `host.rs` | `PluginHost` and `HostAdapter` boundary |
-| `adapters.rs` | VST3/AU adapters built on `truce-rack` |
+| `adapters.rs` | VST3/AU adapters built on vendored `truce-rack` |
 | `cache.rs` | Persisted plugin scan cache |
 | `types.rs` | Format-agnostic descriptors, states, capabilities, errors |
 | `native_editor.rs` | Native plugin editor window lifecycle |
-| `rack.rs` | `truce-rack` integration details |
+| `rack.rs` | Vendored `truce-rack` integration details and latency reporting |
 
 ### `notwig-ui` — views and interaction
 
@@ -105,7 +106,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
-| `views/piano_roll/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
+| `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
 | `views/device_editor/` | Device panel, browser, parameter widgets, EQ display |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/mod.rs` | Settings window and category navigation |
@@ -150,7 +151,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Engine playback/rendering | `crates/notwig-engine/tests/` |
 | Plugin cache/types | `crates/notwig-plugins/tests/` |
 | UI headless rendering, gestures, state | `crates/notwig-ui/tests/` |
-| Piano roll interaction | `crates/notwig-ui/tests/piano_roll.rs` |
+| MIDI editor interaction | `crates/notwig-ui/tests/midi_editor.rs` |
 | Clip visuals and trim | `crates/notwig-ui/tests/clip_trim.rs` |
 | Peak hold and reset | `crates/notwig-ui/tests/track_info.rs` |
 | Shortcut bindings and settings page | `crates/notwig-ui/tests/shortcuts.rs` |

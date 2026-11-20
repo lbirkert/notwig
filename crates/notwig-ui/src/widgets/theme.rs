@@ -5,6 +5,7 @@ use egui::{
 pub const ACCENT: Color32 = Color32::from_rgb(255, 166, 66);
 pub const ACCENT_DIM: Color32 = Color32::from_rgb(138, 86, 32);
 pub const PLAYHEAD: Color32 = Color32::from_rgb(255, 110, 90);
+pub const PLAY_START: Color32 = Color32::from_rgb(126, 190, 255);
 pub const PANEL: Color32 = Color32::from_rgb(23, 24, 29);
 pub const PANEL_LIGHT: Color32 = Color32::from_rgb(31, 33, 39);
 pub const LANE: Color32 = Color32::from_rgb(27, 29, 35);

@@ -1,3 +1,0 @@
-- loop is wrong for multiple reasons: loop rectangle has inconsistent height across arranger and editors
-- loop cannot be moved
-- loop handle dragging does not update immediately and therefore it is not shown how the loop updates.

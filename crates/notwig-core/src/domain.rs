@@ -58,6 +58,8 @@ pub struct TransportDoc {
     pub playhead: TimeMus,
     pub loop_enabled: bool,
     pub loop_range: Option<RangeMus>,
+    #[serde(default)]
+    pub metronome_enabled: bool,
 }
 
 impl Default for TransportDoc {
@@ -68,6 +70,7 @@ impl Default for TransportDoc {
             playhead: TimeMus::zero(),
             loop_enabled: false,
             loop_range: None,
+            metronome_enabled: false,
         }
     }
 }

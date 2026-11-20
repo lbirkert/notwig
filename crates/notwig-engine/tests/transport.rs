@@ -64,6 +64,7 @@ fn set_transport(
             loop_start_samples,
             loop_end_samples,
             stop: false,
+            metronome: None,
         })
         .unwrap();
 }

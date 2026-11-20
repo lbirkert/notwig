@@ -13,6 +13,7 @@ pub struct DragPreview {
     pub target: DropAudioTarget,
     pub at: TimeMus,
     pub duration: TimeMus,
+    pub analyzing: bool,
 }
 
 pub(crate) fn resolve_drop_target(

@@ -364,7 +364,11 @@ fn render_doc(
     };
     let mut engine = Engine::with_factory(
         config,
-        Arc::new(PluginDeviceFactory::new(plugins, descriptors)),
+        Arc::new(PluginDeviceFactory::new(
+            plugins,
+            descriptors,
+            std::collections::BTreeMap::new(),
+        )),
     );
     engine.apply(EngineMsg::UpdateSchedule {
         schedule: Arc::new(PlaybackSchedule::from_doc(doc)),

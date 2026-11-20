@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 #[cfg(not(target_os = "macos"))]
-use crate::types::{PluginDescriptor, PluginError};
+use crate::types::{PluginDescriptor, PluginError, PluginFormat};
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -15,10 +15,13 @@ mod imp {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use truce_rack::core::{BusLayout, Plugin, WindowHandle};
 
-    use crate::types::{PluginDescriptor, PluginError};
+    use crate::types::{PluginDescriptor, PluginError, PluginFormat, PluginState};
 
     pub struct NativePluginWindow {
         plugin: Box<dyn Plugin<f32>>,
+        format: PluginFormat,
+        plugin_uid: String,
+        plugin_version: String,
         window: *mut AnyObject,
         open: bool,
         params: BTreeMap<u32, usize>,
@@ -73,6 +76,9 @@ mod imp {
             }
             Ok(Self {
                 plugin,
+                format: descriptor.format,
+                plugin_uid: descriptor.uid.clone(),
+                plugin_version: descriptor.version.clone(),
                 window,
                 open: true,
                 params,
@@ -113,6 +119,30 @@ mod imp {
                 let _ = self.plugin.set_parameter(index, value);
                 self.last_values.insert(id, value);
             }
+        }
+
+        pub fn save_state(&mut self) -> Result<PluginState, PluginError> {
+            let blob = self
+                .plugin
+                .save_state()
+                .map_err(|err| PluginError::Load(err.to_string()))?;
+            Ok(PluginState {
+                format: self.format,
+                plugin_uid: self.plugin_uid.clone(),
+                plugin_version: self.plugin_version.clone(),
+                blob,
+            })
+        }
+
+        pub fn load_state(&mut self, state: &PluginState) -> Result<(), PluginError> {
+            if state.format != self.format || state.plugin_uid != self.plugin_uid {
+                return Err(PluginError::StateIncompatible(
+                    "plugin state does not match the open editor".into(),
+                ));
+            }
+            self.plugin
+                .load_state(&state.blob)
+                .map_err(|err| PluginError::Load(err.to_string()))
         }
 
         pub fn poll_changes(&mut self) -> Vec<(u32, f64)> {

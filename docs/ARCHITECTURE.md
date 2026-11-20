@@ -102,7 +102,7 @@ thread. The audio thread only moves the prepared value into place; it never
 compiles a plan, instantiates a plugin, or allocates buffers.
 
 The callback then processes one block and updates playhead, meters, and DSP
-timing in an `AudioSnapshot`. The UI reads snapshots through `try_lock` and never
+timing in an `AudioSnapshot`. The UI reads snapshots through a short mutex lock; the audio thread uses `try_lock` and never
 blocks the audio thread. If the control slot is contended, the audio thread
 skips that sync point and retries at the next interval.
 

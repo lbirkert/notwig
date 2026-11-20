@@ -15,7 +15,7 @@ phase.
 - **Platform:** macOS first; platform-specific code sits behind adapters.
 - **Implemented today:** project bundles, autosave/recovery with a startup
   recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
-  event editing, a MIDI piano roll, device chains with stock EQ/Tool/Chain,
+  event editing, a MIDI MIDI editor, device chains with stock EQ/Tool/Chain,
   VST3/AU hosting, render mixdown, persisted audio settings, customizable
   keyboard shortcuts, and DSP load analysis.
 - **Not implemented yet:** audio/MIDI recording, live input/monitoring,

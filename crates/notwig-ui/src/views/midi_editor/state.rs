@@ -9,12 +9,13 @@ use crate::timeline::ClipChromeDrag;
 use super::model::Pitch;
 
 #[derive(Debug, Clone)]
-pub struct PianoRollState {
+pub struct MidiEditorState {
     pub clip_id: ClipId,
     pub viewport: Viewport,
     pub pitch_scroll: f32,
     pub(super) selected: SelectionGroup<NoteId>,
     pub(super) time_selection: Option<RangeMus>,
+    pub(super) time_selection_explicit: bool,
     pub(super) note_spans: BTreeMap<NoteId, RangeMus>,
     pub(super) clipboard: NoteClipboard,
     pub(super) drag: Option<NoteDrag>,
@@ -73,7 +74,7 @@ fn all_pitches() -> BTreeSet<Pitch> {
     (0..=127).map(Pitch).collect()
 }
 
-impl PianoRollState {
+impl MidiEditorState {
     pub fn new(clip_id: ClipId) -> Self {
         Self {
             clip_id,
@@ -85,6 +86,7 @@ impl PianoRollState {
             pitch_scroll: 36.0,
             selected: SelectionGroup::default(),
             time_selection: None,
+            time_selection_explicit: false,
             note_spans: BTreeMap::new(),
             clipboard: NoteClipboard::default(),
             drag: None,
@@ -114,6 +116,9 @@ impl PianoRollState {
     }
 
     fn recompute_derived_time(&mut self) {
+        if self.time_selection_explicit && self.time_selection.is_some() {
+            return;
+        }
         let mut start: Option<TimeMus> = None;
         let mut end: Option<TimeMus> = None;
         for id in self.selected.iter() {
@@ -136,6 +141,8 @@ impl PianoRollState {
         } else {
             self.selected.clear();
             self.selected.select_only(id);
+            self.time_selection = None;
+            self.time_selection_explicit = false;
         }
         self.recompute_derived_time();
     }
@@ -153,21 +160,32 @@ impl PianoRollState {
     pub fn select_time(&mut self, range: RangeMus) {
         self.selected.clear();
         self.time_selection = Some(range);
+        self.time_selection_explicit = true;
     }
 
     #[doc(hidden)]
+    pub fn shift_time_selection(&mut self, delta: TimeMus) {
+        if let Some(range) = self.time_selection
+            && let Ok(shifted) = RangeMus::new(range.start + delta, range.end + delta)
+        {
+            self.time_selection = Some(shifted);
+        }
+    }
+
     pub fn select_marquee(&mut self, ids: impl IntoIterator<Item = NoteId>, range: RangeMus) {
         self.selected.clear();
         for id in ids {
             self.selected.insert(id);
         }
         self.time_selection = Some(range);
+        self.time_selection_explicit = true;
     }
 
     #[doc(hidden)]
     pub fn clear_selection(&mut self) {
         self.selected.clear();
         self.time_selection = None;
+        self.time_selection_explicit = false;
     }
 
     #[doc(hidden)]

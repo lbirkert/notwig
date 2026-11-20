@@ -41,19 +41,12 @@ pub fn lower_arranger(
                 });
             }
             EditOp::Trim { object, span } => {
-                let content_start = model.clip(*object).and_then(|clip| {
-                    let ClipPayload::Midi(midi) = &clip.payload else {
-                        return None;
-                    };
-                    (span.start != clip.range.start)
-                        .then(|| midi.content_start + (span.start - clip.range.start))
-                });
                 commands.push(CommandPayload::EditClip {
                     clip_id: *object,
                     range: Some(*span),
                     name: None,
                     muted: None,
-                    content_start,
+                    content_start: None,
                     content_length: None,
                     audio: None,
                 });

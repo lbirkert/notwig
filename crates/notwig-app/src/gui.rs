@@ -5,12 +5,12 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
-use notwig_core::{DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
+use notwig_core::{AssetId, DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
 use notwig_plugins::NativePluginWindow;
 use notwig_ui::{DropAudioTarget, NotificationKind, NotwigUi, RuntimeView, UiIntent};
 
 use crate::audio::AudioService;
-use crate::workspace::Workspace;
+use crate::workspace::{RenderSession, Workspace};
 
 pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     let options = eframe::NativeOptions {
@@ -33,9 +33,27 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
 enum DialogAction {
     OpenProject,
     SaveAs,
-    Render { start: TimeMus, end: TimeMus },
+    Render {
+        start: TimeMus,
+        end: TimeMus,
+        options: notwig_ui::ExportOptions,
+    },
     ImportAudio,
     Relink(notwig_core::AssetId),
+}
+
+struct AudioImportRequest {
+    asset_id: AssetId,
+    source: PathBuf,
+    target: PathBuf,
+    project_rate: u32,
+}
+
+struct RenderJob {
+    session: RenderSession,
+    output: Vec<f32>,
+    path: PathBuf,
+    options: notwig_project::ExportOptions,
 }
 
 struct NotwigApp {
@@ -50,6 +68,15 @@ struct NotwigApp {
     pending_drops: Vec<(PathBuf, DropAudioTarget, TimeMus)>,
     plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
     recovery_error: Option<String>,
+    render_job: Option<RenderJob>,
+    render_playhead: Option<TimeMus>,
+    audio_durations: std::collections::BTreeMap<PathBuf, Option<f64>>,
+    audio_analysis_pending: std::collections::BTreeSet<PathBuf>,
+    audio_analysis_tx: mpsc::Sender<PathBuf>,
+    audio_analysis_rx: mpsc::Receiver<(PathBuf, Option<f64>)>,
+    audio_import_tx: mpsc::Sender<AudioImportRequest>,
+    audio_import_rx: mpsc::Receiver<(AssetId, Result<notwig_project::ImportedAsset, String>)>,
+    engine_crash_reported: bool,
 }
 
 impl NotwigApp {
@@ -70,7 +97,6 @@ impl NotwigApp {
         let audio_options = AudioService::available_options();
         let mut audio_settings =
             crate::audio_config::validated(crate::audio_config::load(), &audio_options);
-        audio_settings.sample_rate = Some(workspace.doc.meta.sample_rate.value());
         if audio_settings.block_size == 0 {
             audio_settings.block_size = workspace.audio_block_size;
         }
@@ -78,6 +104,38 @@ impl NotwigApp {
             workspace.audio_block_size = audio_settings.block_size;
             workspace.request_engine_rebuild();
         }
+        let (audio_import_tx, audio_import_requests) = mpsc::channel::<AudioImportRequest>();
+        let (audio_import_results, audio_import_rx) =
+            mpsc::channel::<(AssetId, Result<notwig_project::ImportedAsset, String>)>();
+        std::thread::spawn(move || {
+            while let Ok(request) = audio_import_requests.recv() {
+                let result = notwig_project::import_asset(
+                    &request.source,
+                    &request.target,
+                    request.asset_id,
+                    request.project_rate,
+                )
+                .map_err(|err| err.to_string());
+                if audio_import_results
+                    .send((request.asset_id, result))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let (audio_analysis_tx, audio_analysis_requests) = mpsc::channel::<PathBuf>();
+        let (audio_analysis_results, audio_analysis_rx) = mpsc::channel::<(PathBuf, Option<f64>)>();
+        std::thread::spawn(move || {
+            while let Ok(path) = audio_analysis_requests.recv() {
+                let duration = notwig_project::decode_audio(&path).ok().map(|buffer| {
+                    buffer.frame_count() as f64 / f64::from(buffer.sample_rate.max(1))
+                });
+                if audio_analysis_results.send((path, duration)).is_err() {
+                    break;
+                }
+            }
+        });
         let mut app = Self {
             workspace,
             ui: NotwigUi::default(),
@@ -90,6 +148,15 @@ impl NotwigApp {
             pending_drops: Vec::new(),
             plugin_editors: Vec::new(),
             recovery_error: None,
+            render_job: None,
+            render_playhead: None,
+            audio_durations: std::collections::BTreeMap::new(),
+            audio_analysis_pending: std::collections::BTreeSet::new(),
+            audio_analysis_tx,
+            audio_analysis_rx,
+            audio_import_tx,
+            audio_import_rx,
+            engine_crash_reported: false,
         };
         app.ui.set_shortcuts(crate::shortcuts::load());
         app.restart_audio();
@@ -108,7 +175,11 @@ impl NotwigApp {
                 self.audio = Some(audio);
                 self.workspace.engine_audio_restarted();
             }
-            Err(err) => self.workspace.status = Some(err),
+            Err(err) => {
+                self.workspace.error = Some(err.clone());
+                self.workspace.status = Some(err.clone());
+                self.notify_error(format!("Could not start the audio engine: {err}"));
+            }
         }
     }
 
@@ -119,11 +190,90 @@ impl NotwigApp {
             .unwrap_or_default()
     }
 
+    fn poll_audio_imports(&mut self) {
+        while let Ok((asset_id, result)) = self.audio_import_rx.try_recv() {
+            match result {
+                Ok(imported) => {
+                    if let Err(err) = self.workspace.complete_audio_import(asset_id, imported) {
+                        self.notify_error(err);
+                    }
+                }
+                Err(err) => self.notify_error(format!("Audio import failed: {err}")),
+            }
+        }
+    }
+
+    fn poll_audio_analysis(&mut self) {
+        while let Ok((path, duration)) = self.audio_analysis_rx.try_recv() {
+            self.audio_analysis_pending.remove(&path);
+            self.audio_durations.insert(path, duration);
+        }
+    }
+
+    fn advance_render(&mut self) {
+        let Some(mut job) = self.render_job.take() else {
+            self.ui.render_progress = None;
+            self.render_playhead = None;
+            return;
+        };
+        let total = job.session.total_frames();
+        let mut error = None;
+        let mut budget = 8;
+        while budget > 0 && job.output.len() / 2 < total {
+            let frames = (total - job.output.len() / 2).min(4096);
+            match job.session.render_block(frames) {
+                Ok(block) => job.output.extend(block),
+                Err(err) => {
+                    error = Some(err);
+                    break;
+                }
+            }
+            budget -= 1;
+        }
+        if let Some(err) = error {
+            self.notify_error(err);
+            self.ui.render_progress = None;
+            self.render_playhead = None;
+            return;
+        }
+        let done = job.output.len() / 2;
+        let progress = (done as f32 / total.max(1) as f32).min(1.0);
+        self.ui.render_progress = Some(progress);
+        self.render_playhead = Some(
+            self.workspace
+                .doc
+                .tempo_map()
+                .samples_to_mus(job.session.start_sample.saturating_add(done as u64)),
+        );
+        if done >= total {
+            job.output.truncate(total * 2);
+            match notwig_project::write_audio_export(
+                &job.path,
+                job.session.sample_rate,
+                2,
+                &job.output,
+                job.options,
+            ) {
+                Ok(()) => self.notify_info(format!(
+                    "Rendered {} frames to {}",
+                    total,
+                    job.path.display()
+                )),
+                Err(err) => self.notify_error(err.to_string()),
+            }
+            self.ui.render_progress = None;
+            self.render_playhead = None;
+        } else {
+            self.render_job = Some(job);
+        }
+    }
+
     fn runtime_view(&self, snapshot: &crate::audio::AudioSnapshot) -> RuntimeView {
-        let map = self.workspace.doc.tempo_map();
         let fallback_time = f64_to_time(self.fallback_playhead);
-        let playhead = if snapshot.running {
-            map.samples_to_mus(snapshot.playhead_samples)
+        let playhead = if let Some(render_playhead) = self.render_playhead {
+            render_playhead
+        } else if snapshot.running {
+            self.interpolated_playhead(snapshot)
         } else {
             fallback_time
         };
@@ -144,20 +294,22 @@ impl NotwigApp {
             self.audio_options.clone(),
             &self.audio_settings,
             snapshot.error.clone(),
-            !self.workspace.assets.is_empty(),
         );
         RuntimeView {
-            playing: self.workspace.doc.transport.playing,
+            playing: self.render_playhead.is_some() || self.workspace.doc.transport.playing,
             playhead,
             play_start: self
                 .workspace
                 .play_start
                 .unwrap_or(self.workspace.doc.transport.playhead),
             waveforms: self.workspace.peaks.clone(),
+            audio_durations: self.audio_durations.clone(),
+            audio_analysis_pending: self.audio_analysis_pending.clone(),
             meters,
             xruns: snapshot.xruns,
             cpu_load: snapshot.cpu_load,
             status,
+            engine_crashed: snapshot.crashed,
             plugins: self.workspace.plugins.clone(),
             bundle_path: self.workspace.bundle.clone(),
             dirty: self.workspace.dirty,
@@ -192,13 +344,32 @@ impl NotwigApp {
         }
     }
 
+    fn interpolated_playhead(&self, snapshot: &crate::audio::AudioSnapshot) -> TimeMus {
+        if !(snapshot.running && self.workspace.doc.transport.playing) {
+            return self.workspace.doc.transport.playhead;
+        }
+        let map = self.workspace.doc.tempo_map();
+        let base = snapshot.playhead_samples as f64;
+        let elapsed = snapshot
+            .playhead_updated
+            .map_or(0.0, |updated| updated.elapsed().as_secs_f64());
+        let mut samples = base + elapsed * f64::from(snapshot.sample_rate.max(1));
+        if self.workspace.doc.transport.loop_enabled
+            && let Some(range) = self.workspace.doc.transport.loop_range
+        {
+            let start = map.mus_to_samples(range.start) as f64;
+            let end = map.mus_to_samples(range.end) as f64;
+            if end > start && base < end && samples >= end {
+                samples = start + (samples - start) % (end - start);
+            }
+        }
+        map.samples_to_mus(samples.max(0.0).round() as u64)
+    }
+
     fn current_playhead(&self, snapshot: &crate::audio::AudioSnapshot) -> TimeMus {
-        if snapshot.running && self.workspace.doc.transport.playing {
-            self.workspace
-                .doc
-                .tempo_map()
-                .samples_to_mus(snapshot.playhead_samples)
-        } else if !snapshot.running && self.workspace.doc.transport.playing {
+        if snapshot.running {
+            self.interpolated_playhead(snapshot)
+        } else if self.workspace.doc.transport.playing {
             f64_to_time(self.fallback_playhead)
         } else {
             self.workspace.doc.transport.playhead
@@ -300,6 +471,9 @@ impl NotwigApp {
         };
         match NativePluginWindow::open(&descriptor) {
             Ok(mut window) => {
+                if let Some(state) = self.workspace.plugin_state(device_id) {
+                    let _ = window.load_state(state);
+                }
                 if let Some(device) = self.workspace.doc.devices.get(&device_id) {
                     for (param_id, value) in &device.param_values {
                         if let Some(value) = value.as_f64() {
@@ -333,6 +507,17 @@ impl NotwigApp {
             }
             UiIntent::ToggleLoop => {
                 let result = self.workspace.toggle_loop();
+                let _ = self.report(result);
+            }
+            UiIntent::ToggleMetronome => {
+                let enabled = !self.workspace.doc.transport.metronome_enabled;
+                let result = self.workspace.apply(CommandPayload::SetTransport {
+                    playing: None,
+                    playhead: None,
+                    loop_enabled: None,
+                    loop_range: None,
+                    metronome: Some(enabled),
+                });
                 let _ = self.report(result);
             }
             UiIntent::SetTempo(tempo_bpm) => {
@@ -370,6 +555,7 @@ impl NotwigApp {
                     playhead: None,
                     loop_enabled: Some(true),
                     loop_range: Some(Some(range)),
+                    metronome: None,
                 });
                 let _ = self.report(result);
             }
@@ -546,6 +732,13 @@ impl NotwigApp {
                     .apply(CommandPayload::MoveTrack { id, parent, index });
                 let _ = self.report(result);
             }
+            UiIntent::JoinClips { clips } => match self.workspace.join_clips(&clips) {
+                Ok(info) => {
+                    self.ui.state.selection.apply_info(&info);
+                    self.notify_info("Joined clips.".into());
+                }
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::GroupTracks { tracks } => match self.workspace.group_tracks(&tracks) {
                 Ok(group) => {
                     self.ui.state.selection.select_track(group, false);
@@ -622,20 +815,18 @@ impl NotwigApp {
                 Ok(device_id) => self.open_plugin_window(device_id),
                 Err(err) => self.notify_error(err),
             },
-            UiIntent::ImportAudio => {
-                if self.workspace.bundle.is_none() {
-                    self.notify_error("Save the project before importing audio.".into());
-                } else {
-                    self.spawn_dialog(DialogAction::ImportAudio, audio_pick_dialog("Import audio"));
+            UiIntent::AnalyzeAudioDuration(path) => {
+                if !self.audio_durations.contains_key(&path)
+                    && self.audio_analysis_pending.insert(path.clone())
+                {
+                    let _ = self.audio_analysis_tx.send(path);
                 }
             }
+            UiIntent::ImportAudio => {
+                self.spawn_dialog(DialogAction::ImportAudio, audio_pick_dialog("Import audio"));
+            }
             UiIntent::DropAudio { path, target, at } => {
-                if self.workspace.bundle.is_none() {
-                    self.pending_drops.push((path, target, at));
-                    self.handle_save_as();
-                } else {
-                    self.perform_drop(path, target, at);
-                }
+                self.perform_drop(path, target, at);
             }
             UiIntent::InsertAudioClip { track_id, asset_id } => {
                 let result = self.workspace.insert_audio_clip(track_id, asset_id);
@@ -711,23 +902,17 @@ impl NotwigApp {
                     self.notify_info("Audio settings applied.".into());
                 }
             }
-            UiIntent::NewProject | UiIntent::NewProjectAtRate(_) => {
-                let rate = match intent {
-                    UiIntent::NewProjectAtRate(rate) => rate,
-                    _ => 48_000,
-                };
-                match Workspace::new_empty_at(rate) {
-                    Ok(workspace) => {
-                        self.workspace.end_session();
-                        self.workspace = workspace;
-                        self.recovery_error = None;
-                        self.fallback_playhead = 0.0;
-                        self.restart_audio();
-                        self.notify_info("New project created.".into());
-                    }
-                    Err(err) => self.notify_error(err),
+            UiIntent::NewProject => match Workspace::new_empty() {
+                Ok(workspace) => {
+                    self.workspace.end_session();
+                    self.workspace = workspace;
+                    self.recovery_error = None;
+                    self.fallback_playhead = 0.0;
+                    self.restart_audio();
+                    self.notify_info("New project created.".into());
                 }
-            }
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::OpenProject => {
                 self.spawn_dialog(DialogAction::OpenProject, || {
                     rfd::FileDialog::new()
@@ -746,14 +931,45 @@ impl NotwigApp {
                 }
             }
             UiIntent::SaveAs => self.handle_save_as(),
-            UiIntent::RenderMixdownRange { start, end } => {
-                self.spawn_dialog(DialogAction::Render { start, end }, || {
-                    rfd::FileDialog::new()
-                        .add_filter("WAV", &["wav"])
-                        .set_file_name("mixdown.wav")
-                        .set_title("Render mixdown")
-                        .save_file()
-                });
+            UiIntent::RenderMixdownRange {
+                start,
+                end,
+                options,
+            } => {
+                if self.render_job.is_some() {
+                    self.notify_info("A render is already running.".into());
+                    return;
+                }
+                let extension = options.format.extension();
+                if options.stems {
+                    self.spawn_dialog(
+                        DialogAction::Render {
+                            start,
+                            end,
+                            options,
+                        },
+                        || {
+                            rfd::FileDialog::new()
+                                .set_title("Choose stem output folder")
+                                .pick_folder()
+                        },
+                    );
+                } else {
+                    self.spawn_dialog(
+                        DialogAction::Render {
+                            start,
+                            end,
+                            options,
+                        },
+                        move || {
+                            rfd::FileDialog::new()
+                                .add_filter(extension.to_uppercase(), &[extension])
+                                .set_file_name(format!("mixdown.{extension}"))
+                                .set_title("Render mixdown")
+                                .save_file()
+                        },
+                    );
+                }
             }
             UiIntent::Undo => {
                 let result = self.workspace.undo();
@@ -765,6 +981,20 @@ impl NotwigApp {
                 let result = self.workspace.redo();
                 if self.report(result).is_some() {
                     self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                }
+            }
+            UiIntent::RestartAudioEngine => {
+                self.engine_crash_reported = false;
+                self.restart_audio();
+                if self.audio.is_some() {
+                    self.notify_info("Audio engine restarted.".into());
+                }
+            }
+            UiIntent::CancelRender => {
+                if self.render_job.take().is_some() {
+                    self.ui.render_progress = None;
+                    self.render_playhead = None;
+                    self.notify_info("Render cancelled.".into());
                 }
             }
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
@@ -850,17 +1080,40 @@ impl NotwigApp {
                     Err(err) => self.notify_error(err),
                 }
             }
-            DialogAction::Render { start, end } => {
-                let Some(path) = path else {
+            DialogAction::Render {
+                start,
+                end,
+                options,
+            } => {
+                let Some(mut path) = path else {
                     return;
                 };
-                match self.workspace.render_range_to(&path, start, end) {
-                    Ok(frames) => self.notify_info(format!(
-                        "Rendered {} frames to {}",
-                        frames,
-                        path.display()
-                    )),
-                    Err(err) => self.notify_error(err),
+                let export = export_options(options);
+                if options.stems {
+                    match self.workspace.render_stems_to(&path, start, end, export) {
+                        Ok(stems) => self.notify_info(format!(
+                            "Rendered {} stems to {}",
+                            stems.len(),
+                            path.display()
+                        )),
+                        Err(err) => self.notify_error(err),
+                    }
+                } else {
+                    if path.extension().is_none() {
+                        path.set_extension(options.format.extension());
+                    }
+                    match self.workspace.begin_render(start, end) {
+                        Ok(session) => {
+                            self.ui.render_progress = Some(0.0);
+                            self.render_job = Some(RenderJob {
+                                session,
+                                output: Vec::new(),
+                                path,
+                                options: export,
+                            });
+                        }
+                        Err(err) => self.notify_error(err),
+                    }
                 }
             }
             DialogAction::ImportAudio => {
@@ -882,8 +1135,12 @@ impl NotwigApp {
 
     fn perform_drop(&mut self, path: PathBuf, target: DropAudioTarget, at: TimeMus) {
         if let DropAudioTarget::ClipEditor { clip_id } = target {
-            let result = self.workspace.import_audio_slice(&path, clip_id, at);
-            let _ = self.report(result);
+            match self.workspace.stage_audio_slice_import(&path, clip_id, at) {
+                Ok((asset_id, target_dir)) => {
+                    self.queue_audio_import(asset_id, path, target_dir);
+                }
+                Err(err) => self.notify_error(err),
+            }
             return;
         }
         let track_id = match target {
@@ -903,8 +1160,33 @@ impl NotwigApp {
             }
         };
         if let Some(track_id) = track_id {
-            let result = self.workspace.import_audio_at(&path, track_id, at);
-            let _ = self.report(result);
+            match self.workspace.stage_audio_clip_import(&path, track_id, at) {
+                Ok((asset_id, target_dir)) => {
+                    self.queue_audio_import(asset_id, path, target_dir);
+                }
+                Err(err) => self.notify_error(err),
+            }
+        }
+    }
+
+    fn queue_audio_import(&mut self, asset_id: AssetId, source: PathBuf, target: PathBuf) {
+        let project_rate = self.workspace.doc.meta.sample_rate.value();
+        let _ = self.audio_import_tx.send(AudioImportRequest {
+            asset_id,
+            source,
+            target,
+            project_rate,
+        });
+        self.notify_info("Analyzing audio…".into());
+    }
+}
+
+impl Drop for NotwigApp {
+    fn drop(&mut self) {
+        for (device_id, window) in &mut self.plugin_editors {
+            if let Ok(state) = window.save_state() {
+                self.workspace.store_plugin_state(*device_id, state);
+            }
         }
     }
 }
@@ -913,15 +1195,28 @@ impl eframe::App for NotwigApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.workspace.poll_engine_build();
         self.poll_dialog();
+        self.poll_audio_analysis();
+        self.poll_audio_imports();
+        self.advance_render();
         self.workspace.poll_plugin_catalog();
         let mut editor_changes = Vec::new();
-        for (device_id, window) in &mut self.plugin_editors {
+        let mut closed_states = Vec::new();
+        self.plugin_editors.retain_mut(|(device_id, window)| {
             window.pump();
+            if !window.is_open() {
+                if let Ok(state) = window.save_state() {
+                    closed_states.push((*device_id, state));
+                }
+                return false;
+            }
             for (param_id, value) in window.poll_changes() {
                 editor_changes.push((*device_id, param_id, value));
             }
+            true
+        });
+        for (device_id, state) in closed_states {
+            self.workspace.set_plugin_state(device_id, state);
         }
-        self.plugin_editors.retain(|(_, window)| window.is_open());
         for (device_id, raw_id, value) in editor_changes {
             let param_id =
                 notwig_core::ParamId::from_uuid(uuid::Uuid::from_u128(u128::from(raw_id)));
@@ -941,6 +1236,14 @@ impl eframe::App for NotwigApp {
             self.workspace.doc.meta.name, dirty
         )));
         let snapshot = self.audio_snapshot();
+        if snapshot.crashed && !self.engine_crash_reported {
+            self.engine_crash_reported = true;
+            self.notify_error(
+                "Audio engine crashed. Restart the engine to resume playback.".into(),
+            );
+        } else if !snapshot.crashed {
+            self.engine_crash_reported = false;
+        }
         let playing = self.workspace.doc.transport.playing;
         if snapshot.running {
             self.last_tick = Instant::now();
@@ -1033,5 +1336,24 @@ fn audio_pick_dialog(title: &'static str) -> impl FnOnce() -> Option<PathBuf> + 
             )
             .set_title(title)
             .pick_file()
+    }
+}
+
+fn export_options(options: notwig_ui::ExportOptions) -> notwig_project::ExportOptions {
+    notwig_project::ExportOptions {
+        format: match options.format {
+            notwig_ui::ExportFormat::Wav => notwig_project::ExportFormat::Wav,
+            notwig_ui::ExportFormat::Aiff => notwig_project::ExportFormat::Aiff,
+            notwig_ui::ExportFormat::Flac => notwig_project::ExportFormat::Flac,
+            notwig_ui::ExportFormat::Mp3 => notwig_project::ExportFormat::Mp3,
+            notwig_ui::ExportFormat::Ogg => notwig_project::ExportFormat::Ogg,
+        },
+        bit_depth: match options.bit_depth {
+            notwig_ui::ExportBitDepth::Int16 => notwig_project::ExportBitDepth::Int16,
+            notwig_ui::ExportBitDepth::Int24 => notwig_project::ExportBitDepth::Int24,
+            notwig_ui::ExportBitDepth::Float32 => notwig_project::ExportBitDepth::Float32,
+        },
+        dither: options.dither,
+        normalize: options.normalize,
     }
 }

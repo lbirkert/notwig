@@ -301,6 +301,7 @@ fn audio_editor_copy_replaces_the_arranger_clipboard() {
                     start: Rational::zero(),
                     source_start_sample: 0,
                     source_end_sample: 48_000,
+                    silent_prefix_samples: 0,
                     gain_db: Db(0.0),
                     asset_id: None,
                 }],
@@ -449,6 +450,7 @@ fn delete_time_range_splits_multiple_audio_slices() {
                         start: Rational::zero(),
                         source_start_sample: 0,
                         source_end_sample: 48_000,
+                        silent_prefix_samples: 0,
                         gain_db: Db(0.0),
                         asset_id: None,
                     },
@@ -457,6 +459,7 @@ fn delete_time_range_splits_multiple_audio_slices() {
                         start: Rational::new(2, 1),
                         source_start_sample: 48_000,
                         source_end_sample: 96_000,
+                        silent_prefix_samples: 0,
                         gain_db: Db(0.0),
                         asset_id: None,
                     },
@@ -678,6 +681,7 @@ fn copying_a_time_range_trims_audio_slice_windows() {
                         start: Rational::zero(),
                         source_start_sample: 0,
                         source_end_sample: 48_000,
+                        silent_prefix_samples: 0,
                         gain_db: Db(0.0),
                         asset_id: None,
                     },
@@ -686,6 +690,7 @@ fn copying_a_time_range_trims_audio_slice_windows() {
                         start: Rational::new(2, 1),
                         source_start_sample: 48_000,
                         source_end_sample: 96_000,
+                        silent_prefix_samples: 0,
                         gain_db: Db(0.0),
                         asset_id: None,
                     },
@@ -1437,6 +1442,7 @@ fn clip_range_changes_keep_audio_events_intact() {
         start: Rational::zero(),
         source_start_sample: 0,
         source_end_sample: 48_000,
+        silent_prefix_samples: 0,
         gain_db: Db(0.0),
         asset_id: None,
     };
@@ -1482,6 +1488,7 @@ fn clip_range_changes_keep_audio_events_intact() {
         start: Rational::new(-1, 1),
         source_start_sample: 0,
         source_end_sample: 48_000,
+        silent_prefix_samples: 0,
         gain_db: Db(0.0),
         asset_id: None,
     };
@@ -1565,13 +1572,14 @@ fn extending_an_audio_clip_left_adds_leading_silence() {
 }
 
 #[test]
-fn setting_the_project_sample_rate_is_undoable() {
+fn setting_the_sample_rate_rescales_without_touching_undo_history() {
     let mut workspace = Workspace::new_empty().unwrap();
     let before = workspace.doc.meta.sample_rate;
     workspace.set_sample_rate(44_100).unwrap();
     assert_eq!(workspace.doc.meta.sample_rate.value(), 44_100);
-    workspace.undo().unwrap();
-    assert_eq!(workspace.doc.meta.sample_rate, before);
+    let _ = workspace.undo();
+    assert_eq!(workspace.doc.meta.sample_rate.value(), 44_100);
+    assert_ne!(workspace.doc.meta.sample_rate, before);
 }
 
 #[test]
@@ -1596,4 +1604,328 @@ fn importing_audio_does_not_request_an_engine_rebuild() {
     assert_eq!(workspace.engine_build_requests(), requests);
     assert_eq!(workspace.doc.assets.assets.len(), 1);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn importing_audio_before_saving_stages_the_asset() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    assert!(workspace.bundle.is_none());
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let source = dir.join("staged.wav");
+    let samples: Vec<f32> = (0..2400).map(|i| (i as f32 * 0.02).sin()).collect();
+    notwig_project::write_wav_f32(&source, 48_000, 1, &samples).unwrap();
+    workspace
+        .import_audio_at(&source, track, Rational::zero())
+        .unwrap();
+    assert_eq!(workspace.doc.assets.assets.len(), 1);
+    let bundle = dir.join("Staged.notwig");
+    workspace.save(Some(&bundle)).unwrap();
+    let entry = workspace.doc.assets.assets.values().next().unwrap();
+    assert!(bundle.join(&entry.uri).exists());
+    let reopened = Workspace::open(&bundle).unwrap();
+    assert_eq!(reopened.assets.len(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn changing_sample_rate_rescales_assets_and_clip_windows() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let source = dir.join("rescale.wav");
+    let samples: Vec<f32> = (0..4800).map(|i| (i as f32 * 0.02).sin()).collect();
+    notwig_project::write_wav_f32(&source, 48_000, 1, &samples).unwrap();
+    workspace
+        .import_audio_at(&source, track, Rational::zero())
+        .unwrap();
+    let original_end = workspace
+        .doc
+        .arranger
+        .clips
+        .values()
+        .find_map(|clip| match &clip.payload {
+            ClipPayload::Audio(audio) => Some(audio.source_end_sample),
+            ClipPayload::Midi(_) => None,
+        })
+        .unwrap();
+    workspace.set_sample_rate(24_000).unwrap();
+    let rescaled_end = workspace
+        .doc
+        .arranger
+        .clips
+        .values()
+        .find_map(|clip| match &clip.payload {
+            ClipPayload::Audio(audio) => Some(audio.source_end_sample),
+            ClipPayload::Midi(_) => None,
+        })
+        .unwrap();
+    assert_eq!(rescaled_end, original_end / 2);
+    assert_eq!(
+        workspace
+            .doc
+            .assets
+            .assets
+            .values()
+            .next()
+            .unwrap()
+            .sample_rate,
+        Some(24_000)
+    );
+    assert!(
+        workspace
+            .assets
+            .values()
+            .all(|buffer| buffer.sample_rate == 24_000)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn render_range_supports_aiff_and_normalization() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let path = dir.join("mix.aiff");
+    let frames = workspace
+        .render_range_to(
+            &path,
+            Rational::zero(),
+            Rational::new(1, 1),
+            notwig_project::ExportOptions {
+                format: notwig_project::ExportFormat::Aiff,
+                bit_depth: notwig_project::ExportBitDepth::Int24,
+                dither: false,
+                normalize: true,
+            },
+        )
+        .unwrap();
+    assert!(frames > 0);
+    let decoded = notwig_project::decode_audio(&path).unwrap();
+    assert_eq!(decoded.sample_rate, workspace.doc.meta.sample_rate.value());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn render_stems_writes_one_file_per_track() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    workspace.create_track(TrackKind::Instrument).unwrap();
+    let stems = workspace
+        .render_stems_to(
+            &dir,
+            Rational::zero(),
+            Rational::new(1, 1),
+            notwig_project::ExportOptions::default(),
+        )
+        .unwrap();
+    let non_master = workspace
+        .doc
+        .tracks
+        .values()
+        .filter(|track| track.kind != TrackKind::Master)
+        .count();
+    assert_eq!(stems.len(), non_master);
+    assert!(
+        stems
+            .iter()
+            .all(|(path, frames)| path.exists() && *frames > 0)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn plugin_state_round_trips_through_the_bundle() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    let master = workspace.doc.master_track().unwrap();
+    let chain = workspace.doc.tracks.get(&master).unwrap().main_chain;
+    workspace
+        .insert_stock(
+            chain,
+            notwig_dsp::stock::TOOL_TYPE_ID,
+            DeviceKind::AudioFx,
+            None,
+        )
+        .unwrap();
+    let device_id = *workspace
+        .doc
+        .devices
+        .iter()
+        .find(|(_, device)| device.type_id == notwig_dsp::stock::TOOL_TYPE_ID)
+        .map(|(id, _)| id)
+        .unwrap();
+    let state = notwig_plugins::PluginState {
+        format: notwig_plugins::PluginFormat::Vst3,
+        plugin_uid: "test-plugin".into(),
+        plugin_version: "1.0".into(),
+        blob: vec![1, 2, 3, 4],
+    };
+    workspace.set_plugin_state(device_id, state.clone());
+    let bundle = dir.join("State.notwig");
+    workspace.save(Some(&bundle)).unwrap();
+    assert!(
+        bundle
+            .join("state")
+            .join(format!("{device_id}.json"))
+            .exists()
+    );
+    let reopened = Workspace::open(&bundle).unwrap();
+    assert_eq!(reopened.plugin_state(device_id), Some(&state));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn staged_audio_import_creates_the_clip_before_analysis_finishes() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let source = dir.join("staged-async.wav");
+    let samples: Vec<f32> = (0..24_000).map(|i| (i as f32 * 0.02).sin()).collect();
+    notwig_project::write_wav_f32(&source, 48_000, 1, &samples).unwrap();
+    let (asset_id, target) = workspace
+        .stage_audio_clip_import(&source, track, Rational::zero())
+        .unwrap();
+    assert_eq!(workspace.doc.arranger.clips.len(), 1);
+    assert!(workspace.peaks.is_empty());
+    assert!(workspace.save(Some(&dir.join("Pending.notwig"))).is_err());
+    let imported = notwig_project::import_asset(&source, &target, asset_id, 48_000).unwrap();
+    workspace.complete_audio_import(asset_id, imported).unwrap();
+    assert!(!workspace.peaks.is_empty());
+    assert!(workspace.save(Some(&dir.join("Done.notwig"))).is_ok());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn join_clips_merges_adjacent_midi_clips_and_preserves_notes() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Instrument).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Instrument)
+        .unwrap()
+        .id;
+    workspace
+        .create_midi_clip(
+            track,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+        )
+        .unwrap();
+    let first = *workspace.doc.arranger.clips.keys().next().unwrap();
+    workspace
+        .create_midi_clip(
+            track,
+            notwig_core::RangeMus::new(Rational::new(2, 1), Rational::new(4, 1)).unwrap(),
+        )
+        .unwrap();
+    let second = *workspace
+        .doc
+        .arranger
+        .clips
+        .keys()
+        .find(|id| **id != first)
+        .unwrap();
+    for (clip, start, pitch) in [
+        (first, Rational::new(1, 2), 60),
+        (second, Rational::new(1, 2), 64),
+    ] {
+        workspace
+            .create_note(
+                clip,
+                NoteEntity {
+                    id: Id::<NoteMarker>::from_uuid(Uuid::new_v4()),
+                    pitch,
+                    start,
+                    length: Rational::new(1, 2),
+                    velocity: Norm01::clamped(0.8),
+                    release_velocity: None,
+                    expression: std::collections::BTreeMap::default(),
+                },
+            )
+            .unwrap();
+    }
+    workspace.join_clips(&[first, second]).unwrap();
+    assert_eq!(workspace.doc.arranger.clips.len(), 1);
+    let clip = workspace.doc.arranger.clips.values().next().unwrap();
+    assert_eq!(clip.range.start, Rational::zero());
+    assert_eq!(clip.range.end, Rational::new(4, 1));
+    let ClipPayload::Midi(midi) = &clip.payload else {
+        panic!("joined clip should be MIDI");
+    };
+    let mut starts: Vec<_> = midi.notes.iter().map(|note| note.start).collect();
+    starts.sort();
+    assert_eq!(starts, vec![Rational::new(1, 2), Rational::new(5, 2)]);
+}
+
+#[test]
+fn extending_a_midi_clip_left_keeps_notes_at_their_absolute_time() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Instrument).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Instrument)
+        .unwrap()
+        .id;
+    workspace
+        .create_midi_clip(
+            track,
+            notwig_core::RangeMus::new(Rational::new(2, 1), Rational::new(6, 1)).unwrap(),
+        )
+        .unwrap();
+    let clip_id = *workspace.doc.arranger.clips.keys().next().unwrap();
+    workspace
+        .create_note(
+            clip_id,
+            NoteEntity {
+                id: Id::<NoteMarker>::from_uuid(Uuid::new_v4()),
+                pitch: 60,
+                start: Rational::new(1, 1),
+                length: Rational::new(1, 1),
+                velocity: Norm01::clamped(0.8),
+                release_velocity: None,
+                expression: std::collections::BTreeMap::default(),
+            },
+        )
+        .unwrap();
+    workspace
+        .trim_clip(
+            clip_id,
+            notwig_core::RangeMus::new(Rational::new(1, 1), Rational::new(6, 1)).unwrap(),
+        )
+        .unwrap();
+    let clip = &workspace.doc.arranger.clips[&clip_id];
+    assert_eq!(clip.range.start, Rational::new(1, 1));
+    let ClipPayload::Midi(midi) = &clip.payload else {
+        panic!("clip should be MIDI");
+    };
+    assert_eq!(midi.content_start, Rational::zero());
+    assert_eq!(midi.notes[0].start, Rational::new(2, 1));
+    let absolute = clip.range.start + midi.notes[0].start - midi.content_start;
+    assert_eq!(absolute, Rational::new(3, 1));
 }

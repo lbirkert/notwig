@@ -88,6 +88,8 @@ pub struct Engine {
     control_data: Box<EngineData>,
     control_sync_frames: u64,
     control_frames_until_sync: u64,
+    metronome_enabled: bool,
+    metronome_beats_per_bar: u8,
 }
 
 impl std::fmt::Debug for Engine {
@@ -124,6 +126,8 @@ impl Engine {
             control_data: Box::default(),
             control_sync_frames: DEFAULT_CONTROL_SYNC_FRAMES,
             control_frames_until_sync: DEFAULT_CONTROL_SYNC_FRAMES,
+            metronome_enabled: false,
+            metronome_beats_per_bar: 4,
         }
     }
 
@@ -223,6 +227,7 @@ impl Engine {
                 loop_start_samples,
                 loop_end_samples,
                 stop,
+                metronome,
             } => {
                 let jumped = (self.transport.playhead_samples as u64) != playhead_samples;
                 self.transport.playing = playing;
@@ -231,6 +236,10 @@ impl Engine {
                 if let (Some(start), Some(end)) = (loop_start_samples, loop_end_samples) {
                     self.transport.loop_start_samples = start;
                     self.transport.loop_end_samples = end;
+                }
+                if let Some(metronome) = metronome {
+                    self.metronome_enabled = metronome.enabled;
+                    self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
                 }
                 if stop || !playing || jumped {
                     self.all_notes_off = true;
@@ -422,6 +431,10 @@ impl Engine {
                 self.transport.loop_start_samples = start;
                 self.transport.loop_end_samples = end;
             }
+            if let Some(metronome) = transport.metronome {
+                self.metronome_enabled = metronome.enabled;
+                self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
+            }
             if transport.stop || !transport.playing || jumped {
                 self.all_notes_off = true;
             }
@@ -545,6 +558,12 @@ impl Engine {
                 for sample in &mut stereo[written * 2..(written + segment) * 2] {
                     *sample = 0.0;
                 }
+            } else {
+                self.mix_metronome(
+                    &mut stereo[written * 2..(written + segment) * 2],
+                    start,
+                    segment,
+                );
             }
 
             written += segment;
@@ -579,6 +598,40 @@ impl Engine {
         Ok(())
     }
 
+    fn mix_metronome(&self, buffer: &mut [f32], start_sample: u64, frames: usize) {
+        if !self.metronome_enabled {
+            return;
+        }
+        let Some(plan) = &self.plan else {
+            return;
+        };
+        let rate = f64::from(self.config.sample_rate.max(1));
+        let samples_per_beat = rate * 60.0 / plan.config.tempo_bpm.max(1e-6);
+        if samples_per_beat <= 0.0 {
+            return;
+        }
+        let click_len = (0.03 * rate).max(1.0).min(samples_per_beat);
+        let beats_per_bar = f64::from(self.metronome_beats_per_bar.max(1));
+        for index in 0..frames {
+            let absolute = start_sample as f64 + index as f64;
+            let beat_position = absolute % samples_per_beat;
+            if beat_position >= click_len {
+                continue;
+            }
+            let beat_index = (absolute / samples_per_beat).floor();
+            let accent = (beat_index % beats_per_bar).abs() < 1e-9;
+            let frequency = if accent { 1760.0 } else { 880.0 };
+            let envelope = (1.0 - beat_position / click_len).powi(2);
+            let amplitude = if accent { 0.35 } else { 0.22 };
+            let seconds = beat_position / rate;
+            let sample = (seconds * frequency * std::f64::consts::TAU).sin() as f32
+                * envelope as f32
+                * amplitude;
+            buffer[index * 2] += sample;
+            buffer[index * 2 + 1] += sample;
+        }
+    }
+
     fn transport_tick(&mut self) {
         let samples = self.playhead_samples();
         let playhead_mus = self.plan.as_ref().map_or(TimeMus::zero(), |plan| {
@@ -591,6 +644,23 @@ impl Engine {
         });
     }
 
+    pub fn begin_offline_render(&mut self, start_sample: u64) {
+        self.transport.playing = true;
+        self.transport.playhead_samples = start_sample as f64;
+        self.transport.loop_enabled = false;
+        self.all_notes_off = true;
+        if let Some(runtime) = &mut self.runtime {
+            runtime.reset();
+        }
+    }
+
+    pub fn render_offline_block(&mut self, frames: usize) -> Result<Vec<f32>, EngineError> {
+        let frames = frames.clamp(1, self.config.max_block_size.max(1));
+        let mut output = vec![0.0; frames * 2];
+        self.process(&mut output, frames)?;
+        Ok(output)
+    }
+
     pub fn render_offline(
         &mut self,
         start_sample: u64,
@@ -599,13 +669,7 @@ impl Engine {
         if end_sample <= start_sample {
             return Ok(Vec::new());
         }
-        self.transport.playing = true;
-        self.transport.playhead_samples = start_sample as f64;
-        self.transport.loop_enabled = false;
-        self.all_notes_off = true;
-        if let Some(runtime) = &mut self.runtime {
-            runtime.reset();
-        }
+        self.begin_offline_render(start_sample);
         let total = usize::try_from(end_sample - start_sample).unwrap_or(0);
         let mut output = vec![0.0; total * 2];
         let block = self.config.max_block_size.max(1);

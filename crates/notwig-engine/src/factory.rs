@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use notwig_core::{ParamId, ParamValue};
+use notwig_core::{DeviceId, ParamId, ParamValue};
 use notwig_dsp::{
     CompiledPlan, DeviceProcessor, Latency, NoteEvent, PlanDevice, ProcessContext, ProcessStatus,
     RenderConfig,
 };
-use notwig_plugins::{PluginDescriptor, PluginHost, PluginInstance};
+use notwig_plugins::{PluginDescriptor, PluginHost, PluginInstance, PluginState};
 
 pub trait DeviceFactory: Send + Sync {
     fn create(&self, plan: &CompiledPlan, device: &PlanDevice) -> Option<Box<dyn DeviceProcessor>>;
@@ -28,6 +28,7 @@ impl DeviceFactory for StockDeviceFactory {
 pub struct PluginDeviceFactory {
     host: Mutex<PluginHost>,
     descriptors: BTreeMap<String, PluginDescriptor>,
+    states: BTreeMap<DeviceId, PluginState>,
 }
 
 impl std::fmt::Debug for PluginDeviceFactory {
@@ -38,13 +39,18 @@ impl std::fmt::Debug for PluginDeviceFactory {
 
 impl PluginDeviceFactory {
     #[must_use]
-    pub fn new(host: PluginHost, descriptors: Vec<PluginDescriptor>) -> Self {
+    pub fn new(
+        host: PluginHost,
+        descriptors: Vec<PluginDescriptor>,
+        states: BTreeMap<DeviceId, PluginState>,
+    ) -> Self {
         Self {
             host: Mutex::new(host),
             descriptors: descriptors
                 .into_iter()
                 .map(|descriptor| (descriptor.type_id.clone(), descriptor))
                 .collect(),
+            states,
         }
     }
 }
@@ -85,8 +91,10 @@ impl DeviceFactory for PluginDeviceFactory {
         }
         let mut host = self.host.lock().ok()?;
         let descriptor = self.descriptors.get(&device.type_id)?;
-        host.load(descriptor)
-            .ok()
-            .map(|instance| Box::new(PluginDevice(instance)) as Box<dyn DeviceProcessor>)
+        let mut instance = host.load(descriptor).ok()?;
+        if let Some(state) = self.states.get(&device.id) {
+            let _ = host.restore_instance_state(instance.as_mut(), state);
+        }
+        Some(Box::new(PluginDevice(instance)) as Box<dyn DeviceProcessor>)
     }
 }

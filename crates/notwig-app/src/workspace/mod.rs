@@ -13,14 +13,15 @@ use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlaybackSchedule
 use notwig_core::sequencer::MidiClipData;
 use notwig_core::{
     AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, DeviceChainId, DeviceId, DeviceKind, Id,
-    Meta, NoteId, ProjectDoc, Rational, SampleRate, SchemaVersion, TrackId, TrackKind, apply,
+    Meta, NoteId, ProjectDoc, Rational, SampleRate, SchemaVersion, StateBlobRef, TrackId,
+    TrackKind, apply,
 };
 use notwig_dsp::EngineCaps;
 use notwig_engine::{
     ControlHandle, Engine, EngineControl, ParamUpdate, PreparedRuntime, PreviewNote,
     TrackStateUpdate, TransportUpdate,
 };
-use notwig_plugins::PluginDescriptor;
+use notwig_plugins::{PluginDescriptor, PluginState};
 use notwig_ui::{Clipboard, PluginEntry};
 use uuid::Uuid;
 
@@ -30,12 +31,17 @@ use notwig_core::edit::{self, ArrangerModel, ClipContent, SelectionInfo};
 mod assets;
 mod recovery;
 
+const PLUGIN_STATE_ENCODING: &str = "notwig.plugin-state.json";
+
 pub struct Workspace {
     pub doc: ProjectDoc,
     pub bundle: Option<PathBuf>,
     pub dirty: bool,
     pub assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
     pub peaks: BTreeMap<AssetId, Vec<f32>>,
+    pending_import_dirs: BTreeMap<AssetId, PathBuf>,
+    pending_audio_imports: std::collections::BTreeSet<AssetId>,
+    plugin_states: BTreeMap<DeviceId, PluginState>,
     engine_control: EngineControl,
     engine_ready: bool,
     pub plugins: Vec<PluginEntry>,
@@ -54,15 +60,11 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new_empty() -> Result<Self, String> {
-        Self::new_empty_at(48_000)
-    }
-
-    pub fn new_empty_at(sample_rate: u32) -> Result<Self, String> {
         let meta = Meta {
             name: "Untitled".into(),
             created_utc: 0,
             modified_utc: 0,
-            sample_rate: SampleRate::new(sample_rate).map_err(|err| err.to_string())?,
+            sample_rate: SampleRate::DEFAULT,
             tempo_bpm: 120.0,
             time_sig_num: 4,
             time_sig_den: 4,
@@ -106,6 +108,9 @@ impl Workspace {
             dirty,
             assets: BTreeMap::new(),
             peaks: BTreeMap::new(),
+            pending_import_dirs: BTreeMap::new(),
+            pending_audio_imports: std::collections::BTreeSet::new(),
+            plugin_states: BTreeMap::new(),
             engine_control,
             engine_ready: false,
             plugins,
@@ -123,6 +128,7 @@ impl Workspace {
         };
         workspace.refresh_plugin_specs();
         workspace.load_assets();
+        workspace.load_plugin_states();
         workspace.request_engine_rebuild();
         workspace
     }
@@ -176,6 +182,7 @@ impl Workspace {
             },
             registry: self.device_registry(),
             plugin_descriptors: self.plugin_descriptors.clone(),
+            plugin_states: self.plugin_states.clone(),
             assets: self.assets.clone(),
             sample_rate,
             max_block_size,
@@ -220,13 +227,6 @@ impl Workspace {
                 self.status = Some(format!("Failed to load instruments and effects: {err}"));
             }
         }
-        if self.engine_build.queued() {
-            let request = self.engine_build_request();
-            if let Err(err) = self.engine_build.start_queued(request) {
-                self.error = Some(err.clone());
-                self.status = Some(err);
-            }
-        }
         true
     }
 
@@ -256,6 +256,10 @@ impl Workspace {
             loop_start_samples: loop_start,
             loop_end_samples: loop_end,
             stop: false,
+            metronome: Some(notwig_core::protocol::MetronomeState {
+                enabled: self.doc.transport.metronome_enabled,
+                beats_per_bar: self.doc.meta.time_sig_num,
+            }),
         }
     }
 
@@ -309,6 +313,14 @@ impl Workspace {
     }
 
     pub fn apply(&mut self, payload: CommandPayload) -> Result<(), String> {
+        let preserve_playhead = matches!(
+            &payload,
+            CommandPayload::SetTransport {
+                playing: None,
+                playhead: None,
+                ..
+            }
+        );
         let structural = payload.requires_plan_rebuild();
         let record_undo = !matches!(
             payload,
@@ -325,7 +337,10 @@ impl Workspace {
                 if structural {
                     self.request_engine_rebuild();
                 } else {
-                    let (transport, all_notes_off) = control_updates(result.engine_msgs);
+                    let (mut transport, all_notes_off) = control_updates(result.engine_msgs);
+                    if preserve_playhead && let Some(update) = transport.as_mut() {
+                        update.playhead_samples = self.preserved_playhead_samples();
+                    }
                     self.publish_engine_control(transport, all_notes_off, None);
                 }
                 self.error = None;
@@ -376,8 +391,47 @@ impl Workspace {
                 .clone()
                 .ok_or_else(|| "project has no bundle path; use Save As".to_string())?,
         };
+        if !self.pending_audio_imports.is_empty() {
+            return Err(
+                "Audio import is still running; wait for it to finish before saving.".into(),
+            );
+        }
         let previous = self.bundle.clone();
+        if !self.plugin_states.is_empty() {
+            let state_dir = path.join("state");
+            std::fs::create_dir_all(&state_dir).map_err(|err| err.to_string())?;
+            for (device_id, state) in &self.plugin_states {
+                let bytes = serde_json::to_vec(state).map_err(|err| err.to_string())?;
+                std::fs::write(state_dir.join(format!("{device_id}.json")), bytes)
+                    .map_err(|err| err.to_string())?;
+                if let Some(device) = self.doc.devices.get_mut(device_id) {
+                    device.state_ref = Some(StateBlobRef {
+                        hash: device_id.to_string(),
+                        encoding: PLUGIN_STATE_ENCODING.into(),
+                    });
+                }
+            }
+        }
+        if !self.pending_import_dirs.is_empty() {
+            let assets_dir = path.join("assets");
+            std::fs::create_dir_all(&assets_dir).map_err(|err| err.to_string())?;
+            for (asset_id, dir) in &self.pending_import_dirs {
+                let Some(entry) = self.doc.assets.assets.get(asset_id) else {
+                    continue;
+                };
+                let file_name = Path::new(&entry.uri).file_name().map_or_else(
+                    || entry.uri.clone(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                std::fs::copy(dir.join(&entry.uri), assets_dir.join(file_name))
+                    .map_err(|err| err.to_string())?;
+            }
+        }
         notwig_project::save(&self.doc, &path).map_err(|err| err.to_string())?;
+        for dir in self.pending_import_dirs.values() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        self.pending_import_dirs.clear();
         self.bundle = Some(path.clone());
         if previous.as_deref() != Some(path.as_path())
             && let Some(previous) = previous
@@ -402,6 +456,9 @@ impl Workspace {
         let Some(bundle) = self.bundle.clone() else {
             return;
         };
+        if !self.pending_audio_imports.is_empty() {
+            return;
+        }
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |duration| {
@@ -411,15 +468,101 @@ impl Workspace {
         self.last_autosave = std::time::Instant::now();
     }
 
+    fn load_plugin_states(&mut self) {
+        self.plugin_states.clear();
+        let Some(bundle) = self.bundle.clone() else {
+            return;
+        };
+        for device in self.doc.devices.values() {
+            let Some(state_ref) = &device.state_ref else {
+                continue;
+            };
+            if state_ref.encoding != PLUGIN_STATE_ENCODING {
+                continue;
+            }
+            let path = bundle
+                .join("state")
+                .join(format!("{}.json", state_ref.hash));
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            if let Ok(state) = serde_json::from_slice::<PluginState>(&bytes) {
+                self.plugin_states.insert(device.id, state);
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn plugin_state(&self, device_id: DeviceId) -> Option<&PluginState> {
+        self.plugin_states.get(&device_id)
+    }
+
+    pub fn store_plugin_state(&mut self, device_id: DeviceId, state: PluginState) {
+        self.plugin_states.insert(device_id, state);
+        if let Some(device) = self.doc.devices.get_mut(&device_id) {
+            device.state_ref = Some(StateBlobRef {
+                hash: device_id.to_string(),
+                encoding: PLUGIN_STATE_ENCODING.into(),
+            });
+        }
+        self.dirty = true;
+    }
+
+    pub fn set_plugin_state(&mut self, device_id: DeviceId, state: PluginState) {
+        self.store_plugin_state(device_id, state);
+        self.request_engine_rebuild();
+    }
+
     pub fn set_sample_rate(&mut self, sample_rate: u32) -> Result<(), String> {
         let rate = notwig_core::SampleRate::new(sample_rate).map_err(|err| err.to_string())?;
-        if self.doc.meta.sample_rate == rate {
+        let previous = self.doc.meta.sample_rate;
+        if previous == rate {
             return Ok(());
         }
-        let before = self.doc.clone();
+        let ratio = f64::from(rate.value()) / f64::from(previous.value().max(1));
+
+        let loaded: Vec<AssetId> = self.assets.keys().copied().collect();
+        for asset_id in loaded {
+            let Some(buffer) = self.assets.get(&asset_id).cloned() else {
+                continue;
+            };
+            let converted = notwig_project::resample(
+                &buffer,
+                rate.value(),
+                notwig_project::ResampleQuality::High,
+            )
+            .map_err(|err| err.to_string())?;
+            self.peaks
+                .insert(asset_id, assets::compute_peaks(&converted, 2048));
+            self.persist_asset_file(asset_id, &converted)?;
+            if let Some(entry) = self.doc.assets.assets.get_mut(&asset_id) {
+                entry.sample_rate = Some(rate.value());
+                entry.duration_samples = Some(converted.frame_count());
+            }
+            self.assets.insert(asset_id, Arc::new(converted));
+        }
+
+        for clip in self.doc.arranger.clips.values_mut() {
+            let notwig_core::ClipPayload::Audio(audio) = &mut clip.payload else {
+                continue;
+            };
+            if audio.uses_slices() {
+                for slice in &mut audio.slices {
+                    slice.source_start_sample = scale_sample(slice.source_start_sample, ratio);
+                    slice.source_end_sample = scale_sample(slice.source_end_sample, ratio);
+                    slice.silent_prefix_samples = scale_sample(slice.silent_prefix_samples, ratio);
+                }
+            } else {
+                audio.source_start_sample = scale_sample(audio.source_start_sample, ratio);
+                audio.source_end_sample = scale_sample(audio.source_end_sample, ratio);
+                audio.fade_in_samples = scale_sample(audio.fade_in_samples, ratio);
+                audio.fade_out_samples = scale_sample(audio.fade_out_samples, ratio);
+            }
+        }
+
         self.doc.meta.sample_rate = rate;
         self.dirty = true;
-        self.history.record(before, true);
+        self.prepare_asset();
         self.request_engine_rebuild();
         Ok(())
     }
@@ -430,6 +573,7 @@ impl Workspace {
             playhead: Some(playhead),
             loop_enabled: None,
             loop_range: None,
+            metronome: None,
         })
     }
 
@@ -470,6 +614,7 @@ impl Workspace {
             playhead: Some(self.doc.transport.playhead),
             loop_enabled: None,
             loop_range: None,
+            metronome: None,
         })
     }
 
@@ -487,6 +632,7 @@ impl Workspace {
             playhead: Some(start),
             loop_enabled: None,
             loop_range: None,
+            metronome: None,
         })
     }
 
@@ -505,6 +651,7 @@ impl Workspace {
             playhead: None,
             loop_enabled: Some(enabled),
             loop_range: Some(range),
+            metronome: None,
         })
     }
 
@@ -658,6 +805,17 @@ impl Workspace {
             .first()
             .map(|entry| entry.object)
             .ok_or_else(|| "nothing duplicated".to_string())
+    }
+
+    pub fn join_clips(
+        &mut self,
+        clip_ids: &[ClipId],
+    ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
+        let plan = {
+            let model = ArrangerModel::new(&self.doc);
+            edit::join_clips(&model, clip_ids).map_err(|err| err.to_string())?
+        };
+        self.lower_and_apply(plan).map(Option::unwrap_or_default)
     }
 
     pub fn group_tracks(&mut self, tracks: &[TrackId]) -> Result<TrackId, String> {
@@ -951,9 +1109,11 @@ impl Workspace {
             return;
         };
         let params = instance.describe_parameters();
+        let capabilities = instance.capabilities();
         tracing::info!(
             plugin = %descriptor.name,
             params = params.len(),
+            latency = capabilities.latency_samples,
             "loaded plugin parameter metadata"
         );
         self.plugin_specs.insert(
@@ -968,7 +1128,7 @@ impl Workspace {
                 },
                 ports: Vec::new(),
                 params,
-                latency_samples: 0,
+                latency_samples: capabilities.latency_samples,
                 name: descriptor.name,
                 vendor: descriptor.vendor,
             },
@@ -1372,7 +1532,12 @@ impl Workspace {
             .map(|clip| clip.range.end)
             .max()
             .unwrap_or_else(|| Rational::new(4, 1));
-        self.render_range_to(path, notwig_core::TimeMus::zero(), end_beat)
+        self.render_range_to(
+            path,
+            notwig_core::TimeMus::zero(),
+            end_beat,
+            notwig_project::ExportOptions::default(),
+        )
     }
 
     pub fn render_range_to(
@@ -1380,7 +1545,26 @@ impl Workspace {
         path: &Path,
         start: notwig_core::TimeMus,
         end: notwig_core::TimeMus,
+        options: notwig_project::ExportOptions,
     ) -> Result<usize, String> {
+        let mut session = self.begin_render(start, end)?;
+        let total = session.total_frames();
+        let mut output = Vec::with_capacity(total * 2);
+        while output.len() / 2 < total {
+            let frames = (total - output.len() / 2).min(4096);
+            output.extend(session.render_block(frames)?);
+        }
+        output.truncate(total * 2);
+        notwig_project::write_audio_export(path, session.sample_rate, 2, &output, options)
+            .map_err(|err| err.to_string())?;
+        Ok(output.len() / 2)
+    }
+
+    pub fn begin_render(
+        &self,
+        start: notwig_core::TimeMus,
+        end: notwig_core::TimeMus,
+    ) -> Result<RenderSession, String> {
         let map = self.doc.tempo_map();
         let start_sample = map.mus_to_samples(start.max(notwig_core::TimeMus::zero()));
         let end_sample = map
@@ -1395,14 +1579,114 @@ impl Workspace {
                 loop_start_samples: None,
                 loop_end_samples: None,
                 stop: false,
+                metronome: None,
             })
             .map_err(|err| err.to_string())?;
-        let output = engine
-            .render_offline(start_sample, end_sample)
+        engine.begin_offline_render(start_sample);
+        Ok(RenderSession {
+            engine,
+            start_sample,
+            end_sample,
+            sample_rate: self.doc.meta.sample_rate.value(),
+        })
+    }
+
+    pub fn render_stems_to(
+        &self,
+        directory: &Path,
+        start: notwig_core::TimeMus,
+        end: notwig_core::TimeMus,
+        options: notwig_project::ExportOptions,
+    ) -> Result<Vec<(PathBuf, usize)>, String> {
+        std::fs::create_dir_all(directory).map_err(|err| err.to_string())?;
+        let map = self.doc.tempo_map();
+        let start_sample = map.mus_to_samples(start.max(notwig_core::TimeMus::zero()));
+        let end_sample = map
+            .mus_to_samples(end.max(start + notwig_core::TimeMus::new(1, 16)))
+            .max(start_sample + 1);
+        let master = self.doc.master_track();
+        let mut written = Vec::new();
+        for track in self
+            .doc
+            .tracks
+            .values()
+            .filter(|track| track.kind != notwig_core::TrackKind::Master)
+        {
+            let mut engine = self.build_engine()?;
+            engine
+                .apply(EngineMsg::SetTransport {
+                    playing: true,
+                    playhead_samples: start_sample,
+                    loop_enabled: false,
+                    loop_start_samples: None,
+                    loop_end_samples: None,
+                    stop: false,
+                    metronome: None,
+                })
+                .map_err(|err| err.to_string())?;
+            for state in self.doc.tracks.values() {
+                let ancestor = is_ancestor(&self.doc, state.id, track.id);
+                let audible = state.id == track.id || ancestor || Some(state.id) == master;
+                engine
+                    .apply(EngineMsg::SetTrackState {
+                        track_id: state.id,
+                        mute: state.mixer.mute,
+                        solo_effective: audible,
+                        gain_db: state.mixer.volume_db,
+                        pan: state.mixer.pan,
+                    })
+                    .map_err(|err| err.to_string())?;
+            }
+            let output = engine
+                .render_offline(start_sample, end_sample)
+                .map_err(|err| err.to_string())?;
+            let name = sanitize_file_name(&track.name);
+            let path = directory.join(format!("{name}.{}", options.format.extension()));
+            notwig_project::write_audio_export(
+                &path,
+                self.doc.meta.sample_rate.value(),
+                2,
+                &output,
+                options,
+            )
             .map_err(|err| err.to_string())?;
-        notwig_project::write_wav_f32(path, self.doc.meta.sample_rate.value(), 2, &output)
-            .map_err(|err| err.to_string())?;
-        Ok(output.len() / 2)
+            written.push((path, output.len() / 2));
+        }
+        Ok(written)
+    }
+}
+
+fn is_ancestor(
+    doc: &ProjectDoc,
+    candidate: notwig_core::TrackId,
+    track: notwig_core::TrackId,
+) -> bool {
+    let mut current = doc.tracks.get(&track).and_then(|track| track.parent);
+    while let Some(parent) = current {
+        if parent == candidate {
+            return true;
+        }
+        current = doc.tracks.get(&parent).and_then(|track| track.parent);
+    }
+    false
+}
+
+fn sanitize_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ' ') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        "stem".into()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -1418,6 +1702,7 @@ fn control_updates(messages: Vec<EngineMsg>) -> (Option<TransportUpdate>, bool) 
                 loop_start_samples,
                 loop_end_samples,
                 stop,
+                metronome,
             } => {
                 transport = Some(TransportUpdate {
                     playing,
@@ -1426,6 +1711,7 @@ fn control_updates(messages: Vec<EngineMsg>) -> (Option<TransportUpdate>, bool) 
                     loop_start_samples,
                     loop_end_samples,
                     stop,
+                    metronome,
                 });
             }
             EngineMsg::AllNotesOff => all_notes_off = true,
@@ -1437,4 +1723,36 @@ fn control_updates(messages: Vec<EngineMsg>) -> (Option<TransportUpdate>, bool) 
         }
     }
     (transport, all_notes_off)
+}
+
+impl Drop for Workspace {
+    fn drop(&mut self) {
+        for dir in self.pending_import_dirs.values() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+fn scale_sample(value: u64, ratio: f64) -> u64 {
+    (value as f64 * ratio).round() as u64
+}
+
+pub struct RenderSession {
+    engine: Engine,
+    pub start_sample: u64,
+    pub end_sample: u64,
+    pub sample_rate: u32,
+}
+
+impl RenderSession {
+    #[must_use]
+    pub fn total_frames(&self) -> usize {
+        usize::try_from(self.end_sample.saturating_sub(self.start_sample)).unwrap_or(0)
+    }
+
+    pub fn render_block(&mut self, frames: usize) -> Result<Vec<f32>, String> {
+        self.engine
+            .render_offline_block(frames)
+            .map_err(|err| err.to_string())
+    }
 }

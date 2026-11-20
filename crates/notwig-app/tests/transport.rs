@@ -22,6 +22,7 @@ fn tick_after_processing(workspace: &mut Workspace, playhead_samples: u64) -> Ti
             loop_start_samples: None,
             loop_end_samples: None,
             stop: false,
+            metronome: None,
         })
         .unwrap();
     let mut output = vec![0.0_f32; 128 * 2];

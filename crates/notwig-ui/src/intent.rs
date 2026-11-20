@@ -5,12 +5,53 @@ use notwig_core::{
     ParamId, ParamValue, RangeMus, TimeMus, TrackId, TrackKind,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExportFormat {
+    #[default]
+    Wav,
+    Aiff,
+    Flac,
+    Mp3,
+    Ogg,
+}
+
+impl ExportFormat {
+    #[must_use]
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Wav => "wav",
+            Self::Aiff => "aiff",
+            Self::Flac => "flac",
+            Self::Mp3 => "mp3",
+            Self::Ogg => "ogg",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExportBitDepth {
+    Int16,
+    Int24,
+    #[default]
+    Float32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExportOptions {
+    pub format: ExportFormat,
+    pub bit_depth: ExportBitDepth,
+    pub dither: bool,
+    pub normalize: bool,
+    pub stems: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiIntent {
     Play,
     Pause,
     Stop,
     ToggleLoop,
+    ToggleMetronome,
     SetPlayhead(TimeMus),
     SetTempo(f64),
     SetTimeSignature {
@@ -107,6 +148,9 @@ pub enum UiIntent {
     GroupTracks {
         tracks: Vec<TrackId>,
     },
+    JoinClips {
+        clips: Vec<ClipId>,
+    },
     SplitClip {
         clip_id: ClipId,
         at: TimeMus,
@@ -157,6 +201,7 @@ pub enum UiIntent {
         index: Option<usize>,
     },
     ImportAudio,
+    AnalyzeAudioDuration(PathBuf),
     DropAudio {
         path: PathBuf,
         target: DropAudioTarget,
@@ -182,16 +227,18 @@ pub enum UiIntent {
     RelinkAsset(AssetId),
     Quit,
     NewProject,
-    NewProjectAtRate(u32),
     OpenProject,
     Save,
     SaveAs,
     RenderMixdownRange {
         start: TimeMus,
         end: TimeMus,
+        options: ExportOptions,
     },
     Undo,
     Redo,
+    CancelRender,
+    RestartAudioEngine,
     ClearNotifications,
     ApplyAudioSettings {
         driver: String,

@@ -2,12 +2,12 @@ use egui::{Id, Rect, Vec2};
 use notwig_core::TimeMus;
 
 use super::geometry::{ROW_HEIGHT, clamp_pitch_scroll};
-use super::state::PianoRollState;
+use super::state::MidiEditorState;
 
 pub(super) const SCROLLBAR_H: f32 = 14.0;
 
-pub(super) fn piano_roll_navigation(
-    state: &mut PianoRollState,
+pub(super) fn midi_editor_navigation(
+    state: &mut MidiEditorState,
     ui: &egui::Ui,
     content: Rect,
     note_area: Rect,
@@ -53,9 +53,9 @@ pub(super) fn piano_roll_navigation(
     }
 }
 
-pub(super) fn piano_roll_scrollbar(
+pub(super) fn midi_editor_scrollbar(
     ui: &mut egui::Ui,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     rect: Rect,
     content: Rect,
     content_end: TimeMus,
@@ -77,7 +77,7 @@ pub(super) fn piano_roll_scrollbar(
         content_end.as_f64(),
         visible,
         state.viewport.start,
-        Id::new(("piano-roll-hscroll", state.clip_id)),
+        Id::new(("midi-editor-hscroll", state.clip_id)),
     ) {
         state.viewport.start = start;
     }

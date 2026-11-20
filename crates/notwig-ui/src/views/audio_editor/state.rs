@@ -36,6 +36,7 @@ pub struct SliceDrag {
     pub(super) origin_start: TimeMus,
     pub(super) origin_source_start: u64,
     pub(super) origin_source_end: u64,
+    pub(super) origin_silent_prefix: u64,
 }
 
 #[doc(hidden)]

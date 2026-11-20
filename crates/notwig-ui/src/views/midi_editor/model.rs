@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
 
-use super::state::PianoRollState;
+use super::state::MidiEditorState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pitch(pub u8);
@@ -293,7 +293,7 @@ pub fn lower_note_plan(
 
 pub fn apply_note_lowered(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     lowered: NoteLowered,
 ) {
@@ -351,7 +351,7 @@ pub fn insert_note_clearing(notes: &[NoteEntity], note: NoteEntity) -> Vec<NoteE
 /// span and emits the corresponding create/edit intents.
 pub fn create_note_clearing(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     note: NoteEntity,
 ) {

@@ -14,6 +14,20 @@ pub enum BeatStripAction {
     SetLoop(RangeMus),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopDragMode {
+    Start,
+    End,
+    Body,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LoopDrag {
+    mode: LoopDragMode,
+    origin: RangeMus,
+    start_pointer: egui::Pos2,
+}
+
 pub struct BeatStrip<'a> {
     pub grid: TimelineGrid,
     pub header_width: f32,
@@ -67,14 +81,22 @@ impl BeatStrip<'_> {
         draw_beats(&painter, rect, content_left, self.grid);
 
         let mut action = None;
+        let mut loop_preview = self.loop_range;
+        let mut loop_dragging = false;
         if let Some(range) = self.loop_range {
+            let (preview, committed) = self.loop_interaction(ui, rect, id, content_left, range);
+            loop_dragging = preview.is_some();
+            if let Some(preview) = preview {
+                loop_preview = Some(preview);
+            }
+            if let Some(committed) = committed {
+                action = Some(BeatStripAction::SetLoop(committed));
+            }
+        }
+
+        if let Some(range) = loop_preview {
             let loop_rect = loop_rect(rect, content_left, self.grid, range, self.loop_bottom_inset);
             draw_loop(&painter, loop_rect);
-            if let Some(next) =
-                self.loop_edge_action(ui, rect, id, content_left, range, self.loop_bottom_inset)
-            {
-                action = Some(BeatStripAction::SetLoop(next));
-            }
         }
 
         if self.show_play_start {
@@ -82,7 +104,13 @@ impl BeatStrip<'_> {
         }
         draw_playhead(&painter, rect, content_left, self.grid, self.playhead);
 
-        if action.is_none() && (response.clicked() || response.dragged()) {
+        if action.is_none()
+            && !loop_dragging
+            && (response.clicked() || response.dragged())
+            && !response
+                .interact_pointer_pos()
+                .is_some_and(|pos| self.pointer_inside_loop(rect, content_left, pos))
+        {
             action = response
                 .interact_pointer_pos()
                 .filter(|pos| pos.x > content_left)
@@ -95,20 +123,57 @@ impl BeatStrip<'_> {
         action
     }
 
-    fn loop_edge_action(
+    fn pointer_inside_loop(&self, rect: Rect, content_left: f32, pos: egui::Pos2) -> bool {
+        self.loop_range.is_some_and(|range| {
+            loop_rect(rect, content_left, self.grid, range, self.loop_bottom_inset).contains(pos)
+        })
+    }
+
+    fn loop_interaction(
         &self,
         ui: &mut Ui,
         rect: Rect,
         id: Id,
         content_left: f32,
         range: RangeMus,
-        bottom_inset: f32,
-    ) -> Option<RangeMus> {
-        let loop_rect = loop_rect(rect, content_left, self.grid, range, bottom_inset);
-        let mut next = None;
-        for (edge, x) in [
-            (LoopEdge::Start, loop_rect.left()),
-            (LoopEdge::End, loop_rect.right()),
+    ) -> (Option<RangeMus>, Option<RangeMus>) {
+        let drag_key = id.with("loop-drag");
+        let mut drag: Option<LoopDrag> = ui.data(|data| data.get_temp::<LoopDrag>(drag_key));
+        let loop_rect = loop_rect(rect, content_left, self.grid, range, self.loop_bottom_inset);
+        let body_rect = Rect::from_min_max(
+            egui::pos2(loop_rect.left() + LOOP_EDGE_WIDTH * 0.5, loop_rect.top()),
+            egui::pos2(
+                loop_rect.right() - LOOP_EDGE_WIDTH * 0.5,
+                loop_rect.bottom(),
+            ),
+        );
+
+        let mut body_response = None;
+        if body_rect.width() > 1.0 {
+            let response = ui.interact(body_rect, id.with("loop-body"), Sense::click_and_drag());
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
+            if response.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            if response.drag_started()
+                && let Some(pos) = response.interact_pointer_pos()
+            {
+                drag = Some(LoopDrag {
+                    mode: LoopDragMode::Body,
+                    origin: range,
+                    start_pointer: pos,
+                });
+            }
+            body_response = Some(response);
+        }
+
+        let mut start_response = None;
+        let mut end_response = None;
+        for (mode, edge, x) in [
+            (LoopDragMode::Start, LoopEdge::Start, loop_rect.left()),
+            (LoopDragMode::End, LoopEdge::End, loop_rect.right()),
         ] {
             let handle = Rect::from_min_max(
                 egui::pos2(x - LOOP_EDGE_WIDTH * 0.5, loop_rect.top()),
@@ -135,21 +200,78 @@ impl BeatStrip<'_> {
                 ui.painter()
                     .rect_filled(grip, egui::CornerRadius::same(1), theme::TEXT_MUTED);
             }
-            if response.drag_stopped()
-                && let Some(pos) = response
-                    .interact_pointer_pos()
-                    .or_else(|| ui.input(|input| input.pointer.hover_pos()))
+            if response.drag_started()
+                && let Some(pos) = response.interact_pointer_pos()
             {
-                let raw = self.grid.beat_for_x(pos.x, content_left);
-                let bypass = ui.input(|input| input.modifiers.shift);
-                let beat = self.grid.snap(raw, bypass);
-                if let Some(candidate) = loop_edge_range(edge, range, beat) {
-                    next = Some(candidate);
-                }
+                drag = Some(LoopDrag {
+                    mode,
+                    origin: range,
+                    start_pointer: pos,
+                });
+            }
+            match mode {
+                LoopDragMode::Start => start_response = Some(response),
+                LoopDragMode::End => end_response = Some(response),
+                LoopDragMode::Body => {}
             }
         }
-        next
+
+        if let Some(active) = drag {
+            ui.data_mut(|data| data.insert_temp(drag_key, active));
+        } else {
+            ui.data_mut(|data| data.remove::<LoopDrag>(drag_key));
+        }
+
+        let mut preview = None;
+        let mut committed = None;
+        if let Some(active) = drag
+            && let Some(pos) = ui.input(|input| input.pointer.interact_pos())
+        {
+            let bypass = ui.input(|input| input.modifiers.shift);
+            preview = self.loop_drag_candidate(active, pos, content_left, bypass);
+        }
+        let stopped = body_response.is_some_and(|response| response.drag_stopped())
+            || start_response.is_some_and(|response| response.drag_stopped())
+            || end_response.is_some_and(|response| response.drag_stopped());
+        if stopped && drag.is_some() {
+            committed = preview;
+            preview = None;
+            ui.data_mut(|data| data.remove::<LoopDrag>(drag_key));
+        }
+        (preview, committed)
     }
+
+    fn loop_drag_candidate(
+        &self,
+        drag: LoopDrag,
+        pointer: egui::Pos2,
+        content_left: f32,
+        bypass: bool,
+    ) -> Option<RangeMus> {
+        match drag.mode {
+            LoopDragMode::Body => {
+                let delta = f64::from(pointer.x - drag.start_pointer.x)
+                    / f64::from(self.grid.pixels_per_beat);
+                let shifted = micro_time(drag.origin.start.as_f64() + delta);
+                let start = self.grid.snap(shifted, bypass).max(TimeMus::zero());
+                RangeMus::new(start, start + drag.origin.length()).ok()
+            }
+            LoopDragMode::Start | LoopDragMode::End => {
+                let raw = self.grid.beat_for_x(pointer.x, content_left);
+                let beat = self.grid.snap(raw, bypass);
+                let edge = if drag.mode == LoopDragMode::Start {
+                    LoopEdge::Start
+                } else {
+                    LoopEdge::End
+                };
+                loop_edge_range(edge, drag.origin, beat)
+            }
+        }
+    }
+}
+
+fn micro_time(value: f64) -> TimeMus {
+    TimeMus::new((value * 1_000_000.0).round() as i64, 1_000_000)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,13 +430,17 @@ fn draw_play_start(
     if x < content_left || x > rect.right() {
         return;
     }
+    let center_y = rect.top() + 7.0;
+    let half_height = 5.0;
+    let width = 9.0;
+    let color = theme::PLAY_START;
     painter.add(egui::Shape::convex_polygon(
         vec![
-            egui::pos2(x, rect.top() + 4.0),
-            egui::pos2(x, rect.top() + 14.0),
-            egui::pos2(x + 8.0, rect.top() + 9.0),
+            egui::pos2(x, center_y - half_height),
+            egui::pos2(x, center_y + half_height),
+            egui::pos2(x + width, center_y),
         ],
-        theme::ACCENT,
-        Stroke::NONE,
+        color,
+        Stroke::new(1.0_f32, color.gamma_multiply(0.62)),
     ));
 }

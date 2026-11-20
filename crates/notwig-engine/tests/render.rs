@@ -157,6 +157,7 @@ fn prepare_engine(
             loop_start_samples: None,
             loop_end_samples: None,
             stop: false,
+            metronome: None,
         })
         .unwrap();
     engine
@@ -526,6 +527,7 @@ fn looping_wraps_and_emits_transport_ticks() {
             loop_start_samples: Some(0),
             loop_end_samples: Some(4_800),
             stop: false,
+            metronome: None,
         })
         .unwrap();
     let mut output = vec![0.0_f32; 9_600 * 2];
@@ -606,7 +608,11 @@ fn solo_mutes_other_tracks() {
     let peak = output
         .iter()
         .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
-    assert!((peak - 0.125).abs() < 0.01, "soloed track peak was {peak}");
+    let pan = std::f32::consts::FRAC_1_SQRT_2;
+    assert!(
+        (peak - 0.25 * pan).abs() < 0.01,
+        "soloed track peak was {peak}"
+    );
 }
 #[test]
 fn empty_slice_set_renders_silence() {
@@ -637,6 +643,72 @@ fn empty_slice_set_renders_silence() {
 }
 
 #[test]
+fn metronome_clicks_on_beats_and_accents_bar_starts() {
+    let doc = base_doc();
+    let mut engine = prepare_engine(
+        &doc,
+        Vec::new(),
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    engine
+        .apply(EngineMsg::SetTransport {
+            playing: true,
+            playhead_samples: 0,
+            loop_enabled: false,
+            loop_start_samples: None,
+            loop_end_samples: None,
+            stop: false,
+            metronome: Some(notwig_core::protocol::MetronomeState {
+                enabled: true,
+                beats_per_bar: 4,
+            }),
+        })
+        .unwrap();
+    let output = engine.render_offline(0, 48_000).unwrap();
+    assert!(output[100 * 2].abs() > 0.01, "bar click should be audible");
+    assert!(
+        output[10_000 * 2].abs() < 1e-4,
+        "between beats should be silent"
+    );
+    assert!(
+        output[24_000 * 2 + 100].abs() > 0.01,
+        "second beat click should be audible"
+    );
+}
+
+#[test]
+fn runtime_chunks_blocks_larger_than_its_prepared_buffer() {
+    let doc = base_doc();
+    let small = EngineConfig::new(48_000, 512);
+    let caps = EngineCaps {
+        sample_rate: small.sample_rate,
+        max_block_size: small.max_block_size,
+        channels: 2,
+    };
+    let plan = Arc::new(notwig_dsp::compile(&doc, &notwig_dsp::stock_registry(), caps).unwrap());
+    let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
+    let factory: Arc<dyn DeviceFactory> = Arc::new(StockDeviceFactory);
+    let prepared = Engine::prepare_runtime(
+        small,
+        Arc::clone(&factory),
+        plan,
+        schedule,
+        Arc::new(std::collections::BTreeMap::new()),
+    )
+    .unwrap();
+    let mut engine = Engine::from_prepared(
+        EngineConfig::new(48_000, 2048),
+        factory,
+        prepared,
+        notwig_engine::TransportRuntime::default(),
+        false,
+    );
+    let mut output = vec![0.0_f32; 2048 * 2];
+    engine.process(&mut output, 2048).unwrap();
+}
+
+#[test]
 fn audio_slices_render_in_their_clip_local_regions() {
     let mut doc = base_doc();
     let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
@@ -652,6 +724,7 @@ fn audio_slices_render_in_their_clip_local_regions() {
                     start: Rational::zero(),
                     source_start_sample: 0,
                     source_end_sample: 8_000,
+                    silent_prefix_samples: 0,
                     gain_db: Db(0.0),
                     asset_id: None,
                 },
@@ -660,6 +733,7 @@ fn audio_slices_render_in_their_clip_local_regions() {
                     start: Rational::new(1, 1),
                     source_start_sample: 40_000,
                     source_end_sample: 48_000,
+                    silent_prefix_samples: 0,
                     gain_db: Db(0.0),
                     asset_id: None,
                 },
@@ -684,6 +758,50 @@ fn audio_slices_render_in_their_clip_local_regions() {
 }
 
 #[test]
+fn audio_event_silent_prefix_renders_before_the_source_audio() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 554, 48_000);
+    add_audio_clip(&mut doc, track, asset, 44, 2);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipSlices {
+            clip_id: id::<ClipMarker>(44),
+            slices: vec![AudioSlice {
+                id: id::<SliceMarker>(1),
+                start: Rational::zero(),
+                source_start_sample: 0,
+                source_end_sample: 8_000,
+                silent_prefix_samples: 24_000,
+                gain_db: Db(0.0),
+                asset_id: None,
+            }],
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(48_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 48_000).unwrap();
+    assert!(
+        output[1_000 * 2].abs() < 1e-4,
+        "silent prefix should render nothing"
+    );
+    assert!(
+        output[26_000 * 2].abs() > 0.05,
+        "audio after the silent prefix should render"
+    );
+    assert!(
+        output[40_000 * 2].abs() < 1e-4,
+        "event should end after its source window"
+    );
+}
+
+#[test]
 fn audio_event_starting_before_the_clip_plays_from_the_visible_source_offset() {
     let mut doc = base_doc();
     let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
@@ -698,6 +816,7 @@ fn audio_event_starting_before_the_clip_plays_from_the_visible_source_offset() {
                 start: Rational::new(-1, 1),
                 source_start_sample: 0,
                 source_end_sample: 48_000,
+                silent_prefix_samples: 0,
                 gain_db: Db(0.0),
                 asset_id: None,
             }],
@@ -755,6 +874,7 @@ fn audio_event_starting_after_the_clip_renders_silence() {
                 start: Rational::new(3, 1),
                 source_start_sample: 0,
                 source_end_sample: 48_000,
+                silent_prefix_samples: 0,
                 gain_db: Db(0.0),
                 asset_id: None,
             }],
@@ -842,6 +962,7 @@ fn process_chunks_oversized_device_blocks() {
             loop_start_samples: None,
             loop_end_samples: None,
             stop: false,
+            metronome: None,
         })
         .unwrap();
     let mut output = vec![0.0_f32; 512 * 2];
@@ -866,6 +987,7 @@ fn stopping_transport_sends_note_off() {
             loop_start_samples: None,
             loop_end_samples: None,
             stop: false,
+            metronome: None,
         })
         .unwrap();
     let mut first = vec![0.0_f32; 128 * 2];
@@ -879,6 +1001,7 @@ fn stopping_transport_sends_note_off() {
             loop_start_samples: None,
             loop_end_samples: None,
             stop: false,
+            metronome: None,
         })
         .unwrap();
     let mut stopped = vec![0.0_f32; 128 * 2];

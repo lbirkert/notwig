@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use notwig_core::protocol::RampSpec;
+use notwig_core::protocol::{MetronomeState, RampSpec};
 use notwig_core::{
     AssetId, AudioAssetBuffer, Db, DeviceId, NoteId, Pan, ParamId, ParamValue, PlaybackSchedule,
     TimeMus, TrackId,
@@ -28,6 +28,7 @@ pub struct TransportUpdate {
     pub loop_start_samples: Option<u64>,
     pub loop_end_samples: Option<u64>,
     pub stop: bool,
+    pub metronome: Option<MetronomeState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

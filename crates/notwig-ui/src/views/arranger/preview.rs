@@ -60,7 +60,7 @@ impl NotwigUi {
             egui::pos2(x1.max(lane.left()), lane.top()),
             egui::pos2(x2.max(x1 + 8.0).min(lane.right()), lane.bottom()),
         );
-        crate::timeline::draw_drop_preview(&painter, rect, &preview.path);
+        crate::timeline::draw_drop_preview(&painter, rect, &preview.path, preview.analyzing);
     }
 
     pub(super) fn timeline_scrollbar(

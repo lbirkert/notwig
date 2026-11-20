@@ -270,6 +270,7 @@ fn transport_stop_returns_to_loop_start_and_emits_engine_msg() {
             loop_range: Some(Some(
                 RangeMus::new(Rational::new(2, 1), Rational::new(6, 1)).unwrap(),
             )),
+            metronome: None,
         }),
     )
     .unwrap()

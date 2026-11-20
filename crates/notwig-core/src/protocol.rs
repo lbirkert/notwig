@@ -41,6 +41,7 @@ pub enum CommandPayload {
         playhead: Option<TimeMus>,
         loop_enabled: Option<bool>,
         loop_range: Option<Option<RangeMus>>,
+        metronome: Option<bool>,
     },
     SetTempo {
         tempo_bpm: f64,
@@ -212,6 +213,10 @@ pub enum CommandPayload {
         asset_id: AssetId,
         entry: AssetEntry,
     },
+    ReplaceAsset {
+        asset_id: AssetId,
+        entry: AssetEntry,
+    },
     RelinkAsset {
         asset_id: AssetId,
         uri: String,
@@ -374,6 +379,12 @@ impl PlaybackSchedule {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetronomeState {
+    pub enabled: bool,
+    pub beats_per_bar: u8,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineMsg {
     ApplyPlan {
@@ -386,6 +397,7 @@ pub enum EngineMsg {
         loop_start_samples: Option<u64>,
         loop_end_samples: Option<u64>,
         stop: bool,
+        metronome: Option<MetronomeState>,
     },
     SetParam {
         device_id: DeviceId,

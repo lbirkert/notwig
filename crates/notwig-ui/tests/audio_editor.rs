@@ -10,10 +10,10 @@ use notwig_core::{
 use notwig_ui::test_api::audio_editor::{
     ClipEdge, ClipLane, SliceDrag, SliceDragMode, SliceLowered, SliceModel, SliceSelection,
     clamp_slice_start, clip_edge_drag, delete_range, drag_origin_start, edge_preview_range,
-    emit_slices, event_color, geometry_duration, geometry_source_end, geometry_source_start,
-    geometry_start, group_move_shift, handle_clip_editor_actions, lower_slice_plan,
-    playhead_for_strip, set_drag_origin_start, slice_drag, slice_geometry, slice_model,
-    source_duration,
+    emit_slices, event_color, geometry_duration, geometry_silent_prefix, geometry_source_end,
+    geometry_source_start, geometry_start, group_move_shift, handle_clip_editor_actions,
+    lower_slice_plan, playhead_for_strip, set_drag_origin_start, slice_drag, slice_geometry,
+    slice_model, source_duration,
 };
 use notwig_ui::{ClipEditorState, Clipboard, EditFocus, NotwigUi, RuntimeView, UiIntent};
 use uuid::Uuid;
@@ -31,6 +31,7 @@ fn slice_at(id: u128, start: i64, source_start: u64, source_end: u64) -> AudioSl
         start: TimeMus::new(start, 1),
         source_start_sample: source_start,
         source_end_sample: source_end,
+        silent_prefix_samples: 0,
         gain_db: Db(0.0),
         asset_id: None,
     }
@@ -133,6 +134,7 @@ fn panel_doc(clip_start: i64) -> (ProjectDoc, ClipId) {
                     start: TimeMus::zero(),
                     source_start_sample: 0,
                     source_end_sample: 48_000,
+                    silent_prefix_samples: 0,
                     gain_db: Db(0.0),
                     asset_id: None,
                 }],
@@ -726,6 +728,18 @@ fn algebra_trim_start_keeps_right_edge_and_advances_source() {
 }
 
 #[test]
+fn algebra_trim_start_before_source_start_adds_silence_prefix() {
+    let slices = vec![slice_at(1, 1, 0, 48_000)];
+    let model = model_for(&slices);
+    let plan = edit::trim_object(&model, slices[0].id, edit::Edge::Start, TimeMus::zero()).unwrap();
+    let lowered = lower(&slices, plan);
+    let slice = &lowered.slices[0];
+    assert_eq!(slice.start, TimeMus::zero());
+    assert_eq!(slice.source_start_sample, 0);
+    assert_eq!(slice.silent_prefix_samples, 24_000);
+}
+
+#[test]
 fn algebra_trim_end_extends_source_and_clamps_non_empty() {
     let slices = vec![slice_at(1, 1, 0, 48_000)];
     let model = model_for(&slices);
@@ -1147,7 +1161,7 @@ fn audio_editor_playhead_is_hidden_while_stopped() {
 }
 
 #[test]
-fn trim_start_preview_stops_at_the_available_source() {
+fn trim_start_preview_adds_silence_past_the_available_source() {
     let geometry = slice_geometry(
         &slice(),
         Some(drag(SliceDragMode::TrimStart)),
@@ -1159,6 +1173,7 @@ fn trim_start_preview_stops_at_the_available_source() {
         TimeMus::zero(),
         true,
     );
-    assert_eq!(geometry_start(&geometry), TimeMus::new(1, 1));
+    assert_eq!(geometry_start(&geometry), TimeMus::zero());
     assert_eq!(geometry_source_start(&geometry), 0);
+    assert!(geometry_silent_prefix(&geometry) > 0);
 }

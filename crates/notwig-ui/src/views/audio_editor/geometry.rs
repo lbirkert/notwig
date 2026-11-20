@@ -19,16 +19,20 @@ pub struct SliceGeometry {
     pub(super) start: TimeMus,
     pub(super) source_start: u64,
     pub(super) source_end: u64,
+    pub(super) silent_prefix: u64,
 }
 
 impl SliceGeometry {
     pub(super) fn duration(self, map: &TempoMap) -> TimeMus {
-        map.samples_to_mus(self.source_end.saturating_sub(self.source_start))
+        map.samples_to_mus(
+            self.silent_prefix
+                .saturating_add(self.source_end.saturating_sub(self.source_start)),
+        )
     }
 }
 
 fn micro_time(value: f64) -> TimeMus {
-    signed_time(value.max(0.0))
+    signed_time(value)
 }
 
 fn signed_time(value: f64) -> TimeMus {
@@ -130,6 +134,7 @@ pub fn slice_geometry(
         start: slice.start,
         source_start: slice.source_start_sample,
         source_end: slice.source_end_sample,
+        silent_prefix: slice.silent_prefix_samples,
     };
     if let Some(drag) = drag {
         if drag.slice_id == slice.id {
@@ -138,23 +143,23 @@ pub fn slice_geometry(
                     geometry.start = clamp_slice_start(drag.origin_start + move_shift, min_start);
                 }
                 SliceDragMode::TrimStart => {
-                    // A start extension can only pull samples that exist before
-                    // the current source window; there is no silent prefix.
-                    let source_limit =
-                        drag.origin_start - map.samples_to_mus(drag.origin_source_start);
                     let start = clamp_slice_start(
                         snap_time(
                             micro_time(drag.origin_start.as_f64() + delta_mus),
                             grid,
                             bypass,
                         ),
-                        min_start.max(source_limit),
+                        min_start,
                     );
-                    let source_delta = samples_for_delta(start - drag.origin_start, map);
-                    let source = i128::from(drag.origin_source_start) + i128::from(source_delta);
-                    geometry.source_start = u64::try_from(source)
-                        .unwrap_or(0)
-                        .min(drag.origin_source_end.saturating_sub(1));
+                    let delta = samples_for_delta(start - drag.origin_start, map);
+                    let (silent, source_start) = super::model::adjust_trim_start(
+                        drag.origin_silent_prefix,
+                        drag.origin_source_start,
+                        drag.origin_source_end,
+                        delta,
+                    );
+                    geometry.silent_prefix = silent;
+                    geometry.source_start = source_start;
                     geometry.start = start;
                 }
                 SliceDragMode::TrimEnd => {
@@ -219,8 +224,10 @@ pub(super) fn finish_slice_drag(
         }
         SliceDragMode::TrimEnd => {
             let duration = map.samples_to_mus(
-                drag.origin_source_end
-                    .saturating_sub(drag.origin_source_start),
+                drag.origin_silent_prefix.saturating_add(
+                    drag.origin_source_end
+                        .saturating_sub(drag.origin_source_start),
+                ),
             );
             let target = signed_time((drag.origin_start + duration).as_f64() + delta_mus);
             edit::trim_object(&model, drag.slice_id, edit::Edge::End, target)

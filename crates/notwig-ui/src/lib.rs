@@ -13,7 +13,7 @@ pub(crate) use widgets::{drop_target, form, icons, theme, timeline};
 
 pub use clipboard::Clipboard;
 pub use commands::{KeyChord, ShortcutCommand, Shortcuts};
-pub use intent::{DropAudioTarget, UiIntent};
+pub use intent::{DropAudioTarget, ExportBitDepth, ExportFormat, ExportOptions, UiIntent};
 pub use runtime::{
     AudioDeviceView, AudioDriverView, AudioSettingsValue, AudioSettingsView, DspAnalysisView,
     MeterValues, PluginEntry, RuntimeView,
@@ -25,7 +25,7 @@ pub use state::{
 pub use views::arranger::ClipDrag;
 pub use views::arranger::edit::{clamp_node_shift, paste_target};
 pub use views::audio_editor::{ClipEditorState, ClipLane};
-pub use views::piano_roll::PianoRollState;
+pub use views::midi_editor::MidiEditorState;
 pub use views::settings::SettingsCategory;
 pub use widgets::icons::Icon;
 pub use widgets::{
@@ -36,7 +36,7 @@ pub use widgets::{
 pub mod test_api {
     pub use crate::shell::test_api as shell;
     pub use crate::views::audio_editor::test_api as audio_editor;
-    pub use crate::views::piano_roll::test_api as piano_roll;
+    pub use crate::views::midi_editor::test_api as midi_editor;
     pub use crate::widgets::drop_target::test_api as drop_target;
     pub use crate::widgets::test_api as widgets;
     pub use crate::widgets::timeline::test_api as timeline;

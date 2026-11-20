@@ -124,6 +124,7 @@ fn audio_doc() -> ProjectDoc {
                     start: Rational::zero(),
                     source_start_sample: 0,
                     source_end_sample: 48_000,
+                    silent_prefix_samples: 0,
                     gain_db: Db(0.0),
                     asset_id: None,
                 }],
@@ -588,8 +589,9 @@ fn toolbar_and_footer_use_lucide_glyphs() {
     for (name, glyph) in [
         ("play", '\u{e13c}'),
         ("stop", '\u{e167}'),
-        ("loop", '\u{e411}'),
-        ("record", '\u{e345}'),
+        ("loop", '\u{e146}'),
+        ("record", '\u{e076}'),
+        ("metronome", '\u{e6bc}'),
         ("info", '\u{e0f9}'),
         ("clip", '\u{e29b}'),
     ] {
@@ -691,7 +693,7 @@ fn audio_drop_uses_existing_lane_or_creates_track_at_boundary() {
 }
 
 #[test]
-fn hovering_an_audio_file_previews_its_real_length() {
+fn hovering_an_audio_file_probes_its_length_quickly() {
     use notwig_ui::DropAudioTarget;
     let doc = doc();
     let audio_track = id::<Track>(3);
@@ -727,22 +729,29 @@ fn hovering_an_audio_file_previews_its_real_length() {
     let point = egui::pos2(ui.timeline_left + 90.0, row.center().y);
     let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../notwig-project/tests/fixtures/tone.mp3");
+    let mut intents = Vec::new();
     let _ = ctx.run(
         egui::RawInput {
             screen_rect: Some(screen),
             hovered_files: vec![egui::HoveredFile {
-                path: Some(fixture),
+                path: Some(fixture.clone()),
                 ..Default::default()
             }],
             events: vec![egui::Event::PointerMoved(point)],
             ..Default::default()
         },
         |ctx| {
-            ui.show(ctx, &doc, &runtime);
+            intents = ui.show(ctx, &doc, &runtime);
         },
     );
     let preview = ui.drag_preview.as_ref().expect("drag preview");
     assert!(preview.duration.as_f64() > 0.0);
+    assert!(!preview.analyzing);
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::AnalyzeAudioDuration(_)))
+    );
     assert!(matches!(
         preview.target,
         DropAudioTarget::Track(track) if track == audio_track
@@ -1195,7 +1204,7 @@ fn clip_editor_event_body_moves_outside_the_clip() {
     let _ = run_ui(&ctx, &mut ui, &doc, &runtime, screen, Vec::new());
     let content = ui.clip_editor_content_rect;
     let body = egui::pos2(content.left() + 40.0, content.top() + 65.0);
-    let end = egui::pos2(content.left() + 400.0, body.y);
+    let body_end = egui::pos2(content.left() + 400.0, body.y);
     let _ = run_ui(
         &ctx,
         &mut ui,
@@ -1211,6 +1220,47 @@ fn clip_editor_event_body_moves_outside_the_clip() {
         &runtime,
         screen,
         vec![pointer_event(body, true)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::PointerMoved(body_end)],
+    );
+    let body_intents = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(body_end, false)],
+    );
+    assert!(
+        !body_intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetClipSlices { .. })),
+        "dragging the event body must not move the event"
+    );
+
+    let handle = egui::pos2(content.left() + 40.0, content.top() + 53.0);
+    let end = egui::pos2(content.left() + 400.0, handle.y);
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![egui::Event::PointerMoved(handle)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        screen,
+        vec![pointer_event(handle, true)],
     );
     let _ = run_ui(
         &ctx,
@@ -1234,7 +1284,7 @@ fn clip_editor_event_body_moves_outside_the_clip() {
             UiIntent::SetClipSlices { slices, .. } => Some(slices.clone()),
             _ => None,
         })
-        .expect("body drag should emit slices");
+        .expect("title handle drag should emit slices");
     assert!(slices.iter().any(|slice| slice.start > TimeMus::new(2, 1)));
     assert!(
         !intents
@@ -1318,4 +1368,26 @@ fn dsp_analysis_window_renders_history_and_stats() {
         },
     );
     assert!(ui.dsp_open);
+}
+
+#[test]
+fn render_progress_and_notification_overlays_render() {
+    let mut ui = NotwigUi::default();
+    ui.render_progress = Some(0.42);
+    ui.state.notify(
+        notwig_ui::NotificationKind::Info,
+        "Rendering audio".to_string(),
+    );
+    let ctx = egui::Context::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(clip_editor_screen()),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc(), &RuntimeView::default());
+        },
+    );
+    assert_eq!(ui.render_progress, Some(0.42));
+    assert_eq!(ui.state.notifications.len(), 1);
 }

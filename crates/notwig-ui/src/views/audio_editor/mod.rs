@@ -48,6 +48,7 @@ pub mod test_api {
             origin_start,
             origin_source_start,
             origin_source_end,
+            origin_silent_prefix: 0,
         }
     }
 
@@ -123,6 +124,10 @@ pub mod test_api {
 
     pub fn geometry_source_end(geometry: &SliceGeometry) -> u64 {
         geometry.source_end
+    }
+
+    pub fn geometry_silent_prefix(geometry: &SliceGeometry) -> u64 {
+        geometry.silent_prefix
     }
 
     pub fn geometry_duration(geometry: &SliceGeometry, map: &TempoMap) -> TimeMus {

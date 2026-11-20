@@ -1,11 +1,13 @@
 use super::{
-    EditError, EditModel, EditorKind, LaneBounds, ObjectExtent, ObjectKind, ObjectView, TrimLimits,
-    min_clip_span,
+    EditError, EditModel, EditOp, EditorKind, LaneBounds, NextSelection, ObjectExtent, ObjectKind,
+    ObjectRef, ObjectView, Plan, TrimLimits, min_clip_span,
 };
 use crate::apply::audio_slice_window_set;
 use crate::domain::ProjectDoc;
 use crate::ids::{ClipId, TrackId};
-use crate::sequencer::{AudioClipData, ClipEntity, ClipKind, ClipPayload, MidiClipData};
+use crate::sequencer::{
+    AudioClipData, AudioSlice, ClipEntity, ClipKind, ClipPayload, MidiClipData,
+};
 use crate::time::{Color, RangeMus, TimeMus};
 use crate::tracks::TrackKind;
 
@@ -21,6 +23,149 @@ pub struct ClipContent {
 #[derive(Debug, Clone, Copy)]
 pub struct ArrangerModel<'a> {
     doc: &'a ProjectDoc,
+}
+
+pub fn join_clips(
+    model: &ArrangerModel<'_>,
+    clip_ids: &[ClipId],
+) -> Result<Plan<TrackId, ClipId, ClipContent>, EditError> {
+    let mut ids = clip_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.len() < 2 {
+        return Err(EditError::InvalidSelection(
+            "select at least two clips to join".into(),
+        ));
+    }
+    let mut clips: Vec<&ClipEntity> = ids
+        .iter()
+        .map(|id| {
+            model
+                .doc
+                .arranger
+                .clips
+                .get(id)
+                .ok_or_else(|| EditError::NotFound(id.to_string()))
+        })
+        .collect::<Result<_, _>>()?;
+    clips.sort_by(|a, b| a.range.start.cmp(&b.range.start).then(a.id.cmp(&b.id)));
+    let track_id = clips[0].track_id;
+    let kind = clips[0].kind;
+    if clips.iter().any(|clip| clip.track_id != track_id) {
+        return Err(EditError::InvalidSelection(
+            "clips must be on the same lane".into(),
+        ));
+    }
+    if clips.iter().any(|clip| clip.kind != kind) {
+        return Err(EditError::InvalidSelection(
+            "clips must have the same kind".into(),
+        ));
+    }
+    if !clips
+        .windows(2)
+        .all(|pair| pair[0].range.end == pair[1].range.start)
+    {
+        return Err(EditError::InvalidSelection("clips must be adjacent".into()));
+    }
+    let span = RangeMus::new(clips[0].range.start, clips[clips.len() - 1].range.end)
+        .map_err(|err| EditError::InvalidSelection(err.to_string()))?;
+    let payload = match kind {
+        ClipKind::Midi => {
+            let content_start = clips
+                .iter()
+                .filter_map(|clip| match &clip.payload {
+                    ClipPayload::Midi(midi) => {
+                        Some(midi.content_start - (clip.range.start - span.start))
+                    }
+                    ClipPayload::Audio(_) => None,
+                })
+                .max()
+                .unwrap_or(TimeMus::zero())
+                .max(TimeMus::zero());
+            let mut notes = Vec::new();
+            for clip in &clips {
+                let ClipPayload::Midi(midi) = &clip.payload else {
+                    continue;
+                };
+                let offset = clip.range.start - span.start + content_start - midi.content_start;
+                for note in &midi.notes {
+                    let mut note = note.clone();
+                    note.start = note.start + offset;
+                    notes.push(note);
+                }
+            }
+            notes.sort_by(|a, b| a.start.cmp(&b.start).then(a.id.cmp(&b.id)));
+            ClipPayload::Midi(MidiClipData {
+                length: content_start + span.length(),
+                content_start,
+                notes,
+            })
+        }
+        ClipKind::Audio => {
+            let mut slices = Vec::new();
+            for clip in &clips {
+                let ClipPayload::Audio(audio) = &clip.payload else {
+                    continue;
+                };
+                if audio.uses_slices() {
+                    for slice in &audio.slices {
+                        let mut slice = slice.clone();
+                        slice.start = slice.start + (clip.range.start - span.start);
+                        slices.push(slice);
+                    }
+                } else {
+                    slices.push(AudioSlice {
+                        id: crate::ids::SliceId::nil(),
+                        start: clip.range.start - span.start,
+                        source_start_sample: audio.source_start_sample,
+                        source_end_sample: audio.source_end_sample,
+                        silent_prefix_samples: 0,
+                        gain_db: audio.gain_db,
+                        asset_id: Some(audio.asset_id),
+                    });
+                }
+            }
+            let first = match &clips[0].payload {
+                ClipPayload::Audio(audio) => audio,
+                ClipPayload::Midi(_) => unreachable!(),
+            };
+            ClipPayload::Audio(AudioClipData {
+                asset_id: first.asset_id,
+                source_start_sample: first.source_start_sample,
+                source_end_sample: first.source_end_sample,
+                gain_db: first.gain_db,
+                fade_in_samples: first.fade_in_samples,
+                fade_out_samples: first.fade_out_samples,
+                fade_shape: first.fade_shape,
+                slices,
+                slices_enabled: true,
+            })
+        }
+    };
+    let mut ops = Vec::with_capacity(clips.len() + 1);
+    for clip in &clips {
+        ops.push(EditOp::Remove { object: clip.id });
+    }
+    let place_index = ops.len();
+    ops.push(EditOp::Place {
+        lane: track_id,
+        span,
+        kind: match kind {
+            ClipKind::Midi => ObjectKind::ClipMidi,
+            ClipKind::Audio => ObjectKind::ClipAudio,
+        },
+        content: ClipContent {
+            kind,
+            payload,
+            name: clips[0].name.clone(),
+            color: clips[0].color,
+            muted: clips.iter().all(|clip| clip.muted),
+        },
+    });
+    Ok(Plan {
+        ops,
+        next: NextSelection::Objects(vec![ObjectRef::Created(place_index)]),
+    })
 }
 
 impl<'a> ArrangerModel<'a> {
@@ -47,10 +192,7 @@ impl<'a> ArrangerModel<'a> {
         let max_start = clip.range.end - min_span;
         let min_end = clip.range.start + min_span;
         let (min_start, max_end) = match &clip.payload {
-            ClipPayload::Midi(midi) => (
-                (clip.range.start - midi.content_start).max(TimeMus::zero()),
-                None,
-            ),
+            ClipPayload::Midi(_) => (TimeMus::zero(), None),
             ClipPayload::Audio(audio) if audio.uses_slices() => (TimeMus::zero(), None),
             ClipPayload::Audio(audio) => {
                 let map = self.doc.tempo_map();

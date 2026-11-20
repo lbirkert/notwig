@@ -1,4 +1,4 @@
-use egui::{Color32, CornerRadius, Id, Rect, Sense, Vec2};
+use egui::{Id, Rect, Sense};
 use notwig_core::{ProjectDoc, RangeMus, TimeMus, TrackId};
 
 use crate::intent::UiIntent;
@@ -19,6 +19,9 @@ impl NotwigUi {
         let Some(time) = self.state.selection.time.clone() else {
             return;
         };
+        if time.range.is_empty() {
+            return;
+        }
         let tracks: Vec<TrackId> = time.tracks.iter().copied().collect();
         let mut min_y = f32::INFINITY;
         let mut max_y = f32::NEG_INFINITY;
@@ -48,26 +51,11 @@ impl NotwigUi {
             return;
         }
         let response = ui.interact(rect, Id::new("bar-selection-move"), Sense::drag());
-        if response.hovered() || response.dragged() {
+        if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-            let painter = ui
-                .ctx()
-                .layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("bar-selection-handle"),
-                ))
-                .with_clip_rect(rect);
-            let handle = Rect::from_center_size(
-                egui::pos2(rect.center().x, rect.top() + 10.0),
-                Vec2::new(44.0, 16.0),
-            );
-            painter.rect_filled(handle, CornerRadius::same(6), Color32::WHITE);
-            crate::icons::paint(
-                &painter,
-                handle,
-                crate::icons::Icon::MoveHorizontal,
-                Color32::BLACK,
-            );
+        }
+        if response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         if response.drag_started() {
             if let Some(pointer) = drag_start_pos(ui, &response) {

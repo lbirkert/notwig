@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use notwig_core::ids::{DeviceChain, Track};
+use notwig_core::protocol::MetronomeState;
 use notwig_core::protocol::PlaybackSchedule;
 use notwig_core::{Id, Meta, ProjectDoc, SampleRate};
 use notwig_dsp::EngineCaps;
@@ -49,6 +50,7 @@ fn transport(playhead_samples: u64) -> TransportUpdate {
         loop_start_samples: None,
         loop_end_samples: None,
         stop: false,
+        metronome: None,
     }
 }
 
@@ -73,6 +75,31 @@ fn control_sync_installs_a_prepared_runtime_and_tracks_the_playhead() {
     engine.process(&mut output, 128).unwrap();
     assert_eq!(engine.transport().playhead_samples, 256.0);
     assert_eq!(producer.handle().playhead_samples(), 256);
+}
+
+#[test]
+fn control_transport_updates_enable_the_metronome() {
+    let doc = empty_doc();
+    let mut engine = Engine::new(EngineConfig::new(48_000, 128));
+    engine.set_control_sync_frames(1);
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+
+    let mut update = transport(0);
+    update.metronome = Some(MetronomeState {
+        enabled: true,
+        beats_per_bar: 4,
+    });
+    producer.data_mut().set_prepared_runtime(prepare(&doc));
+    producer.data_mut().set_transport(update);
+    producer.flush();
+
+    let mut output = vec![0.0_f32; 128 * 2];
+    engine.process(&mut output, 128).unwrap();
+    assert!(
+        output.iter().any(|sample| sample.abs() > 0.01),
+        "metronome click should be audible"
+    );
 }
 
 #[test]

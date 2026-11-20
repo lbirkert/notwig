@@ -16,6 +16,8 @@ pub enum ProjectError {
     Decode(String),
     #[error("resample error: {0}")]
     Resample(String),
+    #[error("audio encode error: {0}")]
+    Encode(String),
 }
 
 impl From<std::io::Error> for ProjectError {

@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, mpsc};
 
 use notwig_core::protocol::PlaybackSchedule;
-use notwig_core::{AssetId, AudioAssetBuffer, ProjectDoc};
+use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, ProjectDoc};
 use notwig_dsp::{CompiledPlan, EngineCaps};
 use notwig_engine::{
     DeviceFactory, Engine, EngineConfig, PluginDeviceFactory, PreparedRuntime, TransportRuntime,
 };
-use notwig_plugins::PluginDescriptor;
+use notwig_plugins::{PluginDescriptor, PluginState};
 
 use crate::plugins::new_plugin_host;
 
@@ -16,6 +16,7 @@ pub(crate) struct EngineBuildRequest {
     pub(crate) caps: EngineCaps,
     pub(crate) registry: notwig_dsp::DeviceRegistry,
     pub(crate) plugin_descriptors: Vec<PluginDescriptor>,
+    pub(crate) plugin_states: BTreeMap<DeviceId, PluginState>,
     pub(crate) assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
     pub(crate) sample_rate: u32,
     pub(crate) max_block_size: usize,
@@ -36,6 +37,7 @@ impl EngineBuildRequest {
             caps,
             registry,
             plugin_descriptors,
+            plugin_states,
             assets,
             sample_rate,
             max_block_size,
@@ -47,6 +49,7 @@ impl EngineBuildRequest {
         let factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::new(
             new_plugin_host(),
             plugin_descriptors,
+            plugin_states,
         ));
         Ok((config, factory, plan, schedule, assets))
     }
@@ -77,10 +80,13 @@ impl EngineBuildRequest {
     }
 }
 
+type EngineBuildResult = Result<Box<PreparedRuntime>, String>;
+type EngineBuildMessage = (u64, EngineBuildResult);
+
 #[derive(Default)]
 pub(crate) struct EngineBuild {
-    receiver: Option<mpsc::Receiver<Result<Box<PreparedRuntime>, String>>>,
-    queued: bool,
+    receiver: Option<mpsc::Receiver<EngineBuildMessage>>,
+    queued_request: Option<EngineBuildRequest>,
     requests: u64,
 }
 
@@ -92,7 +98,7 @@ impl EngineBuild {
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
         if self.receiver.is_some() {
-            self.queued = true;
+            self.queued_request = Some(request);
             return Ok(());
         }
         self.spawn(request)
@@ -101,8 +107,16 @@ impl EngineBuild {
     pub(crate) fn poll(&mut self) -> Option<Result<Box<PreparedRuntime>, String>> {
         let receiver = self.receiver.as_ref()?;
         match receiver.try_recv() {
-            Ok(outcome) => {
+            Ok((generation, outcome)) => {
                 self.receiver = None;
+                if generation < self.requests {
+                    if let Some(request) = self.queued_request.take()
+                        && let Err(err) = self.spawn(request)
+                    {
+                        return Some(Err(err));
+                    }
+                    return None;
+                }
                 Some(outcome)
             }
             Err(mpsc::TryRecvError::Empty) => None,
@@ -113,20 +127,8 @@ impl EngineBuild {
         }
     }
 
-    pub(crate) fn start_queued(&mut self, request: EngineBuildRequest) -> Result<(), String> {
-        if !self.queued {
-            return Ok(());
-        }
-        self.queued = false;
-        self.spawn(request)
-    }
-
-    pub(crate) fn queued(&self) -> bool {
-        self.queued
-    }
-
     pub(crate) fn building(&self) -> bool {
-        self.receiver.is_some() || self.queued
+        self.receiver.is_some() || self.queued_request.is_some()
     }
 
     pub(crate) fn requests(&self) -> u64 {
@@ -134,7 +136,13 @@ impl EngineBuild {
     }
 
     fn spawn(&mut self, request: EngineBuildRequest) -> Result<(), String> {
-        let receiver = notwig_engine::RuntimeLoader::spawn(move || request.prepare())
+        let generation = self.requests;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("notwig-engine-build".into())
+            .spawn(move || {
+                let _ = sender.send((generation, request.prepare()));
+            })
             .map_err(|err| format!("Could not start engine build: {err}"))?;
         self.receiver = Some(receiver);
         Ok(())

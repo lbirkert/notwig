@@ -258,6 +258,7 @@ fn prepare_engine(
             loop_start_samples: None,
             loop_end_samples: None,
             stop: false,
+            metronome: None,
         })
         .unwrap();
     engine
@@ -283,9 +284,10 @@ fn pdc_aligns_latent_track_with_direct_track() {
         output[100 * 2].abs() < 1e-6,
         "direct impulse was not delayed"
     );
+    let pan = std::f32::consts::FRAC_1_SQRT_2;
     let aligned = output[164 * 2].abs();
     assert!(
-        (aligned - 0.5).abs() < 1e-5,
+        (aligned - 0.5 * pan * 2.0).abs() < 1e-5,
         "impulses should sum in phase at sample 164, got {aligned}"
     );
 }
@@ -312,7 +314,7 @@ fn pdc_aligns_nested_group_latency() {
     assert!(output[100 * 2].abs() < 1e-6);
     assert!(output[164 * 2].abs() < 1e-6);
     let pan = std::f32::consts::FRAC_1_SQRT_2;
-    let expected = f32::midpoint(pan * pan, pan * pan * pan);
+    let expected = f32::midpoint(pan, pan * pan);
     let aligned = output[(100 + 64 + 32) * 2].abs();
     assert!(
         (aligned - expected).abs() < 1e-5,
@@ -359,7 +361,7 @@ fn pdc_aligns_send_with_direct_path() {
 
     assert!(output[100 * 2].abs() < 1e-6, "send arrived early");
     let pan = std::f32::consts::FRAC_1_SQRT_2;
-    let expected = f32::midpoint(pan * pan, pan * pan * pan);
+    let expected = f32::midpoint(pan, pan * pan);
     let aligned = output[164 * 2].abs();
     assert!(
         (aligned - expected).abs() < 1e-5,

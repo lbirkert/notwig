@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use notwig_core::{AssetId, DeviceKind, TimeMus, TrackId};
@@ -90,9 +90,12 @@ pub struct RuntimeView {
     pub play_start: TimeMus,
     pub meters: BTreeMap<TrackId, MeterValues>,
     pub waveforms: BTreeMap<AssetId, Vec<f32>>,
+    pub audio_durations: BTreeMap<PathBuf, Option<f64>>,
+    pub audio_analysis_pending: BTreeSet<PathBuf>,
     pub xruns: u64,
     pub cpu_load: Option<f32>,
     pub status: Option<String>,
+    pub engine_crashed: bool,
     pub plugins: Vec<PluginEntry>,
     pub bundle_path: Option<PathBuf>,
     pub dirty: bool,
@@ -110,9 +113,12 @@ impl Default for RuntimeView {
             play_start: TimeMus::zero(),
             meters: BTreeMap::new(),
             waveforms: BTreeMap::new(),
+            audio_durations: BTreeMap::new(),
+            audio_analysis_pending: BTreeSet::new(),
             xruns: 0,
             cpu_load: None,
             status: None,
+            engine_crashed: false,
             plugins: Vec::new(),
             bundle_path: None,
             dirty: false,

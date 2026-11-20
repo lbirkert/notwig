@@ -31,23 +31,22 @@ These stay outside the core and become extensions: the clip launcher and scenes,
 
 The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3 and AU plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, solo, and sends, loops playback, and renders offline.
 
-The largest gaps are automation, recording, warping, plugin state persistence, a mixer view, and latency compensation for hosted plugins.
+The largest gaps are automation, recording, warping, and a mixer view.
 
 ## Working order
 
 The current priorities, in order:
 
-1. MIDI editing and a piano roll.
+1. MIDI editing and a MIDI editor.
 2. Audio editing and warping.
 3. Plugin host depth.
 
-After those, the core needs a stable base: hosted-plugin latency compensation, a real-time-safe engine boundary, and plugin state in project bundles, then automation, recording, and a mixer view. Recovery UI and settings persistence are in place.
+After those, the core needs a stable base: a real-time-safe engine boundary, then automation, recording, and a mixer view. Recovery UI, settings persistence, plugin state, and hosted-plugin latency reporting are in place.
 
 Dependencies worth planning around:
 
-- A piano roll needs note editing commands, shared selection, and a shared clipboard.
+- A MIDI editor needs note editing commands, shared selection, and a shared clipboard.
 - Warping needs a tempo map and an audio stretch engine.
-- Plugin state needs a blob store in the project bundle.
 - Recording needs input devices, monitoring, and punch handling.
 - Automation needs stable parameter target IDs and an automation lane model.
 
@@ -70,8 +69,8 @@ Dependencies worth planning around:
 | Project templates | 📋 Planned | ⭐⭐ | New projects use one default template. There is no template picker or user template store. |
 | Project rename UI | 📋 Planned | ⭐⭐ |  |
 | Settings persistence | ✅ Implemented | ⭐⭐⭐⭐ | Shortcuts, audio driver, audio device, and block size persist in the per-user config. Missing drivers/devices fall back safely. Sample rate remains project-scoped. |
-| Render mixdown | ✅ Implemented | ⭐⭐⭐⭐⭐ | Offline render to stereo 32-bit float WAV at the project rate. |
-| Export formats | 📋 Planned | ⭐⭐⭐⭐ | AIFF, FLAC, MP3, OGG, bit depth, dithering, normalization, and stem export. |
+| Render mixdown | ✅ Implemented | ⭐⭐⭐⭐⭐ | Offline stereo render with WAV/AIFF output, 16/24-bit PCM or 32-bit float, optional dithering and normalization, plus stem export. |
+| Export formats | ✅ Implemented | ⭐⭐⭐⭐ | WAV, AIFF, FLAC, MP3, and OGG Vorbis with bit depth where applicable, dithering, normalization, and stem export. |
 | Render progress and cancel | 📋 Planned | ⭐⭐⭐ | GUI render blocks the UI thread today. |
 | CLI commands | ✅ Implemented | ⭐⭐⭐ | `new`, `demo`, `render`, `info`, and `scan-plugins`. |
 | Background engine builds | ✅ Implemented | ⭐⭐⭐⭐ | One build runs and one is queued. |
@@ -85,7 +84,7 @@ Dependencies worth planning around:
 | Global time signature | ✅ Implemented | ⭐⭐⭐⭐ | One numerator and denominator. |
 | Global loop | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sample-accurate wrap, blocks split at the loop end. |
 | Playhead locate | 🧪 Partial | ⭐⭐⭐⭐ | Ruler sets the play start. There is no scrub or seek gesture. |
-| Metronome | 📋 Planned | ⭐⭐⭐⭐ |  |
+| Metronome | ✅ Implemented | ⭐⭐⭐⭐ | Engine-generated click with a bar-start accent, toggled from the transport bar and stored in the project transport state. |
 | Count-in | 📋 Planned | ⭐⭐⭐ |  |
 | Tap tempo | 📋 Planned | ⭐⭐ |  |
 | Tempo map and tempo automation | 📋 Planned | ⭐⭐⭐⭐ | Constant tempo only today. |
@@ -156,7 +155,7 @@ Dependencies worth planning around:
 | --- | --- | --- | --- |
 | MIDI note model | 🧪 Partial | ⭐⭐⭐⭐⭐ | Pitch, start, length, velocity, release velocity, and an opaque expression map. The expression map is unused. |
 | Note commands | ✅ Implemented | ⭐⭐⭐⭐⭐ | `SetNote`, `CreateNote`, `SetNotes`, `DeleteNote`, and `DeleteNotes` validate MIDI clips, IDs, pitch/velocity, and clip bounds. Covered by apply-layer tests. |
-| Piano roll | ✅ Implemented | ⭐⭐⭐⭐⭐ | Shared clip chrome and beat strip, clickable piano keys with held note preview and key highlighting, notes outside the clip range, combined marquee/time/object selection, keyboard nudging, collision-aware resize/move, vertical velocity sliders, and headless interaction tests. |
+| MIDI editor | ✅ Implemented | ⭐⭐⭐⭐⭐ | Shared clip chrome and beat strip, clickable piano keys with held note preview and key highlighting, notes outside the clip range, combined marquee/time/object selection, keyboard nudging, collision-aware resize/move, vertical velocity sliders, and headless interaction tests. |
 | Note move, resize, and velocity editing | ✅ Implemented | ⭐⭐⭐⭐⭐ | Single and group move in time and pitch, edge resize, and velocity editing. |
 | Multi-note selection and editing | ✅ Implemented | ⭐⭐⭐⭐ | Additive selection with group move, copy, cut, paste, duplicate, and delete. |
 | Quantize, groove, swing, humanize | 📋 Planned | ⭐⭐⭐⭐ |  |
@@ -230,7 +229,7 @@ Dependencies worth planning around:
 | Device presets | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Device A/B compare | 📋 Planned | ⭐⭐⭐ |  |
 | Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | Insert points exist, drag does not. |
-| Device latency and PDC | 🧪 Partial | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, and track routing are latency-compensated. Hosted plugin latency still reports zero because `truce-rack` 1.1.5 exposes no latency query. |
+| Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/AU plugin latency are compensated. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock and plugin entries. |
 
 ## Plugins
@@ -244,10 +243,10 @@ Dependencies worth planning around:
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐⭐ | Scan runs in a child process. Cache is JSON with failure counts. |
 | Native plugin editor | 🧪 Partial | ⭐⭐⭐⭐ | macOS only, uses a separate plugin instance, and polls parameters. |
 | Plugin parameter UI | 🧪 Partial | ⭐⭐⭐⭐ | Generic parameter list. UUID to `u32` conversion truncates plugin parameter IDs. |
-| Plugin state save and restore | 📋 Planned | ⭐⭐⭐⭐⭐ | The host API exists. Project and engine do not store or restore blobs. |
+| Plugin state save and restore | ✅ Implemented | ⭐⭐⭐⭐⭐ | Native editor state is saved on close/exit, stored under `state/` in the bundle, and restored when plugin instances are rebuilt. |
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | Output events are collected and discarded. |
 | Sidechain and multi-out buses | 📋 Planned | ⭐⭐⭐⭐ |  |
-| Plugin latency compensation | 🧪 Partial | ⭐⭐⭐⭐⭐ | The plan and engine compensate non-zero device latency, but `truce-rack` 1.1.5 cannot report hosted plugin latency, so the adapter publishes zero. |
+| Plugin latency compensation | ✅ Implemented | ⭐⭐⭐⭐⭐ | The plan and engine compensate non-zero device latency, including latency queried from vendored VST3/AU wrappers. |
 | Out-of-process hosting | 📋 Planned | ⭐⭐⭐⭐ | Crash isolation and sandboxing. |
 | Plugin crash recovery | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Plugin preset management | 📋 Planned | ⭐⭐⭐ |  |
@@ -261,13 +260,13 @@ Dependencies worth planning around:
 | Contextual inspector | 🧪 Partial | ⭐⭐⭐⭐ | Some audio fade and gain fields are read-only. |
 | Device panel | ✅ Implemented | ⭐⭐⭐⭐⭐ | Chain cards, bypass, nesting, EQ editor, generic parameter knobs. |
 | Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Also see the Audio table. |
-| Piano roll | ✅ Implemented | ⭐⭐⭐⭐⭐ | Opens for MIDI clips from the arranger and the clip editor toggle. |
+| MIDI editor | ✅ Implemented | ⭐⭐⭐⭐⭐ | Opens for MIDI clips from the arranger and the clip editor toggle. |
 | Mixer view | 🚫 Not Planned | ⭐⭐ | Not required in core. Mixing works through track headers and the inspector. |
 | Automation editor | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Project and asset browser | 📋 Planned | ⭐⭐⭐ | Only the device browser exists. |
 | Settings | 🧪 Partial | ⭐⭐⭐⭐ | Audio and Shortcuts pages. General and Appearance are placeholders. |
 | DSP load window | 🧪 Partial | ⭐⭐ | Shows callback history, average and max load, deadline, jitter, and output latency. The window render is tested. |
-| Render mixdown dialog | ✅ Implemented | ⭐⭐⭐⭐ | Choose range and output file. |
+| Render mixdown dialog | ✅ Implemented | ⭐⭐⭐⭐ | Choose format, bit depth, dithering, normalization, stems, range, and output path. |
 | Notifications and help windows | 🧪 Partial | ⭐⭐ | Implemented but unreachable from the shell. |
 | Keyboard shortcuts | ✅ Implemented | ⭐⭐⭐⭐ | Configurable in Settings -> Shortcuts. Commands can have multiple bindings; bindings persist per user. |
 | Tool palette | 📋 Planned | ⭐⭐⭐ | All gestures are implicit today. |
@@ -305,9 +304,9 @@ These are outside the core. The device and editor systems should leave room for 
 
 | Blocker | Importance | Why it matters |
 | --- | --- | --- |
-| Plugin latency is unavailable | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, and track routing are compensated now. Hosted plugin latency cannot be queried through `truce-rack` 1.1.5, so latent plugins will still drift. |
+
 | Engine updates are synchronous | ⭐⭐⭐⭐⭐ | The UI and audio callback share a mutex. The callback can fail to lock and output silence. |
-| Plugin state is not persisted | ⭐⭐⭐⭐⭐ | A reopened project cannot restore plugin settings or duplicate a plugin faithfully. |
+
 | Audio clips are sample-locked | ⭐⭐⭐⭐⭐ | Tempo changes can invalidate clips until warping exists. |
 
 ## Updating this page

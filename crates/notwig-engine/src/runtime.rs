@@ -326,6 +326,35 @@ impl ActivePlan {
         playing: bool,
         include_clips: bool,
     ) -> Result<(), EngineError> {
+        let max_frames = self.config.max_block_size.max(1);
+        if frames > max_frames {
+            let mut written = 0;
+            while written < frames {
+                let count = (frames - written).min(max_frames);
+                let range = written * 2..(written + count) * 2;
+                self.render_inner(
+                    start_sample.saturating_add(written as u64),
+                    count,
+                    &mut output[range],
+                    playing,
+                    include_clips,
+                );
+                written += count;
+            }
+            return Ok(());
+        }
+        self.render_inner(start_sample, frames, output, playing, include_clips);
+        Ok(())
+    }
+
+    fn render_inner(
+        &mut self,
+        start_sample: u64,
+        frames: usize,
+        output: &mut [f32],
+        playing: bool,
+        include_clips: bool,
+    ) {
         for track in self.tracks.values_mut() {
             track.buffer[..frames * 2].fill(0.0);
             track.pre_fader[..frames * 2].fill(0.0);
@@ -395,7 +424,7 @@ impl ActivePlan {
                 }
             }
 
-            self.apply_track_gain_and_pan(id, frames);
+            self.apply_track_gain_and_pan(id, frames, !is_master);
             if !is_master {
                 self.route_track(id, frames);
             }
@@ -407,7 +436,6 @@ impl ActivePlan {
         } else {
             output.fill(0.0);
         }
-        Ok(())
     }
 
     fn render_audio_clips(&mut self, start_sample: u64, frames: usize) {
@@ -443,12 +471,8 @@ impl ActivePlan {
                         if asset.channels == 0 {
                             continue;
                         }
-                        let source_len = i64::try_from(
-                            slice
-                                .source_end_sample
-                                .saturating_sub(slice.source_start_sample),
-                        )
-                        .unwrap_or(i64::MAX);
+                        let source_len =
+                            i64::try_from(slice.duration_samples()).unwrap_or(i64::MAX);
                         if source_len <= 0 {
                             continue;
                         }
@@ -459,15 +483,25 @@ impl ActivePlan {
                         if visible_end <= visible_start {
                             continue;
                         }
-                        let source_offset = u64::try_from(visible_start - slice_start).unwrap_or(0);
-                        let source_start = slice.source_start_sample.saturating_add(source_offset);
+                        let offset = u64::try_from(visible_start - slice_start).unwrap_or(0);
+                        let audio_offset = offset.max(slice.silent_prefix_samples);
+                        let region_start = slice_start
+                            .saturating_add(i64::try_from(audio_offset).unwrap_or(i64::MAX));
+                        if region_start >= visible_end
+                            || slice.source_start_sample >= slice.source_end_sample
+                        {
+                            continue;
+                        }
+                        let source_start = slice
+                            .source_start_sample
+                            .saturating_add(audio_offset - slice.silent_prefix_samples);
                         if source_start >= slice.source_end_sample {
                             continue;
                         }
                         render_audio_region(
                             track,
                             asset,
-                            u64::try_from(visible_start).unwrap_or(0),
+                            u64::try_from(region_start).unwrap_or(0),
                             u64::try_from(visible_end).unwrap_or(0),
                             source_start,
                             slice.source_end_sample,
@@ -665,7 +699,7 @@ impl ActivePlan {
         events
     }
 
-    fn apply_track_gain_and_pan(&mut self, id: TrackId, frames: usize) {
+    fn apply_track_gain_and_pan(&mut self, id: TrackId, frames: usize, apply_pan: bool) {
         let Some(track) = self.tracks.get_mut(&id) else {
             return;
         };
@@ -675,7 +709,11 @@ impl ActivePlan {
         } else {
             0.0
         };
-        let (pan_l, pan_r) = track.plan.pan.gains();
+        let (pan_l, pan_r) = if apply_pan {
+            track.plan.pan.gains()
+        } else {
+            (1.0, 1.0)
+        };
         for frame in track.buffer[..frames * 2].chunks_exact_mut(2) {
             frame[0] *= gain * pan_l;
             frame[1] *= gain * pan_r;

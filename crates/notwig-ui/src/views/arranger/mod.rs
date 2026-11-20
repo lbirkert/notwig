@@ -103,7 +103,7 @@ impl NotwigUi {
             play_start: runtime.play_start,
             playhead: playhead.unwrap_or(start - TimeMus::new(1_000_000, 1)),
             show_play_start: true,
-            loop_bottom_inset: 2.0,
+            loop_bottom_inset: 14.0,
         };
         if let Some(action) = strip.show(ui, ruler_rect, Id::new("arranger-ruler")) {
             match action {
@@ -120,7 +120,13 @@ impl NotwigUi {
         let master = doc.master_track();
         let master_h = if master.is_some() { ROW_H } else { 0.0 };
         let rows_height = (ui.available_height() - SCROLLBAR_H - 4.0).max(60.0);
-        let scroll_height = (rows_height - master_h).max(ROW_H);
+        let tree_ids: Vec<TrackId> = visible_tracks(doc, &self.collapsed_tracks)
+            .into_iter()
+            .filter(|id| Some(*id) != master)
+            .collect();
+        let add_row_h = 28.0;
+        let tree_content_h = tree_ids.len() as f32 * ROW_H + add_row_h;
+        let tree_min_h = (rows_height - master_h).max(tree_content_h);
         let tree_rect = Rect::from_min_max(
             egui::pos2(ruler_rect.left(), rows_top),
             egui::pos2(timeline_left, rows_top + rows_height),
@@ -137,25 +143,24 @@ impl NotwigUi {
             Vec2::new(width, rows_height),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                ui.allocate_ui_with_layout(
-                    Vec2::new(width, scroll_height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("arranger_rows")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                for track_id in doc.track_order.depth_first() {
-                                    if Some(track_id) == master {
-                                        continue;
-                                    }
+                egui::ScrollArea::vertical()
+                    .id_salt("arranger_rows")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(width, tree_min_h),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                for track_id in &tree_ids {
                                     self.track_row(
-                                        ui, doc, track_id, header_w, ppb, start, runtime, grid,
+                                        ui, doc, *track_id, header_w, ppb, start, runtime, grid,
                                     );
                                 }
-                                let (add_rect, add_resp) = ui
-                                    .allocate_exact_size(Vec2::new(header_w, 28.0), Sense::click());
+                                let (add_rect, add_resp) = ui.allocate_exact_size(
+                                    Vec2::new(header_w, add_row_h),
+                                    Sense::click(),
+                                );
                                 let painter = ui.painter();
                                 painter.rect_filled(add_rect, CornerRadius::ZERO, theme::PANEL);
                                 painter.text(
@@ -182,12 +187,12 @@ impl NotwigUi {
                                         ui.close();
                                     }
                                 });
-                            });
-                    },
-                );
-                if let Some(master) = master {
-                    self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
-                }
+                            },
+                        );
+                        if let Some(master) = master {
+                            self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
+                        }
+                    });
             },
         );
 
@@ -257,3 +262,29 @@ mod navigation;
 mod preview;
 mod selection;
 mod track;
+
+fn visible_tracks(
+    doc: &ProjectDoc,
+    collapsed: &std::collections::BTreeSet<TrackId>,
+) -> Vec<TrackId> {
+    fn visit(
+        doc: &ProjectDoc,
+        collapsed: &std::collections::BTreeSet<TrackId>,
+        id: TrackId,
+        out: &mut Vec<TrackId>,
+    ) {
+        out.push(id);
+        if collapsed.contains(&id) {
+            return;
+        }
+        for child in doc.track_order.children_of(id) {
+            visit(doc, collapsed, *child, out);
+        }
+    }
+
+    let mut out = Vec::new();
+    for root in &doc.track_order.roots {
+        visit(doc, collapsed, *root, &mut out);
+    }
+    out
+}

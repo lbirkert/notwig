@@ -232,3 +232,49 @@ fn editors_are_mutually_exclusive() {
     ui.close_editor();
     assert_eq!(ui.currently_opened, None);
 }
+
+#[test]
+fn track_creation_shortcuts_emit_create_track_intents() {
+    let doc = timeline_doc();
+    let command = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let instrument = shortcut_intents(
+        &doc,
+        vec![egui::Event::Key {
+            key: egui::Key::T,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: command,
+        }],
+        command,
+    );
+    assert!(instrument.iter().any(|intent| matches!(
+        intent,
+        UiIntent::CreateTrack(notwig_core::TrackKind::Instrument)
+    )));
+
+    let shift_command = egui::Modifiers {
+        command: true,
+        shift: true,
+        ..Default::default()
+    };
+    let audio = shortcut_intents(
+        &doc,
+        vec![egui::Event::Key {
+            key: egui::Key::T,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: shift_command,
+        }],
+        shift_command,
+    );
+    assert!(
+        audio
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::CreateTrack(notwig_core::TrackKind::Audio)))
+    );
+}

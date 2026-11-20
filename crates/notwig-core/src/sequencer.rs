@@ -100,9 +100,32 @@ pub struct AudioSlice {
     pub start: TimeMus,
     pub source_start_sample: u64,
     pub source_end_sample: u64,
+    #[serde(default)]
+    pub silent_prefix_samples: u64,
     pub gain_db: Db,
     #[serde(default)]
     pub asset_id: Option<crate::ids::AssetId>,
+}
+
+impl AudioSlice {
+    #[must_use]
+    pub fn audio_samples(&self) -> u64 {
+        self.source_end_sample
+            .saturating_sub(self.source_start_sample)
+    }
+
+    #[must_use]
+    pub fn duration_samples(&self) -> u64 {
+        self.silent_prefix_samples
+            .saturating_add(self.audio_samples())
+    }
+
+    #[must_use]
+    pub fn source_sample_at(&self, offset: u64) -> Option<u64> {
+        let audio_offset = offset.checked_sub(self.silent_prefix_samples)?;
+        let sample = self.source_start_sample.checked_add(audio_offset)?;
+        (sample < self.source_end_sample).then_some(sample)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,7 +265,9 @@ impl AudioClipData {
         }
         if self.uses_slices() {
             for slice in &self.slices {
-                if slice.source_end_sample <= slice.source_start_sample {
+                if slice.source_end_sample <= slice.source_start_sample
+                    && slice.silent_prefix_samples == 0
+                {
                     return Err(CoreError::ValidationFailed {
                         reason: "audio slice source range must be non-empty".into(),
                     });

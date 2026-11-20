@@ -3,7 +3,7 @@ use egui::{Align2, RichText};
 use notwig_core::{ProjectDoc, TimeMus};
 
 use crate::form;
-use crate::intent::UiIntent;
+use crate::intent::{ExportBitDepth, ExportFormat, UiIntent};
 use crate::shell::NotwigUi;
 use crate::theme;
 use crate::widgets::format_beats;
@@ -31,12 +31,102 @@ impl NotwigUi {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_size([460.0, 300.0])
+            .default_size([460.0, 420.0])
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     form::section_heading(ui, "Format");
-                    ui.label(RichText::new("WAV · 32-bit float").color(theme::TEXT_MUTED));
+                    let mut format = match self.render_options.format {
+                        ExportFormat::Wav => "wav",
+                        ExportFormat::Aiff => "aiff",
+                        ExportFormat::Flac => "flac",
+                        ExportFormat::Mp3 => "mp3",
+                        ExportFormat::Ogg => "ogg",
+                    }
+                    .to_string();
+                    let format_label = match self.render_options.format {
+                        ExportFormat::Wav => "WAV",
+                        ExportFormat::Aiff => "AIFF",
+                        ExportFormat::Flac => "FLAC",
+                        ExportFormat::Mp3 => "MP3",
+                        ExportFormat::Ogg => "OGG Vorbis",
+                    };
+                    if form::select_row(
+                        ui,
+                        "File format",
+                        "render-format",
+                        &mut format,
+                        format_label,
+                        vec![
+                            ("wav".to_string(), "WAV".to_string()),
+                            ("aiff".to_string(), "AIFF".to_string()),
+                            ("flac".to_string(), "FLAC".to_string()),
+                            ("mp3".to_string(), "MP3".to_string()),
+                            ("ogg".to_string(), "OGG Vorbis".to_string()),
+                        ],
+                    ) {
+                        self.render_options.format = match format.as_str() {
+                            "aiff" => ExportFormat::Aiff,
+                            "flac" => ExportFormat::Flac,
+                            "mp3" => ExportFormat::Mp3,
+                            "ogg" => ExportFormat::Ogg,
+                            _ => ExportFormat::Wav,
+                        };
+                        if self.render_options.format == ExportFormat::Flac
+                            && self.render_options.bit_depth == ExportBitDepth::Float32
+                        {
+                            self.render_options.bit_depth = ExportBitDepth::Int24;
+                        }
+                    }
+
+                    let depth_options = match self.render_options.format {
+                        ExportFormat::Wav => Some(vec![
+                            ("int16".to_string(), "16-bit PCM".to_string()),
+                            ("int24".to_string(), "24-bit PCM".to_string()),
+                            ("float32".to_string(), "32-bit float".to_string()),
+                        ]),
+                        ExportFormat::Aiff => Some(vec![
+                            ("int16".to_string(), "16-bit PCM".to_string()),
+                            ("int24".to_string(), "24-bit PCM".to_string()),
+                            ("float32".to_string(), "32-bit PCM".to_string()),
+                        ]),
+                        ExportFormat::Flac => Some(vec![
+                            ("int16".to_string(), "16-bit PCM".to_string()),
+                            ("int24".to_string(), "24-bit PCM".to_string()),
+                        ]),
+                        ExportFormat::Mp3 | ExportFormat::Ogg => None,
+                    };
+                    if let Some(depth_options) = depth_options {
+                        let mut depth = match self.render_options.bit_depth {
+                            ExportBitDepth::Int16 => "int16".to_string(),
+                            ExportBitDepth::Int24 => "int24".to_string(),
+                            ExportBitDepth::Float32 => "float32".to_string(),
+                        };
+                        let depth_label = match self.render_options.bit_depth {
+                            ExportBitDepth::Int16 => "16-bit PCM",
+                            ExportBitDepth::Int24 => "24-bit PCM",
+                            ExportBitDepth::Float32 => "32-bit",
+                        };
+                        if form::select_row(
+                            ui,
+                            "Bit depth",
+                            "render-depth",
+                            &mut depth,
+                            depth_label,
+                            depth_options,
+                        ) {
+                            self.render_options.bit_depth = match depth.as_str() {
+                                "int16" => ExportBitDepth::Int16,
+                                "int24" => ExportBitDepth::Int24,
+                                _ => ExportBitDepth::Float32,
+                            };
+                        }
+                    }
+
+                    ui.checkbox(&mut self.render_options.dither, "Dither");
+                    ui.checkbox(&mut self.render_options.normalize, "Normalize");
+                    ui.checkbox(&mut self.render_options.stems, "Export stems");
+
                     ui.add_space(10.0);
                     form::section_heading(ui, "Range");
                     ui.horizontal(|ui| {
@@ -93,6 +183,7 @@ impl NotwigUi {
                             self.emit(UiIntent::RenderMixdownRange {
                                 start: self.render_start,
                                 end,
+                                options: self.render_options,
                             });
                         }
                         if ui.button("Close").clicked() {

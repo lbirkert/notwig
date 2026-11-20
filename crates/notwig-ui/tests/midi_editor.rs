@@ -6,11 +6,11 @@ use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData, NoteEntity};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_ui::test_api::piano_roll::{
+use notwig_ui::test_api::midi_editor::{
     MidiModel, NoteSelection, Pitch, ROW_HEIGHT, RULER_H, default_note_end, insert_note_clearing,
     lower_note_plan,
 };
-use notwig_ui::{EditFocus, NotwigUi, OpenedEditor, PianoRollState, RuntimeView, UiIntent};
+use notwig_ui::{EditFocus, MidiEditorState, NotwigUi, OpenedEditor, RuntimeView, UiIntent};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -222,28 +222,28 @@ fn open(ui: &mut NotwigUi, doc: &ProjectDoc, runtime: &RuntimeView, clip: ClipId
 }
 
 fn note_y(ui: &NotwigUi, content: egui::Rect, pitch: u8) -> f32 {
-    let scroll = ui.piano_roll.as_ref().unwrap().pitch_scroll;
+    let scroll = ui.midi_editor.as_ref().unwrap().pitch_scroll;
     content.top() + RULER_H + (127.0 - f32::from(pitch) - scroll) * ROW_HEIGHT + ROW_HEIGHT * 0.5
 }
 
 fn note_x(ui: &NotwigUi, content: egui::Rect, beat: f64) -> f32 {
-    let state = ui.piano_roll.as_ref().unwrap();
+    let state = ui.midi_editor.as_ref().unwrap();
     content.left()
         + ((beat - state.viewport.start.as_f64()) as f32) * state.viewport.pixels_per_beat
 }
 
 #[test]
-fn opening_a_midi_clip_uses_the_piano_roll() {
+fn opening_a_midi_clip_uses_the_midi_editor() {
     let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    assert_eq!(ui.currently_opened, Some(OpenedEditor::PianoRoll));
-    assert_eq!(ui.edit_focus, EditFocus::PianoRoll);
-    assert!(ui.piano_roll.is_some());
-    assert!(ui.piano_roll_content_rect.width() > 0.0);
+    assert_eq!(ui.currently_opened, Some(OpenedEditor::MidiEditor));
+    assert_eq!(ui.edit_focus, EditFocus::MidiEditor);
+    assert!(ui.midi_editor.is_some());
+    assert!(ui.midi_editor_content_rect.width() > 0.0);
     let _ = run_ui(&ctx, &mut ui, &doc, &runtime, Vec::new());
-    assert!(ui.piano_roll.is_some());
+    assert!(ui.midi_editor.is_some());
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn double_clicking_an_empty_row_creates_a_note() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 3.0), note_y(&ui, content, 64));
     let intents = double_click(&ctx, &mut ui, &doc, &runtime, pos);
     let created = intents
@@ -267,7 +267,7 @@ fn double_clicking_an_empty_row_creates_a_note() {
     assert!(created.length > Rational::zero());
     assert!(created.start + created.length <= Rational::new(8, 1));
     assert!(
-        ui.piano_roll
+        ui.midi_editor
             .as_ref()
             .is_some_and(|state| state.selected_contains(created.id))
     );
@@ -279,7 +279,7 @@ fn single_click_on_empty_lane_sets_zero_width_time_selection() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 3.0), note_y(&ui, content, 64));
     let _ = run_ui(
         &ctx,
@@ -308,7 +308,7 @@ fn single_click_on_empty_lane_sets_zero_width_time_selection() {
             .any(|intent| matches!(intent, UiIntent::CreateMidiNote { .. })),
         "single click must not create a note"
     );
-    let state = ui.piano_roll.as_ref().expect("piano roll open");
+    let state = ui.midi_editor.as_ref().expect("MIDI editor open");
     assert!(state.selected_is_empty());
     assert_eq!(
         state.time_selection(),
@@ -323,7 +323,7 @@ fn double_clicking_an_existing_note_deletes_it() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
     let intents = double_click(&ctx, &mut ui, &doc, &runtime, pos);
     let removed = intents
@@ -349,7 +349,7 @@ fn double_clicking_empty_space_avoids_ending_inside_an_existing_note() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 3.0), note_y(&ui, content, 60));
     let intents = double_click(&ctx, &mut ui, &doc, &runtime, pos);
     let created = intents
@@ -373,7 +373,7 @@ fn clicking_a_piano_key_previews_the_note() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(content.left() - 20.0, note_y(&ui, content, 60));
     let _ = run_ui(
         &ctx,
@@ -425,10 +425,10 @@ fn clicking_a_piano_key_previews_the_note() {
 fn pitch_rows_round_trip_at_row_centers() {
     for scroll in [0.0_f32, 0.5, 36.0, 42.25] {
         for pitch in [0_u8, 48, 60, 64, 127] {
-            let y = notwig_ui::test_api::piano_roll::y_for_pitch(pitch, 40.0, scroll)
+            let y = notwig_ui::test_api::midi_editor::y_for_pitch(pitch, 40.0, scroll)
                 + ROW_HEIGHT * 0.5;
             assert_eq!(
-                notwig_ui::test_api::piano_roll::pitch_for_y(y, 40.0, scroll),
+                notwig_ui::test_api::midi_editor::pitch_for_y(y, 40.0, scroll),
                 pitch,
                 "pitch {pitch} at scroll {scroll} should round-trip at a row center"
             );
@@ -442,7 +442,7 @@ fn dragging_in_empty_space_selects_notes_with_a_marquee() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let origin = egui::pos2(note_x(&ui, content, 0.5), note_y(&ui, content, 67));
     let end = egui::pos2(note_x(&ui, content, 3.0), note_y(&ui, content, 55));
     let _ = run_ui(
@@ -479,7 +479,7 @@ fn dragging_in_empty_space_selects_notes_with_a_marquee() {
             .any(|intent| matches!(intent, UiIntent::CreateMidiNote { .. })),
         "marquee drag must not create a note"
     );
-    let state = ui.piano_roll.as_ref().expect("piano roll open");
+    let state = ui.midi_editor.as_ref().expect("MIDI editor open");
     assert_eq!(state.selected_ids(), vec![id::<Note>(30)]);
     assert_eq!(
         state.time_selection(),
@@ -493,7 +493,7 @@ fn marquee_time_selection_expands_to_cover_selected_notes() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let origin = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
     let end = egui::pos2(note_x(&ui, content, 1.6), note_y(&ui, content, 60));
     let _ = run_ui(
@@ -524,7 +524,7 @@ fn marquee_time_selection_expands_to_cover_selected_notes() {
         &runtime,
         vec![pointer_event(end, false)],
     );
-    let state = ui.piano_roll.as_ref().expect("piano roll open");
+    let state = ui.midi_editor.as_ref().expect("MIDI editor open");
     assert_eq!(state.selected_ids(), vec![id::<Note>(30)]);
     assert_eq!(state.time_selection(), Some(span(1, 2)));
 }
@@ -536,7 +536,7 @@ fn deleting_a_selected_note_emits_a_removal() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
     let _ = run_ui(
         &ctx,
@@ -560,7 +560,7 @@ fn deleting_a_selected_note_emits_a_removal() {
         vec![pointer_event(pos, false)],
     );
     assert!(
-        ui.piano_roll
+        ui.midi_editor
             .as_ref()
             .is_some_and(|state| state.selected_contains(note_id)),
         "click should select the note"
@@ -594,8 +594,8 @@ fn dragging_a_note_moves_time_and_pitch() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
-    let ppb = ui.piano_roll.as_ref().unwrap().viewport.pixels_per_beat;
+    let content = ui.midi_editor_content_rect;
+    let ppb = ui.midi_editor.as_ref().unwrap().viewport.pixels_per_beat;
     let origin = egui::pos2(note_x(&ui, content, 1.25), note_y(&ui, content, 60));
     let end = egui::pos2(origin.x + ppb, origin.y - ROW_HEIGHT * 2.0);
     let _ = run_ui(
@@ -646,7 +646,7 @@ fn dragging_the_velocity_lane_updates_velocity() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let x = note_x(&ui, content, 1.0) + 2.0;
     let top = content.bottom() - 62.0 + 6.0;
     let bottom = content.bottom() - 8.0;
@@ -698,7 +698,7 @@ fn copy_and_paste_places_a_note_at_the_playhead() {
     let mut runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
     let _ = run_ui(
         &ctx,
@@ -722,7 +722,7 @@ fn copy_and_paste_places_a_note_at_the_playhead() {
         vec![pointer_event(pos, false)],
     );
     let _ = run_ui(&ctx, &mut ui, &doc, &runtime, vec![egui::Event::Copy]);
-    ui.piano_roll.as_mut().unwrap().clear_selection();
+    ui.midi_editor.as_mut().unwrap().clear_selection();
     runtime.playhead = Rational::new(4, 1);
     let intents = run_ui(
         &ctx,
@@ -770,7 +770,7 @@ fn lowering_paste_keeps_offsets_and_assigns_new_ids() {
 #[test]
 fn selecting_notes_derives_the_time_selection() {
     let notes = vec![note(1, 60, 1, 2), note(2, 62, 4, 1)];
-    let mut state = PianoRollState::new(id::<Clip>(20));
+    let mut state = MidiEditorState::new(id::<Clip>(20));
     state.sync_notes(&notes);
 
     state.select_note(id::<Note>(1), false);
@@ -792,7 +792,7 @@ fn time_only_selection_copies_and_deletes_without_objects() {
     let notes = vec![note(1, 60, 1, 2), note(2, 62, 3, 1)];
     let midi = midi_with_notes(notes.clone());
     let model = MidiModel::new(&midi);
-    let mut state = PianoRollState::new(id::<Clip>(20));
+    let mut state = MidiEditorState::new(id::<Clip>(20));
     state.sync_notes(&notes);
     state.select_time(span(1, 3));
 
@@ -820,7 +820,7 @@ fn time_only_selection_copies_and_deletes_without_objects() {
 #[test]
 fn marquee_selection_sets_objects_and_the_marquee_range() {
     let notes = vec![note(1, 60, 1, 2), note(2, 62, 4, 1)];
-    let mut state = PianoRollState::new(id::<Clip>(20));
+    let mut state = MidiEditorState::new(id::<Clip>(20));
     state.sync_notes(&notes);
     let marquee = span(2, 5);
     state.select_marquee([id::<Note>(1)], marquee);
@@ -963,7 +963,7 @@ fn copy_and_paste_uses_the_time_selection_start() {
     let mut runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
     let _ = run_ui(
         &ctx,
@@ -1022,20 +1022,21 @@ fn arrow_keys_move_selected_notes_on_the_grid_and_in_pitch() {
         muted: false,
         payload: ClipPayload::Midi(midi.clone()),
     };
-    let mut state = PianoRollState::new(clip.id);
+    let mut state = MidiEditorState::new(clip.id);
     state.sync_notes(&midi.notes);
     state.select_note(id::<Note>(1), false);
     let mut ui = NotwigUi::default();
-    ui.edit_focus = EditFocus::PianoRoll;
+    ui.edit_focus = EditFocus::MidiEditor;
     let mut midi = midi;
     let ctx = egui::Context::default();
 
     let run = |ctx: &egui::Context,
                ui: &mut NotwigUi,
                midi: &mut MidiClipData,
-               state: &mut PianoRollState,
+               state: &mut MidiEditorState,
                key: egui::Key,
                shift: bool| {
+        ui.intents.clear();
         let modifiers = egui::Modifiers {
             shift,
             ..Default::default()
@@ -1053,7 +1054,7 @@ fn arrow_keys_move_selected_notes_on_the_grid_and_in_pitch() {
                 ..Default::default()
             },
             |ctx| {
-                notwig_ui::test_api::piano_roll::handle_piano_roll_actions(
+                notwig_ui::test_api::midi_editor::handle_midi_editor_actions(
                     ui,
                     ctx,
                     state,
@@ -1061,6 +1062,7 @@ fn arrow_keys_move_selected_notes_on_the_grid_and_in_pitch() {
                     &clip,
                     Rational::new(1, 8),
                     Rational::zero(),
+                    120.0,
                 );
             },
         );
@@ -1078,6 +1080,11 @@ fn arrow_keys_move_selected_notes_on_the_grid_and_in_pitch() {
         midi.notes[0].start,
         Rational::new(2, 1) + Rational::new(1, 8)
     );
+    assert!(
+        ui.intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::PreviewNote { pitch: 60, .. }))
+    );
     run(
         &ctx,
         &mut ui,
@@ -1087,6 +1094,11 @@ fn arrow_keys_move_selected_notes_on_the_grid_and_in_pitch() {
         false,
     );
     assert_eq!(midi.notes[0].pitch, 61);
+    assert!(
+        ui.intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::PreviewNote { pitch: 61, .. }))
+    );
     run(
         &ctx,
         &mut ui,
@@ -1096,6 +1108,11 @@ fn arrow_keys_move_selected_notes_on_the_grid_and_in_pitch() {
         true,
     );
     assert_eq!(midi.notes[0].pitch, 49);
+    assert!(
+        ui.intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::PreviewNote { pitch: 49, .. }))
+    );
 }
 
 #[test]
@@ -1112,11 +1129,11 @@ fn duplicate_uses_the_time_selection_as_the_rightward_offset() {
         muted: false,
         payload: ClipPayload::Midi(midi.clone()),
     };
-    let mut state = PianoRollState::new(clip.id);
+    let mut state = MidiEditorState::new(clip.id);
     state.sync_notes(&midi.notes);
     state.select_marquee([id::<Note>(1)], span(0, 4));
     let mut ui = NotwigUi::default();
-    ui.edit_focus = EditFocus::PianoRoll;
+    ui.edit_focus = EditFocus::MidiEditor;
     let mut midi = midi;
     let ctx = egui::Context::default();
     let _ = ctx.run(
@@ -1138,7 +1155,7 @@ fn duplicate_uses_the_time_selection_as_the_rightward_offset() {
             ..Default::default()
         },
         |ctx| {
-            notwig_ui::test_api::piano_roll::handle_piano_roll_actions(
+            notwig_ui::test_api::midi_editor::handle_midi_editor_actions(
                 &mut ui,
                 ctx,
                 &mut state,
@@ -1146,6 +1163,7 @@ fn duplicate_uses_the_time_selection_as_the_rightward_offset() {
                 &clip,
                 Rational::new(1, 8),
                 Rational::zero(),
+                120.0,
             );
         },
     );
@@ -1155,7 +1173,9 @@ fn duplicate_uses_the_time_selection_as_the_rightward_offset() {
         .find(|note| note.id != id::<Note>(1))
         .expect("duplicate should create a note");
     assert_eq!(duplicated.start, Rational::new(5, 1));
-    assert_eq!(state.time_selection(), Some(span(5, 6)));
+    let time = state.time_selection().expect("time selection is preserved");
+    assert_eq!(time.start, Rational::new(4, 1));
+    assert_eq!(time.length(), Rational::new(4, 1));
 }
 
 #[test]
@@ -1164,7 +1184,7 @@ fn notes_can_be_created_beyond_the_clip_range() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let before = egui::pos2(note_x(&ui, content, 2.0), note_y(&ui, content, 60));
     let after = egui::pos2(note_x(&ui, content, 10.0), note_y(&ui, content, 64));
 
@@ -1198,7 +1218,7 @@ fn clicking_a_note_previews_it_for_its_duration() {
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
     let ctx = open(&mut ui, &doc, &runtime, clip);
-    let content = ui.piano_roll_content_rect;
+    let content = ui.midi_editor_content_rect;
     let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
     let _ = run_ui(
         &ctx,
@@ -1228,4 +1248,113 @@ fn clicking_a_note_previews_it_for_its_duration() {
         _ => None,
     });
     assert_eq!(preview, Some((60, Some(Rational::new(2, 1)))));
+}
+
+#[test]
+fn arrow_keys_preview_every_selected_note_in_a_stack() {
+    let notes = vec![note(1, 60, 1, 1), note(2, 64, 1, 1), note(3, 67, 1, 1)];
+    let midi = midi_with_notes(notes);
+    let clip = ClipEntity {
+        id: id::<Clip>(21),
+        track_id: id::<Track>(2),
+        kind: ClipKind::Midi,
+        range: RangeMus::new(Rational::zero(), Rational::new(8, 1)).unwrap(),
+        name: None,
+        color: None,
+        muted: false,
+        payload: ClipPayload::Midi(midi.clone()),
+    };
+    let mut state = MidiEditorState::new(clip.id);
+    state.sync_notes(&midi.notes);
+    state.select_notes([id::<Note>(1), id::<Note>(2), id::<Note>(3)]);
+    let mut ui = NotwigUi::default();
+    ui.edit_focus = EditFocus::MidiEditor;
+    let mut midi = midi;
+    let ctx = egui::Context::default();
+    let modifiers = egui::Modifiers::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::ArrowUp,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            notwig_ui::test_api::midi_editor::handle_midi_editor_actions(
+                &mut ui,
+                ctx,
+                &mut state,
+                &mut midi,
+                &clip,
+                Rational::new(1, 8),
+                Rational::zero(),
+                120.0,
+            );
+        },
+    );
+    let mut pitches: Vec<u8> = ui
+        .intents
+        .iter()
+        .filter_map(|intent| match intent {
+            UiIntent::PreviewNote { pitch, .. } => Some(*pitch),
+            _ => None,
+        })
+        .collect();
+    pitches.sort_unstable();
+    assert_eq!(pitches, vec![61, 65, 68]);
+}
+
+#[test]
+fn copying_notes_also_sets_the_platform_clipboard_text() {
+    let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    let content = ui.midi_editor_content_rect;
+    let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::PointerMoved(pos)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(pos, true)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(pos, false)],
+    );
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::Copy],
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(
+        output
+            .platform_output
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+        "copy should also set the platform clipboard text"
+    );
 }

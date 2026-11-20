@@ -276,6 +276,7 @@ pub(crate) fn audio_slices(clip: &ClipEntity, audio: &AudioClipData) -> Vec<Audi
         start: notwig_core::TimeMus::zero(),
         source_start_sample: audio.source_start_sample,
         source_end_sample: audio.source_end_sample,
+        silent_prefix_samples: 0,
         gain_db: audio.gain_db,
         asset_id: None,
     }]
@@ -315,11 +316,7 @@ pub(crate) fn draw_audio_slices(
     let map = doc.tempo_map();
     for slice in &audio.slices {
         let start = clip.range.start + slice.start;
-        let duration = map.samples_to_mus(
-            slice
-                .source_end_sample
-                .saturating_sub(slice.source_start_sample),
-        );
+        let duration = map.samples_to_mus(slice.duration_samples());
         let x1 = grid.x_for_beat(start, lane_left);
         let x2 = grid.x_for_beat(start + duration, lane_left);
         let full_rect = Rect::from_min_max(
@@ -339,9 +336,18 @@ pub(crate) fn draw_audio_slices(
             .and_then(|asset| asset.duration_samples)
             .unwrap_or(slice.source_end_sample);
         if rect.width() > 1.0 {
+            let audio_start = start + map.samples_to_mus(slice.silent_prefix_samples);
+            let audio_duration = map.samples_to_mus(slice.audio_samples());
+            let audio_rect = Rect::from_min_max(
+                egui::pos2(grid.x_for_beat(audio_start, lane_left), body_rect.top()),
+                egui::pos2(
+                    grid.x_for_beat(audio_start + audio_duration, lane_left),
+                    body_rect.bottom(),
+                ),
+            );
             draw_waveform(
                 painter,
-                full_rect,
+                audio_rect,
                 clip_rect,
                 peaks,
                 asset_samples,

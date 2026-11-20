@@ -27,6 +27,7 @@ pub enum Icon {
     Save,
     Settings,
     Record,
+    Metronome,
     Audio,
     Instrument,
     Menu,
@@ -43,7 +44,7 @@ impl Icon {
             Self::Play => '\u{e13c}',                   // play
             Self::Pause => '\u{e12e}',                  // pause
             Self::Stop => '\u{e167}',                   // square
-            Self::Loop => '\u{e411}',                   // repeat-2
+            Self::Loop => '\u{e146}',                   // repeat
             Self::Power => '\u{e140}',                  // power
             Self::Fit => '\u{e113}',                    // maximize-2
             Self::Plus => '\u{e13d}',                   // plus
@@ -55,7 +56,8 @@ impl Icon {
             Self::Folder => '\u{e0d7}',                 // folder
             Self::Save => '\u{e14d}',                   // save
             Self::Settings => '\u{e154}',               // settings
-            Self::Record => '\u{e345}',                 // circle-dot
+            Self::Record => '\u{e076}',                 // circle
+            Self::Metronome => '\u{e6bc}',              // metronome
             Self::Audio => '\u{e55a}',                  // audio-lines
             Self::Instrument => '\u{e561}',             // piano
             Self::Menu => '\u{e0b6}',                   // ellipsis
@@ -104,7 +106,9 @@ pub fn icon_button_sized(
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
-    let size = (rect.width().min(rect.height()) * 0.68).clamp(8.0, 28.0);
+    // Keep the glyph well inside the button so icon buttons read with clear
+    // inner padding rather than filling their frame edge to edge.
+    let size = (rect.width().min(rect.height()) * 0.56).clamp(7.0, 24.0);
     painter.text(
         rect.center(),
         egui::Align2::CENTER_CENTER,

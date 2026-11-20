@@ -16,7 +16,7 @@ use crate::theme;
 use crate::timeline::{BeatStrip, ClipChrome, TimelineGrid, playhead_for_strip};
 use crate::widgets::snap_step;
 
-use super::actions::handle_piano_roll_actions;
+use super::actions::handle_midi_editor_actions;
 use super::geometry::{
     ROW_HEIGHT, beat_from_content_time, clamp_pitch_scroll, clamp_pitch_shift, clamp_time_shift,
     content_time_from_beat, pitch_for_y, snapped_shift, velocity_for_y, velocity_y, y_for_pitch,
@@ -24,8 +24,10 @@ use super::geometry::{
 use super::model::{
     MidiModel, Pitch, apply_note_lowered, create_note_clearing, default_note_end, lower_note_plan,
 };
-use super::navigation::{SCROLLBAR_H, piano_roll_navigation, piano_roll_scrollbar};
-use super::state::{MarqueeDrag, NoteDrag, NoteDragMode, NoteOrigin, PianoRollState, VelocityDrag};
+use super::navigation::{SCROLLBAR_H, midi_editor_navigation, midi_editor_scrollbar};
+use super::state::{
+    MarqueeDrag, MidiEditorState, NoteDrag, NoteDragMode, NoteOrigin, VelocityDrag,
+};
 
 const KEY_WIDTH: f32 = 56.0;
 pub(super) const RULER_H: f32 = 38.0;
@@ -41,22 +43,22 @@ struct NoteVisual {
 }
 
 impl NotwigUi {
-    pub(crate) fn piano_roll_panel(
+    pub(crate) fn midi_editor_panel(
         &mut self,
         ctx: &egui::Context,
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        let Some(mut state) = self.piano_roll.clone() else {
-            self.piano_roll_placeholder(ctx);
+        let Some(mut state) = self.midi_editor.clone() else {
+            self.midi_editor_placeholder(ctx);
             return;
         };
         let Some(clip) = doc.arranger.clips.get(&state.clip_id).cloned() else {
-            self.close_piano_roll();
+            self.close_midi_editor();
             return;
         };
         let ClipPayload::Midi(original) = &clip.payload else {
-            self.close_piano_roll();
+            self.close_midi_editor();
             return;
         };
         let mut midi = original.clone();
@@ -80,7 +82,7 @@ impl NotwigUi {
         let beats_per_bar = doc.meta.time_sig_num.max(1);
         let grid = snap_step(ppb, beats_per_bar);
 
-        handle_piano_roll_actions(
+        handle_midi_editor_actions(
             self,
             ctx,
             &mut state,
@@ -88,18 +90,19 @@ impl NotwigUi {
             &clip,
             grid,
             runtime.playhead,
+            doc.meta.tempo_bpm,
         );
 
         let open = crate::views::panel::bottom_panel(
             ctx,
             crate::views::panel::PanelConfig {
-                id: "piano_roll_panel",
+                id: "midi_editor_panel",
                 resizable: true,
                 default_height: 440.0,
                 min_height: 160.0,
                 max_height: 800.0,
                 collapse_height: 220.0,
-                handle_id: "piano-roll-panel",
+                handle_id: "midi-editor-panel",
                 handle_tooltip: "Drag down to close",
             },
             |ui| {
@@ -124,12 +127,12 @@ impl NotwigUi {
                     egui::pos2(content.left(), ruler.bottom()),
                     egui::pos2(content.right(), velocity.min.y),
                 );
-                self.piano_roll_content_rect = content;
+                self.midi_editor_content_rect = content;
                 if ui.rect_contains_pointer(rect) && ui.input(|input| input.pointer.any_pressed()) {
-                    self.edit_focus = crate::state::EditFocus::PianoRoll;
+                    self.edit_focus = crate::state::EditFocus::MidiEditor;
                 }
                 state.pitch_scroll = clamp_pitch_scroll(state.pitch_scroll, note_area.height());
-                piano_roll_navigation(&mut state, ui, content, note_area);
+                midi_editor_navigation(&mut state, ui, content, note_area);
 
                 let painter = ui.painter().clone();
                 painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
@@ -143,7 +146,7 @@ impl NotwigUi {
                 let strip = BeatStrip {
                     grid: timeline_grid,
                     header_width: KEY_WIDTH,
-                    header_label: Some("PIANO ROLL"),
+                    header_label: Some("MIDI EDITOR"),
                     loop_range: if doc.transport.loop_enabled {
                         doc.transport.loop_range
                     } else {
@@ -157,9 +160,11 @@ impl NotwigUi {
                     show_play_start: true,
                     loop_bottom_inset: 14.0,
                 };
-                if let Some(action) =
-                    strip.show(ui, strip_rect, Id::new(("piano-roll-ruler", state.clip_id)))
-                {
+                if let Some(action) = strip.show(
+                    ui,
+                    strip_rect,
+                    Id::new(("midi-editor-ruler", state.clip_id)),
+                ) {
                     match action {
                         crate::timeline::BeatStripAction::Locate(beat) => {
                             self.emit(UiIntent::SetPlayStart(beat));
@@ -236,7 +241,7 @@ impl NotwigUi {
 
                 let bg = ui.interact(
                     note_area,
-                    Id::new(("piano-roll-bg", state.clip_id)),
+                    Id::new(("midi-editor-bg", state.clip_id)),
                     Sense::click_and_drag(),
                 );
                 let hit_note = cursor_pos.is_some_and(|pos| {
@@ -357,7 +362,7 @@ impl NotwigUi {
                     );
                     let response = ui.interact(
                         visual.rect,
-                        Id::new(("piano-note", note.id)),
+                        Id::new(("midi-note", note.id)),
                         Sense::click_and_drag(),
                     );
                     if response.double_clicked() {
@@ -419,7 +424,7 @@ impl NotwigUi {
                             );
                             let trim = ui.interact(
                                 handle,
-                                Id::new(("piano-note-trim", note.id, label)),
+                                Id::new(("midi-note-trim", note.id, label)),
                                 Sense::drag(),
                             );
                             if trim.hovered() || trim.dragged() {
@@ -484,7 +489,7 @@ impl NotwigUi {
                         lanes,
                         range: display_range,
                         origin: clip.range,
-                        id_salt: Id::new(("piano-roll-clip-edge", state.clip_id)),
+                        id_salt: Id::new(("midi-editor-clip-edge", state.clip_id)),
                         ppb,
                         snap_step: grid,
                         bypass,
@@ -600,29 +605,29 @@ impl NotwigUi {
                         .max(display_range.end)
                         .max(clip.range.end)
                         + TimeMus::new(4, 1);
-                piano_roll_scrollbar(ui, &mut state, rect, content, content_end, ppb);
+                midi_editor_scrollbar(ui, &mut state, rect, content, content_end, ppb);
                 true
             },
         );
 
         if open {
-            self.piano_roll = Some(state);
+            self.midi_editor = Some(state);
         } else {
-            self.close_piano_roll();
+            self.close_midi_editor();
         }
     }
 
-    fn piano_roll_placeholder(&mut self, ctx: &egui::Context) {
+    fn midi_editor_placeholder(&mut self, ctx: &egui::Context) {
         let open = crate::views::panel::bottom_panel(
             ctx,
             crate::views::panel::PanelConfig {
-                id: "piano_roll_panel",
+                id: "midi_editor_panel",
                 resizable: true,
                 default_height: 300.0,
                 min_height: 100.0,
                 max_height: 800.0,
                 collapse_height: 160.0,
-                handle_id: "piano-roll-panel",
+                handle_id: "midi-editor-panel",
                 handle_tooltip: "Drag down to close",
             },
             |ui| {
@@ -641,7 +646,7 @@ impl NotwigUi {
 #[allow(clippy::too_many_arguments)]
 fn build_visuals(
     midi: &MidiClipData,
-    state: &PianoRollState,
+    state: &MidiEditorState,
     clip: &ClipEntity,
     grid: &TimelineGrid,
     note_area: Rect,
@@ -683,7 +688,7 @@ fn build_visuals(
 #[allow(clippy::too_many_arguments)]
 fn preview_span(
     note: &NoteEntity,
-    state: &PianoRollState,
+    state: &MidiEditorState,
     pointer: Option<egui::Pos2>,
     grid: TimeMus,
     bypass: bool,
@@ -764,7 +769,7 @@ fn beat_at(x: f32, grid: &TimelineGrid, content_left: f32, bypass: bool) -> Time
 #[allow(clippy::too_many_arguments)]
 fn create_note_at_pointer(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     clip: &ClipEntity,
     grid: &TimelineGrid,
@@ -791,7 +796,7 @@ fn create_note_at_pointer(
         pitch,
         start,
         length,
-        velocity: PianoRollState::default_velocity(),
+        velocity: MidiEditorState::default_velocity(),
         release_velocity: None,
         expression: BTreeMap::new(),
     };
@@ -802,7 +807,7 @@ fn create_note_at_pointer(
 
 fn delete_note(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     note_id: NoteId,
 ) {
@@ -819,7 +824,7 @@ fn delete_note(
 
 #[allow(clippy::too_many_arguments)]
 fn apply_marquee(
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     visuals: &[NoteVisual],
     origin: egui::Pos2,
     current: egui::Pos2,
@@ -874,7 +879,7 @@ fn local_time_range(range: RangeMus, clip: &ClipEntity, midi: &MidiClipData) -> 
 }
 
 fn begin_note_drag(
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &MidiClipData,
     note: &NoteEntity,
     mode: NoteDragMode,
@@ -915,7 +920,7 @@ fn begin_note_drag(
 #[allow(clippy::too_many_arguments)]
 fn finish_note_drag(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     drag: NoteDrag,
     release: egui::Pos2,
@@ -992,7 +997,7 @@ fn played_pitches(midi: &MidiClipData, clip: &ClipEntity, runtime: &RuntimeView)
 
 fn preview_note_for_action(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &MidiClipData,
     track_id: TrackId,
     note_id: NoteId,
@@ -1017,7 +1022,7 @@ fn preview_note_for_action(
 
 fn velocity_preview(
     note: &NoteEntity,
-    state: &PianoRollState,
+    state: &MidiEditorState,
     pointer: Option<egui::Pos2>,
     velocity_rect: Rect,
 ) -> Norm01 {
@@ -1036,7 +1041,7 @@ fn velocity_preview(
 #[allow(clippy::too_many_arguments)]
 fn draw_velocity_lane(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     doc: &ProjectDoc,
     clip: &ClipEntity,
@@ -1087,7 +1092,7 @@ fn draw_velocity_lane(
         }
         let response = egui_ui.interact(
             hit,
-            Id::new(("piano-velocity", note.id)),
+            Id::new(("midi-velocity", note.id)),
             Sense::click_and_drag(),
         );
         if response.drag_started() {
@@ -1133,7 +1138,7 @@ fn draw_velocity_lane(
 
 fn set_note_velocity(
     ui: &mut NotwigUi,
-    state: &mut PianoRollState,
+    state: &mut MidiEditorState,
     midi: &mut MidiClipData,
     note_id: NoteId,
     value: Norm01,
@@ -1241,7 +1246,7 @@ fn draw_pitch_rows(
         }
         let response = ui.interact(
             hit,
-            Id::new(("piano-key", pitch_u8)),
+            Id::new(("midi-key", pitch_u8)),
             Sense::click_and_drag(),
         );
         if response.is_pointer_button_down_on() {

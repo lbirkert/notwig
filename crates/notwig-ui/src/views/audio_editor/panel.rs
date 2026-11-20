@@ -1,8 +1,6 @@
 use egui::{Align2, Color32, CornerRadius, FontId, Id, Rect, Sense, Stroke, StrokeKind, Vec2};
 use notwig_core::edit::{self, Selection};
-use notwig_core::sequencer::AudioSlice;
-use notwig_core::{ClipPayload, Db, ProjectDoc, RangeMus, SliceId, TimeMus};
-use uuid::Uuid;
+use notwig_core::{ClipPayload, ProjectDoc, RangeMus, TimeMus};
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -15,9 +13,7 @@ use crate::widgets::snap_step;
 
 use super::actions::{apply_slice_edit, handle_clip_editor_actions};
 use super::geometry::{finish_slice_drag, group_move_shift, group_starts, slice_geometry};
-use super::model::{
-    ClipLane, SliceModel, editor_slices, emit_slices, slice_intersects, source_duration,
-};
+use super::model::{ClipLane, SliceModel, editor_slices, slice_intersects, source_duration};
 use super::navigation::{clip_editor_navigation, clip_editor_scrollbar};
 use super::state::{BarDrag, ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, SliceDragMode};
 
@@ -241,7 +237,7 @@ impl NotwigUi {
                         grid,
                         bypass,
                     );
-                    shift.max(clip_start - drag.origin.start)
+                    shift.max(TimeMus::zero() - drag.origin.start)
                 });
 
                 if let Some(drag) = state.bar_drag.as_ref() {
@@ -252,7 +248,7 @@ impl NotwigUi {
                     state.bar_selection = range.ok();
                 }
 
-                if let Some(range) = state.bar_selection {
+                if let Some(range) = state.bar_selection.filter(|range| !range.is_empty()) {
                     let x1 = timeline_grid.x_for_beat(range.start, content.left());
                     let x2 = timeline_grid.x_for_beat(range.end, content.left());
                     let rect = Rect::from_min_max(
@@ -265,6 +261,12 @@ impl NotwigUi {
                         Id::new(("clip-editor-bar-drag", state.clip_id)),
                         Sense::drag(),
                     );
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+                    if response.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    }
                     if response.drag_started() {
                         if let Some(pointer) = drag_start_pos(ui, &response) {
                             state.bar_drag = Some(BarDrag {
@@ -386,9 +388,20 @@ impl NotwigUi {
                             .get(&asset_id)
                             .and_then(|asset| asset.duration_samples)
                             .unwrap_or(source_end);
+                        let audio_start = start + map.samples_to_mus(geometry.silent_prefix);
+                        let audio_duration =
+                            map.samples_to_mus(source_end.saturating_sub(source_start));
+                        let audio_x1 =
+                            timeline_grid.x_for_beat(clip_start + audio_start, content.left());
+                        let audio_x2 = timeline_grid
+                            .x_for_beat(clip_start + audio_start + audio_duration, content.left());
+                        let audio_rect = Rect::from_min_max(
+                            egui::pos2(audio_x1, slice_top),
+                            egui::pos2(audio_x2.max(audio_x1 + 1.0), slice_bottom),
+                        );
                         crate::timeline::draw_waveform(
                             &painter,
-                            full_rect.shrink2(Vec2::new(2.0, 4.0)),
+                            audio_rect.shrink2(Vec2::new(2.0, 4.0)),
                             lanes,
                             peaks,
                             asset_samples,
@@ -437,17 +450,71 @@ impl NotwigUi {
                         FontId::monospace(9.5),
                         Color32::from_black_alpha(235),
                     );
-                    let slice_resp = ui.interact(
-                        slice_rect,
-                        Id::new(("slice", slice.id)),
+                    let body_rect = Rect::from_min_max(
+                        egui::pos2(slice_rect.left(), title_rect.bottom()),
+                        slice_rect.max,
+                    );
+                    let body_resp = ui.interact(
+                        body_rect,
+                        Id::new(("slice-body", slice.id)),
                         Sense::click_and_drag(),
                     );
-                    if slice_resp.clicked() {
+                    if body_resp.clicked() {
                         let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
                         state.select_node(slice.id, additive);
                     }
-                    if slice_resp.drag_started() {
-                        if let Some(pos) = drag_start_pos(ui, &slice_resp) {
+                    if body_resp.drag_started() {
+                        if let Some(pos) = drag_start_pos(ui, &body_resp) {
+                            let shift = ui.input(|input| input.modifiers.shift);
+                            if shift {
+                                let beat = timeline_grid
+                                    .snap(timeline_grid.beat_for_x(pos.x, content.left()), true)
+                                    .max(TimeMus::zero());
+                                if let Ok(range) = RangeMus::new(beat, beat) {
+                                    state.select_bar(range);
+                                }
+                                state.range_start = Some(beat);
+                            } else if !state.selected.contains(&slice.id) {
+                                state.select_node(slice.id, false);
+                            }
+                        }
+                    }
+                    if body_resp.dragged()
+                        && let (Some(origin), Some(pos)) =
+                            (state.range_start, body_resp.interact_pointer_pos())
+                    {
+                        let beat = timeline_grid
+                            .snap(timeline_grid.beat_for_x(pos.x, content.left()), true)
+                            .max(TimeMus::zero());
+                        if let Some(range) =
+                            crate::timeline::interaction::selection_range(origin, beat)
+                        {
+                            state.select_bar(range);
+                        }
+                    }
+                    if body_resp.drag_stopped() && state.range_start.take().is_some() {
+                        clear_empty_time_selection(&mut state);
+                    }
+
+                    let title_resp = ui.interact(
+                        title_rect,
+                        Id::new(("slice-title", slice.id)),
+                        Sense::click_and_drag(),
+                    );
+                    if title_resp.hovered() || title_resp.dragged() {
+                        let cursor = if title_resp.dragged() {
+                            egui::CursorIcon::Grabbing
+                        } else {
+                            egui::CursorIcon::Grab
+                        };
+                        ui.ctx().set_cursor_icon(cursor);
+                    }
+                    if title_resp.clicked() {
+                        let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
+                        state.select_node(slice.id, additive);
+                    }
+                    if title_resp.drag_started() {
+                        if let Some(pos) = drag_start_pos(ui, &title_resp) {
                             let shift = ui.input(|input| input.modifiers.shift);
                             if shift {
                                 let beat = timeline_grid
@@ -468,13 +535,14 @@ impl NotwigUi {
                                     origin_start: slice.start,
                                     origin_source_start: slice.source_start_sample,
                                     origin_source_end: slice.source_end_sample,
+                                    origin_silent_prefix: slice.silent_prefix_samples,
                                 });
                             }
                         }
                     }
-                    if slice_resp.dragged()
+                    if title_resp.dragged()
                         && let (Some(origin), Some(pos)) =
-                            (state.range_start, slice_resp.interact_pointer_pos())
+                            (state.range_start, title_resp.interact_pointer_pos())
                     {
                         let beat = timeline_grid
                             .snap(timeline_grid.beat_for_x(pos.x, content.left()), true)
@@ -485,7 +553,7 @@ impl NotwigUi {
                             state.select_bar(range);
                         }
                     }
-                    if slice_resp.drag_stopped() {
+                    if title_resp.drag_stopped() {
                         if state.range_start.take().is_some() {
                             clear_empty_time_selection(&mut state);
                         } else if let Some(drag) = state.drag.take() {
@@ -495,7 +563,7 @@ impl NotwigUi {
                                 &mut audio,
                                 slices.clone(),
                                 drag,
-                                slice_resp.interact_pointer_pos(),
+                                title_resp.interact_pointer_pos(),
                                 &map,
                                 bypass,
                                 clip.range,
@@ -509,9 +577,9 @@ impl NotwigUi {
                         (SliceDragMode::TrimStart, slice_rect.left(), "start"),
                         (SliceDragMode::TrimEnd, slice_rect.right(), "end"),
                     ] {
-                        let handle = Rect::from_center_size(
-                            egui::pos2(edge, title_rect.center().y),
-                            Vec2::new(7.0, title_rect.height().max(10.0)),
+                        let handle = Rect::from_min_max(
+                            egui::pos2(edge - 3.5, title_rect.top()),
+                            egui::pos2(edge + 3.5, title_rect.bottom()),
                         );
                         let trim = ui.interact(
                             handle,
@@ -533,6 +601,7 @@ impl NotwigUi {
                                 origin_start: slice.start,
                                 origin_source_start: slice.source_start_sample,
                                 origin_source_end: slice.source_end_sample,
+                                origin_silent_prefix: slice.silent_prefix_samples,
                             });
                         }
                         if trim.drag_stopped()
@@ -570,7 +639,12 @@ impl NotwigUi {
                         egui::pos2(x2.max(x1 + 2.0), slice_bottom),
                     )
                     .intersect(lanes);
-                    crate::timeline::draw_drop_preview(&painter, rect, &preview.path);
+                    crate::timeline::draw_drop_preview(
+                        &painter,
+                        rect,
+                        &preview.path,
+                        preview.analyzing,
+                    );
                 }
 
                 let mut chrome_drag = state.edge_drag.map(|drag| ClipChromeDrag {
@@ -653,37 +727,6 @@ impl NotwigUi {
                         timeline_grid,
                         runtime.playhead,
                     );
-                }
-
-                let source_rect = Rect::from_min_size(
-                    egui::pos2(header.left() + 8.0, ruler.bottom() + 8.0),
-                    Vec2::new(CLIP_HEADER_W - 16.0, 20.0),
-                );
-                if ui
-                    .put(source_rect, egui::Button::new("+ Source").small())
-                    .clicked()
-                {
-                    let mut slices = editor_slices(&clip, &audio);
-                    let start = slices
-                        .iter()
-                        .map(|slice| slice.start + source_duration(&map, slice))
-                        .max()
-                        .unwrap_or(TimeMus::zero());
-                    let source_end = doc
-                        .assets
-                        .assets
-                        .get(&audio.asset_id)
-                        .and_then(|asset| asset.duration_samples)
-                        .unwrap_or(audio.source_end_sample);
-                    slices.push(AudioSlice {
-                        id: SliceId::from_uuid(Uuid::new_v4()),
-                        start,
-                        source_start_sample: audio.source_start_sample,
-                        source_end_sample: source_end.max(audio.source_start_sample + 1),
-                        gain_db: Db(0.0),
-                        asset_id: None,
-                    });
-                    emit_slices(self, &mut state, &mut audio, slices);
                 }
 
                 let event_end = slices

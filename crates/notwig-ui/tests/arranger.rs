@@ -566,7 +566,10 @@ fn group_insert_lines_are_indented() {
     assert_eq!(preview.index, 0);
     assert_eq!(preview.depth, 1);
     let expected_x = from_row.left() + 4.0 + 14.0;
-    let expected_y = child_row.top();
+    let expected_y = ui
+        .track_rows
+        .get(&child)
+        .map_or(child_row.top(), egui::Rect::top);
     assert!(
         white_horizontal_lines(&result.preview_output)
             .iter()

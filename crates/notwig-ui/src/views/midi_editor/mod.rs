@@ -5,7 +5,7 @@ pub(crate) mod navigation;
 pub(crate) mod panel;
 pub(crate) mod state;
 
-pub use state::PianoRollState;
+pub use state::MidiEditorState;
 
 #[doc(hidden)]
 pub mod test_api {
@@ -29,15 +29,18 @@ pub mod test_api {
     pub const RULER_H: f32 = super::panel::RULER_H;
 
     #[allow(clippy::too_many_arguments)]
-    pub fn handle_piano_roll_actions(
+    pub fn handle_midi_editor_actions(
         ui: &mut crate::shell::NotwigUi,
         ctx: &egui::Context,
-        state: &mut PianoRollState,
+        state: &mut MidiEditorState,
         midi: &mut notwig_core::MidiClipData,
         clip: &notwig_core::ClipEntity,
         grid: notwig_core::TimeMus,
         playhead: notwig_core::TimeMus,
+        tempo_bpm: f64,
     ) {
-        super::actions::handle_piano_roll_actions(ui, ctx, state, midi, clip, grid, playhead);
+        super::actions::handle_midi_editor_actions(
+            ui, ctx, state, midi, clip, grid, playhead, tempo_bpm,
+        );
     }
 }

@@ -73,6 +73,7 @@ fn apply_payload(
             playhead,
             loop_enabled,
             loop_range,
+            metronome,
         } => {
             if let Some(value) = playing {
                 doc.transport.playing = *value;
@@ -90,6 +91,9 @@ fn apply_payload(
             }
             if let Some(value) = loop_range {
                 doc.transport.loop_range = *value;
+            }
+            if let Some(value) = metronome {
+                doc.transport.metronome_enabled = *value;
             }
             doc.transport.validate()?;
             changes.push(DocChange::Transport(doc.transport.clone()));
@@ -367,6 +371,9 @@ fn apply_payload(
                 });
             }
             let mut clip = existing.clone();
+            if let ClipPayload::Midi(midi) = &mut clip.payload {
+                resize_midi_clip_start(midi, range.start - existing.range.start);
+            }
             clip.range = *range;
             resize_audio_clip_range(doc, &existing, &mut clip)?;
             clip.validate(doc)?;
@@ -515,6 +522,20 @@ fn apply_payload(
             changes.push(DocChange::AssetUpserted(*asset_id));
             Ok(Vec::new())
         }
+        CommandPayload::ReplaceAsset { asset_id, entry } => {
+            if entry.id != *asset_id {
+                return Err(CoreError::ValidationFailed {
+                    reason: "asset id does not match entry id".into(),
+                });
+            }
+            if !doc.assets.assets.contains_key(asset_id) {
+                return Err(not_found(asset_id));
+            }
+            doc.assets.assets.insert(*asset_id, entry.clone());
+            changes.affected.assets.insert(*asset_id);
+            changes.push(DocChange::AssetUpserted(*asset_id));
+            Ok(Vec::new())
+        }
         CommandPayload::RelinkAsset { asset_id, uri } => {
             let entry = doc
                 .assets
@@ -549,6 +570,10 @@ fn transport_msg(doc: &ProjectDoc) -> EngineMsg {
         loop_start_samples: start,
         loop_end_samples: end,
         stop: false,
+        metronome: Some(crate::protocol::MetronomeState {
+            enabled: doc.transport.metronome_enabled,
+            beats_per_bar: doc.meta.time_sig_num,
+        }),
     }
 }
 
@@ -805,11 +830,7 @@ fn audio_slice_window(
     new_origin: TimeMus,
     new_id: bool,
 ) -> Option<AudioSlice> {
-    let duration = map.samples_to_mus(
-        slice
-            .source_end_sample
-            .saturating_sub(slice.source_start_sample),
-    );
+    let duration = map.samples_to_mus(slice.duration_samples());
     let start = slice.start;
     let end = start + duration;
     let window_start = from.max(start);
@@ -817,13 +838,22 @@ fn audio_slice_window(
     if window_end <= window_start {
         return None;
     }
-    let base = i128::from(slice.source_start_sample);
+    let offset_start = u64::try_from(map.samples_delta(window_start - start)).unwrap_or(0);
+    let offset_end = u64::try_from(map.samples_delta(window_end - start)).unwrap_or(0);
+    let silent = slice.silent_prefix_samples;
+    let audio_begin = offset_start.max(silent);
+    let silent_prefix_samples = audio_begin - offset_start;
     let max_end = i128::from(slice.source_end_sample);
-    let source_start = base + i128::from(map.samples_delta(window_start - start));
-    let source_end = base + i128::from(map.samples_delta(window_end - start));
-    let source_start = source_start.clamp(0, max_end.saturating_sub(1));
-    let source_end = source_end.clamp(source_start.saturating_add(1), max_end);
-    if source_end <= source_start {
+    let base = i128::from(slice.source_start_sample);
+    let source_start = base + i128::from(audio_begin - silent);
+    let source_end = if offset_end <= silent {
+        source_start
+    } else {
+        base + i128::from(offset_end - silent)
+    };
+    let source_start = source_start.clamp(0, max_end);
+    let source_end = source_end.clamp(source_start, max_end);
+    if source_end <= source_start && silent_prefix_samples == 0 {
         return None;
     }
     let mut segment = slice.clone();
@@ -833,6 +863,7 @@ fn audio_slice_window(
     segment.start = window_start - new_origin;
     segment.source_start_sample = u64::try_from(source_start).unwrap_or(0);
     segment.source_end_sample = u64::try_from(source_end).unwrap_or(0);
+    segment.silent_prefix_samples = silent_prefix_samples;
     Some(segment)
 }
 
@@ -954,6 +985,7 @@ fn resize_audio_clip_range(
             start: relative_start,
             source_start_sample: audio.source_start_sample,
             source_end_sample: audio.source_end_sample,
+            silent_prefix_samples: 0,
             gain_db: audio.gain_db,
             asset_id: None,
         }];
@@ -1002,6 +1034,23 @@ fn rescale_unsliced_audio_clips(doc: &mut ProjectDoc, changes: &mut Changes) {
     }
 }
 
+fn resize_midi_clip_start(midi: &mut crate::sequencer::MidiClipData, delta: TimeMus) {
+    if delta == TimeMus::zero() {
+        return;
+    }
+    let desired = midi.content_start + delta;
+    if desired >= TimeMus::zero() {
+        midi.content_start = desired;
+        return;
+    }
+    let shift = TimeMus::zero() - desired;
+    for note in &mut midi.notes {
+        note.start = note.start + shift;
+    }
+    midi.length = midi.length + shift;
+    midi.content_start = TimeMus::zero();
+}
+
 fn trim_clip_start(
     doc: &mut ProjectDoc,
     clip: &ClipEntity,
@@ -1012,7 +1061,7 @@ fn trim_clip_start(
     next.range = RangeMus::new(new_start, clip.range.end)?;
     match &mut next.payload {
         ClipPayload::Midi(midi) => {
-            midi.content_start = midi.content_start + delta;
+            resize_midi_clip_start(midi, delta);
         }
         ClipPayload::Audio(audio) => {
             if audio.uses_slices() {
@@ -1106,6 +1155,9 @@ fn edit_clip(
         next.muted = value;
     }
     if let Some(new_range) = range {
+        if let ClipPayload::Midi(midi) = &mut next.payload {
+            resize_midi_clip_start(midi, new_range.start - existing.range.start);
+        }
         if let ClipPayload::Audio(data) = &mut next.payload {
             let old = existing.range;
             if data.uses_slices() {

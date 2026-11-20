@@ -13,8 +13,6 @@ pub enum SettingsCategory {
     Shortcuts,
     #[default]
     Audio,
-    General,
-    Appearance,
 }
 
 impl SettingsCategory {
@@ -22,8 +20,6 @@ impl SettingsCategory {
         match self {
             Self::Shortcuts => "Shortcuts",
             Self::Audio => "Audio",
-            Self::General => "General",
-            Self::Appearance => "Appearance",
         }
     }
 }
@@ -58,12 +54,7 @@ impl NotwigUi {
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.add_space(8.0);
-                            for category in [
-                                SettingsCategory::Shortcuts,
-                                SettingsCategory::Audio,
-                                SettingsCategory::General,
-                                SettingsCategory::Appearance,
-                            ] {
+                            for category in [SettingsCategory::Shortcuts, SettingsCategory::Audio] {
                                 let selected = self.settings_category == category;
                                 if ui
                                     .selectable_label(
@@ -87,34 +78,21 @@ impl NotwigUi {
                     ui.allocate_ui_with_layout(
                         egui::vec2(ui.available_width(), ui.available_height()),
                         egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            egui::ScrollArea::vertical()
-                                .id_salt("settings-content")
-                                .auto_shrink([false, false])
-                                .show(ui, |ui| {
-                                    ui.vertical(|ui| {
+                        |ui| match self.settings_category {
+                            SettingsCategory::Shortcuts => {
+                                ui.add_space(10.0);
+                                self.shortcut_settings_page(ui);
+                            }
+                            SettingsCategory::Audio => {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("settings-content")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
                                         ui.add_space(10.0);
-                                        match self.settings_category {
-                                            SettingsCategory::Shortcuts => {
-                                                self.shortcut_settings_page(ui);
-                                            }
-                                            SettingsCategory::Audio => {
-                                                self.audio_settings_page(ui, runtime);
-                                            }
-                                            other => {
-                                                ui.heading(other.label());
-                                                ui.add_space(8.0);
-                                                ui.label(
-                                                    RichText::new(
-                                                        "This category is not available yet.",
-                                                    )
-                                                    .color(theme::TEXT_MUTED),
-                                                );
-                                            }
-                                        }
+                                        self.audio_settings_page(ui, runtime);
                                         ui.add_space(20.0);
                                     });
-                                });
+                            }
                         },
                     );
                 });
@@ -263,33 +241,6 @@ impl NotwigUi {
             ui.add_space(10.0);
             ui.label(RichText::new(warning).color(theme::ACCENT));
         }
-
-        ui.add_space(18.0);
-        form::section_heading(ui, "Outputs");
-        egui::Frame::new()
-            .fill(Color32::from_rgb(18, 19, 23))
-            .inner_margin(egui::Margin::symmetric(10, 8))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Stereo Left / Right").monospace());
-                    ui.add_space(12.0);
-                    ui.label(
-                        RichText::new("Main output")
-                            .small()
-                            .color(theme::TEXT_MUTED),
-                    );
-                });
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Mono").monospace());
-                    ui.add_space(20.0);
-                    ui.label(
-                        RichText::new("Not configured")
-                            .small()
-                            .color(theme::TEXT_MUTED),
-                    );
-                });
-            });
     }
 
     fn driver_label(&self, view: &crate::runtime::AudioSettingsView) -> String {

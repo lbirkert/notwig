@@ -20,11 +20,30 @@ pub(super) fn editor_slices(
 }
 
 pub fn source_duration(map: &TempoMap, slice: &AudioSlice) -> TimeMus {
-    map.samples_to_mus(
-        slice
-            .source_end_sample
-            .saturating_sub(slice.source_start_sample),
-    )
+    map.samples_to_mus(slice.duration_samples())
+}
+
+pub(super) fn adjust_trim_start(
+    silent_prefix: u64,
+    source_start: u64,
+    source_end: u64,
+    delta_samples: i64,
+) -> (u64, u64) {
+    if delta_samples < 0 {
+        let reveal = delta_samples.unsigned_abs();
+        let from_source = reveal.min(source_start);
+        (
+            silent_prefix.saturating_add(reveal - from_source),
+            source_start - from_source,
+        )
+    } else {
+        let shrink = delta_samples.unsigned_abs();
+        let from_silent = shrink.min(silent_prefix);
+        let remaining = shrink - from_silent;
+        let audio = source_end.saturating_sub(source_start);
+        let advance = remaining.min(audio.saturating_sub(1));
+        (silent_prefix - from_silent, source_start + advance)
+    }
 }
 
 fn slice_interval(map: &TempoMap, slice: &AudioSlice) -> Option<RangeMus> {
@@ -47,23 +66,29 @@ fn slice_segment(
     if end <= start {
         return None;
     }
-    let start_delta = samples_for_delta(start - interval.start, map);
-    let end_delta = samples_for_delta(end - interval.start, map);
-    let source_start =
-        u64::try_from(i128::from(slice.source_start_sample) + i128::from(start_delta))
-            .unwrap_or(0)
-            .min(slice.source_end_sample.saturating_sub(1));
-    let source_end = u64::try_from(i128::from(slice.source_start_sample) + i128::from(end_delta))
-        .unwrap_or(slice.source_end_sample)
-        .min(slice.source_end_sample)
-        .max(source_start + 1);
-    if source_end <= source_start {
+    let offset_start = u64::try_from(samples_for_delta(start - interval.start, map)).unwrap_or(0);
+    let offset_end = u64::try_from(samples_for_delta(end - interval.start, map)).unwrap_or(0);
+    let silent = slice.silent_prefix_samples;
+    let audio_begin = offset_start.max(silent);
+    let silent_prefix_samples = audio_begin - offset_start;
+    let base = i128::from(slice.source_start_sample);
+    let max_end = i128::from(slice.source_end_sample);
+    let source_start = base + i128::from(audio_begin - silent);
+    let source_end = if offset_end <= silent {
+        source_start
+    } else {
+        base + i128::from(offset_end - silent)
+    };
+    let source_start = source_start.clamp(0, max_end);
+    let source_end = source_end.clamp(source_start, max_end);
+    if source_end <= source_start && silent_prefix_samples == 0 {
         return None;
     }
     let mut segment = slice.clone();
     segment.start = start;
-    segment.source_start_sample = source_start;
-    segment.source_end_sample = source_end;
+    segment.source_start_sample = u64::try_from(source_start).unwrap_or(0);
+    segment.source_end_sample = u64::try_from(source_end).unwrap_or(0);
+    segment.silent_prefix_samples = silent_prefix_samples;
     Some(segment)
 }
 
@@ -181,9 +206,8 @@ impl EditModel for SliceModel<'_> {
             };
         };
         let span = self.span(slice);
-        let left = self.map.samples_to_mus(slice.source_start_sample);
         TrimLimits {
-            min_start: (span.start - left).max(TimeMus::zero() - self.clip_start),
+            min_start: TimeMus::zero() - self.clip_start,
             max_start: span.end - epsilon(),
             min_end: span.start + epsilon(),
             max_end: None,
@@ -203,16 +227,30 @@ impl EditModel for SliceModel<'_> {
             ));
         }
         let mut segment = slice.clone();
-        let start_delta = self.map.samples_delta(window.start - slice.start);
-        let end_delta = self.map.samples_delta(window.end - slice.start);
-        let max = i128::from(slice.source_end_sample);
-        let source_start = (i128::from(slice.source_start_sample) + i128::from(start_delta))
-            .clamp(0, max.saturating_sub(1));
-        let source_end = (i128::from(slice.source_start_sample) + i128::from(end_delta))
-            .clamp(source_start.saturating_add(1), max);
+        let offset_start =
+            u64::try_from(self.map.samples_delta(window.start - slice.start)).unwrap_or(0);
+        let offset_end =
+            u64::try_from(self.map.samples_delta(window.end - slice.start)).unwrap_or(0);
+        let silent = slice.silent_prefix_samples;
+        let audio_begin = offset_start.max(silent);
+        let silent_prefix_samples = audio_begin - offset_start;
+        let base = i128::from(slice.source_start_sample);
+        let max_end = i128::from(slice.source_end_sample);
+        let source_start = base + i128::from(audio_begin - silent);
+        let source_end = if offset_end <= silent {
+            source_start
+        } else {
+            base + i128::from(offset_end - silent)
+        };
+        let source_start = source_start.clamp(0, max_end);
+        let source_end = source_end.clamp(source_start, max_end);
+        if source_end <= source_start && silent_prefix_samples == 0 {
+            return Err(EditError::InvalidExtraction("empty audio window".into()));
+        }
         segment.start = TimeMus::zero();
         segment.source_start_sample = u64::try_from(source_start).unwrap_or(0);
         segment.source_end_sample = u64::try_from(source_end).unwrap_or(0);
+        segment.silent_prefix_samples = silent_prefix_samples;
         Ok(segment)
     }
 
@@ -309,9 +347,14 @@ fn trim_slice(map: &TempoMap, slices: &mut [AudioSlice], id: SliceId, span: Rang
     let old_end = old_start + source_duration(map, slice);
     if span.start != old_start && span.end == old_end {
         let delta = map.samples_delta(span.start - old_start);
-        let source = (i128::from(slice.source_start_sample) + i128::from(delta))
-            .clamp(0, i128::from(slice.source_end_sample.saturating_sub(1)));
-        slice.source_start_sample = u64::try_from(source).unwrap_or(0);
+        let (silent, source_start) = adjust_trim_start(
+            slice.silent_prefix_samples,
+            slice.source_start_sample,
+            slice.source_end_sample,
+            delta,
+        );
+        slice.silent_prefix_samples = silent;
+        slice.source_start_sample = source_start;
         slice.start = span.start;
     } else if span.end != old_end && span.start == old_start {
         let delta = map.samples_delta(span.end - old_end);

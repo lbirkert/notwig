@@ -88,7 +88,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Engine control exchange and prepared runtimes | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/control.rs` covers the shared slot, fixed-frame sync interval, prepared-runtime installation, transport application, and playhead publication. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Real VST3 or AU load and process | 📋 Planned | ⭐⭐⭐⭐⭐ | Needs a plugin fixture or CI plugin bundle. |
-| Plugin delay compensation across tracks | 🧪 Partial | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks and send-vs-direct phase coherence. Hosted plugin latency is not testable through the current host API. |
+| Plugin delay compensation across tracks | 🧪 Partial | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks and send-vs-direct phase coherence. Hosted plugin latency is queried through the vendored VST3/AU wrappers but is not exercised by the headless test suite. |
 
 ## Unit tests
 
@@ -138,7 +138,7 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Editors mutually exclusive | ✅ Implemented | ⭐⭐⭐ | |
 | Master track pinned | ✅ Implemented | ⭐⭐⭐ | |
 | DSP analysis window render | ✅ Implemented | ⭐⭐ | |
-| Piano roll interaction | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-ui/tests/piano_roll.rs` covers open/render, held and automatic note previews, key highlighting, zero-width time selection, marquee expansion, notes outside the clip range, create/delete, keyboard nudging, collision-aware move/resize, vertical velocity editing, and copy/paste. `notwig-engine/tests/preview.rs` covers held and automatic preview note-offs. |
+| MIDI editor interaction | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-ui/tests/midi_editor.rs` covers open/render, held and automatic note previews, key highlighting, zero-width time selection, marquee expansion, notes outside the clip range, create/delete, keyboard nudging, collision-aware move/resize, vertical velocity editing, and copy/paste. `notwig-engine/tests/preview.rs` covers held and automatic preview note-offs. |
 | Loop range edge resize | 🧪 Partial | ⭐⭐⭐ | Range math is tested; the egui edge hit-testing path is not. |
 | Meter reset and peak hold | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-app/tests/transport.rs` covers stop reset; `notwig-ui/tests/track_info.rs` covers peak hold and click reset. |
 | Recovery modal render | 📋 Planned | ⭐⭐⭐ | The recovery load/discard behavior is tested at the workspace level. |
@@ -311,7 +311,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Audio events outside the clip container | ✅ Implemented | ⭐⭐⭐⭐⭐ | Core validation, engine clipping, and the audio editor gesture are covered. |
 | PDC across tracks and nested groups | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks. |
 | PDC with sends | ✅ Implemented | ⭐⭐⭐⭐⭐ | Send and direct paths stay phase-coherent in `pdc.rs`. |
-| Plugin latency reporting | 🧪 Partial | ⭐⭐⭐⭐⭐ | Capability defaults are tested. `truce-rack` 1.1.5 cannot query real plugin latency. |
+| Plugin latency reporting | ✅ Implemented | ⭐⭐⭐⭐⭐ | The vendored VST3/AU wrappers query latency; capability defaults and PDC plumbing are tested. |
 | Xrun detection and recovery | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Audio callback allocation and lock checks | 🧪 Partial | ⭐⭐⭐⭐⭐ | The control slot uses `try_lock` and prepared swaps; scratch/output/event buffers are reused. Snapshot meter inserts and plugin callbacks still need allocator instrumentation. |
 | Seek and stop reset behavior | 🧪 Partial | ⭐⭐⭐⭐ | Stop note-off is tested. Plugin and effect tails are not. |
@@ -329,7 +329,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Parameter enumeration and updates | 📋 Planned | ⭐⭐⭐⭐ | |
 | Native editor open and parameter sync | 📋 Planned | ⭐⭐⭐ | Manual path. |
 | Plugin state save and restore | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| Plugin latency query | 📋 Planned | ⭐⭐⭐⭐⭐ | |
+| Plugin latency query | ✅ Implemented | ⭐⭐⭐⭐⭐ | VST3 and AU wrappers expose latency to the adapter. |
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | |
 | Sidechain and multi-out | 📋 Planned | ⭐⭐⭐⭐ | |
 | Out-of-process crash isolation | 📋 Planned | ⭐⭐⭐⭐⭐ | |
@@ -387,7 +387,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | --- | --- | --- | --- |
 | Editing consistency matrix | 📋 Planned | ⭐⭐⭐⭐⭐ | One fixture per operation across the arranger and audio editor. |
 | Boundary and trim regression suite | 📋 Planned | ⭐⭐⭐⭐⭐ | Events outside the container, leftward trim, hit-target precedence, and zoom. |
-| PDC and plugin latency suite | 🧪 Partial | ⭐⭐⭐⭐⭐ | Tracks, nested groups, sends, bypassed devices, and inactive tracks are covered. Hosted plugin latency is not queryable yet. |
+| PDC and plugin latency suite | 🧪 Partial | ⭐⭐⭐⭐⭐ | Tracks, nested groups, sends, bypassed devices, and inactive tracks are covered. Hosted plugin latency is queryable through the vendored wrappers. |
 | Real plugin host integration | 📋 Planned | ⭐⭐⭐⭐⭐ | VST3 and AU fixtures in CI. |
 | Engine realtime safety checks | 📋 Planned | ⭐⭐⭐⭐⭐ | Allocation, locks, and queue bounds. |
 | DSP numeric stability suite | 📋 Planned | ⭐⭐⭐⭐⭐ | NaN, denormals, extremes, and the sample-rate matrix. |
@@ -401,6 +401,6 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 
 - Editing tests cover many operations, but not every operation in [`EDITING.md`](EDITING.md). The arranger and audio editor disagree on events outside the container and leftward trim. Add the boundary, hit-target, and parity tests before changing the interaction code.
 - DSP tests cover stock processing and block sizes. They do not cover long runs, sample-rate changes, denormals, or NaN input.
-- PDC for tracks, nested groups, sends, bypasses, and inactive tracks is tested. Hosted plugin latency and real plugin hosting are not.
+- PDC for tracks, nested groups, sends, bypasses, and inactive tracks is tested. Hosted plugin latency is queried but real plugin hosting is not exercised headlessly.
 - Autosave recovery and session locks are tested. Schema migration and corrupt project manifests are not.
 - Realtime safety is not measured. Add allocation, lock, and queue checks before treating the engine as stable.

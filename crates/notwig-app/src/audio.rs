@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -27,11 +28,13 @@ pub struct AudioSnapshot {
     pub channels: u16,
     pub block_size: u32,
     pub playhead_samples: u64,
+    pub playhead_updated: Option<Instant>,
     pub playing: bool,
     pub meters: BTreeMap<TrackId, MeterValues>,
     pub xruns: u64,
     pub cpu_load: Option<f32>,
     pub error: Option<String>,
+    pub crashed: bool,
     pub dsp: notwig_ui::DspAnalysisView,
     load_ms_history: Vec<f32>,
     jitter_history: Vec<f32>,
@@ -70,7 +73,6 @@ pub fn settings_view(
     drivers: Vec<notwig_ui::AudioDriverView>,
     settings: &AudioSettings,
     error: Option<String>,
-    has_assets: bool,
 ) -> notwig_ui::AudioSettingsView {
     notwig_ui::AudioSettingsView {
         drivers,
@@ -83,8 +85,7 @@ pub fn settings_view(
             block_size: settings.block_size,
         },
         error,
-        warning: has_assets
-            .then(|| "Changing the sample rate does not resample existing audio assets.".into()),
+        warning: None,
     }
 }
 
@@ -172,10 +173,10 @@ impl AudioService {
     }
 
     pub fn snapshot(&self) -> AudioSnapshot {
-        self.snapshot
-            .try_lock()
-            .map(|snapshot| snapshot.clone())
-            .unwrap_or_default()
+        self.snapshot.lock().map_or_else(
+            |poisoned| poisoned.into_inner().clone(),
+            |snapshot| snapshot.clone(),
+        )
     }
 
     pub fn available_options() -> Vec<notwig_ui::AudioDriverView> {
@@ -312,7 +313,33 @@ where
                 let started = Instant::now();
                 let period = last_callback.map(|previous| (started - previous).as_secs_f64());
                 last_callback = Some(started);
-                if engine.process(&mut scratch[..frames * 2], frames).is_ok() {
+                let crashed = snapshot.try_lock().is_ok_and(|snapshot| snapshot.crashed);
+                let outcome = if crashed {
+                    None
+                } else {
+                    Some(catch_unwind(AssertUnwindSafe(|| {
+                        engine.process(&mut scratch[..frames * 2], frames)
+                    })))
+                };
+                let processed_ok = matches!(outcome, Some(Ok(Ok(()))));
+                if let Some(outcome) = outcome {
+                    match outcome {
+                        Ok(Ok(())) => {}
+                        Ok(Err(err)) => {
+                            if let Ok(mut snapshot) = snapshot.try_lock() {
+                                snapshot.error = Some(err.to_string());
+                            }
+                        }
+                        Err(_) => {
+                            if let Ok(mut snapshot) = snapshot.try_lock() {
+                                snapshot.crashed = true;
+                                snapshot.error =
+                                    Some("Audio engine crashed while processing a block.".into());
+                            }
+                        }
+                    }
+                }
+                if processed_ok {
                     processed = true;
                     let block_seconds = frames as f64 / f64::from(sample_rate.max(1));
                     let elapsed = started.elapsed();
@@ -377,6 +404,7 @@ fn update_snapshot(
         return;
     };
     snapshot.playhead_samples = engine.playhead_samples();
+    snapshot.playhead_updated = Some(Instant::now());
     snapshot.playing = engine.transport().playing;
     if !snapshot.playing {
         snapshot.meters.clear();

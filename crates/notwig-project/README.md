@@ -6,7 +6,7 @@ Project bundle persistence and audio asset I/O.
 
 `notwig-project` turns a `ProjectDoc` into a durable `*.notwig` bundle and loads
 it back. It also owns audio file decoding, offline resampling, asset import, and
-WAV export. It deliberately contains no UI, no engine execution, and no
+audio export. It deliberately contains no UI, no engine execution, and no
 real-time code.
 
 ## Owns
@@ -19,7 +19,7 @@ real-time code.
 - WAV/AIFF/MP3/FLAC/OGG decoding through `symphonia`.
 - Offline resampling to the project sample rate.
 - Managed asset copies under `assets/`.
-- 32-bit float WAV writing.
+- WAV/AIFF/FLAC/MP3/OGG writing with bit depth where applicable, optional dithering and normalization.
 - `ProjectError` and load-issue reporting.
 
 ## Bundle layout
@@ -54,7 +54,8 @@ temp-file-and-rename writes.
 |---|---|
 | `bundle.rs` | Save/open/autosave/recovery |
 | `manifest.rs` | Manifest, schema version, load issues |
-| `assets.rs` | Decode, resample, import, WAV export |
+| `assets.rs` | Decode, resample, and import audio assets |
+| `export.rs` | WAV/AIFF/FLAC/MP3/OGG export, bit depth, dithering, normalization |
 | `fsutil.rs` | Atomic file/JSON writes and directory creation |
 | `error.rs` | `ProjectError` |
 

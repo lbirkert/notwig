@@ -74,6 +74,7 @@ impl NotwigUi {
         let filter = self.shortcut_editor.filter.trim().to_lowercase();
         egui::ScrollArea::vertical()
             .id_salt("shortcut-list")
+            .max_height(ui.available_height())
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let mut any = false;
