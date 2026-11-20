@@ -30,6 +30,12 @@ or commands uses the types in this crate.
 - Plugin loading (see `notwig-plugins`).
 - ID allocation or randomness. Callers supply stable IDs for created entities.
 
+## Features
+
+- `rand` (default): enables UUID v4 generation for command-application paths
+  that still allocate IDs internally. Disable it for wasm extension builds that
+  only need domain types; those paths fall back to a deterministic counter.
+
 ## Module map
 
 | Module | Contents |

@@ -5,7 +5,7 @@ use notwig_core::{
     TrackId, TrackKind, TrackOutput,
 };
 
-use crate::devices::{DeviceSpec, EngineCaps, RenderConfig};
+use crate::devices::{DeviceSpec, DeviceUiSpec, EngineCaps, RenderConfig};
 use crate::registry::DeviceRegistry;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -25,6 +25,8 @@ pub enum GraphError {
     NoMaster,
     #[error("processing graph contains a cycle")]
     Cycle,
+    #[error("device error: {reason}")]
+    DeviceError { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -136,6 +138,7 @@ pub fn compile(
                         .clone()
                         .unwrap_or_else(|| instance.type_id.clone()),
                     vendor: String::new(),
+                    ui: DeviceUiSpec::Generic,
                 },
                 false,
             ),

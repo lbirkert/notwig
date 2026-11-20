@@ -16,13 +16,15 @@ phase.
 - **Implemented today:** project bundles, autosave/recovery with a startup
   recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
   event editing, a MIDI MIDI editor, device chains with stock EQ/Tool/Chain,
-  VST3/AU hosting, render mixdown, persisted audio settings, customizable
-  keyboard shortcuts, and DSP load analysis.
+  VST3/AU hosting, WASM extension devices and panels with per-extension trust
+  levels, an extension explorer with index/ZIP installs and uninstall,
+  render mixdown, persisted audio settings, customizable keyboard shortcuts,
+  and DSP load analysis.
 - **Not implemented yet:** audio/MIDI recording, live input/monitoring,
-  automation editing, Clip Launcher/scenes, comping/takes, warping,
-  tempo/time-signature automation, modulation/macros runtime, metronome,
-  stock instruments, Windows/Linux builds, collaboration, and out-of-process
-  plugin hosting.
+  automation editing, general extension drawing hooks, Clip Launcher/scenes,
+  comping/takes, warping, tempo/time-signature automation, modulation/macros
+  runtime, stock instruments, Windows/Linux builds, collaboration, and
+  out-of-process plugin hosting.
 
 ## Where to start
 

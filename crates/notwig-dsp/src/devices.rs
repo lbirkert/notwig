@@ -22,6 +22,26 @@ pub struct Latency {
     pub samples: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub enum DeviceUiSpec {
+    #[default]
+    Generic,
+    Custom {
+        renderer: String,
+        preferred_width: Option<f32>,
+    },
+}
+
+impl DeviceUiSpec {
+    #[must_use]
+    pub fn custom(renderer: impl Into<String>, preferred_width: Option<f32>) -> Self {
+        Self::Custom {
+            renderer: renderer.into(),
+            preferred_width,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeviceSpec {
     pub type_id: String,
@@ -32,6 +52,8 @@ pub struct DeviceSpec {
     pub latency_samples: u32,
     pub name: String,
     pub vendor: String,
+    #[serde(default)]
+    pub ui: DeviceUiSpec,
 }
 
 impl DeviceSpec {

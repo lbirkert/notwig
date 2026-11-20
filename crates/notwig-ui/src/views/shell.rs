@@ -27,6 +27,10 @@ pub struct NotwigUi {
     pub state: UiState,
     pub intents: Vec<UiIntent>,
     pub registry: DeviceRegistry,
+    pub(crate) device_panel_host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
+    pub extension_index_input: String,
+    pub extension_index_requested: bool,
+    pub pending_extension_replace: Option<String>,
     pub drag: Option<ClipDrag>,
     pub time_drag: Option<TimeDrag>,
     pub track_drag: Option<TrackId>,
@@ -90,6 +94,10 @@ impl Default for NotwigUi {
             state: UiState::default(),
             intents: Vec::new(),
             registry: notwig_dsp::stock_registry(),
+            device_panel_host: None,
+            extension_index_input: String::new(),
+            extension_index_requested: false,
+            pending_extension_replace: None,
             drag: None,
             time_drag: None,
             track_drag: None,
@@ -149,6 +157,13 @@ impl Default for NotwigUi {
 }
 
 impl NotwigUi {
+    pub fn set_device_panel_host(
+        &mut self,
+        host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
+    ) {
+        self.device_panel_host = host;
+    }
+
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -1375,6 +1390,21 @@ impl NotwigUi {
         if files.is_empty() {
             return;
         }
+        if self.settings_open
+            && self.settings_category == crate::settings::SettingsCategory::Extensions
+        {
+            let zips: Vec<PathBuf> = files
+                .iter()
+                .filter(|path| is_zip_path(path))
+                .cloned()
+                .collect();
+            if !zips.is_empty() {
+                for path in zips {
+                    self.emit(UiIntent::InstallExtensionZip { path });
+                }
+                return;
+            }
+        }
         let preview = self.drag_preview.clone();
         let pointer = self
             .last_pointer
@@ -1624,4 +1654,9 @@ pub mod test_api {
     pub fn capture_shortcut(ui: &mut NotwigUi, ctx: &egui::Context) {
         ui.capture_shortcut(ctx);
     }
+}
+
+fn is_zip_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("zip"))
 }

@@ -193,6 +193,14 @@ pub enum UiIntent {
         kind: DeviceKind,
         index: Option<usize>,
     },
+    InsertDevice {
+        track_id: TrackId,
+        chain_id: DeviceChainId,
+        type_id: String,
+        version: notwig_core::SchemaVersion,
+        kind: DeviceKind,
+        index: Option<usize>,
+    },
     InsertPlugin {
         track_id: TrackId,
         chain_id: DeviceChainId,
@@ -239,6 +247,29 @@ pub enum UiIntent {
     Redo,
     CancelRender,
     RestartAudioEngine,
+    SetExtensionEnabled {
+        id: String,
+        enabled: bool,
+    },
+    SetExtensionTrust {
+        id: String,
+        trust: notwig_ext_api::TrustLevel,
+    },
+    ReloadExtensions,
+    SetExtensionIndexes {
+        indexes: Vec<String>,
+    },
+    RefreshExtensionIndex,
+    InstallExtensionFromIndex {
+        id: String,
+    },
+    InstallExtensionZip {
+        path: PathBuf,
+    },
+    ImportExtensionZip,
+    UninstallExtension {
+        id: String,
+    },
     ClearNotifications,
     ApplyAudioSettings {
         driver: String,

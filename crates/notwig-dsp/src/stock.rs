@@ -4,7 +4,8 @@ use notwig_core::{Db, DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue,
 use uuid::Uuid;
 
 use crate::devices::{
-    DeviceProcessor, DeviceSpec, Latency, Port, PortDir, ProcessContext, ProcessStatus, SignalType,
+    DeviceProcessor, DeviceSpec, DeviceUiSpec, Latency, Port, PortDir, ProcessContext,
+    ProcessStatus, SignalType,
 };
 use crate::graph::GraphError;
 use crate::params::{ParamSpec, Unit};
@@ -105,6 +106,7 @@ pub fn tool_spec() -> DeviceSpec {
         latency_samples: 0,
         name: "Tool".into(),
         vendor: "Notwig".into(),
+        ui: DeviceUiSpec::custom("notwig.tool", Some(300.0)),
     }
 }
 
@@ -167,6 +169,7 @@ pub fn eq_spec() -> DeviceSpec {
         latency_samples: 0,
         name: "EQ".into(),
         vendor: "Notwig".into(),
+        ui: DeviceUiSpec::custom("notwig.eq", Some(560.0)),
     }
 }
 
@@ -185,6 +188,7 @@ pub fn chain_spec() -> DeviceSpec {
         latency_samples: 0,
         name: "Chain".into(),
         vendor: "Notwig".into(),
+        ui: DeviceUiSpec::custom("notwig.chain", Some(150.0)),
     }
 }
 

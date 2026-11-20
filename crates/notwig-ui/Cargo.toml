@@ -10,14 +10,15 @@ repository.workspace = true
 notwig-core.workspace = true
 notwig-project.workspace = true
 notwig-dsp.workspace = true
+notwig-ext-api.workspace = true
 egui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4"] }

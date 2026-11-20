@@ -3,10 +3,10 @@ use std::sync::{Arc, mpsc};
 
 use notwig_core::protocol::PlaybackSchedule;
 use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, ProjectDoc};
-use notwig_dsp::{CompiledPlan, EngineCaps};
-use notwig_engine::{
-    DeviceFactory, Engine, EngineConfig, PluginDeviceFactory, PreparedRuntime, TransportRuntime,
+use notwig_dsp::{
+    CompiledPlan, CompositeDeviceFactory, DeviceFactory, EngineCaps, StockDeviceFactory,
 };
+use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory, PreparedRuntime, TransportRuntime};
 use notwig_plugins::{PluginDescriptor, PluginState};
 
 use crate::plugins::new_plugin_host;
@@ -15,6 +15,7 @@ pub(crate) struct EngineBuildRequest {
     pub(crate) doc: ProjectDoc,
     pub(crate) caps: EngineCaps,
     pub(crate) registry: notwig_dsp::DeviceRegistry,
+    pub(crate) extension_factory: Option<Arc<dyn DeviceFactory>>,
     pub(crate) plugin_descriptors: Vec<PluginDescriptor>,
     pub(crate) plugin_states: BTreeMap<DeviceId, PluginState>,
     pub(crate) assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
@@ -36,6 +37,7 @@ impl EngineBuildRequest {
             doc,
             caps,
             registry,
+            extension_factory,
             plugin_descriptors,
             plugin_states,
             assets,
@@ -46,11 +48,17 @@ impl EngineBuildRequest {
             Arc::new(notwig_dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?);
         let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
         let config = EngineConfig::new(sample_rate, max_block_size);
-        let factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::new(
+        let plugin_factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::new(
             new_plugin_host(),
             plugin_descriptors,
             plugin_states,
         ));
+        let mut factories: Vec<Arc<dyn DeviceFactory>> = vec![Arc::new(StockDeviceFactory)];
+        if let Some(extension_factory) = extension_factory {
+            factories.push(extension_factory);
+        }
+        factories.push(plugin_factory);
+        let factory: Arc<dyn DeviceFactory> = Arc::new(CompositeDeviceFactory::new(factories));
         Ok((config, factory, plan, schedule, assets))
     }
 

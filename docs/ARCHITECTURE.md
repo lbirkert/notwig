@@ -145,6 +145,8 @@ rate stays project-scoped.
 | `notwig-core` | Domain types, IDs, time, tracks, sequencer, command protocol, edit algebra | I/O, UI, real-time processing, ID allocation |
 | `notwig-project` | Bundle read/write, autosave/recovery, audio import/decode/resample, WAV export | UI, real-time processing |
 | `notwig-dsp` | Device/parameter contracts, registry, graph compilation, stock devices | Audio callback, persisted instance state |
+| `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, manifests, ABI wire types | `egui`, `wasmtime`, I/O, canonical state |
+| `notwig-ext` | Extension discovery, wasmtime host, WASM device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | Canonical state, engine internals, blocking work |
@@ -180,6 +182,10 @@ rate stays project-scoped.
   implement the behavior in `notwig-app::Workspace` or `gui`.
 - **Plugin formats**: implement a `HostAdapter` in `notwig-plugins`; keep
   format-specific types inside that crate.
+- **Extensions**: add host behavior in `notwig-ext` and shared ABI/draw types in
+  `notwig-ext-api`. Device specs/panels/DSP come from the extension; Notwig owns
+  validation, trust levels, and rendering. General clip/track drawing hooks are
+  planned on the same command IR.
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted
   by `notwig-app`.

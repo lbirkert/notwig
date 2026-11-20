@@ -1,0 +1,439 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc;
+
+use notwig_dsp::{DeviceFactory, DeviceSpec};
+use notwig_ext::{
+    ExtensionHost, InstalledExtension, install_zip_bytes, install_zip_file, uninstall,
+};
+use notwig_ext_api::{
+    DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, TrustLevel,
+};
+
+const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
+const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+
+pub(crate) enum ExtensionEvent {
+    Installed { name: String, version: String },
+    Error(String),
+}
+
+struct IndexFetchResult {
+    entries: Vec<ExtensionIndexEntry>,
+    errors: Vec<String>,
+}
+
+type InstallResult = Result<InstalledExtension, String>;
+
+pub(crate) struct ExtensionManager {
+    config: ExtensionConfig,
+    host: Option<ExtensionHost>,
+    infos: Vec<ExtensionInfo>,
+    index_entries: Vec<ExtensionIndexEntry>,
+    index_errors: Vec<String>,
+    index_loading: bool,
+    index_loaded: bool,
+    error: Option<String>,
+    index_rx: Option<mpsc::Receiver<IndexFetchResult>>,
+    install_rx: Option<mpsc::Receiver<InstallResult>>,
+}
+
+impl ExtensionManager {
+    pub(crate) fn load() -> Self {
+        let config = load_config();
+        let mut manager = Self {
+            config,
+            host: None,
+            infos: Vec::new(),
+            index_entries: Vec::new(),
+            index_errors: Vec::new(),
+            index_loading: false,
+            index_loaded: false,
+            error: None,
+            index_rx: None,
+            install_rx: None,
+        };
+        manager.reload();
+        manager
+    }
+
+    pub(crate) fn reload(&mut self) {
+        let Some(root) = extensions_dir() else {
+            self.error = Some("Could not locate the extensions directory.".into());
+            return;
+        };
+        match ExtensionHost::load(&root, &self.config.settings) {
+            Ok(host) => {
+                self.infos = host.infos().to_vec();
+                self.host = Some(host);
+                self.error = None;
+            }
+            Err(error) => {
+                self.infos.clear();
+                self.host = None;
+                self.error = Some(error.to_string());
+            }
+        }
+    }
+
+    pub(crate) fn poll(&mut self) -> Vec<ExtensionEvent> {
+        let mut events = Vec::new();
+        self.poll_index();
+        if let Some(receiver) = self.install_rx.as_ref() {
+            let result = match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("Extension install worker stopped.".into()))
+                }
+            };
+            if let Some(result) = result {
+                self.install_rx = None;
+                match result {
+                    Ok(installed) => {
+                        self.reload();
+                        events.push(ExtensionEvent::Installed {
+                            name: installed.manifest.name,
+                            version: installed.manifest.version,
+                        });
+                    }
+                    Err(error) => events.push(ExtensionEvent::Error(error)),
+                }
+            }
+        }
+        events
+    }
+
+    fn poll_index(&mut self) {
+        let result = self
+            .index_rx
+            .as_ref()
+            .and_then(|receiver| match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => Some(IndexFetchResult {
+                    entries: Vec::new(),
+                    errors: vec!["Extension index worker stopped.".into()],
+                }),
+            });
+        if let Some(result) = result {
+            self.index_rx = None;
+            self.index_entries = result.entries;
+            self.index_errors = result.errors;
+            self.index_loading = false;
+            self.index_loaded = true;
+        }
+    }
+
+    pub(crate) fn specs(&self) -> Vec<DeviceSpec> {
+        self.host
+            .as_ref()
+            .map(ExtensionHost::specs)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn factory(&self) -> Option<Arc<dyn DeviceFactory>> {
+        self.host.as_ref().map(ExtensionHost::factory)
+    }
+
+    pub(crate) fn panel_host(&self) -> Option<Box<dyn DevicePanelHost>> {
+        self.host.as_ref().map(ExtensionHost::panel_host)
+    }
+
+    pub(crate) fn infos(&self) -> Vec<ExtensionInfo> {
+        self.infos.clone()
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn indexes(&self) -> Vec<String> {
+        self.config.indexes.clone()
+    }
+
+    pub(crate) fn index_entries(&self) -> Vec<ExtensionIndexEntry> {
+        self.index_entries.clone()
+    }
+
+    pub(crate) fn index_errors(&self) -> Vec<String> {
+        self.index_errors.clone()
+    }
+
+    pub(crate) fn index_loading(&self) -> bool {
+        self.index_loading
+    }
+
+    pub(crate) fn index_loaded(&self) -> bool {
+        self.index_loaded
+    }
+
+    pub(crate) fn set_indexes(&mut self, indexes: Vec<String>) {
+        let indexes = normalize_indexes(indexes);
+        if self.config.indexes == indexes {
+            return;
+        }
+        self.config.indexes = indexes;
+        self.persist();
+        self.index_entries.clear();
+        self.index_errors.clear();
+        self.index_loaded = false;
+        self.start_index_fetch();
+    }
+
+    pub(crate) fn refresh_index(&mut self) {
+        if self.index_loading {
+            return;
+        }
+        self.start_index_fetch();
+    }
+
+    fn start_index_fetch(&mut self) {
+        if self.config.indexes.is_empty() {
+            self.index_rx = None;
+            self.index_entries.clear();
+            self.index_errors.clear();
+            self.index_loading = false;
+            self.index_loaded = true;
+            return;
+        }
+        let indexes = self.config.indexes.clone();
+        self.index_loading = true;
+        let (sender, receiver) = mpsc::channel();
+        self.index_rx = Some(receiver);
+        std::thread::spawn(move || {
+            let _ = sender.send(fetch_indexes(indexes));
+        });
+    }
+
+    pub(crate) fn install_from_index(&mut self, id: &str) -> Result<(), String> {
+        if self.install_rx.is_some() {
+            return Err("An extension install is already running.".into());
+        }
+        let entry = self
+            .index_entries
+            .iter()
+            .find(|entry| entry.id == id)
+            .cloned()
+            .ok_or_else(|| format!("Extension {id} is not in the current index."))?;
+        let Some(root) = extensions_dir() else {
+            return Err("Could not locate the extensions directory.".into());
+        };
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = read_source_bytes(&entry.url).and_then(|bytes| {
+                install_zip_bytes(&root, &bytes, Some(&entry.id)).map_err(|error| error.to_string())
+            });
+            let _ = sender.send(result);
+        });
+        self.install_rx = Some(receiver);
+        Ok(())
+    }
+
+    pub(crate) fn install_zip(&mut self, path: PathBuf) -> Result<(), String> {
+        if self.install_rx.is_some() {
+            return Err("An extension install is already running.".into());
+        }
+        let Some(root) = extensions_dir() else {
+            return Err("Could not locate the extensions directory.".into());
+        };
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = install_zip_file(&root, &path, None).map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        });
+        self.install_rx = Some(receiver);
+        Ok(())
+    }
+
+    pub(crate) fn uninstall(&mut self, id: &str) -> Result<(), String> {
+        let Some(root) = extensions_dir() else {
+            return Err("Could not locate the extensions directory.".into());
+        };
+        uninstall(&root, id).map_err(|error| error.to_string())?;
+        self.config.settings.remove(id);
+        self.persist();
+        self.reload();
+        Ok(())
+    }
+
+    pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
+        let entry = self.config.settings.entry(id.to_owned()).or_default();
+        entry.enabled = enabled;
+        self.persist();
+        self.reload();
+    }
+
+    pub(crate) fn set_trust(&mut self, id: &str, trust: TrustLevel) {
+        let entry = self.config.settings.entry(id.to_owned()).or_default();
+        entry.trust = trust;
+        self.persist();
+        self.reload();
+    }
+
+    fn persist(&self) {
+        if let Err(error) = save_config(&self.config) {
+            tracing::warn!(error = %error, "could not save extension settings");
+        }
+    }
+}
+
+fn fetch_indexes(indexes: Vec<String>) -> IndexFetchResult {
+    let mut entries: BTreeMap<String, ExtensionIndexEntry> = BTreeMap::new();
+    let mut errors = Vec::new();
+    for source in indexes {
+        let bytes = match read_source_bytes(&source).and_then(|bytes| {
+            if bytes.len() > MAX_INDEX_BYTES {
+                Err(format!("{source}: index is too large"))
+            } else {
+                Ok(bytes)
+            }
+        }) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
+        let list: Vec<ExtensionIndexEntry> = match serde_json::from_slice(&bytes) {
+            Ok(list) => list,
+            Err(error) => {
+                errors.push(format!("{source}: {error}"));
+                continue;
+            }
+        };
+        for mut entry in list {
+            if let Err(error) = resolve_entry_url(&mut entry, &source) {
+                errors.push(format!("{source}: {}: {error}", entry.id));
+                continue;
+            }
+            if let Err(error) = entry.validate() {
+                errors.push(format!("{source}: {}: {error}", entry.id));
+                continue;
+            }
+            match entries.get(&entry.id) {
+                Some(existing) if !version_is_newer(&entry.version, &existing.version) => {}
+                _ => {
+                    entries.insert(entry.id.clone(), entry);
+                }
+            }
+        }
+    }
+    IndexFetchResult {
+        entries: entries.into_values().collect(),
+        errors,
+    }
+}
+
+fn resolve_entry_url(entry: &mut ExtensionIndexEntry, index_source: &str) -> Result<(), String> {
+    if let Ok(url) = url::Url::parse(&entry.url) {
+        if url.has_host() || url.scheme() == "file" {
+            return Ok(());
+        }
+    }
+    if let Ok(base) = url::Url::parse(index_source) {
+        entry.url = base
+            .join(&entry.url)
+            .map_err(|error| format!("resolve url: {error}"))?
+            .to_string();
+        return Ok(());
+    }
+    let base = Path::new(index_source).parent().unwrap_or(Path::new("."));
+    entry.url = base.join(&entry.url).to_string_lossy().into_owned();
+    Ok(())
+}
+
+fn version_is_newer(candidate: &str, existing: &str) -> bool {
+    match (
+        semver::Version::parse(candidate),
+        semver::Version::parse(existing),
+    ) {
+        (Ok(candidate), Ok(existing)) => candidate > existing,
+        _ => true,
+    }
+}
+
+fn normalize_indexes(indexes: Vec<String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    indexes
+        .into_iter()
+        .map(|index| index.trim().to_owned())
+        .filter(|index| !index.is_empty())
+        .filter(|index| seen.insert(index.clone()))
+        .collect()
+}
+
+fn read_source_bytes(source: &str) -> Result<Vec<u8>, String> {
+    if source.starts_with("http://") || source.starts_with("https://") {
+        return fetch_url(source);
+    }
+    if source.starts_with("file://") {
+        let url = url::Url::parse(source).map_err(|error| format!("{source}: {error}"))?;
+        let path = url
+            .to_file_path()
+            .map_err(|()| format!("{source}: invalid file URL"))?;
+        return std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()));
+    }
+    std::fs::read(source).map_err(|error| format!("{source}: {error}"))
+}
+
+fn fetch_url(source: &str) -> Result<Vec<u8>, String> {
+    let mut response = ureq::get(source)
+        .call()
+        .map_err(|error| format!("{source}: {error}"))?;
+    let mut reader = response.body_mut().as_reader();
+    let mut bytes = Vec::new();
+    reader
+        .by_ref()
+        .take((MAX_ARCHIVE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("{source}: {error}"))?;
+    if bytes.len() > MAX_ARCHIVE_BYTES {
+        return Err(format!("{source}: response is too large"));
+    }
+    Ok(bytes)
+}
+
+fn extensions_dir() -> Option<PathBuf> {
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    #[cfg(target_os = "macos")]
+    let path = home.join("Library/Application Support/notwig/extensions");
+    #[cfg(not(target_os = "macos"))]
+    let path = home.join(".config/notwig/extensions");
+    Some(path)
+}
+
+fn config_path() -> Option<PathBuf> {
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    #[cfg(target_os = "macos")]
+    let path = home.join("Library/Application Support/notwig/extensions.json");
+    #[cfg(not(target_os = "macos"))]
+    let path = home.join(".config/notwig/extensions.json");
+    Some(path)
+}
+
+fn load_config() -> ExtensionConfig {
+    let Some(path) = config_path() else {
+        return ExtensionConfig::default();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return ExtensionConfig::default();
+    };
+    ExtensionConfig::from_json(&text).unwrap_or_else(|error| {
+        tracing::warn!(path = %path.display(), error = %error, "ignoring invalid extension config");
+        ExtensionConfig::default()
+    })
+}
+
+fn save_config(config: &ExtensionConfig) -> Result<(), String> {
+    let Some(path) = config_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let text = config.to_json()?;
+    std::fs::write(&path, text).map_err(|error| format!("save extension config: {error}"))
+}

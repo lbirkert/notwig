@@ -1,0 +1,18 @@
+{
+  "id": "notwig.ext.devices",
+  "name": "Notwig Stock Devices",
+  "vendor": "Notwig",
+  "version": "0.1.0",
+  "api_version": 1,
+  "entrypoint": "notwig_ext_devices.wasm",
+  "capabilities": [
+    "device",
+    "ui.draw"
+  ],
+  "devices": [
+    {
+      "name": "Notwig Stock Limiter",
+      "type_id": "notwig.ext.devices.limiter"
+    }
+  ]
+}

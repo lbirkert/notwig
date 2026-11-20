@@ -19,10 +19,13 @@ use crate::widgets::format_param;
 
 mod browser;
 mod eq;
+mod extension;
 mod params;
+mod renderer;
 
 pub(crate) use browser::DeviceBrowserState;
 pub(crate) use eq::EqDrag;
+pub(crate) use renderer::{DeviceRendererKind, card_width, device_renderer};
 
 const DEVICE_CARD_HEIGHT: f32 = 220.0;
 const DEVICE_PANEL_HEIGHT: f32 = 260.0;
@@ -194,7 +197,11 @@ impl NotwigUi {
     ) -> Rect {
         let selected = self.state.selection.devices.contains(&device.id);
         let collapsed = self.collapsed_devices.contains(&device.id);
-        let expanded_width = card_width(device);
+        let spec = self
+            .registry
+            .resolve(&device.type_id, device.version)
+            .cloned();
+        let expanded_width = card_width(spec.as_ref());
         let width = if collapsed {
             HANDLE_WIDTH
         } else {
@@ -223,7 +230,15 @@ impl NotwigUi {
                                     collapsed,
                                 );
                                 if !collapsed {
-                                    self.device_body(ui, doc, runtime, device, body_height, depth);
+                                    self.device_body(
+                                        ui,
+                                        doc,
+                                        runtime,
+                                        device,
+                                        spec.as_ref(),
+                                        body_height,
+                                        depth,
+                                    );
                                 }
                             });
                         });
@@ -366,10 +381,11 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
         device: &DeviceInstance,
+        spec: Option<&notwig_dsp::DeviceSpec>,
         height: f32,
         depth: usize,
     ) {
-        let body_width = card_width(device) - HANDLE_WIDTH - 2.0;
+        let body_width = card_width(spec) - HANDLE_WIDTH - 2.0;
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(4, 2))
             .show(ui, |ui| {
@@ -395,18 +411,34 @@ impl NotwigUi {
                             }
                             ui.add_space(4.0);
                         }
-                        if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
-                            self.eq_card_body_from_panel(
-                                ui,
-                                device,
-                                f64::from(doc.meta.sample_rate.value()),
-                            );
-                        } else if device.kind == DeviceKind::Container {
-                            self.chain_body(ui, device);
-                        } else if device.type_id == notwig_dsp::stock::TOOL_TYPE_ID {
-                            self.tool_body(ui, device, body_width);
-                        } else {
-                            self.param_editor_from_panel(ui, device);
+                        let renderer = device_renderer(spec);
+                        let extension_drawn = matches!(&renderer, DeviceRendererKind::Extension(_))
+                            && spec.is_some_and(|spec| {
+                                self.draw_extension_device_panel(
+                                    ui,
+                                    device,
+                                    spec,
+                                    doc.meta.sample_rate.value(),
+                                    Vec2::new(body_width - 8.0, height - 4.0),
+                                )
+                            });
+                        if !extension_drawn {
+                            match (renderer, spec) {
+                                (DeviceRendererKind::Eq, _) => {
+                                    self.eq_card_body_from_panel(
+                                        ui,
+                                        device,
+                                        f64::from(doc.meta.sample_rate.value()),
+                                    );
+                                }
+                                (DeviceRendererKind::Tool, Some(spec)) => {
+                                    self.tool_body(ui, device, spec, body_width);
+                                }
+                                (DeviceRendererKind::Chain, Some(spec)) => {
+                                    self.chain_body(ui, device, spec);
+                                }
+                                _ => self.param_editor_from_panel(ui, device),
+                            }
                         }
                         let _ = runtime;
                     },
@@ -414,14 +446,13 @@ impl NotwigUi {
             });
     }
 
-    fn tool_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, width: f32) {
-        let Some(spec) = self
-            .registry
-            .resolve(&device.type_id, device.version)
-            .cloned()
-        else {
-            return;
-        };
+    fn tool_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        device: &DeviceInstance,
+        spec: &notwig_dsp::DeviceSpec,
+        width: f32,
+    ) {
         let button_width = ((width - 32.0) / 3.0).max(42.0);
         ui.horizontal(|ui| {
             for (id, label) in [
@@ -508,19 +539,12 @@ impl NotwigUi {
         }
     }
 
-    fn chain_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
-        let Some(spec) = self
-            .registry
-            .resolve(&device.type_id, device.version)
-            .cloned()
-        else {
-            ui.label(
-                RichText::new("No parameter metadata.")
-                    .small()
-                    .color(theme::TEXT_MUTED),
-            );
-            return;
-        };
+    fn chain_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        device: &DeviceInstance,
+        spec: &notwig_dsp::DeviceSpec,
+    ) {
         ui.vertical_centered(|ui| {
             ui.add_space(6.0);
             for (id, label) in [
@@ -560,16 +584,6 @@ impl NotwigUi {
 
 fn is_plugin_device(device: &DeviceInstance) -> bool {
     device.type_id.starts_with("vst3.") || device.type_id.starts_with("au.")
-}
-
-fn card_width(device: &DeviceInstance) -> f32 {
-    if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
-        560.0
-    } else if device.type_id == notwig_dsp::stock::CHAIN_TYPE_ID {
-        150.0
-    } else {
-        300.0
-    }
 }
 
 fn draw_bracket(ui: &egui::Ui, left: f32, right: f32, y: f32, depth: usize) {

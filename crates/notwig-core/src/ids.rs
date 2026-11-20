@@ -8,6 +8,21 @@ use uuid::Uuid;
 
 pub trait Entity {}
 
+#[cfg(feature = "rand")]
+#[must_use]
+pub(crate) fn new_uuid() -> Uuid {
+    Uuid::new_v4()
+}
+
+#[cfg(not(feature = "rand"))]
+#[must_use]
+pub(crate) fn new_uuid() -> Uuid {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let counter = u128::from(COUNTER.fetch_add(1, Ordering::Relaxed));
+    Uuid::from_u128(0x6661_6c6c_6261_636b_0000_0000_0000_0000 ^ counter)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Asset;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

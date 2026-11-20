@@ -14,7 +14,6 @@ use crate::sequencer::{
 };
 use crate::time::{RangeMus, TimeMus};
 use crate::tracks::{TrackKind, TrackOutput};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplyResult {
@@ -858,7 +857,7 @@ fn audio_slice_window(
     }
     let mut segment = slice.clone();
     if new_id {
-        segment.id = SliceId::from_uuid(Uuid::new_v4());
+        segment.id = SliceId::from_uuid(crate::ids::new_uuid());
     }
     segment.start = window_start - new_origin;
     segment.source_start_sample = u64::try_from(source_start).unwrap_or(0);
@@ -906,7 +905,7 @@ fn clear_range(
         if existing.range.start >= range.start && existing.range.end <= range.end {
             remove.push(other);
         } else if existing.range.start < range.start && existing.range.end > range.end {
-            let right_id = ClipId::from_uuid(Uuid::new_v4());
+            let right_id = ClipId::from_uuid(crate::ids::new_uuid());
             let new_note_ids = crossing_note_ids(&existing, range.start);
             split_clip(doc, other, range.start, right_id, &new_note_ids, changes)?;
             trim_clip_start(doc, &doc.arranger.clips[&right_id].clone(), range.end)?;
@@ -939,7 +938,7 @@ fn crossing_note_ids(clip: &ClipEntity, at: TimeMus) -> Vec<NoteId> {
     midi.notes
         .iter()
         .filter(|note| note.start < split && note.start + note.length > split)
-        .map(|_| NoteId::from_uuid(Uuid::new_v4()))
+        .map(|_| NoteId::from_uuid(crate::ids::new_uuid()))
         .collect()
 }
 
@@ -981,7 +980,7 @@ fn resize_audio_clip_range(
     if extends || new_samples > audio.source_duration() {
         let relative_start = old.range.start - new_range.start;
         audio.slices = vec![AudioSlice {
-            id: SliceId::from_uuid(Uuid::new_v4()),
+            id: SliceId::from_uuid(crate::ids::new_uuid()),
             start: relative_start,
             source_start_sample: audio.source_start_sample,
             source_end_sample: audio.source_end_sample,

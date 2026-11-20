@@ -5,8 +5,12 @@ members = [
   "crates/notwig-core",
   "crates/notwig-project",
   "crates/notwig-dsp",
+  "crates/notwig-ext-api",
+  "crates/notwig-ext-devices",
+  "crates/notwig-ext-macros",
   "crates/notwig-engine",
   "crates/notwig-plugins",
+  "crates/notwig-ext",
   "crates/notwig-ui",
   "crates/notwig-app",
 ]
@@ -22,8 +26,12 @@ repository = "https://github.com/lbirkert/notwig"
 notwig-core = { path = "crates/notwig-core" }
 notwig-project = { path = "crates/notwig-project" }
 notwig-dsp = { path = "crates/notwig-dsp" }
+notwig-ext-api = { path = "crates/notwig-ext-api" }
+notwig-ext-devices = { path = "crates/notwig-ext-devices" }
+notwig-ext-macros = { path = "crates/notwig-ext-macros" }
 notwig-engine = { path = "crates/notwig-engine" }
 notwig-plugins = { path = "crates/notwig-plugins" }
+notwig-ext = { path = "crates/notwig-ext" }
 notwig-ui = { path = "crates/notwig-ui" }
 
 crossbeam-queue = "0.3"
@@ -44,11 +52,15 @@ ogg = "0.9"
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
+semver = "1"
+url = "2"
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "flac", "ogg", "vorbis", "pcm", "wav", "aiff", "opt-simd"] }
-uuid = { version = "1", features = ["serde", "v4"] }
+uuid = { version = "1", features = ["serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

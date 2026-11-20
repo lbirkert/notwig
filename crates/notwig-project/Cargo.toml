@@ -18,7 +18,7 @@ serde_json.workspace = true
 sha2 = "0.10"
 symphonia.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true

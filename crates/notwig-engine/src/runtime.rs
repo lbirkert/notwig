@@ -12,7 +12,7 @@ use notwig_dsp::{
 
 use crate::control::PreviewNote;
 use crate::engine::{EngineConfig, EngineError};
-use crate::factory::DeviceFactory;
+use notwig_dsp::DeviceFactory;
 
 const PREVIEW_POOL_CAPACITY: usize = 32;
 

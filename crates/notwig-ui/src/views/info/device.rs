@@ -4,6 +4,7 @@ use notwig_core::{DeviceId, DeviceInstance, ParamValue, ProjectDoc};
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
 use crate::theme;
+use crate::views::device_editor::{DeviceRendererKind, device_renderer};
 use crate::widgets::format_param;
 
 use super::common::section_header;
@@ -74,7 +75,11 @@ impl NotwigUi {
                 }),
         );
         ui.separator();
-        if device.type_id == notwig_dsp::stock::EQ_TYPE_ID {
+        let spec = self
+            .registry
+            .resolve(&device.type_id, device.version)
+            .cloned();
+        if device_renderer(spec.as_ref()) == DeviceRendererKind::Eq {
             self.eq_info(ui, &device);
         } else {
             self.generic_device_info(ui, &device);

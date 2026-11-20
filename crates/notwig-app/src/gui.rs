@@ -39,6 +39,7 @@ enum DialogAction {
         options: notwig_ui::ExportOptions,
     },
     ImportAudio,
+    ImportExtensionZip,
     Relink(notwig_core::AssetId),
 }
 
@@ -59,6 +60,7 @@ struct RenderJob {
 struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
+    extensions: crate::extensions::ExtensionManager,
     audio: Option<AudioService>,
     audio_settings: crate::audio::AudioSettings,
     audio_options: Vec<notwig_ui::AudioDriverView>,
@@ -136,9 +138,11 @@ impl NotwigApp {
                 }
             }
         });
+        let extensions = crate::extensions::ExtensionManager::load();
         let mut app = Self {
             workspace,
             ui: NotwigUi::default(),
+            extensions,
             audio: None,
             audio_settings,
             audio_options,
@@ -159,8 +163,15 @@ impl NotwigApp {
             engine_crash_reported: false,
         };
         app.ui.set_shortcuts(crate::shortcuts::load());
+        app.sync_extensions();
         app.restart_audio();
         app
+    }
+
+    fn sync_extensions(&mut self) {
+        self.workspace
+            .set_extension_devices(self.extensions.specs(), self.extensions.factory());
+        self.ui.set_device_panel_host(self.extensions.panel_host());
     }
 
     fn restart_audio(&mut self) {
@@ -317,6 +328,13 @@ impl NotwigApp {
             audio_settings,
             dsp: snapshot.dsp.clone(),
             clipboard: self.workspace.clipboard().clone(),
+            extensions: self.extensions.infos(),
+            extensions_error: self.extensions.error().map(str::to_owned),
+            extension_indexes: self.extensions.indexes(),
+            extension_index: self.extensions.index_entries(),
+            extension_index_errors: self.extensions.index_errors(),
+            extension_index_loading: self.extensions.index_loading(),
+            extension_index_loaded: self.extensions.index_loaded(),
         }
     }
 
@@ -802,6 +820,19 @@ impl NotwigApp {
                 let result = self.workspace.insert_stock(chain_id, &type_id, kind, index);
                 let _ = self.report(result);
             }
+            UiIntent::InsertDevice {
+                chain_id,
+                type_id,
+                version,
+                kind,
+                index,
+                ..
+            } => {
+                let result = self
+                    .workspace
+                    .insert_device(chain_id, &type_id, version, kind, index);
+                let _ = self.report(result);
+            }
             UiIntent::InsertPlugin {
                 chain_id,
                 type_id,
@@ -997,6 +1028,54 @@ impl NotwigApp {
                     self.notify_info("Render cancelled.".into());
                 }
             }
+            UiIntent::SetExtensionEnabled { id, enabled } => {
+                self.extensions.set_enabled(&id, enabled);
+                self.sync_extensions();
+            }
+            UiIntent::SetExtensionTrust { id, trust } => {
+                self.extensions.set_trust(&id, trust);
+                self.sync_extensions();
+            }
+            UiIntent::ReloadExtensions => {
+                self.extensions.reload();
+                self.sync_extensions();
+                if let Some(error) = self.extensions.error() {
+                    self.notify_error(format!("Extension load failed: {error}"));
+                } else {
+                    self.notify_info("Extensions reloaded.".into());
+                }
+            }
+            UiIntent::SetExtensionIndexes { indexes } => {
+                self.extensions.set_indexes(indexes);
+            }
+            UiIntent::RefreshExtensionIndex => {
+                self.extensions.refresh_index();
+            }
+            UiIntent::InstallExtensionFromIndex { id } => {
+                if let Err(error) = self.extensions.install_from_index(&id) {
+                    self.notify_error(error);
+                }
+            }
+            UiIntent::InstallExtensionZip { path } => {
+                if let Err(error) = self.extensions.install_zip(path) {
+                    self.notify_error(error);
+                }
+            }
+            UiIntent::ImportExtensionZip => {
+                self.spawn_dialog(DialogAction::ImportExtensionZip, || {
+                    rfd::FileDialog::new()
+                        .add_filter("Notwig extension", &["zip"])
+                        .set_title("Import extension ZIP")
+                        .pick_file()
+                });
+            }
+            UiIntent::UninstallExtension { id } => match self.extensions.uninstall(&id) {
+                Ok(()) => {
+                    self.sync_extensions();
+                    self.notify_info(format!("Uninstalled {id}."));
+                }
+                Err(error) => self.notify_error(error),
+            },
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
         }
     }
@@ -1123,6 +1202,14 @@ impl NotwigApp {
                 let result = self.workspace.import_audio(&path);
                 let _ = self.report(result);
             }
+            DialogAction::ImportExtensionZip => {
+                let Some(path) = path else {
+                    return;
+                };
+                if let Err(error) = self.extensions.install_zip(path) {
+                    self.notify_error(error);
+                }
+            }
             DialogAction::Relink(asset_id) => {
                 let Some(path) = path else {
                     return;
@@ -1199,6 +1286,18 @@ impl eframe::App for NotwigApp {
         self.poll_audio_imports();
         self.advance_render();
         self.workspace.poll_plugin_catalog();
+        for event in self.extensions.poll() {
+            match event {
+                crate::extensions::ExtensionEvent::Installed { name, version } => {
+                    self.sync_extensions();
+                    self.notify_info(format!("Installed {name} {version}"));
+                }
+                crate::extensions::ExtensionEvent::Error(error) => self.notify_error(error),
+            }
+        }
+        if self.extensions.index_loading() {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
         let mut editor_changes = Vec::new();
         let mut closed_states = Vec::new();
         self.plugin_editors.retain_mut(|(device_id, window)| {
@@ -1264,6 +1363,9 @@ impl eframe::App for NotwigApp {
         let runtime = self.runtime_view(&snapshot);
         self.ui.set_platform_pointer(platform_pointer(ctx));
         for spec in self.workspace.plugin_specs() {
+            self.ui.registry.register(spec.clone());
+        }
+        for spec in self.workspace.extension_specs() {
             self.ui.registry.register(spec.clone());
         }
         let intents = self.ui.show(ctx, &self.workspace.doc, &runtime);

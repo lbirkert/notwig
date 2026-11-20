@@ -9,14 +9,21 @@ and test layer before editing.
 ```text
 .
   Cargo.toml                 workspace, dependencies, lint policy
+  book.toml                  mdbook config for the GitHub Pages docs
   README.md                  project overview and build instructions
   AGENTS.md                  contributor/agent workflow and code style
+  scripts/                   extension package/index build scripts
+  .github/workflows/         CI, including GitHub Pages publishing
   docs/                      authoritative documentation
   plan/                      scratch/planning notes (not part of the stable docs)
   crates/
     notwig-core/
     notwig-project/
     notwig-dsp/
+    notwig-ext-api/
+    notwig-ext-macros/
+    notwig-ext/
+    notwig-ext-devices/
     notwig-engine/
     notwig-plugins/
     notwig-ui/
@@ -31,8 +38,13 @@ workspace enforces `#![forbid(unsafe_code)]` and a strict Clippy policy.
 
 ```text
 notwig-app -> notwig-ui, notwig-core, notwig-project,
-              notwig-engine, notwig-plugins, notwig-dsp
-notwig-ui -> notwig-core, notwig-project, notwig-dsp
+              notwig-engine, notwig-plugins, notwig-dsp, notwig-ext
+notwig-ui -> notwig-core, notwig-project, notwig-dsp, notwig-ext-api
+notwig-ext -> notwig-core, notwig-dsp, notwig-ext-api
+notwig-ext-api -> notwig-core, notwig-dsp, notwig-ext-macros
+notwig-ext-macros -> proc-macro support only
+notwig-ext-devices -> notwig-core, notwig-dsp, notwig-ext-api
+                          (core/dsp without default features)
 notwig-engine -> notwig-core, notwig-dsp, notwig-plugins
 notwig-plugins -> notwig-dsp, notwig-core
 notwig-project -> notwig-core
@@ -77,6 +89,50 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `graph.rs` | Compile `ProjectDoc` into a `CompiledPlan` (tracks, sends, chains, latency) |
 | `stock.rs` | Stock EQ, Tool, and Chain definitions/processors |
 | `smoothing.rs` | Parameter smoothing primitives |
+
+### `notwig-ext-api` — extension SDK and render-neutral drawing
+
+| Module | Responsibility |
+|---|---|
+| `geometry.rs` | `Point`, `Rect`, `Color`, `Stroke`, text alignment |
+| `draw.rs` | `DrawList`/`DrawCommand` and validation limits |
+| `panel.rs` | `PanelDraw`/`PanelCommand`, `DevicePanelHost` |
+| `context.rs` | device panel context and theme snapshot |
+| `manifest.rs` | extension manifest/capability/device declaration types |
+| `status.rs` | `TrustLevel`, `ExtensionStatus`, `ExtensionInfo`, settings |
+| `config.rs` | Versioned user config, default index URL, legacy migration |
+| `index.rs` | Extension index entry/device types and validation |
+| `extension.rs` | `DeviceExtension`, `Extension`, registration and ABI-facing dispatch |
+| `abi.rs` | ABI version, status codes, pointer/length packing, helper re-exports |
+| `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
+| `abi/store.rs` | Handle-keyed `DeviceStore<T>` with const construction |
+| `abi/pointers.rs` | Safe wrappers for reading strings, param IDs, and audio slices |
+
+### `notwig-ext-macros` — extension ABI generation
+
+| Module | Responsibility |
+|---|---|
+| `lib.rs` | `#[notwig_extension]` attribute macro; generates wasm exports around the entrypoint |
+
+### `notwig-ext` — WASM extension host
+
+| Module | Responsibility |
+|---|---|
+| `discovery.rs` | user-directory scan, manifest parse/validate, module size checks |
+| `abi.rs` | wasmtime engines/stores, host imports, typed exports, memory checks |
+| `compiled.rs` | loaded extension records and device-type lookup |
+| `host.rs` | `ExtensionHost`: compile, specs, factory, panel host, infos |
+| `device.rs` | `ExtensionDeviceFactory`, WASM `DeviceProcessor`, draw-only silence |
+| `install.rs` | ZIP validation/extraction, safe install/replace, uninstall |
+| `panel.rs` | cached UI instance implementing `DevicePanelHost` |
+| `error.rs` | `ExtensionError` |
+
+### `notwig-ext-devices` — example extension devices
+
+| Module | Responsibility |
+|---|---|
+| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, parameter IDs |
+| `lib.rs` | `#[notwig_extension]` entrypoint registering `LimiterDevice` |
 
 ### `notwig-engine` — real-time execution
 
@@ -133,6 +189,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
 | `audio_config.rs` | Persisted audio driver/device/block-size config |
 | `plugins.rs` | Plugin catalog/cache/scanner subprocess glue |
+| `extensions.rs` | Extension config/index fetch, install/uninstall jobs, host lifecycle, app sync |
 | `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Convert edit plans into `CommandPayload`s |
 | `history.rs` | Undo/redo stack with structural/non-structural entries |
@@ -148,9 +205,18 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Edit algebra/properties | `crates/notwig-core/tests/edit_algebra.rs` |
 | Project bundles and assets | `crates/notwig-project/tests/` |
 | DSP plans and stock devices | `crates/notwig-dsp/tests/` |
+| Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/` |
+| Extension draw/panel validation | `crates/notwig-ext-api/tests/` |
+| Extension ABI helpers | `crates/notwig-ext-api/tests/abi_helpers.rs` |
+| Limiter example device | `crates/notwig-ext-devices/tests/` |
+| Extension index and config | `crates/notwig-ext-api/tests/index_config.rs` |
+| Extension ZIP install | `crates/notwig-ext/tests/install.rs` |
+| Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |
+| Built limiter loads through the host | `crates/notwig-ext/tests/limiter_extension.rs` |
 | Engine playback/rendering | `crates/notwig-engine/tests/` |
 | Plugin cache/types | `crates/notwig-plugins/tests/` |
 | UI headless rendering, gestures, state | `crates/notwig-ui/tests/` |
+| Extension device panels | `crates/notwig-ui/tests/extension_panel.rs` |
 | MIDI editor interaction | `crates/notwig-ui/tests/midi_editor.rs` |
 | Clip visuals and trim | `crates/notwig-ui/tests/clip_trim.rs` |
 | Peak hold and reset | `crates/notwig-ui/tests/track_info.rs` |
@@ -203,6 +269,18 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 3. Put behavior in `Workspace` or `gui.rs`.
 4. Reuse `widgets/`, `timeline/`, and `form.rs` helpers instead of local copies.
 5. Add a headless render test in `crates/notwig-ui/tests/`.
+
+### Add an extension device
+
+1. Build the device against `notwig-ext-api` exports (`notwig_device_*`) and
+   ship a manifest plus wasm module under the user extensions directory.
+2. Return a `DeviceSpec` from `notwig_device_describe`; set `DeviceUiSpec` to
+   `Generic` to let the host assign the extension panel renderer.
+3. Return a `PanelDraw` from `notwig_device_draw` using draw commands or native
+   knob/toggle commands.
+4. Keep DSP in `notwig_device_process` with block-based interleaved `f32` audio.
+5. Add a WAT fixture in `crates/notwig-ext/tests/` and a headless panel test in
+   `crates/notwig-ui/tests/`.
 
 ### Add an audio feature
 

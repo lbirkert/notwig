@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use notwig_core::{AssetId, DeviceKind, TimeMus, TrackId};
+use notwig_ext_api::{ExtensionIndexEntry, ExtensionInfo};
 
 use crate::clipboard::Clipboard;
 
@@ -103,6 +104,13 @@ pub struct RuntimeView {
     pub audio_settings: AudioSettingsView,
     pub dsp: DspAnalysisView,
     pub clipboard: Clipboard,
+    pub extensions: Vec<ExtensionInfo>,
+    pub extensions_error: Option<String>,
+    pub extension_indexes: Vec<String>,
+    pub extension_index: Vec<ExtensionIndexEntry>,
+    pub extension_index_errors: Vec<String>,
+    pub extension_index_loading: bool,
+    pub extension_index_loaded: bool,
 }
 
 impl Default for RuntimeView {
@@ -126,6 +134,13 @@ impl Default for RuntimeView {
             audio_settings: AudioSettingsView::default(),
             dsp: DspAnalysisView::default(),
             clipboard: Clipboard::default(),
+            extensions: Vec::new(),
+            extensions_error: None,
+            extension_indexes: Vec::new(),
+            extension_index: Vec::new(),
+            extension_index_errors: Vec::new(),
+            extension_index_loading: false,
+            extension_index_loaded: false,
         }
     }
 }

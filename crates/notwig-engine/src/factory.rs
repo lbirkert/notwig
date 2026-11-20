@@ -3,27 +3,10 @@ use std::sync::Mutex;
 
 use notwig_core::{DeviceId, ParamId, ParamValue};
 use notwig_dsp::{
-    CompiledPlan, DeviceProcessor, Latency, NoteEvent, PlanDevice, ProcessContext, ProcessStatus,
-    RenderConfig,
+    CompiledPlan, DeviceFactory, DeviceProcessor, Latency, NoteEvent, PlanDevice, ProcessContext,
+    ProcessStatus, RenderConfig, StockDeviceFactory,
 };
 use notwig_plugins::{PluginDescriptor, PluginHost, PluginInstance, PluginState};
-
-pub trait DeviceFactory: Send + Sync {
-    fn create(&self, plan: &CompiledPlan, device: &PlanDevice) -> Option<Box<dyn DeviceProcessor>>;
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct StockDeviceFactory;
-
-impl DeviceFactory for StockDeviceFactory {
-    fn create(
-        &self,
-        _plan: &CompiledPlan,
-        device: &PlanDevice,
-    ) -> Option<Box<dyn DeviceProcessor>> {
-        notwig_dsp::instantiate_stock_params(&device.type_id, &device.spec, &device.param_values)
-    }
-}
 
 pub struct PluginDeviceFactory {
     host: Mutex<PluginHost>,

@@ -1,0 +1,7 @@
+[book]
+title = "Notwig"
+src = "docs"
+build-dir = "book"
+
+[output.html]
+site-url = "/notwig/"

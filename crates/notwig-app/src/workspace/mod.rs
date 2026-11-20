@@ -16,7 +16,7 @@ use notwig_core::{
     Meta, NoteId, ProjectDoc, Rational, SampleRate, SchemaVersion, StateBlobRef, TrackId,
     TrackKind, apply,
 };
-use notwig_dsp::EngineCaps;
+use notwig_dsp::{DeviceFactory, DeviceSpec, EngineCaps};
 use notwig_engine::{
     ControlHandle, Engine, EngineControl, ParamUpdate, PreparedRuntime, PreviewNote,
     TrackStateUpdate, TransportUpdate,
@@ -46,7 +46,9 @@ pub struct Workspace {
     engine_ready: bool,
     pub plugins: Vec<PluginEntry>,
     plugin_descriptors: Vec<PluginDescriptor>,
-    plugin_specs: BTreeMap<String, notwig_dsp::DeviceSpec>,
+    plugin_specs: BTreeMap<String, DeviceSpec>,
+    extension_specs: BTreeMap<String, DeviceSpec>,
+    extension_factory: Option<Arc<dyn DeviceFactory>>,
     pub status: Option<String>,
     pub error: Option<String>,
     pub last_autosave: std::time::Instant,
@@ -116,6 +118,8 @@ impl Workspace {
             plugins,
             plugin_descriptors,
             plugin_specs: BTreeMap::new(),
+            extension_specs: BTreeMap::new(),
+            extension_factory: None,
             status: None,
             error: None,
             last_autosave: std::time::Instant::now(),
@@ -181,6 +185,7 @@ impl Workspace {
                 channels: 2,
             },
             registry: self.device_registry(),
+            extension_factory: self.extension_factory.clone(),
             plugin_descriptors: self.plugin_descriptors.clone(),
             plugin_states: self.plugin_states.clone(),
             assets: self.assets.clone(),
@@ -1021,6 +1026,17 @@ impl Workspace {
         kind: DeviceKind,
         index: Option<usize>,
     ) -> Result<(), String> {
+        self.insert_device(chain_id, type_id, SchemaVersion::V0, kind, index)
+    }
+
+    pub fn insert_device(
+        &mut self,
+        chain_id: DeviceChainId,
+        type_id: &str,
+        version: SchemaVersion,
+        kind: DeviceKind,
+        index: Option<usize>,
+    ) -> Result<(), String> {
         let id = Id::<DeviceMarker>::from_uuid(Uuid::new_v4());
         let child_chains = if kind == DeviceKind::Container {
             vec![Id::<DeviceChainMarker>::from_uuid(Uuid::new_v4())]
@@ -1030,7 +1046,7 @@ impl Workspace {
         self.apply(CommandPayload::InsertDevice {
             id,
             type_id: type_id.into(),
-            version: Some(SchemaVersion::V0),
+            version: Some(version),
             kind,
             target_chain: chain_id,
             index,
@@ -1074,7 +1090,28 @@ impl Workspace {
         for spec in self.plugin_specs.values() {
             registry.register(spec.clone());
         }
+        for spec in self.extension_specs.values() {
+            registry.register(spec.clone());
+        }
         registry
+    }
+
+    pub fn set_extension_devices(
+        &mut self,
+        specs: Vec<DeviceSpec>,
+        factory: Option<Arc<dyn DeviceFactory>>,
+    ) {
+        let specs: BTreeMap<String, DeviceSpec> = specs
+            .into_iter()
+            .map(|spec| (spec.type_id.clone(), spec))
+            .collect();
+        self.extension_specs = specs;
+        self.extension_factory = factory;
+        self.request_engine_rebuild();
+    }
+
+    pub fn extension_specs(&self) -> impl Iterator<Item = &DeviceSpec> {
+        self.extension_specs.values()
     }
 
     fn refresh_plugin_specs(&mut self) {
@@ -1131,6 +1168,7 @@ impl Workspace {
                 latency_samples: capabilities.latency_samples,
                 name: descriptor.name,
                 vendor: descriptor.vendor,
+                ui: notwig_dsp::DeviceUiSpec::Generic,
             },
         );
     }

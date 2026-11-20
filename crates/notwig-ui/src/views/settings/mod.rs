@@ -11,6 +11,7 @@ mod shortcuts;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsCategory {
     Shortcuts,
+    Extensions,
     #[default]
     Audio,
 }
@@ -19,6 +20,7 @@ impl SettingsCategory {
     fn label(self) -> &'static str {
         match self {
             Self::Shortcuts => "Shortcuts",
+            Self::Extensions => "Extensions",
             Self::Audio => "Audio",
         }
     }
@@ -54,7 +56,11 @@ impl NotwigUi {
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.add_space(8.0);
-                            for category in [SettingsCategory::Shortcuts, SettingsCategory::Audio] {
+                            for category in [
+                                SettingsCategory::Shortcuts,
+                                SettingsCategory::Extensions,
+                                SettingsCategory::Audio,
+                            ] {
                                 let selected = self.settings_category == category;
                                 if ui
                                     .selectable_label(
@@ -83,6 +89,16 @@ impl NotwigUi {
                                 ui.add_space(10.0);
                                 self.shortcut_settings_page(ui);
                             }
+                            SettingsCategory::Extensions => {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("extensions-content")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        ui.add_space(10.0);
+                                        self.extensions_settings_page(ui, runtime);
+                                        ui.add_space(20.0);
+                                    });
+                            }
                             SettingsCategory::Audio => {
                                 egui::ScrollArea::vertical()
                                     .id_salt("settings-content")
@@ -100,6 +116,303 @@ impl NotwigUi {
         self.settings_open = open;
         if !open {
             self.shortcut_editor.capture = None;
+        }
+    }
+
+    fn extensions_settings_page(&mut self, ui: &mut egui::Ui, runtime: &RuntimeView) {
+        ui.heading("Extensions");
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(
+                "Install and manage WASM extensions from index sources or local ZIP files.",
+            )
+            .small()
+            .color(theme::TEXT_MUTED),
+        );
+
+        if !runtime.extension_index_loaded
+            && !runtime.extension_index_loading
+            && !self.extension_index_requested
+            && !runtime.extension_indexes.is_empty()
+        {
+            self.extension_index_requested = true;
+            self.emit(UiIntent::RefreshExtensionIndex);
+        }
+
+        form::section_heading(ui, "Index Sources");
+        let indexes = runtime.extension_indexes.clone();
+        if indexes.is_empty() {
+            ui.label(
+                RichText::new("No index sources configured.")
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+        } else {
+            for index in &indexes {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(index)
+                            .small()
+                            .monospace()
+                            .color(theme::TEXT_MUTED),
+                    );
+                    if ui.small_button("Remove").clicked() {
+                        let next: Vec<String> = indexes
+                            .iter()
+                            .filter(|other| *other != index)
+                            .cloned()
+                            .collect();
+                        self.extension_index_requested = false;
+                        self.emit(UiIntent::SetExtensionIndexes { indexes: next });
+                    }
+                });
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.extension_index_input)
+                    .hint_text("https://... or /path/to/extensions.json")
+                    .desired_width(420.0),
+            );
+            if ui.button("Add index").clicked() {
+                let value = self.extension_index_input.trim().to_owned();
+                if !value.is_empty() && !indexes.contains(&value) {
+                    let mut next = indexes.clone();
+                    next.push(value);
+                    self.extension_index_input.clear();
+                    self.extension_index_requested = false;
+                    self.emit(UiIntent::SetExtensionIndexes { indexes: next });
+                }
+            }
+            let label = if runtime.extension_index_loading {
+                "Refreshing..."
+            } else {
+                "Refresh"
+            };
+            if ui.button(label).clicked() && !runtime.extension_index_loading {
+                self.emit(UiIntent::RefreshExtensionIndex);
+            }
+        });
+        for error in &runtime.extension_index_errors {
+            ui.label(RichText::new(error).small().color(theme::PLAYHEAD));
+        }
+        if let Some(error) = &runtime.extensions_error {
+            ui.label(RichText::new(error).small().color(theme::PLAYHEAD));
+        }
+
+        form::section_heading(ui, "Import");
+        ui.horizontal(|ui| {
+            if ui.button("Import ZIP").clicked() {
+                self.emit(UiIntent::ImportExtensionZip);
+            }
+            ui.label(
+                RichText::new("Drop a .zip onto this page to install.")
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+        });
+
+        form::section_heading(ui, "Available");
+        if runtime.extension_index_loading {
+            ui.label(
+                RichText::new("Loading extension index...")
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+        } else if runtime.extension_index.is_empty() {
+            ui.label(
+                RichText::new("No extensions found. Add an index source and refresh.")
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+        } else {
+            for entry in runtime.extension_index.clone() {
+                let installed = runtime
+                    .extensions
+                    .iter()
+                    .find(|info| info.id == entry.id)
+                    .cloned();
+                egui::Frame::new()
+                    .fill(theme::PANEL)
+                    .stroke(egui::Stroke::new(1.0_f32, theme::GRID))
+                    .corner_radius(egui::CornerRadius::same(5))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&entry.name).strong().size(14.0));
+                            ui.label(
+                                RichText::new(format!("{} {}", entry.vendor, entry.version))
+                                    .small()
+                                    .color(theme::TEXT_MUTED),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let label = if installed.is_some() {
+                                        "Installed"
+                                    } else {
+                                        "Available"
+                                    };
+                                    ui.label(RichText::new(label).small().monospace().color(
+                                        if installed.is_some() {
+                                            theme::ACCENT
+                                        } else {
+                                            theme::TEXT_MUTED
+                                        },
+                                    ));
+                                },
+                            );
+                        });
+                        if !entry.capabilities.is_empty() {
+                            let capabilities = entry
+                                .capabilities
+                                .iter()
+                                .map(|capability| match capability {
+                                    notwig_ext_api::ExtensionCapability::Device => "device",
+                                    notwig_ext_api::ExtensionCapability::UiDraw => "ui.draw",
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            ui.label(RichText::new(capabilities).small().color(theme::TEXT_MUTED));
+                        }
+                        if !entry.devices.is_empty() {
+                            let devices = entry
+                                .devices
+                                .iter()
+                                .map(|device| device.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            ui.label(RichText::new(devices).small().color(theme::TEXT_MUTED));
+                        }
+                        ui.horizontal(|ui| {
+                            if let Some(info) = installed.as_ref() {
+                                if self.pending_extension_replace.as_deref()
+                                    == Some(entry.id.as_str())
+                                {
+                                    ui.label(RichText::new("Replace installed extension?").small());
+                                    if ui.button("Replace").clicked() {
+                                        self.pending_extension_replace = None;
+                                        self.emit(UiIntent::InstallExtensionFromIndex {
+                                            id: entry.id.clone(),
+                                        });
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        self.pending_extension_replace = None;
+                                    }
+                                } else {
+                                    ui.label(
+                                        RichText::new(format!("Installed {}", info.version))
+                                            .small()
+                                            .color(theme::TEXT_MUTED),
+                                    );
+                                    if ui.button("Reinstall").clicked() {
+                                        self.pending_extension_replace = Some(entry.id.clone());
+                                    }
+                                }
+                            } else if ui.button("Install").clicked() {
+                                self.emit(UiIntent::InstallExtensionFromIndex {
+                                    id: entry.id.clone(),
+                                });
+                            }
+                        });
+                    });
+                ui.add_space(4.0);
+            }
+        }
+
+        form::section_heading(ui, "Installed");
+        ui.horizontal(|ui| {
+            if ui.button("Reload extensions").clicked() {
+                self.emit(UiIntent::ReloadExtensions);
+            }
+            ui.label(
+                RichText::new(format!("{} installed", runtime.extensions.len()))
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+        });
+        if runtime.extensions.is_empty() {
+            ui.label(
+                RichText::new("No extensions installed.")
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+            return;
+        }
+        for info in runtime.extensions.clone() {
+            egui::Frame::new()
+                .fill(theme::PANEL)
+                .stroke(egui::Stroke::new(1.0_f32, theme::GRID))
+                .corner_radius(egui::CornerRadius::same(5))
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&info.name).strong().size(14.0));
+                        ui.label(
+                            RichText::new(format!("{} {}", info.vendor, info.version))
+                                .small()
+                                .color(theme::TEXT_MUTED),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new(info.status.label())
+                                    .small()
+                                    .monospace()
+                                    .color(match info.status {
+                                        notwig_ext_api::ExtensionStatus::Loaded => theme::ACCENT,
+                                        notwig_ext_api::ExtensionStatus::Failed => theme::PLAYHEAD,
+                                        _ => theme::TEXT_MUTED,
+                                    }),
+                            );
+                        });
+                    });
+                    ui.horizontal(|ui| {
+                        let mut enabled = info.enabled;
+                        if ui.checkbox(&mut enabled, "Enabled").changed() {
+                            self.emit(UiIntent::SetExtensionEnabled {
+                                id: info.id.clone(),
+                                enabled,
+                            });
+                        }
+                        let mut trust = info.trust;
+                        egui::ComboBox::from_id_salt(("extension-trust", &info.id))
+                            .selected_text(trust.label())
+                            .show_ui(ui, |ui| {
+                                for level in [
+                                    notwig_ext_api::TrustLevel::Trusted,
+                                    notwig_ext_api::TrustLevel::Limited,
+                                    notwig_ext_api::TrustLevel::DrawOnly,
+                                ] {
+                                    ui.selectable_value(&mut trust, level, level.label());
+                                }
+                            });
+                        if trust != info.trust {
+                            self.emit(UiIntent::SetExtensionTrust {
+                                id: info.id.clone(),
+                                trust,
+                            });
+                        }
+                        if info.device_count > 0 {
+                            ui.label(
+                                RichText::new(format!("{} devices", info.device_count))
+                                    .small()
+                                    .color(theme::TEXT_MUTED),
+                            );
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Uninstall").clicked() {
+                                self.pending_extension_replace = None;
+                                self.emit(UiIntent::UninstallExtension {
+                                    id: info.id.clone(),
+                                });
+                            }
+                        });
+                    });
+                    if let Some(error) = &info.error {
+                        ui.label(RichText::new(error).small().color(theme::PLAYHEAD));
+                    }
+                });
+            ui.add_space(4.0);
         }
     }
 

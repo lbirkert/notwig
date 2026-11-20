@@ -104,6 +104,12 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Tool gain and polarity | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Graph compilation order | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Unknown plugin resolution | ✅ Implemented | ⭐⭐⭐ | |
+| Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/abi.rs` covers describe, panel output, DSP, latency, and draw-only silence with inline WAT modules. |
+| Extension draw validation | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/draw_validation.rs` covers finite geometry, rects, path limits, text limits, and command caps. |
+| Extension ABI helpers | ✅ Implemented | ⭐⭐⭐ | `notwig-ext-api/tests/abi_helpers.rs` covers the const `DeviceStore` and handle lifecycle. |
+| Extension index and config | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/index_config.rs` covers index parsing/validation and legacy config migration. |
+| Extension ZIP install | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/install.rs` covers root/nested layouts, unsafe paths, ID mismatch, replacement, and uninstall. |
+| Limiter example device | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the device spec, panel draw list, threshold limiting, and release recovery. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports. |
 | Edit lowering ID remap | 🧪 Partial | ⭐⭐⭐⭐⭐ | Covered through app tests, not isolated unit tests. |
 | Snap and grid math | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Waveform peak mapping | ✅ Implemented | ⭐⭐⭐ | |
@@ -133,6 +139,8 @@ The suite lives under `crates/*/tests/`. There are no inline unit test modules, 
 | Audio file hover preview | ✅ Implemented | ⭐⭐⭐ | |
 | Device info panel selection | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Settings page render | ✅ Implemented | ⭐⭐⭐⭐ | |
+| Extension device panel | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/extension_panel.rs` covers panel-host dispatch and invalid-command fallback. |
+| Extension explorer | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/extension_settings.rs` covers index/installed rendering and ZIP drop-to-install intents. |
 | Shortcut settings page | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Shortcut focus and routing | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Editors mutually exclusive | ✅ Implemented | ⭐⭐⭐ | |

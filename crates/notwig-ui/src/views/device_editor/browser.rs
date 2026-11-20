@@ -1,5 +1,5 @@
 use egui::{Align, Align2, Color32, FontId, Key, RichText, Sense, Vec2};
-use notwig_core::{DeviceChainId, DeviceKind, ProjectDoc, TrackId};
+use notwig_core::{DeviceChainId, DeviceKind, ProjectDoc, SchemaVersion, TrackId};
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -16,12 +16,20 @@ pub struct DeviceBrowserState {
     pub focus_search: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntryKind {
+    Stock,
+    Extension,
+    Plugin,
+}
+
 #[derive(Debug, Clone)]
 struct BrowserEntry {
     name: String,
     type_id: String,
+    version: SchemaVersion,
     kind: DeviceKind,
-    stock: bool,
+    category: EntryKind,
 }
 
 impl NotwigUi {
@@ -92,10 +100,34 @@ impl NotwigUi {
                 .map(|(name, type_id, kind)| BrowserEntry {
                     name: name.into(),
                     type_id: type_id.into(),
+                    version: SchemaVersion::V0,
                     kind,
-                    stock: true,
+                    category: EntryKind::Stock,
                 })
                 .collect();
+                let extension_specs: Vec<BrowserEntry> = self
+                    .registry
+                    .iter()
+                    .filter(|spec| {
+                        spec.type_id != notwig_dsp::stock::TOOL_TYPE_ID
+                            && spec.type_id != notwig_dsp::stock::EQ_TYPE_ID
+                            && spec.type_id != notwig_dsp::stock::CHAIN_TYPE_ID
+                            && !is_plugin_type_id(&spec.type_id)
+                    })
+                    .filter(|spec| {
+                        needle.is_empty()
+                            || spec.name.to_lowercase().contains(&needle)
+                            || spec.vendor.to_lowercase().contains(&needle)
+                            || spec.type_id.contains(&needle)
+                    })
+                    .map(|spec| BrowserEntry {
+                        name: spec.name.clone(),
+                        type_id: spec.type_id.clone(),
+                        version: spec.version,
+                        kind: spec.kind,
+                        category: EntryKind::Extension,
+                    })
+                    .collect();
                 let plugins: Vec<BrowserEntry> = runtime
                     .plugins
                     .iter()
@@ -108,12 +140,17 @@ impl NotwigUi {
                     .map(|plugin| BrowserEntry {
                         name: plugin.name.clone(),
                         type_id: plugin.type_id.clone(),
+                        version: SchemaVersion::V0,
                         kind: plugin.kind,
-                        stock: false,
+                        category: EntryKind::Plugin,
                     })
                     .collect();
-                let entries: Vec<BrowserEntry> =
-                    stock.iter().chain(plugins.iter()).cloned().collect();
+                let entries: Vec<BrowserEntry> = stock
+                    .iter()
+                    .chain(extension_specs.iter())
+                    .chain(plugins.iter())
+                    .cloned()
+                    .collect();
                 if entries.is_empty() {
                     state.selected = 0;
                 } else {
@@ -155,8 +192,25 @@ impl NotwigUi {
                                 index += 1;
                             }
                         }
-                        if !plugins.is_empty() {
+                        if !extension_specs.is_empty() {
                             if !stock.is_empty() {
+                                ui.add_space(6.0);
+                            }
+                            ui.label(
+                                RichText::new("EXTENSIONS")
+                                    .small()
+                                    .strong()
+                                    .color(theme::TEXT_MUTED),
+                            );
+                            for entry in &extension_specs {
+                                if device_row(ui, &entry.name, index == state.selected, navigated) {
+                                    chosen = Some(entry.clone());
+                                }
+                                index += 1;
+                            }
+                        }
+                        if !plugins.is_empty() {
+                            if !stock.is_empty() || !extension_specs.is_empty() {
                                 ui.add_space(6.0);
                             }
                             ui.label(
@@ -181,22 +235,33 @@ impl NotwigUi {
                 }
             });
         if let Some(entry) = chosen {
-            if entry.stock {
-                self.emit(UiIntent::InsertStockDevice {
+            match entry.category {
+                EntryKind::Plugin => self.emit(UiIntent::InsertPlugin {
                     track_id: state.track_id,
                     chain_id: state.chain_id,
                     type_id: entry.type_id,
                     kind: entry.kind,
                     index: Some(state.index),
-                });
-            } else {
-                self.emit(UiIntent::InsertPlugin {
-                    track_id: state.track_id,
-                    chain_id: state.chain_id,
-                    type_id: entry.type_id,
-                    kind: entry.kind,
-                    index: Some(state.index),
-                });
+                }),
+                EntryKind::Stock => {
+                    self.emit(UiIntent::InsertStockDevice {
+                        track_id: state.track_id,
+                        chain_id: state.chain_id,
+                        type_id: entry.type_id,
+                        kind: entry.kind,
+                        index: Some(state.index),
+                    });
+                }
+                EntryKind::Extension => {
+                    self.emit(UiIntent::InsertDevice {
+                        track_id: state.track_id,
+                        chain_id: state.chain_id,
+                        type_id: entry.type_id,
+                        version: entry.version,
+                        kind: entry.kind,
+                        index: Some(state.index),
+                    });
+                }
             }
             self.device_browser = None;
         } else if open {
@@ -204,6 +269,10 @@ impl NotwigUi {
         }
         let _ = doc;
     }
+}
+
+fn is_plugin_type_id(type_id: &str) -> bool {
+    type_id.starts_with("vst3.") || type_id.starts_with("au.") || type_id.starts_with("vst2.")
 }
 
 fn device_row(ui: &mut egui::Ui, name: &str, selected: bool, navigated: bool) -> bool {

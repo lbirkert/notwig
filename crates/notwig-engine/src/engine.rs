@@ -2,10 +2,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use notwig_core::{AssetId, AudioAssetBuffer, EngineMsg, PlaybackSchedule, RtEvent, TimeMus};
-use notwig_dsp::CompiledPlan;
+use notwig_dsp::{CompiledPlan, DeviceFactory, StockDeviceFactory};
 
 use crate::control::{ControlHandle, EngineData, PreparedRuntime};
-use crate::factory::{DeviceFactory, StockDeviceFactory};
 use crate::runtime::ActivePlan;
 
 /// The audio thread checks the shared control slot once per this many frames.

@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["rand"]
+rand = ["uuid/v4"]
+
 [dependencies]
 indexmap.workspace = true
 serde.workspace = true
