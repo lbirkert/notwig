@@ -233,21 +233,22 @@ impl NotwigUi {
         if twisty_clicked && !self.collapsed_tracks.remove(&track_id) {
             self.collapsed_tracks.insert(track_id);
         }
-        if header_resp.clicked() && !twisty_clicked {
+        let drag_rect = (track.kind != TrackKind::Master).then(|| {
+            let left = content_left + if has_children { 14.0 } else { 0.0 };
+            Rect::from_min_max(
+                egui::pos2(left, header_rect.top() + 2.0),
+                egui::pos2(content_right - 68.0, header_rect.top() + 28.0),
+            )
+        });
+        let pointer_in_drag_handle = drag_rect.is_some_and(|rect| {
+            header_resp
+                .interact_pointer_pos()
+                .is_some_and(|pos| rect.contains(pos))
+        });
+        if header_resp.clicked() && !twisty_clicked && !pointer_in_drag_handle {
             let command = ui.input(|i| i.modifiers.command);
             let shift = ui.input(|i| i.modifiers.shift);
-            if shift {
-                let anchor = self.state.selection.tracks.primary().unwrap_or(track_id);
-                let order = doc.track_order.depth_first();
-                self.state
-                    .selection
-                    .select_track_range(anchor, track_id, &order);
-            } else if command {
-                self.state.selection.add_track(track_id);
-            } else {
-                self.state.selection.select_track(track_id, false);
-            }
-            self.emit(UiIntent::SelectTrack(track_id));
+            self.select_track_from_click(doc, track_id, shift, command);
         }
         let header_double_click = ui.input(|input| {
             input
@@ -275,27 +276,37 @@ impl NotwigUi {
             self.open_device_editor();
         }
         let selected_tracks: Vec<TrackId> = self.state.selection.tracks.iter().copied().collect();
-        if track.kind != TrackKind::Master {
-            let drag_rect = Rect::from_min_max(
-                egui::pos2(content_left, header_rect.top() + 2.0),
-                egui::pos2(content_right - 68.0, header_rect.top() + 28.0),
+        if let Some(drag_rect) = drag_rect {
+            let drag_resp = ui.interact(
+                drag_rect,
+                Id::new(("track-drag", track_id)),
+                Sense::click_and_drag(),
             );
-            let drag_resp =
-                ui.interact(drag_rect, Id::new(("track-drag", track_id)), Sense::drag());
             drag_resp.context_menu(|ui| {
                 self.track_header_menu(ui, track_id, track.kind, &selected_tracks);
             });
+            let on_twisty = |response: &egui::Response| {
+                has_children
+                    && response
+                        .interact_pointer_pos()
+                        .is_some_and(|pos| twisty_rect.contains(pos))
+            };
+            if drag_resp.clicked() && !on_twisty(&drag_resp) {
+                let command = ui.input(|i| i.modifiers.command);
+                let shift = ui.input(|i| i.modifiers.shift);
+                self.select_track_from_click(doc, track_id, shift, command);
+            }
             if drag_resp.dragged_by(egui::PointerButton::Primary)
                 || self.track_drag == Some(track_id)
             {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             }
-            if drag_resp.drag_started_by(egui::PointerButton::Primary) {
-                let on_twisty = has_children
-                    && drag_resp
-                        .interact_pointer_pos()
-                        .is_some_and(|pos| twisty_rect.contains(pos));
-                if !on_twisty {
+            if drag_resp.drag_started_by(egui::PointerButton::Primary) && !on_twisty(&drag_resp) {
+                let command = ui.input(|i| i.modifiers.command);
+                let shift = ui.input(|i| i.modifiers.shift);
+                if shift || command {
+                    self.select_track_from_click(doc, track_id, shift, command);
+                } else {
                     self.track_drag = Some(track_id);
                     self.track_drop = None;
                     self.state.selection.select_track(track_id, false);
@@ -566,6 +577,34 @@ impl NotwigUi {
             painter.rect_filled(header_rect, CornerRadius::ZERO, dim);
             painter.rect_filled(lane_rect, CornerRadius::ZERO, dim);
         }
+        painter.line_segment(
+            [
+                egui::pos2(lane_rect.left(), row_rect.bottom()),
+                egui::pos2(lane_rect.right(), row_rect.bottom()),
+            ],
+            Stroke::new(1.0_f32, theme::GRID),
+        );
+    }
+
+    fn select_track_from_click(
+        &mut self,
+        doc: &ProjectDoc,
+        track_id: TrackId,
+        shift: bool,
+        command: bool,
+    ) {
+        if shift {
+            let anchor = self.state.selection.tracks.primary().unwrap_or(track_id);
+            let order = doc.track_order.depth_first();
+            self.state
+                .selection
+                .select_track_range(anchor, track_id, &order);
+        } else if command {
+            self.state.selection.add_track(track_id);
+        } else {
+            self.state.selection.select_track(track_id, false);
+        }
+        self.emit(UiIntent::SelectTrack(track_id));
     }
 
     fn track_header_menu(

@@ -8,6 +8,8 @@ use crate::shell::NotwigUi;
 use crate::theme;
 use crate::widgets::format_db;
 
+use super::common::{chain_latency, latency_label};
+
 impl NotwigUi {
     fn track_color_editor(&mut self, ui: &mut egui::Ui, track: &Track) {
         ui.add_space(6.0);
@@ -158,6 +160,8 @@ impl NotwigUi {
             .get(&track.main_chain)
             .map(|chain| chain.devices.clone())
             .unwrap_or_default();
+        let latency = chain_latency(doc, &self.registry, track.main_chain);
+        let has_devices = !devices.is_empty();
         let device_height = (ui.available_height() - 310.0).max(80.0);
         ui.allocate_ui_with_layout(
             Vec2::new(ui.available_width(), device_height),
@@ -215,6 +219,18 @@ impl NotwigUi {
                                     }
                                 });
                             }
+                        }
+                        if has_devices {
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "Chain latency {}",
+                                    latency_label(latency, doc.meta.sample_rate.value())
+                                ))
+                                .small()
+                                .monospace()
+                                .color(theme::TEXT_MUTED),
+                            );
                         }
                     });
             },

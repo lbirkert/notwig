@@ -65,6 +65,21 @@ struct RenderJob {
     options: notwig_project::ExportOptions,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+struct RenderEncodeResult {
+    total_frames: usize,
+    path: PathBuf,
+    result: Result<(), String>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const RENDER_ENCODING_NOTIFICATION_TAG: &str = "render-encoding";
+
+#[cfg(not(target_arch = "wasm32"))]
+fn audio_import_notification_tag(asset_id: AssetId) -> String {
+    format!("audio-import:{asset_id}")
+}
+
 pub struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
@@ -81,6 +96,8 @@ pub struct NotwigApp {
     plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
     recovery_error: Option<String>,
     render_job: Option<RenderJob>,
+    #[cfg(not(target_arch = "wasm32"))]
+    render_encode_rx: Option<mpsc::Receiver<RenderEncodeResult>>,
     render_playhead: Option<TimeMus>,
     audio_durations: std::collections::BTreeMap<PathBuf, Option<f64>>,
     audio_analysis_pending: std::collections::BTreeSet<PathBuf>,
@@ -172,6 +189,8 @@ impl NotwigApp {
             plugin_editors: Vec::new(),
             recovery_error: None,
             render_job: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            render_encode_rx: None,
             render_playhead: None,
             audio_durations: std::collections::BTreeMap::new(),
             audio_analysis_pending: std::collections::BTreeSet::new(),
@@ -546,6 +565,9 @@ impl NotwigApp {
     #[cfg(not(target_arch = "wasm32"))]
     fn poll_audio_imports(&mut self) {
         while let Ok((asset_id, result)) = self.audio_import_rx.try_recv() {
+            self.ui
+                .state
+                .remove_notification_by_tag(&audio_import_notification_tag(asset_id));
             match result {
                 Ok(imported) => {
                     if let Err(err) = self.workspace.complete_audio_import(asset_id, imported) {
@@ -604,20 +626,28 @@ impl NotwigApp {
             job.output.truncate(total * 2);
             #[cfg(not(target_arch = "wasm32"))]
             {
-                match notwig_project::write_audio_export(
-                    &job.path,
-                    job.session.sample_rate,
-                    2,
-                    &job.output,
-                    job.options,
-                ) {
-                    Ok(()) => self.notify_info(format!(
-                        "Rendered {} frames to {}",
-                        total,
-                        job.path.display()
-                    )),
-                    Err(err) => self.notify_error(err.to_string()),
-                }
+                let path = job.path;
+                let sample_rate = job.session.sample_rate;
+                let options = job.options;
+                let output = job.output;
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || {
+                    let result =
+                        notwig_project::write_audio_export(&path, sample_rate, 2, &output, options)
+                            .map_err(|err| err.to_string());
+                    let _ = tx.send(RenderEncodeResult {
+                        total_frames: total,
+                        path,
+                        result,
+                    });
+                });
+                self.render_encode_rx = Some(rx);
+                self.ui.state.notify_persistent_progress(
+                    NotificationKind::Info,
+                    "Encoding audio…",
+                    0.0,
+                    RENDER_ENCODING_NOTIFICATION_TAG,
+                );
             }
             #[cfg(target_arch = "wasm32")]
             {
@@ -640,6 +670,52 @@ impl NotwigApp {
             self.render_playhead = None;
         } else {
             self.render_job = Some(job);
+        }
+    }
+
+    fn render_busy(&self) -> bool {
+        if self.render_job.is_some() {
+            return true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.render_encode_rx.is_some()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_render_encode(&mut self) {
+        let received = match self.render_encode_rx.as_ref() {
+            Some(rx) => rx.try_recv(),
+            None => return,
+        };
+        match received {
+            Ok(encoded) => {
+                self.render_encode_rx = None;
+                self.ui
+                    .state
+                    .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
+                match encoded.result {
+                    Ok(()) => self.notify_info(format!(
+                        "Rendered {} frames to {}",
+                        encoded.total_frames,
+                        encoded.path.display()
+                    )),
+                    Err(err) => self.notify_error(err),
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.render_encode_rx = None;
+                self.ui
+                    .state
+                    .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
+                self.notify_error("Audio encoding stopped unexpectedly.".into());
+            }
         }
     }
 
@@ -1424,7 +1500,7 @@ impl NotwigApp {
                 end,
                 options,
             } => {
-                if self.render_job.is_some() {
+                if self.render_busy() {
                     self.notify_info("A render is already running.".into());
                     return;
                 }
@@ -1462,7 +1538,7 @@ impl NotwigApp {
                 end,
                 options,
             } => {
-                if self.render_job.is_some() {
+                if self.render_busy() {
                     self.notify_info("A render is already running.".into());
                     return;
                 }
@@ -1763,7 +1839,13 @@ impl NotwigApp {
             target,
             project_rate,
         });
-        self.notify_info("Analyzing audio…".into());
+        self.ui.state.notify_persistent_progress(
+            NotificationKind::Info,
+            "Analyzing audio…",
+            0.0,
+            audio_import_notification_tag(asset_id),
+        );
+        self.workspace.status = Some("Analyzing audio…".into());
     }
 }
 
@@ -1793,6 +1875,8 @@ impl eframe::App for NotwigApp {
             self.poll_audio_imports();
         }
         self.advance_render();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_render_encode();
         #[cfg(target_arch = "wasm32")]
         self.poll_web_storage();
         self.workspace.poll_plugin_catalog();
@@ -1842,7 +1926,7 @@ impl eframe::App for NotwigApp {
             }
         }
         let dialog_open = self.dialog_rx.is_some();
-        let rendering = self.render_job.is_some();
+        let rendering = self.render_busy();
         let dirty = if self.workspace.dirty { "*" } else { "" };
         let title = format!("{}{} — Notwig", self.workspace.doc.meta.name, dirty);
         #[cfg(not(target_arch = "wasm32"))]

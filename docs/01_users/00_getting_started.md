@@ -71,6 +71,6 @@ for the full behavior.
 
 If the audio engine stops unexpectedly, an overlay appears above the arranger.
 Use **Restart engine** to rebuild it. If no audio device is available, open
-**FILE > Audio Settings…** and select a working driver and device.
+**FILE > Settings…** and select a working driver and device.
 
 Next: [Workspace Overview](01_workspace_overview.md).

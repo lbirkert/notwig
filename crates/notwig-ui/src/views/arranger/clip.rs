@@ -210,7 +210,7 @@ impl NotwigUi {
         if response.dragged() {
             if let Some(drag) = self.group_drag.clone() {
                 let current = drag_current_pos(ui, response, drag.start_pointer);
-                let alt = ui.input(|i| i.modifiers.alt);
+                let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
                 let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
                 let primary_start = snap_time(
                     TimeMus::new(
@@ -218,7 +218,7 @@ impl NotwigUi {
                         1_000_000,
                     ),
                     grid,
-                    alt,
+                    bypass,
                 );
                 let starts: Vec<TimeMus> = drag
                     .origins
@@ -270,9 +270,9 @@ impl NotwigUi {
         if response.dragged() {
             if let Some(drag) = self.drag.filter(|drag| drag.clip_id == clip_id) {
                 let current = drag_current_pos(ui, response, drag.start_pointer);
-                let alt = ui.input(|i| i.modifiers.alt);
+                let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
                 let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
-                let range = drag_range(drag, delta, alt, grid);
+                let range = drag_range(drag, delta, bypass, grid);
                 let target = if drag.mode == ClipDragMode::Move {
                     ui.input(|i| i.pointer.hover_pos())
                         .and_then(|pos| self.track_at(pos.y))
@@ -317,7 +317,7 @@ fn compatible_track(doc: &ProjectDoc, kind: ClipKind, track_id: TrackId) -> bool
         ClipKind::Audio => track.kind == TrackKind::Audio,
     })
 }
-fn drag_range(drag: ClipDrag, delta: f64, alt: bool, grid: TimeMus) -> RangeMus {
+fn drag_range(drag: ClipDrag, delta: f64, bypass: bool, grid: TimeMus) -> RangeMus {
     let origin_start = drag.origin.start.as_f64();
     let origin_end = drag.origin.end.as_f64();
     let length = (origin_end - origin_start).max(1.0 / 16.0);
@@ -329,7 +329,7 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool, grid: TimeMus) -> RangeMus 
                     1_000_000,
                 ),
                 grid,
-                alt,
+                bypass,
             );
             RangeMus::new(
                 start,
@@ -342,7 +342,7 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool, grid: TimeMus) -> RangeMus 
             Edge::Start,
             delta,
             grid,
-            alt,
+            bypass,
             TimeMus::new(1, 16),
         ),
         ClipDragMode::TrimEnd => trim_range(
@@ -350,7 +350,7 @@ fn drag_range(drag: ClipDrag, delta: f64, alt: bool, grid: TimeMus) -> RangeMus 
             Edge::End,
             delta,
             grid,
-            alt,
+            bypass,
             TimeMus::new(1, 16),
         ),
     }

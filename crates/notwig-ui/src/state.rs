@@ -370,6 +370,11 @@ pub struct Notification {
     pub created_at: f64,
     /// Optional progress in `0.0..=1.0` for long-running operations.
     pub progress: Option<f32>,
+    /// Optional stable identity for long-running operations.
+    ///
+    /// Tags are not rendered. They let callers remove the notification for a
+    /// specific operation when several overlapping operations exist.
+    pub tag: Option<String>,
 }
 
 impl Notification {
@@ -380,6 +385,7 @@ impl Notification {
             persistent: false,
             created_at,
             progress: None,
+            tag: None,
         }
     }
 
@@ -390,6 +396,7 @@ impl Notification {
             persistent: true,
             created_at,
             progress: None,
+            tag: None,
         }
     }
 
@@ -438,6 +445,26 @@ impl UiState {
         self.notify_with(kind, message, true);
     }
 
+    /// Pushes a persistent progress notification with a stable tag.
+    ///
+    /// Use an indeterminate progress value (`0.0`) when the operation cannot
+    /// report real progress. Remove the notification with
+    /// [`UiState::remove_notification_by_tag`] when the operation finishes.
+    pub fn notify_persistent_progress(
+        &mut self,
+        kind: NotificationKind,
+        message: impl Into<String>,
+        progress: f32,
+        tag: impl Into<String>,
+    ) {
+        let message = message.into();
+        let mut note = Notification::persistent(kind, message, self.clock);
+        note.progress = Some(progress.clamp(0.0, 1.0));
+        note.tag = Some(tag.into());
+        self.notifications.push(note);
+        self.enforce_notification_cap();
+    }
+
     /// Pushes a notification, choosing whether it is persistent.
     pub fn notify_with(
         &mut self,
@@ -474,6 +501,15 @@ impl UiState {
         } else {
             None
         }
+    }
+
+    /// Removes the notification identified by `tag`, returning it when present.
+    pub fn remove_notification_by_tag(&mut self, tag: &str) -> Option<Notification> {
+        let index = self
+            .notifications
+            .iter()
+            .position(|note| note.tag.as_deref() == Some(tag))?;
+        self.remove_notification(index)
     }
 
     /// Sets or clears progress (`Some(0.0..=1.0)` or `None`) for a notification.

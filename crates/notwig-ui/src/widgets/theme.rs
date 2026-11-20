@@ -9,6 +9,7 @@ pub const PLAY_START: Color32 = Color32::from_rgb(126, 190, 255);
 pub const PANEL: Color32 = Color32::from_rgb(23, 24, 29);
 pub const PANEL_LIGHT: Color32 = Color32::from_rgb(31, 33, 39);
 pub const LANE: Color32 = Color32::from_rgb(27, 29, 35);
+pub const ARRANGER_BG: Color32 = Color32::from_rgb(32, 35, 42);
 pub const GRID: Color32 = Color32::from_rgb(44, 47, 56);
 pub const GRID_STRONG: Color32 = Color32::from_rgb(62, 66, 78);
 pub const TEXT_MUTED: Color32 = Color32::from_rgb(148, 153, 166);

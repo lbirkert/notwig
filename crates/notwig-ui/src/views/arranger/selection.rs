@@ -1,11 +1,20 @@
 use egui::{Id, Rect, Sense};
+use notwig_core::edit::Edge;
 use notwig_core::{ProjectDoc, RangeMus, TimeMus, TrackId};
 
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
-use crate::timeline::interaction::{drag_current_pos, drag_start_pos};
+use crate::timeline::interaction::{
+    drag_current_pos, drag_start_pos, pointer_delta, snapped_delta, trim_range,
+};
 
-use super::BarSelectionDrag;
+use super::{BarSelectionDrag, BarSelectionEdge};
+
+const EDGE_HANDLE_W: f32 = 8.0;
+
+fn min_selection_length() -> TimeMus {
+    TimeMus::new(1, 16)
+}
 
 impl NotwigUi {
     pub(super) fn bar_selection_interaction(
@@ -13,8 +22,9 @@ impl NotwigUi {
         ui: &mut egui::Ui,
         _doc: &ProjectDoc,
         ppb: f32,
-        start: TimeMus,
+        _start: TimeMus,
         grid: TimeMus,
+        content_rect: Rect,
     ) {
         let Some(time) = self.state.selection.time.clone() else {
             return;
@@ -46,38 +56,72 @@ impl NotwigUi {
             egui::pos2(x1.min(x2), min_y),
             egui::pos2(x1.max(x2).max(x1.min(x2) + 4.0), max_y),
         )
-        .intersect(ui.max_rect());
+        .intersect(content_rect);
         if rect.width() < 1.0 || rect.height() < 1.0 {
             return;
         }
-        let response = ui.interact(rect, Id::new("bar-selection-move"), Sense::drag());
-        if response.hovered() {
+
+        let body_rect = if rect.width() > EDGE_HANDLE_W * 2.0 {
+            Rect::from_min_max(
+                egui::pos2(rect.left() + EDGE_HANDLE_W * 0.5, rect.top()),
+                egui::pos2(rect.right() - EDGE_HANDLE_W * 0.5, rect.bottom()),
+            )
+        } else {
+            rect
+        };
+        let start_handle = edge_handle(rect, Edge::Start);
+        let end_handle = edge_handle(rect, Edge::End);
+
+        let body_response = ui.interact(body_rect, Id::new("bar-selection-move"), Sense::drag());
+        let start_response =
+            ui.interact(start_handle, Id::new("bar-selection-start"), Sense::drag());
+        let end_response = ui.interact(end_handle, Id::new("bar-selection-end"), Sense::drag());
+
+        self.time_selection_edge_drag(
+            ui,
+            &start_response,
+            BarSelectionEdge::Start,
+            time.range,
+            &tracks,
+            ppb,
+            grid,
+        );
+        self.time_selection_edge_drag(
+            ui,
+            &end_response,
+            BarSelectionEdge::End,
+            time.range,
+            &tracks,
+            ppb,
+            grid,
+        );
+
+        if body_response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
-        if response.dragged() {
+        if body_response.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
-        if response.drag_started() {
-            if let Some(pointer) = drag_start_pos(ui, &response) {
+        if body_response.drag_started() {
+            if let Some(pointer) = drag_start_pos(ui, &body_response) {
                 self.bar_selection_drag = Some(BarSelectionDrag {
                     start_pointer: pointer,
                     origin: time.range,
-                    tracks,
+                    tracks: tracks.clone(),
+                    edge: BarSelectionEdge::Body,
                 });
             }
         }
-        if response.dragged() {
-            if let Some(drag) = self.bar_selection_drag.clone() {
-                let current = drag_current_pos(ui, &response, drag.start_pointer);
-                let alt = ui.input(|i| i.modifiers.alt);
-                let delta =
-                    crate::timeline::interaction::pointer_delta(drag.start_pointer, current, ppb);
-                let requested = crate::timeline::interaction::snapped_delta(
-                    drag.origin.start,
-                    delta,
-                    grid,
-                    alt,
-                );
+        if body_response.dragged() {
+            if let Some(drag) = self
+                .bar_selection_drag
+                .clone()
+                .filter(|drag| drag.edge == BarSelectionEdge::Body)
+            {
+                let current = drag_current_pos(ui, &body_response, drag.start_pointer);
+                let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+                let delta = pointer_delta(drag.start_pointer, current, ppb);
+                let requested = snapped_delta(drag.origin.start, delta, grid, bypass);
                 let preview_start = drag.origin.start + requested;
                 let preview_end = drag.origin.end + requested;
                 if let Ok(range) = RangeMus::new(preview_start, preview_end) {
@@ -86,27 +130,96 @@ impl NotwigUi {
                 self.group_preview.clear();
             }
         }
-        if response.drag_stopped() {
-            if let Some(drag) = self.bar_selection_drag.take() {
-                let current = drag_current_pos(ui, &response, drag.start_pointer);
-                let alt = ui.input(|i| i.modifiers.alt);
-                let delta =
-                    crate::timeline::interaction::pointer_delta(drag.start_pointer, current, ppb);
-                let requested = crate::timeline::interaction::snapped_delta(
-                    drag.origin.start,
-                    delta,
-                    grid,
-                    alt,
-                );
-                if requested != TimeMus::zero() {
-                    self.emit(UiIntent::MoveTimeSelection {
-                        range: drag.origin,
-                        tracks: drag.tracks,
-                        delta: requested,
-                    });
-                }
+        if body_response.drag_stopped()
+            && self
+                .bar_selection_drag
+                .as_ref()
+                .is_some_and(|drag| drag.edge == BarSelectionEdge::Body)
+            && let Some(drag) = self.bar_selection_drag.take()
+        {
+            let current = drag_current_pos(ui, &body_response, drag.start_pointer);
+            let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+            let delta = pointer_delta(drag.start_pointer, current, ppb);
+            let requested = snapped_delta(drag.origin.start, delta, grid, bypass);
+            if requested != TimeMus::zero() {
+                self.emit(UiIntent::MoveTimeSelection {
+                    range: drag.origin,
+                    tracks: drag.tracks,
+                    delta: requested,
+                });
             }
         }
-        let _ = start;
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn time_selection_edge_drag(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        edge: BarSelectionEdge,
+        origin: RangeMus,
+        tracks: &[TrackId],
+        ppb: f32,
+        grid: TimeMus,
+    ) {
+        if response.hovered() || response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        if response.drag_started()
+            && let Some(pointer) = drag_start_pos(ui, response)
+        {
+            self.bar_selection_drag = Some(BarSelectionDrag {
+                start_pointer: pointer,
+                origin,
+                tracks: tracks.to_vec(),
+                edge,
+            });
+        }
+        if response.dragged()
+            && let Some(drag) = self
+                .bar_selection_drag
+                .clone()
+                .filter(|drag| drag.edge == edge)
+        {
+            let current = drag_current_pos(ui, response, drag.start_pointer);
+            let delta = pointer_delta(drag.start_pointer, current, ppb);
+            let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+            let core_edge = match edge {
+                BarSelectionEdge::Start => Edge::Start,
+                BarSelectionEdge::End => Edge::End,
+                BarSelectionEdge::Body => return,
+            };
+            let range = trim_range(
+                drag.origin,
+                core_edge,
+                delta,
+                grid,
+                bypass,
+                min_selection_length(),
+            );
+            if !range.is_empty() {
+                self.state.selection.select_time(range, &drag.tracks);
+            }
+        }
+        if response.drag_stopped()
+            && self
+                .bar_selection_drag
+                .as_ref()
+                .is_some_and(|drag| drag.edge == edge)
+        {
+            self.bar_selection_drag = None;
+        }
+    }
+}
+
+fn edge_handle(rect: Rect, edge: Edge) -> Rect {
+    let x = match edge {
+        Edge::Start => rect.left(),
+        Edge::End => rect.right(),
+    };
+    Rect::from_min_max(
+        egui::pos2(x - EDGE_HANDLE_W * 0.5, rect.top()),
+        egui::pos2(x + EDGE_HANDLE_W * 0.5, rect.bottom()),
+    )
+    .intersect(rect)
 }

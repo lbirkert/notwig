@@ -54,11 +54,19 @@ pub struct GroupDrag {
     pub origins: Vec<(ClipId, TrackId, RangeMus)>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarSelectionEdge {
+    Body,
+    Start,
+    End,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BarSelectionDrag {
     pub start_pointer: egui::Pos2,
     pub origin: RangeMus,
     pub tracks: Vec<TrackId>,
+    pub edge: BarSelectionEdge,
 }
 
 impl NotwigUi {
@@ -120,38 +128,42 @@ impl NotwigUi {
         let master = doc.master_track();
         let master_h = if master.is_some() { ROW_H } else { 0.0 };
         let rows_height = (ui.available_height() - SCROLLBAR_H - 4.0).max(60.0);
+        let tree_height = (rows_height - master_h).max(0.0);
         let tree_ids: Vec<TrackId> = visible_tracks(doc, &self.collapsed_tracks)
             .into_iter()
             .filter(|id| Some(*id) != master)
             .collect();
         let add_row_h = 28.0;
-        let tree_content_h = tree_ids.len() as f32 * ROW_H + add_row_h;
-        let tree_min_h = (rows_height - master_h).max(tree_content_h);
         let tree_rect = Rect::from_min_max(
             egui::pos2(ruler_rect.left(), rows_top),
-            egui::pos2(timeline_left, rows_top + rows_height),
+            egui::pos2(timeline_left, rows_top + tree_height),
         );
         let content_bg = Rect::from_min_max(
             egui::pos2(timeline_left, rows_top),
             egui::pos2(ruler_rect.right(), rows_top + rows_height),
         );
+        let master_rect = Rect::from_min_max(
+            egui::pos2(ruler_rect.left(), rows_top + tree_height),
+            egui::pos2(ruler_rect.right(), rows_top + rows_height),
+        );
         let background = ui.painter();
         background.rect_filled(tree_rect, CornerRadius::ZERO, Color32::BLACK);
-        background.rect_filled(content_bg, CornerRadius::ZERO, theme::LANE);
+        background.rect_filled(content_bg, CornerRadius::ZERO, theme::ARRANGER_BG);
         TimelineGrid::new(start, ppb, beats_per_bar).draw(background, content_bg);
         ui.allocate_ui_with_layout(
             Vec2::new(width, rows_height),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("arranger_rows")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(width, tree_min_h),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.allocate_ui_with_layout(
+                    Vec2::new(width, tree_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("arranger_rows")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
                                 for track_id in &tree_ids {
                                     self.track_row(
                                         ui, doc, *track_id, header_w, ppb, start, runtime, grid,
@@ -187,12 +199,22 @@ impl NotwigUi {
                                         ui.close();
                                     }
                                 });
-                            },
-                        );
-                        if let Some(master) = master {
-                            self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
-                        }
+                            });
+                    },
+                );
+                if let Some(master) = master {
+                    let lane_left = master_rect.left() + header_w.min(master_rect.width());
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(lane_left, master_rect.top()),
+                            egui::pos2(master_rect.right(), master_rect.top()),
+                        ],
+                        Stroke::new(1.0_f32, theme::GRID),
+                    );
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(master_rect), |ui| {
+                        self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
                     });
+                }
             },
         );
 
@@ -221,11 +243,11 @@ impl NotwigUi {
             painter.circle_filled(egui::pos2(line_x, drop.y), 3.0, Color32::WHITE);
         }
 
-        self.bar_selection_interaction(ui, doc, ppb, start, grid);
         let content_rect = Rect::from_min_max(
             egui::pos2(timeline_left, rows_top),
             egui::pos2(ruler_rect.right(), rows_top + rows_height),
         );
+        self.bar_selection_interaction(ui, doc, ppb, start, grid, content_rect);
         let overlay = ui.painter().with_clip_rect(content_rect);
         if let Some(playhead) = playhead {
             crate::timeline::draw_playhead(
@@ -242,14 +264,25 @@ impl NotwigUi {
                 egui::pos2(content_rect.right(), content_rect.bottom()),
             );
             let selection_painter = ui.painter().with_clip_rect(marker_rect);
-            crate::timeline::draw_time_selection_markers(
-                &selection_painter,
-                TimelineGrid::new(start, ppb, beats_per_bar),
-                timeline_left,
-                marker_rect,
+            for interval in time_selection_marker_intervals(
                 ruler_rect,
-                time.range,
-            );
+                &time.tracks.iter().copied().collect::<Vec<_>>(),
+                &self.track_rows,
+                content_rect,
+            ) {
+                let row_rect = Rect::from_min_max(
+                    egui::pos2(marker_rect.left(), interval.0),
+                    egui::pos2(marker_rect.right(), interval.1),
+                );
+                crate::timeline::draw_time_selection_markers(
+                    &selection_painter,
+                    TimelineGrid::new(start, ppb, beats_per_bar),
+                    timeline_left,
+                    row_rect,
+                    ruler_rect,
+                    time.range,
+                );
+            }
         }
         let (bar_rect, _) = ui.allocate_exact_size(Vec2::new(width, SCROLLBAR_H), Sense::hover());
         self.draw_drop_preview(ui, doc, header_w);
@@ -262,6 +295,41 @@ mod navigation;
 mod preview;
 mod selection;
 mod track;
+
+fn time_selection_marker_intervals(
+    ruler: Rect,
+    tracks: &[TrackId],
+    rows: &std::collections::BTreeMap<TrackId, Rect>,
+    content: Rect,
+) -> Vec<(f32, f32)> {
+    let mut intervals = vec![(ruler.top(), ruler.bottom())];
+    let mut found_row = false;
+    for track in tracks {
+        let Some(row) = rows.get(track) else {
+            continue;
+        };
+        let visible = row.intersect(content);
+        if visible.width() > 0.0 && visible.height() > 0.0 {
+            intervals.push((visible.top(), visible.bottom()));
+            found_row = true;
+        }
+    }
+    if !found_row {
+        intervals.push((content.top(), content.bottom()));
+    }
+    intervals.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let mut merged: Vec<(f32, f32)> = Vec::with_capacity(intervals.len());
+    for (top, bottom) in intervals {
+        if let Some(last) = merged.last_mut()
+            && top <= last.1 + 0.5
+        {
+            last.1 = last.1.max(bottom);
+        } else {
+            merged.push((top, bottom));
+        }
+    }
+    merged
+}
 
 fn visible_tracks(
     doc: &ProjectDoc,

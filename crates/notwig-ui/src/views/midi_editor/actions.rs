@@ -7,7 +7,7 @@ use crate::shell::NotwigUi;
 use crate::state::EditFocus;
 use crate::widgets::snap_time;
 
-use super::geometry::{clamp_pitch_shift, content_time_from_beat};
+use super::geometry::{beat_from_content_time, clamp_pitch_shift, content_time_from_beat};
 use super::model::Pitch;
 use super::model::{MidiModel, apply_note_lowered, lower_note_plan};
 use super::state::MidiEditorState;
@@ -32,6 +32,7 @@ pub(super) fn handle_midi_editor_actions(
     if ctx.wants_keyboard_input() {
         return;
     }
+    sync_global_time_selection(ui, state, clip, midi);
     state.sync_notes(&midi.notes);
     let (copy_native, cut_native, paste_native) = ctx.input(|input| {
         (
@@ -169,6 +170,51 @@ pub(super) fn handle_midi_editor_actions(
                 state.shift_time_selection(offset);
             }
         }
+    }
+}
+
+fn sync_global_time_selection(
+    ui: &mut NotwigUi,
+    state: &MidiEditorState,
+    clip: &ClipEntity,
+    midi: &MidiClipData,
+) {
+    let mut start: Option<TimeMus> = None;
+    let mut end: Option<TimeMus> = None;
+    for id in state.selected_ids() {
+        let span = state.note_spans.get(&id).copied().or_else(|| {
+            midi.notes
+                .iter()
+                .find(|note| note.id == id)
+                .and_then(|note| RangeMus::new(note.start, note.start + note.length).ok())
+        });
+        let Some(span) = span else {
+            continue;
+        };
+        start = Some(start.map_or(span.start, |value| value.min(span.start)));
+        end = Some(end.map_or(span.end, |value| value.max(span.end)));
+    }
+    let (Some(start), Some(end)) = (start, end) else {
+        return;
+    };
+    let Ok(local) = RangeMus::new(start, end) else {
+        return;
+    };
+    let Ok(absolute) = RangeMus::new(
+        beat_from_content_time(local.start, clip.range.start, midi.content_start),
+        beat_from_content_time(local.end, clip.range.start, midi.content_start),
+    ) else {
+        return;
+    };
+    let unchanged = ui.state.selection.time.as_ref().is_some_and(|time| {
+        time.range == absolute
+            && time.tracks.len() == 1
+            && time.contains_track(clip.track_id)
+            && ui.state.selection.clips.contains(&clip.id)
+    });
+    if !unchanged {
+        ui.state.selection.select_time(absolute, &[clip.track_id]);
+        ui.state.selection.select_clip(clip.id, clip.track_id, true);
     }
 }
 

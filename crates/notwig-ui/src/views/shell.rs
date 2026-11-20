@@ -1014,7 +1014,7 @@ impl NotwigUi {
                 self.emit(UiIntent::ImportAudio);
                 ui.close();
             }
-            if ui.button("Audio Settings…").clicked() {
+            if ui.button("Settings…").clicked() {
                 self.open_settings(runtime);
                 ui.close();
             }
@@ -1119,7 +1119,9 @@ impl NotwigUi {
                                 }
                             });
                             if let Some(progress) = note.progress {
-                                ui.add(egui::ProgressBar::new(progress.clamp(0.0, 1.0)));
+                                ui.add(
+                                    egui::ProgressBar::new(progress.clamp(0.0, 1.0)).animate(true),
+                                );
                             }
                         });
                     ui.add_space(6.0);

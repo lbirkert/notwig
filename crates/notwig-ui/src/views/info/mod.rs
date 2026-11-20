@@ -42,7 +42,12 @@ impl NotwigUi {
             )
             .show(ctx, |ui| {
                 let height = ui.available_height();
-                let content_width = (ui.available_width() - 10.0).max(120.0);
+                let handle_width = 10.0;
+                // Leave room for the collapse handle *and* the horizontal item
+                // spacing; otherwise the handle overflows the panel and the
+                // central panel paints a dark strip over its right edge.
+                let content_width =
+                    (ui.available_width() - handle_width - ui.spacing().item_spacing.x).max(120.0);
                 ui.horizontal_top(|ui| {
                     ui.allocate_ui_with_layout(
                         egui::vec2(content_width, height),
@@ -85,7 +90,7 @@ impl NotwigUi {
                     );
                     if crate::widgets::collapse_handle(
                         ui,
-                        Vec2::new(10.0, height),
+                        Vec2::new(handle_width, height),
                         true,
                         "info-panel",
                         "Drag left to collapse",

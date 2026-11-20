@@ -5,6 +5,7 @@ use notwig_core::{RangeMus, TimeMus};
 use crate::timeline::TimelineGrid;
 
 const EDGE_HANDLE_WIDTH: f32 = 14.0;
+const EDGE_HANDLE_TOP_INSET: f32 = 14.0;
 
 fn min_edge_length() -> TimeMus {
     TimeMus::new(1, 16)
@@ -81,16 +82,17 @@ pub(crate) fn draw_clip_chrome(
         (ClipChromeEdge::End, chrome.range.end, "end"),
     ] {
         let x = chrome.grid.x_for_beat(beat, chrome.content.left());
-        let handle = Rect::from_center_size(
-            egui::pos2(x, chrome.ruler.center().y),
-            egui::vec2(EDGE_HANDLE_WIDTH, chrome.ruler.height()),
+        let handle_top = (chrome.ruler.top() + EDGE_HANDLE_TOP_INSET).min(chrome.ruler.bottom());
+        let handle = Rect::from_min_max(
+            egui::pos2(x - EDGE_HANDLE_WIDTH * 0.5, handle_top),
+            egui::pos2(x + EDGE_HANDLE_WIDTH * 0.5, chrome.ruler.bottom()),
         );
         let edge_response = ui.interact(handle, chrome.id_salt.with(label), Sense::drag());
         if edge_response.hovered() || edge_response.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
             painter.rect_filled(
                 Rect::from_min_max(
-                    egui::pos2(x - 2.0, chrome.ruler.top()),
+                    egui::pos2(x - 2.0, handle_top),
                     egui::pos2(x + 2.0, chrome.lanes.bottom()),
                 ),
                 CornerRadius::ZERO,

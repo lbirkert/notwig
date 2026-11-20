@@ -8,11 +8,18 @@
   </head>
   <body>
     <canvas id="notwig-canvas"></canvas>
-    <button id="enable-audio" type="button">Click to enable audio</button>
+    <div id="loading" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <span>Loading Notwig…</span>
+    </div>
+    <button id="enable-audio" type="button" hidden>Click to enable audio</button>
     <script type="module">
       import init, { WebApp } from "./pkg/notwig_web.js";
 
       const canvas = document.getElementById("notwig-canvas");
+      const loading = document.getElementById("loading");
+      const enableAudio = document.getElementById("enable-audio");
+
       window.__notwigDragPos = null;
       const recordDragPosition = (event) => {
         const rect = canvas.getBoundingClientRect();
@@ -26,15 +33,21 @@
         return position;
       };
 
-      await init();
-      const app = new WebApp();
-      await app.start(canvas);
-
-      const enableAudio = document.getElementById("enable-audio");
-      enableAudio.addEventListener("click", () => {
-        enableAudio.remove();
-        app.enable_audio();
-      });
+      try {
+        await init();
+        const app = new WebApp();
+        await app.start(canvas);
+        loading.remove();
+        enableAudio.hidden = false;
+        enableAudio.addEventListener("click", () => {
+          enableAudio.remove();
+          app.enable_audio();
+        });
+      } catch (error) {
+        loading.classList.add("failed");
+        loading.replaceChildren("Failed to start Notwig.");
+        console.error(error);
+      }
     </script>
   </body>
 </html>

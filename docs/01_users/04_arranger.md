@@ -36,7 +36,7 @@ sample accuracy.
   clips accept audio tracks.
 - Drag a group selection to move all selected clips by the same amount. Group
   moves keep relative offsets and stay to the right of beat zero.
-- Hold **Alt** while dragging to bypass snapping.
+- Hold **Alt** or **Shift** while dragging to bypass snapping.
 - Drag a clip's left or right edge to trim it. Trimming changes the clip range
   and its content window; it never stretches audio.
 
@@ -45,7 +45,8 @@ sample accuracy.
 - Drag on an empty lane to create a time selection.
 - Drag vertically while creating one to include more tracks.
 - Drag the selection itself to move it, together with its content, in time.
-- Hold **Shift** while selecting or moving to bypass snapping.
+- Drag either selection edge to extend or shorten the time range.
+- Hold **Shift** while selecting, moving, or resizing to bypass snapping.
 - Click an empty lane once to clear the selection.
 
 A time selection is the input for copy, cut, paste, duplicate, delete, and loop
@@ -98,7 +99,8 @@ MIDI clips open the MIDI editor.
 - **Cmd+0** fits the whole arrangement.
 - Use the horizontal scrollbar below the lanes to scroll precisely.
 
-The visible snap grid changes with zoom. The grid is always based on the
-project time signature.
+The visible snap grid changes with zoom. An eighth note is the finest default
+snap; the grid coarsens to beats and bars as you zoom out. The grid is always
+based on the project time signature.
 
 Next: [Audio Clips](05_audio_clips.md).

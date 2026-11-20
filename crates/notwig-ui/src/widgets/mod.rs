@@ -18,16 +18,9 @@ use notwig_dsp::Unit;
 
 pub fn snap_step(pixels_per_beat: f32, beats_per_bar: u8) -> TimeMus {
     let bar = f64::from(beats_per_bar.max(1));
-    let candidates = [
-        1.0 / 8.0,
-        1.0 / 4.0,
-        1.0 / 2.0,
-        1.0,
-        bar,
-        bar * 2.0,
-        bar * 4.0,
-        bar * 8.0,
-    ];
+    // An eighth note (0.5 beat) is the finest default snap. Coarser steps
+    // replace it as the view zooms out so grid lines stay legible.
+    let candidates = [1.0 / 2.0, 1.0, bar, bar * 2.0, bar * 4.0, bar * 8.0];
     let mut chosen = *candidates.last().expect("grid candidates");
     for step in candidates {
         if (step as f32) * pixels_per_beat >= 12.0 {

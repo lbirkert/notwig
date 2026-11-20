@@ -274,6 +274,48 @@ fn double_clicking_an_empty_row_creates_a_note() {
 }
 
 #[test]
+fn creating_a_note_updates_the_global_time_selection() {
+    let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    let content = ui.midi_editor_content_rect;
+    let pos = egui::pos2(note_x(&ui, content, 3.0), note_y(&ui, content, 64));
+    let intents = double_click(&ctx, &mut ui, &doc, &runtime, pos);
+    let created = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::CreateMidiNote { note, .. } => Some(note.clone()),
+            _ => None,
+        })
+        .expect("double click should create a note");
+
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateNote {
+            clip_id: clip,
+            note: created.clone(),
+        }),
+    )
+    .expect("create note command")
+    .doc;
+    let _ = run_ui(&ctx, &mut ui, &doc, &runtime, Vec::new());
+
+    let time = ui
+        .state
+        .selection
+        .time
+        .as_ref()
+        .expect("creating a note should set the global time selection");
+    let expected =
+        RangeMus::new(created.start, created.start + created.length).expect("created note span");
+    assert_eq!(time.range, expected);
+    let track = doc.arranger.clips[&clip].track_id;
+    assert_eq!(time.tracks.len(), 1);
+    assert!(time.contains_track(track));
+}
+
+#[test]
 fn single_click_on_empty_lane_sets_zero_width_time_selection() {
     let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
     let runtime = RuntimeView::default();

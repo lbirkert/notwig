@@ -84,6 +84,16 @@ fn config_round_trips_new_format() {
 }
 
 #[test]
+fn default_index_points_at_the_official_host() {
+    assert_eq!(
+        DEFAULT_INDEX_URL,
+        "https://notwig.lbirkert.com/extensions.json"
+    );
+    let config = ExtensionConfig::default();
+    assert_eq!(config.indexes, vec![DEFAULT_INDEX_URL.to_string()]);
+}
+
+#[test]
 fn legacy_settings_map_migrates_to_default_index() {
     let text = r#"{"notwig.ext.devices":{"enabled":true,"trust":"Trusted"}}"#;
     let config = ExtensionConfig::from_json(text).unwrap();

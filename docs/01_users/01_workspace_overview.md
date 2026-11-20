@@ -110,9 +110,9 @@ These gestures work in the arranger and both clip editors:
 | Horizontal scrollbar | Pan the timeline. |
 | **Cmd+0** | Fit the arrangement in the arranger. |
 
-Snapping follows the zoom level: the visible grid gets coarser or finer as you
-zoom. Hold **Alt** while dragging clips or events to bypass snapping. Hold
-**Shift** for the gestures that use it to bypass snap while selecting time or
-moving a range.
+Snapping follows the zoom level: the visible grid gets coarser as you zoom out,
+with an eighth note as the finest default step. Hold **Alt** or **Shift** while
+dragging clips to bypass snapping, and **Shift** while selecting, moving, or
+resizing a time range. Audio-editor events use **Alt** to bypass snapping.
 
 Next: [Projects and Recovery](02_projects_and_recovery.md).

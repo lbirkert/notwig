@@ -6,6 +6,11 @@ use super::state::MidiEditorState;
 
 pub(super) const SCROLLBAR_H: f32 = 14.0;
 
+/// Updates the viewport in place from this frame's zoom and pan input.
+///
+/// Callers must derive pixels-per-beat and the snap step after this returns.
+/// Deriving them first mixes the previous scale with the new viewport start,
+/// which makes zooming visibly jitter.
 pub(super) fn midi_editor_navigation(
     state: &mut MidiEditorState,
     ui: &egui::Ui,

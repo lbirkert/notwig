@@ -134,6 +134,14 @@ impl NotwigUi {
                 state.pitch_scroll = clamp_pitch_scroll(state.pitch_scroll, note_area.height());
                 midi_editor_navigation(&mut state, ui, content, note_area);
 
+                // Navigation can change the zoom; recompute the scale before
+                // laying out this frame so the grid and note geometry agree.
+                let ppb = state
+                    .viewport
+                    .pixels_per_beat
+                    .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
+                let grid = snap_step(ppb, beats_per_bar);
+
                 let painter = ui.painter().clone();
                 painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
                 painter.rect_filled(header, CornerRadius::ZERO, theme::PANEL_LIGHT);

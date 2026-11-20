@@ -1,6 +1,6 @@
 # Settings and Shortcuts
 
-Open **Settings** with **Cmd+,** or **FILE > Audio Settings…**. The window has
+Open **Settings** with **Cmd+,** or **FILE > Settings…**. The window has
 three pages.
 
 ## Audio

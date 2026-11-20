@@ -14,7 +14,7 @@ fn coordinates_round_trip_and_snap() {
     let x = grid.x_for_beat(TimeMus::new(2, 1), 10.0);
     assert!((x - 138.0).abs() < 0.01);
     assert_eq!(grid.beat_for_x(x, 10.0), TimeMus::new(2, 1));
-    assert_eq!(grid.snap(TimeMus::new(9, 32), false), TimeMus::new(1, 4));
+    assert_eq!(grid.snap(TimeMus::new(9, 32), false), TimeMus::new(1, 2));
 }
 
 #[test]
