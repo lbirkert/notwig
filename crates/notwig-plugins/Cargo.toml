@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["vst3", "au"]
+default = []
 au = ["dep:truce-rack"]
 vst3 = ["dep:truce-rack"]
 vst2 = []

@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::clock::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::clock::{SystemTime, UNIX_EPOCH};
+
 use crate::engine_build::{EngineBuild, EngineBuildRequest};
 use crate::history::History;
 use crate::plugins::{PluginCatalog, new_plugin_host, plugin_entries};
@@ -41,6 +45,7 @@ pub struct Workspace {
     pub assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
     pub peaks: BTreeMap<AssetId, Vec<f32>>,
     pending_import_dirs: BTreeMap<AssetId, PathBuf>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pending_audio_imports: std::collections::BTreeSet<AssetId>,
     plugin_states: BTreeMap<DeviceId, PluginState>,
     engine_control: EngineControl,
@@ -52,7 +57,7 @@ pub struct Workspace {
     extension_factory: Option<Arc<dyn DeviceFactory>>,
     pub status: Option<String>,
     pub error: Option<String>,
-    pub last_autosave: std::time::Instant,
+    pub last_autosave: Instant,
     pub play_start: Option<notwig_core::TimeMus>,
     pub audio_block_size: u32,
     pub recovery_offered: bool,
@@ -123,7 +128,7 @@ impl Workspace {
             extension_factory: None,
             status: None,
             error: None,
-            last_autosave: std::time::Instant::now(),
+            last_autosave: Instant::now(),
             play_start: None,
             audio_block_size: 512,
             recovery_offered: false,
@@ -401,6 +406,7 @@ impl Workspace {
         Ok(())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&mut self, as_path: Option<&Path>) -> Result<PathBuf, String> {
         let path = match as_path {
             Some(path) => path.to_path_buf(),
@@ -467,6 +473,80 @@ impl Workspace {
         Ok(path)
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn autosave_if_due(&mut self) {}
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn save(&mut self, _as_path: Option<&Path>) -> Result<PathBuf, String> {
+        Err("use the browser project store".into())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn import_audio(&mut self, _source: &Path) -> Result<AssetId, String> {
+        Err("use import_audio_bytes in the browser".into())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn relink_asset(&mut self, _asset_id: AssetId, _path: &Path) -> Result<(), String> {
+        Err("asset relinking is not available in the browser".into())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn bundle_files(&mut self) -> Result<notwig_project::BundleFiles, String> {
+        let mut files = notwig_project::BundleFiles::default();
+        let asset_ids: Vec<AssetId> = self.doc.assets.assets.keys().copied().collect();
+        for asset_id in asset_ids {
+            let Some(entry) = self.doc.assets.assets.get(&asset_id).cloned() else {
+                continue;
+            };
+            if entry.kind != notwig_core::AssetKind::Audio {
+                continue;
+            }
+            let Some(buffer) = self.assets.get(&asset_id) else {
+                continue;
+            };
+            let uri = format!("assets/{asset_id}.wav");
+            let bytes = notwig_project::write_wav_f32_bytes(
+                buffer.sample_rate,
+                buffer.channels,
+                &buffer.samples,
+            )
+            .map_err(|err| err.to_string())?;
+            files.insert(uri.clone(), bytes);
+            if let Some(entry) = self.doc.assets.assets.get_mut(&asset_id) {
+                entry.uri = uri;
+                entry.format = "wav".into();
+                entry.sample_rate = Some(buffer.sample_rate);
+                entry.channels = Some(buffer.channels);
+                entry.duration_samples = Some(buffer.frame_count());
+            }
+        }
+        for (device_id, state) in &self.plugin_states {
+            let bytes = serde_json::to_vec(state).map_err(|err| err.to_string())?;
+            files.insert(format!("state/{device_id}.json"), bytes);
+        }
+        notwig_project::save_files(&self.doc, files).map_err(|err| err.to_string())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_bundle_files(
+        files: &notwig_project::BundleFiles,
+        label: String,
+    ) -> Result<Self, String> {
+        let loaded = notwig_project::open_files(files).map_err(|err| err.to_string())?;
+        let mut workspace = Self::from_doc(loaded.doc, Some(PathBuf::from(label)), false);
+        workspace.load_assets_from_files(files);
+        workspace.request_engine_rebuild();
+        if !loaded.issues.is_empty() {
+            workspace.status = Some(format!(
+                "Project loaded with {} issue(s).",
+                loaded.issues.len()
+            ));
+        }
+        Ok(workspace)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn autosave_if_due(&mut self) {
         if !self.dirty || self.last_autosave.elapsed().as_secs() < 60 {
             return;
@@ -477,15 +557,20 @@ impl Workspace {
         if !self.pending_audio_imports.is_empty() {
             return;
         }
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .map_or(0, |duration| {
                 i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
             });
         let _ = notwig_project::autosave(&self.doc, &bundle, timestamp);
-        self.last_autosave = std::time::Instant::now();
+        self.last_autosave = Instant::now();
     }
 
+    #[cfg(target_arch = "wasm32")]
+    #[allow(clippy::unused_self)]
+    fn load_plugin_states(&mut self) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_plugin_states(&mut self) {
         self.plugin_states.clear();
         let Some(bundle) = self.bundle.clone() else {

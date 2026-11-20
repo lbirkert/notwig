@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notwig</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <canvas id="notwig-canvas"></canvas>
+    <button id="enable-audio" type="button">Click to enable audio</button>
+    <script type="module">
+      import init, { WebApp } from "./pkg/notwig_web.js";
+
+      await init();
+      const app = new WebApp();
+      await app.start(document.getElementById("notwig-canvas"));
+
+      const enableAudio = document.getElementById("enable-audio");
+      enableAudio.addEventListener("click", () => {
+        enableAudio.remove();
+        app.enable_audio();
+      });
+    </script>
+  </body>
+</html>

@@ -9,32 +9,51 @@ repository.workspace = true
 [[bin]]
 name = "notwig"
 path = "src/main.rs"
+required-features = ["native"]
+
+[features]
+default = ["native"]
+native = []
+web = []
 
 [dependencies]
 notwig-core.workspace = true
 notwig-project.workspace = true
 notwig-dsp.workspace = true
 notwig-ext-api.workspace = true
-notwig-ext.workspace = true
+notwig-ext = { workspace = true, default-features = false }
 notwig-engine.workspace = true
-notwig-plugins.workspace = true
+notwig-plugins = { workspace = true, default-features = false }
 notwig-ui.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true
-ureq.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 hound.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 eframe.workspace = true
 egui.workspace = true
 cpal.workspace = true
 rfd.workspace = true
-mouse_position.workspace = true
 wgpu.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mouse_position.workspace = true
+ureq.workspace = true
+tracing-subscriber.workspace = true
+notwig-plugins = { workspace = true, features = ["vst3", "au"] }
+notwig-ext = { workspace = true, features = ["native"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+web-sys.workspace = true
+web-time.workspace = true
+tracing-wasm.workspace = true
+notwig-ext = { workspace = true, default-features = false, features = ["web"] }
 
 [lints]
 workspace = true

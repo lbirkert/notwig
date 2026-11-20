@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use notwig_core::{CoreError, ProjectDoc, SCHEMA_VERSION};
@@ -17,6 +18,68 @@ pub struct LoadResult {
 pub struct SaveResult {
     pub path: PathBuf,
     pub revision: u64,
+}
+
+/// A project bundle represented as relative-path to byte-content files.
+///
+/// Browser builds use this in place of direct filesystem access.
+#[derive(Debug, Clone, Default)]
+pub struct BundleFiles {
+    pub files: BTreeMap<String, Vec<u8>>,
+}
+
+impl BundleFiles {
+    pub fn insert(&mut self, path: impl Into<String>, bytes: impl Into<Vec<u8>>) {
+        self.files.insert(path.into(), bytes.into());
+    }
+
+    #[must_use]
+    pub fn get(&self, path: &str) -> Option<&[u8]> {
+        self.files.get(path).map(Vec::as_slice)
+    }
+}
+
+pub fn open_files(files: &BundleFiles) -> Result<LoadResult, ProjectError> {
+    let text = files
+        .get("project.json")
+        .ok_or_else(|| ProjectError::Invalid("missing project manifest at project.json".into()))?;
+    let value: serde_json::Value = serde_json::from_slice(text)?;
+    let mut doc = if value.get("doc").is_some() {
+        let manifest: Manifest = serde_json::from_value(value)?;
+        validate_manifest_schema(&manifest)?;
+        manifest.doc
+    } else {
+        parse_doc_value(value)?
+    };
+    let mut issues = Vec::new();
+    if let Err(err) = normalize_and_validate(&mut doc) {
+        issues.push(ManifestIssue {
+            entity: "document".into(),
+            message: err.to_string(),
+        });
+    }
+    for asset in doc.assets.assets.values() {
+        if !files.files.contains_key(&asset.uri) {
+            issues.push(ManifestIssue {
+                entity: asset.id.to_string(),
+                message: format!("missing asset file {}", asset.uri),
+            });
+        }
+    }
+    Ok(LoadResult {
+        doc,
+        issues,
+        recovery_offered: false,
+    })
+}
+
+pub fn save_files(doc: &ProjectDoc, mut files: BundleFiles) -> Result<BundleFiles, ProjectError> {
+    doc.validate()
+        .map_err(|err| ProjectError::Invalid(err.to_string()))?;
+    let manifest = Manifest::new(doc);
+    let text = serde_json::to_vec_pretty(&manifest)?;
+    files.insert("project.json", text);
+    Ok(files)
 }
 
 pub fn save(doc: &ProjectDoc, bundle: &Path) -> Result<SaveResult, ProjectError> {

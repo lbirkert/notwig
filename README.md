@@ -43,6 +43,27 @@ cargo run -p notwig-app
 cargo run -p notwig-app -- ui path/to/project.notwig
 ```
 
+Browser build:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack --locked
+wasm-pack build crates/notwig-web --target web --release \
+  --out-dir ../../target/web/pkg --out-name notwig_web
+mkdir -p target/web
+cp web/index.html web/styles.css target/web/
+python3 -m http.server --directory target/web 8080
+```
+
+The browser build uses the File System Access API and Origin Private File
+System for project storage, and WebAudio through CPAL. Native VST3/AU plugins
+and the wasmtime extension host are disabled in the browser. Audio starts after
+the first user gesture, and browsers without the File System Access API fall
+back to OPFS plus zip/import download flows.
+
+CI publishes the docs at `https://notwig.lbirkert.com/` and the app at
+`https://notwig.lbirkert.com/app/`.
+
 CLI commands:
 
 ```sh

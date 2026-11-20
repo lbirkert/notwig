@@ -6,6 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["native"]
+native = ["dep:wasmtime"]
+web = ["dep:js-sys", "dep:wasm-bindgen", "dep:web-sys"]
+
 [dependencies]
 notwig-core.workspace = true
 notwig-dsp.workspace = true
@@ -19,7 +24,10 @@ wasmtime = { version = "34", default-features = false, features = [
   "cranelift",
   "runtime",
   "std",
-] }
+], optional = true }
+js-sys = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }

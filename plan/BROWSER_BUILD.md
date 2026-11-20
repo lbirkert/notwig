@@ -1,6 +1,6 @@
 # Browser build plan
 
-Status: planning.
+Status: first browser milestone implemented. Extension devices, native plugins, and worker-backed engine builds remain deferred.
 
 Target: run Notwig at `https://notwig.lbirkert.com/app/`, with the existing
 documentation site served from `https://notwig.lbirkert.com/`.

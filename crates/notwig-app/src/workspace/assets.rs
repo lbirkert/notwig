@@ -1,12 +1,16 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::sync::Arc;
 
 use notwig_core::protocol::CommandPayload;
-use notwig_core::{AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, Id, TrackId};
+use notwig_core::{AssetId, AudioAssetBuffer, Id};
+#[cfg(not(target_arch = "wasm32"))]
+use notwig_core::{ClipId, ClipPayload, Db, TrackId};
 use uuid::Uuid;
 
 use super::Workspace;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Workspace {
     pub(super) fn load_assets(&mut self) {
         self.assets.clear();
@@ -192,6 +196,7 @@ pub(super) fn compute_peaks(buffer: &AudioAssetBuffer, buckets: usize) -> Vec<f3
     peaks
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Workspace {
     pub(super) fn persist_asset_file(
         &mut self,
@@ -223,6 +228,7 @@ impl Workspace {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum AudioImportPlacement {
     Clip {
         track_id: TrackId,
@@ -234,6 +240,7 @@ enum AudioImportPlacement {
     },
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Workspace {
     pub fn stage_audio_clip_import(
         &mut self,
@@ -369,5 +376,104 @@ impl Workspace {
         self.prepare_asset();
         self.status = Some("Audio import finished.".into());
         Ok(())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[allow(clippy::unused_self, clippy::unnecessary_wraps)]
+impl Workspace {
+    pub(super) fn load_assets(&mut self) {}
+
+    pub(super) fn persist_asset_file(
+        &mut self,
+        _asset_id: AssetId,
+        _buffer: &AudioAssetBuffer,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub(super) fn prepare_asset(&mut self) {
+        let assets = Arc::new(self.assets.clone());
+        self.engine_control.data_mut().set_assets(assets);
+        self.engine_control.flush();
+    }
+
+    pub(super) fn load_assets_from_files(&mut self, files: &notwig_project::BundleFiles) {
+        self.assets.clear();
+        self.peaks.clear();
+        for entry in self.doc.assets.assets.values() {
+            if entry.kind != notwig_core::AssetKind::Audio {
+                continue;
+            }
+            let Some(bytes) = files.get(&entry.uri) else {
+                self.status = Some(format!("Asset {} is missing from the bundle.", entry.id));
+                continue;
+            };
+            match notwig_project::decode_audio_bytes(&entry.uri, bytes.to_vec()) {
+                Ok(buffer) => {
+                    self.peaks.insert(entry.id, compute_peaks(&buffer, 2048));
+                    self.assets.insert(entry.id, Arc::new(buffer));
+                }
+                Err(err) => {
+                    self.status = Some(format!("Asset {} unavailable: {err}", entry.id));
+                }
+            }
+        }
+        self.prepare_asset();
+    }
+
+    pub fn import_audio_bytes(&mut self, name: &str, bytes: Vec<u8>) -> Result<AssetId, String> {
+        let decoded =
+            notwig_project::decode_audio_bytes(name, bytes).map_err(|err| err.to_string())?;
+        if decoded.channels > 2 {
+            return Err("more than two channels are not supported".into());
+        }
+        let project_rate = self.doc.meta.sample_rate.value();
+        let converted = notwig_project::resample(
+            &decoded,
+            project_rate,
+            notwig_project::ResampleQuality::High,
+        )
+        .map_err(|err| err.to_string())?;
+        let channels = if converted.channels == 1 {
+            2
+        } else {
+            converted.channels
+        };
+        let samples = if converted.channels == 1 {
+            converted
+                .samples
+                .iter()
+                .flat_map(|sample| [*sample, *sample])
+                .collect()
+        } else {
+            converted.samples.clone()
+        };
+        let buffer = AudioAssetBuffer {
+            sample_rate: project_rate,
+            channels,
+            samples,
+        };
+        let duration_samples = buffer.frame_count();
+        let asset_id = Id::<notwig_core::ids::Asset>::from_uuid(Uuid::new_v4());
+        let uri = format!("assets/{asset_id}.wav");
+        self.peaks.insert(asset_id, compute_peaks(&buffer, 2048));
+        self.assets.insert(asset_id, Arc::new(buffer));
+        let entry = notwig_core::AssetEntry {
+            id: asset_id,
+            kind: notwig_core::AssetKind::Audio,
+            uri,
+            original_name: Some(name.to_owned()),
+            hash: None,
+            format: "wav".into(),
+            sample_rate: Some(project_rate),
+            channels: Some(channels),
+            duration_samples: Some(duration_samples),
+            original_sample_rate: Some(decoded.sample_rate),
+            original_channels: Some(decoded.channels),
+        };
+        self.apply(CommandPayload::RegisterAsset { asset_id, entry })?;
+        self.prepare_asset();
+        Ok(asset_id)
     }
 }

@@ -236,6 +236,7 @@ pub enum UiIntent {
     Quit,
     NewProject,
     OpenProject,
+    OpenProjectFolder,
     Save,
     SaveAs,
     RenderMixdownRange {

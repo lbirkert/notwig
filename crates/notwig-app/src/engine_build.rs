@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc;
 
 use notwig_core::protocol::PlaybackSchedule;
 use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, ProjectDoc};
@@ -89,12 +91,17 @@ impl EngineBuildRequest {
 }
 
 type EngineBuildResult = Result<Box<PreparedRuntime>, String>;
+#[cfg(not(target_arch = "wasm32"))]
 type EngineBuildMessage = (u64, EngineBuildResult);
 
 #[derive(Default)]
 pub(crate) struct EngineBuild {
+    #[cfg(not(target_arch = "wasm32"))]
     receiver: Option<mpsc::Receiver<EngineBuildMessage>>,
+    #[cfg(not(target_arch = "wasm32"))]
     queued_request: Option<EngineBuildRequest>,
+    #[cfg(target_arch = "wasm32")]
+    pending: Option<EngineBuildResult>,
     requests: u64,
 }
 
@@ -103,6 +110,7 @@ impl EngineBuild {
         Self::default()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
         if self.receiver.is_some() {
@@ -112,6 +120,15 @@ impl EngineBuild {
         self.spawn(request)
     }
 
+    #[cfg(target_arch = "wasm32")]
+    #[allow(clippy::unnecessary_wraps)]
+    pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
+        self.requests = self.requests.saturating_add(1);
+        self.pending = Some(request.prepare());
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn poll(&mut self) -> Option<Result<Box<PreparedRuntime>, String>> {
         let receiver = self.receiver.as_ref()?;
         match receiver.try_recv() {
@@ -135,14 +152,26 @@ impl EngineBuild {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn poll(&mut self) -> Option<Result<Box<PreparedRuntime>, String>> {
+        self.pending.take()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn building(&self) -> bool {
         self.receiver.is_some() || self.queued_request.is_some()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn building(&self) -> bool {
+        self.pending.is_some()
     }
 
     pub(crate) fn requests(&self) -> u64 {
         self.requests
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn spawn(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         let generation = self.requests;
         let (sender, receiver) = mpsc::channel();

@@ -1,17 +1,22 @@
+use crate::clock::{Duration, Instant};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
 
 use eframe::egui;
+#[cfg(not(target_arch = "wasm32"))]
 use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
 use notwig_core::{AssetId, DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
+#[cfg(not(target_arch = "wasm32"))]
 use notwig_plugins::NativePluginWindow;
 use notwig_ui::{DropAudioTarget, NotificationKind, NotwigUi, RuntimeView, UiIntent};
 
 use crate::audio::AudioService;
+#[cfg(target_arch = "wasm32")]
+use crate::web::storage::{ProjectHandle, StorageEvent};
 use crate::workspace::{RenderSession, Workspace};
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -29,6 +34,7 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     .map_err(|err| err.to_string())
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
 enum DialogAction {
     OpenProject,
@@ -43,6 +49,7 @@ enum DialogAction {
     Relink(notwig_core::AssetId),
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct AudioImportRequest {
     asset_id: AssetId,
     source: PathBuf,
@@ -54,10 +61,11 @@ struct RenderJob {
     session: RenderSession,
     output: Vec<f32>,
     path: PathBuf,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     options: notwig_project::ExportOptions,
 }
 
-struct NotwigApp {
+pub struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
     extensions: crate::extensions::ExtensionManager,
@@ -67,7 +75,9 @@ struct NotwigApp {
     fallback_playhead: f64,
     last_tick: Instant,
     dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pending_drops: Vec<(PathBuf, DropAudioTarget, TimeMus)>,
+    #[cfg(not(target_arch = "wasm32"))]
     plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
     recovery_error: Option<String>,
     render_job: Option<RenderJob>,
@@ -75,13 +85,21 @@ struct NotwigApp {
     audio_durations: std::collections::BTreeMap<PathBuf, Option<f64>>,
     audio_analysis_pending: std::collections::BTreeSet<PathBuf>,
     audio_analysis_tx: mpsc::Sender<PathBuf>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     audio_analysis_rx: mpsc::Receiver<(PathBuf, Option<f64>)>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     audio_import_tx: mpsc::Sender<AudioImportRequest>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     audio_import_rx: mpsc::Receiver<(AssetId, Result<notwig_project::ImportedAsset, String>)>,
     engine_crash_reported: bool,
+    #[cfg(target_arch = "wasm32")]
+    web_project: Option<ProjectHandle>,
+    #[cfg(target_arch = "wasm32")]
+    web_storage_rx: Option<mpsc::Receiver<StorageEvent>>,
 }
 
 impl NotwigApp {
+    #[cfg(not(target_arch = "wasm32"))]
     fn new(initial: Option<PathBuf>) -> Self {
         let opened = match initial.as_deref() {
             Some(path) => Workspace::open(path),
@@ -150,6 +168,7 @@ impl NotwigApp {
             last_tick: Instant::now(),
             dialog_rx: None,
             pending_drops: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             plugin_editors: Vec::new(),
             recovery_error: None,
             render_job: None,
@@ -166,6 +185,292 @@ impl NotwigApp {
         app.sync_extensions();
         app.restart_audio();
         app
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new_web() -> Self {
+        let workspace = Workspace::new_empty().expect("create fallback workspace");
+        let fallback_playhead = workspace.doc.transport.playhead.as_f64();
+        let (audio_import_tx, _audio_import_requests) = mpsc::channel::<AudioImportRequest>();
+        let (audio_analysis_tx, _audio_analysis_requests) = mpsc::channel::<PathBuf>();
+        let (_audio_analysis_results, audio_analysis_rx) =
+            mpsc::channel::<(PathBuf, Option<f64>)>();
+        let (_audio_import_results, audio_import_rx) =
+            mpsc::channel::<(AssetId, Result<notwig_project::ImportedAsset, String>)>();
+        let mut app = Self {
+            workspace,
+            ui: NotwigUi::default(),
+            extensions: crate::extensions::ExtensionManager::load(),
+            audio: None,
+            audio_settings: crate::audio::AudioSettings {
+                block_size: 512,
+                ..crate::audio::AudioSettings::default()
+            },
+            audio_options: Vec::new(),
+            fallback_playhead,
+            last_tick: Instant::now(),
+            dialog_rx: None,
+            pending_drops: Vec::new(),
+            recovery_error: None,
+            render_job: None,
+            render_playhead: None,
+            audio_durations: std::collections::BTreeMap::new(),
+            audio_analysis_pending: std::collections::BTreeSet::new(),
+            audio_analysis_tx,
+            audio_analysis_rx,
+            audio_import_tx,
+            audio_import_rx,
+            engine_crash_reported: false,
+            web_project: None,
+            web_storage_rx: None,
+        };
+        app.ui.set_shortcuts(crate::shortcuts::load());
+        app.sync_extensions();
+        app
+    }
+
+    pub fn configure(&mut self, _ctx: &egui::Context) {}
+
+    pub fn enable_audio(&mut self) {
+        self.restart_audio();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_open_project(&mut self) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+
+        if let Some(name) = crate::web::storage::last_project_name() {
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = async {
+                    let handle = crate::web::storage::open_opfs_project(&name).await?;
+                    let files = crate::web::storage::read_bundle(&handle).await?;
+                    Ok((handle, files))
+                }
+                .await;
+                let event = match result {
+                    Ok((handle, files)) => StorageEvent::ProjectLoaded { handle, files },
+                    Err(error) => StorageEvent::Error(error),
+                };
+                let _ = sender.send(event);
+            });
+            return;
+        }
+
+        if let Ok(promise) = crate::web::storage::request_directory() {
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = async {
+                    let handle = crate::web::storage::directory_from_promise(promise).await?;
+                    let files = crate::web::storage::read_bundle(&handle).await?;
+                    Ok((handle, files))
+                }
+                .await;
+                let event = match result {
+                    Ok((handle, files)) => StorageEvent::ProjectLoaded { handle, files },
+                    Err(error) => StorageEvent::Error(error),
+                };
+                let _ = sender.send(event);
+            });
+            return;
+        }
+
+        self.web_storage_rx = None;
+        self.notify_error("No browser project has been saved yet.".into());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_open_project_folder(&mut self) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let promise = match crate::web::storage::request_directory() {
+            Ok(promise) => promise,
+            Err(error) => {
+                self.notify_error(error);
+                return;
+            }
+        };
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = async {
+                let handle = crate::web::storage::directory_from_promise(promise).await?;
+                let files = crate::web::storage::read_bundle(&handle).await?;
+                Ok((handle, files))
+            }
+            .await;
+            let event = match result {
+                Ok((handle, files)) => StorageEvent::ProjectLoaded { handle, files },
+                Err(error) => StorageEvent::Error(error),
+            };
+            let _ = sender.send(event);
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_save_project(&mut self, choose_new: bool) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let files = match self.workspace.bundle_files() {
+            Ok(files) => files,
+            Err(error) => {
+                self.notify_error(error);
+                return;
+            }
+        };
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+
+        if let Some(handle) = self.web_project.clone().filter(|_| !choose_new) {
+            wasm_bindgen_futures::spawn_local(async move {
+                let event = match crate::web::storage::write_bundle(&handle, &files).await {
+                    Ok(()) => StorageEvent::ProjectSaved { handle },
+                    Err(error) => StorageEvent::Error(error),
+                };
+                let _ = sender.send(event);
+            });
+            return;
+        }
+
+        if choose_new {
+            if let Ok(promise) = crate::web::storage::request_directory() {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let result = async {
+                        let handle = crate::web::storage::directory_from_promise(promise).await?;
+                        crate::web::storage::write_bundle(&handle, &files).await?;
+                        Ok(handle)
+                    }
+                    .await;
+                    let event = match result {
+                        Ok(handle) => StorageEvent::ProjectSaved { handle },
+                        Err(error) => StorageEvent::Error(error),
+                    };
+                    let _ = sender.send(event);
+                });
+                return;
+            }
+        }
+
+        let name = sanitized_bundle_name(&self.workspace.doc.meta.name);
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = async {
+                let handle = crate::web::storage::open_opfs_project(&name).await?;
+                crate::web::storage::write_bundle(&handle, &files).await?;
+                Ok(handle)
+            }
+            .await;
+            let event = match result {
+                Ok(handle) => StorageEvent::ProjectSaved { handle },
+                Err(error) => StorageEvent::Error(error),
+            };
+            let _ = sender.send(event);
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_import_audio(&mut self) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+        if let Ok(promise) = crate::web::storage::request_file() {
+            wasm_bindgen_futures::spawn_local(async move {
+                let event = match crate::web::storage::first_file_from_promise(promise).await {
+                    Ok((name, bytes)) => StorageEvent::AudioPicked { name, bytes },
+                    Err(error) => StorageEvent::Error(error),
+                };
+                let _ = sender.send(event);
+            });
+            return;
+        }
+        match crate::web::storage::fallback_file_input(sender, "audio/*") {
+            Ok(()) => {}
+            Err(error) => {
+                self.web_storage_rx = None;
+                self.notify_error(error);
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn poll_web_storage(&mut self) {
+        let Some(receiver) = self.web_storage_rx.take() else {
+            return;
+        };
+        while let Ok(event) = receiver.try_recv() {
+            match event {
+                StorageEvent::ProjectLoaded { handle, files } => {
+                    match Workspace::from_bundle_files(&files, handle.name.clone()) {
+                        Ok(mut workspace) => {
+                            workspace.bundle =
+                                Some(PathBuf::from(format!("browser://{}", handle.name)));
+                            self.workspace = workspace;
+                            self.web_project = Some(handle.clone());
+                            crate::web::storage::remember_last_project(&handle.name);
+                            self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                            self.ui.state.selection.clear();
+                            self.recovery_error = None;
+                            self.notify_info(format!("Opened {}", handle.name));
+                        }
+                        Err(error) => self.notify_error(error),
+                    }
+                }
+                StorageEvent::ProjectSaved { handle } => {
+                    self.workspace.bundle =
+                        Some(PathBuf::from(format!("browser://{}", handle.name)));
+                    self.workspace.dirty = false;
+                    crate::web::storage::remember_last_project(&handle.name);
+                    self.web_project = Some(handle.clone());
+                    self.notify_info(format!("Saved {}", handle.name));
+                }
+                StorageEvent::AudioPicked { name, bytes } => {
+                    match self.workspace.import_audio_bytes(&name, bytes) {
+                        Ok(asset_id) => {
+                            let track_id = self
+                                .ui
+                                .selected_track(&self.workspace.doc)
+                                .or_else(|| self.create_audio_track_for_import());
+                            if let Some(track_id) = track_id {
+                                let at = self.workspace.doc.transport.playhead;
+                                if let Err(error) =
+                                    self.workspace.insert_audio_clip_at(track_id, asset_id, at)
+                                {
+                                    self.notify_error(error);
+                                }
+                            }
+                            self.notify_info(format!("Imported {name}"));
+                        }
+                        Err(error) => self.notify_error(error),
+                    }
+                }
+                StorageEvent::Error(error) => self.notify_error(error),
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_audio_track_for_import(&mut self) -> Option<notwig_core::TrackId> {
+        let before: std::collections::BTreeSet<notwig_core::TrackId> =
+            self.workspace.doc.tracks.keys().copied().collect();
+        if let Err(error) = self.workspace.create_track(TrackKind::Audio) {
+            self.notify_error(error);
+            return None;
+        }
+        self.workspace
+            .doc
+            .tracks
+            .keys()
+            .find(|id| !before.contains(id))
+            .copied()
     }
 
     fn sync_extensions(&mut self) {
@@ -201,6 +506,7 @@ impl NotwigApp {
             .unwrap_or_default()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_audio_imports(&mut self) {
         while let Ok((asset_id, result)) = self.audio_import_rx.try_recv() {
             match result {
@@ -214,6 +520,7 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_audio_analysis(&mut self) {
         while let Ok((path, duration)) = self.audio_analysis_rx.try_recv() {
             self.audio_analysis_pending.remove(&path);
@@ -258,19 +565,39 @@ impl NotwigApp {
         );
         if done >= total {
             job.output.truncate(total * 2);
-            match notwig_project::write_audio_export(
-                &job.path,
-                job.session.sample_rate,
-                2,
-                &job.output,
-                job.options,
-            ) {
-                Ok(()) => self.notify_info(format!(
-                    "Rendered {} frames to {}",
-                    total,
-                    job.path.display()
-                )),
-                Err(err) => self.notify_error(err.to_string()),
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                match notwig_project::write_audio_export(
+                    &job.path,
+                    job.session.sample_rate,
+                    2,
+                    &job.output,
+                    job.options,
+                ) {
+                    Ok(()) => self.notify_info(format!(
+                        "Rendered {} frames to {}",
+                        total,
+                        job.path.display()
+                    )),
+                    Err(err) => self.notify_error(err.to_string()),
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                match notwig_project::write_wav_f32_bytes(job.session.sample_rate, 2, &job.output) {
+                    Ok(bytes) => {
+                        let name = job
+                            .path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("mixdown.wav");
+                        match crate::web::storage::download_bytes(name, "audio/wav", &bytes) {
+                            Ok(()) => self.notify_info(format!("Rendered {total} frames.")),
+                            Err(error) => self.notify_error(error),
+                        }
+                    }
+                    Err(error) => self.notify_error(error.to_string()),
+                }
             }
             self.ui.render_progress = None;
             self.render_playhead = None;
@@ -478,6 +805,7 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn open_plugin_window(&mut self, device_id: DeviceId) {
         if let Some((_, window)) = self.plugin_editors.iter().find(|(id, _)| *id == device_id) {
             window.focus();
@@ -505,6 +833,16 @@ impl NotwigApp {
                 self.notify_error(format!("Could not open plugin window: {err}"));
             }
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn open_plugin_window(&mut self, _device_id: DeviceId) {
+        self.notify_error("Native plugin editors are not available in the browser.".into());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn perform_drop(&mut self, _path: PathBuf, _target: DropAudioTarget, _at: TimeMus) {
+        self.notify_info("Drop audio from the browser file picker instead.".into());
     }
 
     fn handle_intent(&mut self, intent: UiIntent) {
@@ -853,9 +1191,12 @@ impl NotwigApp {
                     let _ = self.audio_analysis_tx.send(path);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::ImportAudio => {
                 self.spawn_dialog(DialogAction::ImportAudio, audio_pick_dialog("Import audio"));
             }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::ImportAudio => self.web_import_audio(),
             UiIntent::DropAudio { path, target, at } => {
                 self.perform_drop(path, target, at);
             }
@@ -889,6 +1230,7 @@ impl NotwigApp {
                     ramp: None,
                 });
                 let _ = self.report(result);
+                #[cfg(not(target_arch = "wasm32"))]
                 if let Some(value) = raw_value
                     && let Some((_, window)) = self
                         .plugin_editors
@@ -897,12 +1239,19 @@ impl NotwigApp {
                 {
                     window.set_parameter(param_id.into_uuid().as_u128() as u32, value);
                 }
+                #[cfg(target_arch = "wasm32")]
+                let _ = raw_value;
             }
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::RelinkAsset(asset_id) => {
                 self.spawn_dialog(
                     DialogAction::Relink(asset_id),
                     audio_pick_dialog("Relink audio asset"),
                 );
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::RelinkAsset(_asset_id) => {
+                self.notify_error("Asset relinking is not available in the browser.".into());
             }
             UiIntent::ApplyAudioSettings {
                 driver,
@@ -944,13 +1293,23 @@ impl NotwigApp {
                 }
                 Err(err) => self.notify_error(err),
             },
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::OpenProject => {
                 self.spawn_dialog(DialogAction::OpenProject, || {
-                    rfd::FileDialog::new()
-                        .set_title("Open Notwig project bundle")
-                        .pick_folder()
+                    pick_folder("Open Notwig project bundle")
                 });
             }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::OpenProject => self.web_open_project(),
+            #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::OpenProjectFolder => {
+                self.spawn_dialog(DialogAction::OpenProject, || {
+                    pick_folder("Open Notwig project bundle")
+                });
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::OpenProjectFolder => self.web_open_project_folder(),
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::Save => {
                 self.sync_playhead();
                 match self.workspace.save(None) {
@@ -961,7 +1320,16 @@ impl NotwigApp {
                     Err(err) => self.notify_error(err),
                 }
             }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::Save => {
+                self.sync_playhead();
+                self.web_save_project(false);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::SaveAs => self.handle_save_as(),
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::SaveAs => self.web_save_project(true),
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::RenderMixdownRange {
                 start,
                 end,
@@ -979,11 +1347,7 @@ impl NotwigApp {
                             end,
                             options,
                         },
-                        || {
-                            rfd::FileDialog::new()
-                                .set_title("Choose stem output folder")
-                                .pick_folder()
-                        },
+                        || pick_folder("Choose stem output folder"),
                     );
                 } else {
                     self.spawn_dialog(
@@ -993,13 +1357,46 @@ impl NotwigApp {
                             options,
                         },
                         move || {
-                            rfd::FileDialog::new()
-                                .add_filter(extension.to_uppercase(), &[extension])
-                                .set_file_name(format!("mixdown.{extension}"))
-                                .set_title("Render mixdown")
-                                .save_file()
+                            save_file(
+                                "Render mixdown",
+                                &format!("mixdown.{extension}"),
+                                &extension.to_uppercase(),
+                                &[extension],
+                            )
                         },
                     );
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::RenderMixdownRange {
+                start,
+                end,
+                options,
+            } => {
+                if self.render_job.is_some() {
+                    self.notify_info("A render is already running.".into());
+                    return;
+                }
+                if options.stems {
+                    self.notify_error("Stem rendering is not available in the browser yet.".into());
+                    return;
+                }
+                if options.format != notwig_ui::ExportFormat::Wav {
+                    self.notify_error("The browser build currently renders WAV only.".into());
+                    return;
+                }
+                match self.workspace.begin_render(start, end) {
+                    Ok(session) => {
+                        self.ui.render_progress = Some(0.0);
+                        let capacity = session.total_frames().saturating_mul(2);
+                        self.render_job = Some(RenderJob {
+                            session,
+                            output: Vec::with_capacity(capacity),
+                            path: PathBuf::from("mixdown.wav"),
+                            options: export_options(options),
+                        });
+                    }
+                    Err(error) => self.notify_error(error),
                 }
             }
             UiIntent::Undo => {
@@ -1061,13 +1458,15 @@ impl NotwigApp {
                     self.notify_error(error);
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::ImportExtensionZip => {
                 self.spawn_dialog(DialogAction::ImportExtensionZip, || {
-                    rfd::FileDialog::new()
-                        .add_filter("Notwig extension", &["zip"])
-                        .set_title("Import extension ZIP")
-                        .pick_file()
+                    pick_file("Import extension ZIP", "Notwig extension", &["zip"])
                 });
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::ImportExtensionZip => {
+                self.notify_error("Extensions are not available in the browser build.".into());
             }
             UiIntent::UninstallExtension { id } => match self.extensions.uninstall(&id) {
                 Ok(()) => {
@@ -1080,17 +1479,16 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn handle_save_as(&mut self) {
         self.sync_playhead();
         let file_name = format!("{}.notwig", self.workspace.doc.meta.name);
         self.spawn_dialog(DialogAction::SaveAs, move || {
-            rfd::FileDialog::new()
-                .set_file_name(file_name)
-                .set_title("Save Notwig project bundle")
-                .save_file()
+            save_file("Save Notwig project bundle", &file_name, "", &[])
         });
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn spawn_dialog<F>(&mut self, action: DialogAction, open: F)
     where
         F: FnOnce() -> Option<PathBuf> + Send + 'static,
@@ -1106,6 +1504,7 @@ impl NotwigApp {
         self.dialog_rx = Some(receiver);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_dialog(&mut self) {
         if let Some(receiver) = &self.dialog_rx {
             match receiver.try_recv() {
@@ -1121,6 +1520,7 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn apply_dialog(&mut self, action: DialogAction, path: Option<PathBuf>) {
         match action {
             DialogAction::OpenProject => {
@@ -1221,6 +1621,7 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn perform_drop(&mut self, path: PathBuf, target: DropAudioTarget, at: TimeMus) {
         if let DropAudioTarget::ClipEditor { clip_id } = target {
             match self.workspace.stage_audio_slice_import(&path, clip_id, at) {
@@ -1257,6 +1658,7 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn queue_audio_import(&mut self, asset_id: AssetId, source: PathBuf, target: PathBuf) {
         let project_rate = self.workspace.doc.meta.sample_rate.value();
         let _ = self.audio_import_tx.send(AudioImportRequest {
@@ -1271,6 +1673,7 @@ impl NotwigApp {
 
 impl Drop for NotwigApp {
     fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         for (device_id, window) in &mut self.plugin_editors {
             if let Ok(state) = window.save_state() {
                 self.workspace.store_plugin_state(*device_id, state);
@@ -1280,12 +1683,22 @@ impl Drop for NotwigApp {
 }
 
 impl eframe::App for NotwigApp {
+    #[cfg(target_arch = "wasm32")]
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.workspace.poll_engine_build();
-        self.poll_dialog();
-        self.poll_audio_analysis();
-        self.poll_audio_imports();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.poll_dialog();
+            self.poll_audio_analysis();
+            self.poll_audio_imports();
+        }
         self.advance_render();
+        #[cfg(target_arch = "wasm32")]
+        self.poll_web_storage();
         self.workspace.poll_plugin_catalog();
         for event in self.extensions.poll() {
             match event {
@@ -1299,43 +1712,49 @@ impl eframe::App for NotwigApp {
         if self.extensions.index_loading() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
-        let mut editor_changes = Vec::new();
-        let mut closed_states = Vec::new();
-        self.plugin_editors.retain_mut(|(device_id, window)| {
-            window.pump();
-            if !window.is_open() {
-                if let Ok(state) = window.save_state() {
-                    closed_states.push((*device_id, state));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut editor_changes = Vec::new();
+            let mut closed_states = Vec::new();
+            self.plugin_editors.retain_mut(|(device_id, window)| {
+                window.pump();
+                if !window.is_open() {
+                    if let Ok(state) = window.save_state() {
+                        closed_states.push((*device_id, state));
+                    }
+                    return false;
                 }
-                return false;
-            }
-            for (param_id, value) in window.poll_changes() {
-                editor_changes.push((*device_id, param_id, value));
-            }
-            true
-        });
-        for (device_id, state) in closed_states {
-            self.workspace.set_plugin_state(device_id, state);
-        }
-        for (device_id, raw_id, value) in editor_changes {
-            let param_id =
-                notwig_core::ParamId::from_uuid(uuid::Uuid::from_u128(u128::from(raw_id)));
-            self.ui.last_touched_param.insert(device_id, param_id);
-            let result = self.workspace.apply(CommandPayload::SetParam {
-                device_id,
-                param_id,
-                value: notwig_core::ParamValue::F64(value),
-                ramp: None,
+                for (param_id, value) in window.poll_changes() {
+                    editor_changes.push((*device_id, param_id, value));
+                }
+                true
             });
-            let _ = self.report(result);
+            for (device_id, state) in closed_states {
+                self.workspace.set_plugin_state(device_id, state);
+            }
+            for (device_id, raw_id, value) in editor_changes {
+                let param_id =
+                    notwig_core::ParamId::from_uuid(uuid::Uuid::from_u128(u128::from(raw_id)));
+                self.ui.last_touched_param.insert(device_id, param_id);
+                let result = self.workspace.apply(CommandPayload::SetParam {
+                    device_id,
+                    param_id,
+                    value: notwig_core::ParamValue::F64(value),
+                    ramp: None,
+                });
+                let _ = self.report(result);
+            }
         }
         let dialog_open = self.dialog_rx.is_some();
         let rendering = self.render_job.is_some();
         let dirty = if self.workspace.dirty { "*" } else { "" };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{}{} — Notwig",
-            self.workspace.doc.meta.name, dirty
-        )));
+        let title = format!("{}{} — Notwig", self.workspace.doc.meta.name, dirty);
+        #[cfg(not(target_arch = "wasm32"))]
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        #[cfg(target_arch = "wasm32")]
+        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+            document.set_title(&title);
+        }
         let snapshot = self.audio_snapshot();
         if snapshot.crashed && !self.engine_crash_reported {
             self.engine_crash_reported = true;
@@ -1363,7 +1782,11 @@ impl eframe::App for NotwigApp {
             }
         }
         let runtime = self.runtime_view(&snapshot);
+        #[cfg(not(target_arch = "wasm32"))]
         self.ui.set_platform_pointer(platform_pointer(ctx));
+        #[cfg(target_arch = "wasm32")]
+        self.ui
+            .set_platform_pointer(ctx.input(|input| input.pointer.latest_pos()));
         for spec in self.workspace.plugin_specs() {
             self.ui.registry.register(spec.clone());
         }
@@ -1403,11 +1826,25 @@ impl eframe::App for NotwigApp {
         }
     }
 
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.workspace.end_session();
         if let Err(err) = crate::audio_config::save(&self.audio_settings) {
             tracing::warn!(error = %err, "could not save audio settings on exit");
         }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn sanitized_bundle_name(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect();
+    let trimmed = name.trim_matches('-');
+    if trimmed.is_empty() {
+        "untitled".into()
+    } else {
+        trimmed.to_ascii_lowercase()
     }
 }
 
@@ -1418,6 +1855,7 @@ fn f64_to_time(value: f64) -> TimeMus {
 #[allow(dead_code)]
 fn _keep(_: &ProjectDoc, _: Rational, _: DeviceKind, _: TrackKind) {}
 
+#[cfg(not(target_arch = "wasm32"))]
 fn platform_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
     let inner = ctx.input(|input| input.viewport().inner_rect)?;
     match Mouse::get_mouse_position() {
@@ -1433,18 +1871,46 @@ fn platform_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn audio_pick_dialog(title: &'static str) -> impl FnOnce() -> Option<PathBuf> + Send + 'static {
     move || {
-        rfd::FileDialog::new()
-            .add_filter(
-                "Audio",
-                &[
-                    "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
-                ],
-            )
-            .set_title(title)
-            .pick_file()
+        pick_file(
+            title,
+            "Audio",
+            &[
+                "wav", "wave", "aif", "aiff", "aifc", "mp3", "flac", "ogg", "oga",
+            ],
+        )
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn pick_folder(title: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new().set_title(title).pick_folder()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn pick_file(title: &str, filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter(filter_name, extensions)
+        .set_title(title)
+        .pick_file()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_file(
+    title: &str,
+    file_name: &str,
+    filter_name: &str,
+    extensions: &[&str],
+) -> Option<PathBuf> {
+    let mut dialog = rfd::FileDialog::new()
+        .set_file_name(file_name)
+        .set_title(title);
+    if !filter_name.is_empty() {
+        dialog = dialog.add_filter(filter_name, extensions);
+    }
+    dialog.save_file()
 }
 
 fn export_options(options: notwig_ui::ExportOptions) -> notwig_project::ExportOptions {

@@ -9,6 +9,7 @@ repository.workspace = true
 [features]
 default = ["rand"]
 rand = ["uuid/v4"]
+wasm = ["rand", "uuid/js"]
 
 [dependencies]
 indexmap.workspace = true

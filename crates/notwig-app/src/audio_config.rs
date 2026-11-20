@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -65,6 +66,7 @@ impl From<PersistedAudioSettings> for AudioSettings {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load() -> AudioSettings {
     let Some(path) = config_path() else {
         return default_settings();
@@ -72,11 +74,36 @@ pub fn load() -> AudioSettings {
     load_from_path(&path)
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn load() -> AudioSettings {
+    let Some(storage) = web_storage() else {
+        return default_settings();
+    };
+    let Ok(Some(text)) = storage.get_item(WEB_KEY) else {
+        return default_settings();
+    };
+    serde_json::from_str::<PersistedAudioSettings>(&text)
+        .map_or_else(|_| default_settings(), PersistedAudioSettings::into)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save(settings: &AudioSettings) -> Result<(), String> {
     let Some(path) = config_path() else {
         return Ok(());
     };
     save_to_path(&path, settings)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save(settings: &AudioSettings) -> Result<(), String> {
+    let Some(storage) = web_storage() else {
+        return Ok(());
+    };
+    let text = serde_json::to_string(&PersistedAudioSettings::from(settings))
+        .map_err(|err| format!("encode audio settings: {err}"))?;
+    storage
+        .set_item(WEB_KEY, &text)
+        .map_err(|_| "could not save audio settings".to_string())
 }
 
 pub fn validated(
@@ -114,6 +141,7 @@ pub fn validated(
     settings
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
 #[must_use]
 pub fn load_from_path(path: &Path) -> AudioSettings {
@@ -143,6 +171,7 @@ pub fn load_from_path(path: &Path) -> AudioSettings {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
 pub fn save_to_path(path: &Path, settings: &AudioSettings) -> Result<(), String> {
     if let Some(parent) = path.parent() {
@@ -157,6 +186,7 @@ fn default_settings() -> AudioSettings {
     PersistedAudioSettings::default().into()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn config_path() -> Option<PathBuf> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
     #[cfg(target_os = "macos")]
@@ -164,4 +194,12 @@ fn config_path() -> Option<PathBuf> {
     #[cfg(not(target_os = "macos"))]
     let path = home.join(".config/notwig/audio.json");
     Some(path)
+}
+
+#[cfg(target_arch = "wasm32")]
+const WEB_KEY: &str = "notwig.audio";
+
+#[cfg(target_arch = "wasm32")]
+fn web_storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok().flatten()
 }

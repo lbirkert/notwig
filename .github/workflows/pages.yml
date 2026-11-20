@@ -14,38 +14,70 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+
       - uses: Swatinem/rust-cache@v2
+
       - uses: actions/cache@v4
         id: extension-cache
         with:
           path: docs/extensions/notwig.ext.devices.zip
-          key: notwig-ext-devices-${{ hashFiles('crates/notwig-ext-devices/**', 'crates/notwig-ext-api/**', 'crates/notwig-ext-macros/**', 'crates/notwig-dsp/**', 'crates/notwig-core/**', 'Cargo.lock') }}
+          key: notwig-ext-devices-${{ hashFiles('crates/notwig-ext-devices/**', 'crates/notwig-ext-api/**', 'crates/notwig-ext-macros/**', 'Cargo.lock') }}
+
       - name: Package stock extension
         if: steps.extension-cache.outputs.cache-hit != 'true'
         run: ./scripts/package-extension.sh
+
       - name: Build extension index
         run: |
           cp docs/extensions.txt /tmp/extensions.txt
           echo "docs/extensions/notwig.ext.devices.zip" >> /tmp/extensions.txt
           EXTENSIONS_LIST=/tmp/extensions.txt ./scripts/build-extensions.sh
+
       - uses: taiki-e/install-action@v2
         with:
           tool: mdbook
-      - run: mdbook build
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - name: Build docs
+        run: mdbook build
+
+      - name: Build web app
+        run: |
+          mkdir -p book/app
+          wasm-pack build crates/notwig-web \
+            --target web \
+            --release \
+            --out-dir "$GITHUB_WORKSPACE/book/app/pkg" \
+            --out-name notwig_web
+          cp web/index.html book/app/index.html
+          cp web/styles.css book/app/styles.css
+
       - name: Add extension assets
         run: |
           mkdir -p book/extensions
           cp docs/extensions.json book/extensions.json
           cp docs/extensions/*.zip book/extensions/
-      - uses: actions/configure-pages@v5
+
+      - name: Add Pages metadata
+        run: |
+          printf 'notwig.lbirkert.com\n' > book/CNAME
+          touch book/.nojekyll
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: book

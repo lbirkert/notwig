@@ -138,6 +138,21 @@ User settings are stored separately from projects. Shortcut bindings and the
 audio driver, device, and block size live in per-user config files; the sample
 rate stays project-scoped.
 
+### Browser target
+
+`notwig-web` compiles the application to `wasm32-unknown-unknown` and starts the
+same `notwig-ui`/`notwig-engine` composition through `eframe::WebRunner`.
+Platform edges are selected by target:
+
+- project storage uses OPFS and the File System Access API instead of `std::fs`;
+- audio uses CPAL's WebAudio backend and starts after a user gesture;
+- native plugin formats and the wasmtime extension host are not compiled;
+- the engine build runs synchronously on the UI thread in the first browser
+  milestone.
+
+The browser bundle is static output. It needs no server headers and is deployed
+under `/app/` beside the mdBook documentation.
+
 ## Crates at a glance
 
 | Crate | Owns | Must not |
@@ -151,6 +166,7 @@ rate stays project-scoped.
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | Canonical state, engine internals, blocking work |
 | `notwig-app` | Composition, workspace policy, audio I/O, thread wiring, dialogs, history | Reusable domain/DSP logic |
+| `notwig-web` | Browser entry point, wasm-bindgen handle, WebRunner startup | UI/domain/DSP behavior |
 
 ## Threads and processes
 

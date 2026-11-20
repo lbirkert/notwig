@@ -995,6 +995,10 @@ impl NotwigUi {
                 self.emit(UiIntent::OpenProject);
                 ui.close();
             }
+            if ui.button("Open Project Folder…").clicked() {
+                self.emit(UiIntent::OpenProjectFolder);
+                ui.close();
+            }
             if ui.button("Save").clicked() {
                 self.emit(UiIntent::Save);
                 ui.close();

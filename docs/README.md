@@ -29,6 +29,7 @@ surface, and boundaries:
 - [`crates/notwig-plugins/README.md`](../crates/notwig-plugins/README.md)
 - [`crates/notwig-ui/README.md`](../crates/notwig-ui/README.md)
 - [`crates/notwig-app/README.md`](../crates/notwig-app/README.md)
+- [`crates/notwig-web/README.md`](../crates/notwig-web/README.md)
 
 ## Suggested reading paths
 

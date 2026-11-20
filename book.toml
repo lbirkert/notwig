@@ -4,4 +4,4 @@ src = "docs"
 build-dir = "book"
 
 [output.html]
-site-url = "/notwig/"
+site-url = "https://notwig.lbirkert.com/"

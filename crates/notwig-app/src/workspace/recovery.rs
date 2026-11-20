@@ -1,6 +1,13 @@
 use super::Workspace;
 
 impl Workspace {
+    #[cfg(target_arch = "wasm32")]
+    pub fn begin_session(&mut self) {}
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn end_session(&mut self) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn begin_session(&mut self) {
         let Some(bundle) = self.bundle.clone() else {
             return;
@@ -15,6 +22,7 @@ impl Workspace {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn end_session(&mut self) {
         let Some(bundle) = self.bundle.clone() else {
             return;
@@ -44,7 +52,7 @@ impl Workspace {
         self.history = crate::history::History::default();
         self.load_assets();
         self.request_engine_rebuild();
-        self.last_autosave = std::time::Instant::now();
+        self.last_autosave = crate::clock::Instant::now();
         self.error = None;
         self.status = Some("Recovered latest autosave.".into());
         Ok(())

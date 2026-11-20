@@ -24,9 +24,25 @@ pub fn decode_audio(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    match extension.as_str() {
+    let bytes = std::fs::read(path)?;
+    decode_audio_bytes_with_extension(&extension, bytes)
+}
+
+pub fn decode_audio_bytes(name: &str, bytes: Vec<u8>) -> Result<AudioAssetBuffer, ProjectError> {
+    let extension = name
+        .rsplit_once('.')
+        .map_or("", |(_, extension)| extension)
+        .to_ascii_lowercase();
+    decode_audio_bytes_with_extension(&extension, bytes)
+}
+
+fn decode_audio_bytes_with_extension(
+    extension: &str,
+    bytes: Vec<u8>,
+) -> Result<AudioAssetBuffer, ProjectError> {
+    match extension {
         "wav" | "wave" | "aif" | "aiff" | "aifc" | "mp3" | "flac" | "ogg" | "oga" => {
-            decode_symphonia(path)
+            decode_symphonia(extension, bytes)
         }
         other => Err(ProjectError::UnsupportedAudio(format!(
             "unsupported extension '{other}'"
@@ -34,7 +50,41 @@ pub fn decode_audio(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
     }
 }
 
-fn decode_symphonia(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
+struct MemorySource {
+    cursor: std::io::Cursor<Vec<u8>>,
+}
+
+impl MemorySource {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self {
+            cursor: std::io::Cursor::new(bytes),
+        }
+    }
+}
+
+impl std::io::Read for MemorySource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.cursor.read(buf)
+    }
+}
+
+impl std::io::Seek for MemorySource {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.cursor.seek(pos)
+    }
+}
+
+impl symphonia::core::io::MediaSource for MemorySource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        Some(self.cursor.get_ref().len() as u64)
+    }
+}
+
+fn decode_symphonia(extension: &str, bytes: Vec<u8>) -> Result<AudioAssetBuffer, ProjectError> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::errors::Error as SymphoniaError;
@@ -43,12 +93,12 @@ fn decode_symphonia(path: &Path) -> Result<AudioAssetBuffer, ProjectError> {
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
 
-    let file = Box::new(std::fs::File::open(path)?);
-    let stream = MediaSourceStream::new(file, MediaSourceStreamOptions::default());
+    let stream = MediaSourceStream::new(
+        Box::new(MemorySource::new(bytes)),
+        MediaSourceStreamOptions::default(),
+    );
     let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
-        hint.with_extension(extension);
-    }
+    hint.with_extension(extension);
     let probed = symphonia::default::get_probe()
         .format(
             &hint,
@@ -209,6 +259,33 @@ pub fn write_wav_f32(
     writer
         .finalize()
         .map_err(|err| ProjectError::Io(err.to_string()))
+}
+
+pub fn write_wav_f32_bytes(
+    sample_rate: u32,
+    channels: u16,
+    samples: &[f32],
+) -> Result<Vec<u8>, ProjectError> {
+    let spec = hound::WavSpec {
+        channels,
+        sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = hound::WavWriter::new(&mut cursor, spec)
+            .map_err(|err| ProjectError::Io(err.to_string()))?;
+        for sample in samples {
+            writer
+                .write_sample(*sample)
+                .map_err(|err| ProjectError::Io(err.to_string()))?;
+        }
+        writer
+            .finalize()
+            .map_err(|err| ProjectError::Io(err.to_string()))?;
+    }
+    Ok(cursor.into_inner())
 }
 
 pub fn import_asset(

@@ -12,13 +12,10 @@ use notwig_ext_api::{
     DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, TrustLevel,
 };
 
+use super::ExtensionEvent;
+
 const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
-
-pub(crate) enum ExtensionEvent {
-    Installed { name: String, version: String },
-    Error(String),
-}
 
 struct IndexFetchResult {
     entries: Vec<ExtensionIndexEntry>,

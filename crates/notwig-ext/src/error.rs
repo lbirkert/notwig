@@ -32,6 +32,7 @@ pub enum ExtensionError {
     InvalidExtensionId(String),
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn wasm_err(error: impl std::fmt::Display) -> ExtensionError {
     ExtensionError::Wasm(error.to_string())
 }

@@ -28,6 +28,7 @@ and test layer before editing.
     notwig-plugins/
     notwig-ui/
     notwig-app/
+    notwig-web/              wasm-bindgen browser entry point
     notwig-truce-rack/       vendored VST3/AU host crates (excluded from workspace lints)
 ```
 
@@ -37,6 +38,7 @@ workspace enforces `#![forbid(unsafe_code)]` and a strict Clippy policy.
 ## Crate dependency graph
 
 ```text
+notwig-web -> notwig-app (wasm target only)
 notwig-app -> notwig-ui, notwig-core, notwig-project,
               notwig-engine, notwig-plugins, notwig-dsp, notwig-ext
 notwig-ui -> notwig-core, notwig-project, notwig-dsp, notwig-ext-api
@@ -185,6 +187,9 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `workspace/mod.rs` | Project lifecycle, command application, undo/redo, tracks, devices, transport |
 | `workspace/assets.rs` | Asset loading, import, relink, peaks, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
+| `web/mod.rs` | Browser app construction |
+| `web/storage.rs` | OPFS and File System Access project storage |
+| `clock.rs` | Native/browser clock selection |
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
 | `audio_config.rs` | Persisted audio driver/device/block-size config |
@@ -195,6 +200,15 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `history.rs` | Undo/redo stack with structural/non-structural entries |
 | `logging.rs` | `tracing` initialization |
 
+### `notwig-web` — browser entry
+
+| Module | Responsibility |
+|---|---|
+| `lib.rs` | `wasm-bindgen` `WebApp` handle, `eframe::WebRunner` startup, audio gesture forwarding |
+
+`notwig-web` is a `cdylib` and is empty on non-wasm targets. Its generated JS
+package is copied under `book/app/pkg` by the Pages workflow.
+
 ## Tests
 
 Integration tests live in `crates/*/tests/`, not inside `src/`.
@@ -204,6 +218,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Domain apply/protocol | `crates/notwig-core/tests/` |
 | Edit algebra/properties | `crates/notwig-core/tests/edit_algebra.rs` |
 | Project bundles and assets | `crates/notwig-project/tests/` |
+| Browser bundle/files and byte audio I/O | `crates/notwig-project/tests/browser_io.rs` |
 | DSP plans and stock devices | `crates/notwig-dsp/tests/` |
 | Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/` |
 | Extension draw/panel validation | `crates/notwig-ext-api/tests/` |

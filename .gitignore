@@ -3,3 +3,5 @@
 /book
 /docs/extensions.json
 /docs/extensions/
+/crates/notwig-truce-rack/**/target
+/crates/notwig-truce-rack/**/Cargo.lock
