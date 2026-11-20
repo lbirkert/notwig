@@ -186,7 +186,13 @@ impl NotwigUi {
                                     .color(theme::TEXT_MUTED),
                             );
                             for entry in &stock {
-                                if device_row(ui, &entry.name, index == state.selected, navigated) {
+                                if device_row(
+                                    ui,
+                                    &entry.name,
+                                    format_tag(&entry.type_id),
+                                    index == state.selected,
+                                    navigated,
+                                ) {
                                     chosen = Some(entry.clone());
                                 }
                                 index += 1;
@@ -203,7 +209,13 @@ impl NotwigUi {
                                     .color(theme::TEXT_MUTED),
                             );
                             for entry in &extension_specs {
-                                if device_row(ui, &entry.name, index == state.selected, navigated) {
+                                if device_row(
+                                    ui,
+                                    &entry.name,
+                                    format_tag(&entry.type_id),
+                                    index == state.selected,
+                                    navigated,
+                                ) {
                                     chosen = Some(entry.clone());
                                 }
                                 index += 1;
@@ -220,7 +232,13 @@ impl NotwigUi {
                                     .color(theme::TEXT_MUTED),
                             );
                             for entry in &plugins {
-                                if device_row(ui, &entry.name, index == state.selected, navigated) {
+                                if device_row(
+                                    ui,
+                                    &entry.name,
+                                    format_tag(&entry.type_id),
+                                    index == state.selected,
+                                    navigated,
+                                ) {
                                     chosen = Some(entry.clone());
                                 }
                                 index += 1;
@@ -272,10 +290,33 @@ impl NotwigUi {
 }
 
 fn is_plugin_type_id(type_id: &str) -> bool {
-    type_id.starts_with("vst3.") || type_id.starts_with("au.") || type_id.starts_with("vst2.")
+    type_id.starts_with("vst3.")
+        || type_id.starts_with("vst2.")
+        || type_id.starts_with("au.")
+        || type_id.starts_with("clap.")
 }
 
-fn device_row(ui: &mut egui::Ui, name: &str, selected: bool, navigated: bool) -> bool {
+pub(super) fn format_tag(type_id: &str) -> Option<&'static str> {
+    if type_id.starts_with("vst3.") {
+        Some("VST3")
+    } else if type_id.starts_with("vst2.") {
+        Some("VST")
+    } else if type_id.starts_with("au.") {
+        Some("AU")
+    } else if type_id.starts_with("clap.") {
+        Some("CLAP")
+    } else {
+        None
+    }
+}
+
+fn device_row(
+    ui: &mut egui::Ui,
+    name: &str,
+    tag: Option<&str>,
+    selected: bool,
+    navigated: bool,
+) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::click());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -299,7 +340,30 @@ fn device_row(ui: &mut egui::Ui, name: &str, selected: bool, navigated: bool) ->
             theme::TEXT_MUTED
         },
     );
-    painter.text(
+    let tag_color = if selected {
+        theme::ACCENT
+    } else {
+        theme::TEXT_MUTED
+    };
+    let tag_galley =
+        tag.map(|tag| painter.layout_no_wrap(tag.to_owned(), FontId::monospace(9.0), tag_color));
+    let tag_rect = tag_galley.as_ref().map(|galley| {
+        let padding = Vec2::new(5.0, 2.0);
+        let size = galley.size() + padding * 2.0;
+        egui::Rect::from_min_size(
+            egui::pos2(rect.right() - size.x - 6.0, rect.center().y - size.y / 2.0),
+            size,
+        )
+    });
+    let name_painter = if let Some(tag_rect) = tag_rect {
+        painter.with_clip_rect(egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(tag_rect.left() - 4.0, rect.max.y),
+        ))
+    } else {
+        painter.clone()
+    };
+    name_painter.text(
         egui::pos2(icon_rect.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
         name,
@@ -310,6 +374,11 @@ fn device_row(ui: &mut egui::Ui, name: &str, selected: bool, navigated: bool) ->
             theme::TEXT_MUTED
         },
     );
+    if let (Some(galley), Some(tag_rect)) = (tag_galley, tag_rect) {
+        let padding = Vec2::new(5.0, 2.0);
+        painter.rect_filled(tag_rect, egui::CornerRadius::same(4), theme::GRID_STRONG);
+        painter.galley(tag_rect.min + padding, galley, tag_color);
+    }
     if selected && navigated {
         response.scroll_to_me(Some(Align::Center));
     }

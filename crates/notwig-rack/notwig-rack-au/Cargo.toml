@@ -1,0 +1,49 @@
+[package]
+name = "notwig-rack-au"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "AU v2 host implementation for the notwig-rack audio-plugin framework (Apple platforms)"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack_au"
+path = "src/lib.rs"
+
+[dependencies]
+notwig-rack-core = { path = "../notwig-rack-core" }
+thiserror = "2.0"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-audio-toolbox = { version = "0.3", features = [
+    "AudioComponent",
+    "AUComponent",
+    "AudioUnit",
+    "AudioUnitProperties",
+    "AUCocoaUIView",
+    "MusicDevice",
+    "objc2-core-foundation",
+    "block2",
+] }
+objc2-core-audio-types = { version = "0.3", features = ["CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3", features = [
+    "CFBase",
+    "CFString",
+    "CFData",
+    "CFArray",
+    "CFError",
+    "CFPropertyList",
+    "CFURL",
+    "CFRunLoop",
+    "CFDate",
+] }
+objc2-app-kit = { version = "0.3", features = ["NSView", "NSResponder"] }
+block2 = "0.6"
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

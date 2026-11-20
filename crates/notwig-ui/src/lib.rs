@@ -36,6 +36,7 @@ pub use widgets::{
 pub mod test_api {
     pub use crate::shell::test_api as shell;
     pub use crate::views::audio_editor::test_api as audio_editor;
+    pub use crate::views::device_editor::test_api as device_editor;
     pub use crate::views::midi_editor::test_api as midi_editor;
     pub use crate::widgets::drop_target::test_api as drop_target;
     pub use crate::widgets::test_api as widgets;

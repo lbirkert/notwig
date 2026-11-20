@@ -7,7 +7,7 @@ use crate::types::{PluginDescriptor, PluginError, PluginFormat, PluginInstance};
 
 fn descriptor_from_info(
     format: PluginFormat,
-    info: truce_rack::core::PluginInfo,
+    info: notwig_rack::core::PluginInfo,
 ) -> PluginDescriptor {
     let metadata = std::fs::metadata(&info.path).ok();
     let binary_size = metadata.as_ref().map_or(0, std::fs::Metadata::len);
@@ -25,21 +25,21 @@ fn descriptor_from_info(
         vendor: info.vendor,
         version: info.version.to_string(),
         uid: info.unique_id,
-        is_instrument: matches!(info.category, truce_rack::core::PluginCategory::Instrument),
+        is_instrument: matches!(info.category, notwig_rack::core::PluginCategory::Instrument),
         binary_size,
         modified_utc,
     }
 }
 
-pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> truce_rack::core::PluginInfo {
-    truce_rack::core::PluginInfo {
+pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> notwig_rack::core::PluginInfo {
+    notwig_rack::core::PluginInfo {
         name: descriptor.name.clone(),
         vendor: descriptor.vendor.clone(),
         version: descriptor.version.parse().unwrap_or(0),
         category: if descriptor.is_instrument {
-            truce_rack::core::PluginCategory::Instrument
+            notwig_rack::core::PluginCategory::Instrument
         } else {
-            truce_rack::core::PluginCategory::Effect
+            notwig_rack::core::PluginCategory::Effect
         },
         path: descriptor.path.clone(),
         unique_id: descriptor.uid.clone(),
@@ -49,14 +49,24 @@ pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> truce_rack:
     }
 }
 
+#[allow(unreachable_patterns)]
 pub(crate) fn load_plugin(
     descriptor: &PluginDescriptor,
-) -> Result<Box<dyn truce_rack::core::Plugin<f32>>, PluginError> {
+) -> Result<Box<dyn notwig_rack::core::Plugin<f32>>, PluginError> {
     match descriptor.format {
         #[cfg(feature = "vst3")]
         PluginFormat::Vst3 => {
-            use truce_rack::core::scanner::PluginScanner;
-            let scanner = truce_rack::vst3::Vst3Scanner::new();
+            use notwig_rack::core::scanner::PluginScanner;
+            let scanner = notwig_rack::vst3::Vst3Scanner::new();
+            let plugin = scanner
+                .load(&info_from_descriptor(descriptor))
+                .map_err(|err| PluginError::Load(err.to_string()))?;
+            Ok(Box::new(plugin))
+        }
+        #[cfg(feature = "vst2")]
+        PluginFormat::Vst2 => {
+            use notwig_rack::core::scanner::PluginScanner;
+            let scanner = notwig_rack::vst2::Vst2Scanner::new();
             let plugin = scanner
                 .load(&info_from_descriptor(descriptor))
                 .map_err(|err| PluginError::Load(err.to_string()))?;
@@ -64,8 +74,8 @@ pub(crate) fn load_plugin(
         }
         #[cfg(all(feature = "au", target_vendor = "apple"))]
         PluginFormat::Au => {
-            use truce_rack::core::scanner::PluginScanner;
-            let scanner = truce_rack::au::AuScanner::new();
+            use notwig_rack::core::scanner::PluginScanner;
+            let scanner = notwig_rack::au::AuScanner::new();
             let plugin = scanner
                 .load(&info_from_descriptor(descriptor))
                 .map_err(|err| PluginError::Load(err.to_string()))?;
@@ -86,8 +96,8 @@ impl HostAdapter for Vst3Adapter {
     }
 
     fn scan(&self, paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
-        use truce_rack::core::scanner::PluginScanner;
-        let scanner = truce_rack::vst3::Vst3Scanner::new();
+        use notwig_rack::core::scanner::PluginScanner;
+        let scanner = notwig_rack::vst3::Vst3Scanner::new();
         let mut found = Vec::new();
         if paths.is_empty() {
             found.extend(
@@ -109,8 +119,54 @@ impl HostAdapter for Vst3Adapter {
     }
 
     fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
-        use truce_rack::core::scanner::PluginScanner;
-        let scanner = truce_rack::vst3::Vst3Scanner::new();
+        use notwig_rack::core::scanner::PluginScanner;
+        let scanner = notwig_rack::vst3::Vst3Scanner::new();
+        let plugin = scanner
+            .load(&info_from_descriptor(descriptor))
+            .map_err(|err| PluginError::Load(err.to_string()))?;
+        Ok(Box::new(RackPluginInstance::new(
+            Box::new(plugin),
+            descriptor.clone(),
+        )))
+    }
+}
+
+#[cfg(feature = "vst2")]
+#[derive(Debug, Default)]
+pub(crate) struct Vst2Adapter;
+
+#[cfg(feature = "vst2")]
+impl HostAdapter for Vst2Adapter {
+    fn format(&self) -> PluginFormat {
+        PluginFormat::Vst2
+    }
+
+    fn scan(&self, paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
+        use notwig_rack::core::scanner::PluginScanner;
+        let scanner = notwig_rack::vst2::Vst2Scanner::new();
+        let mut found = Vec::new();
+        if paths.is_empty() {
+            found.extend(
+                scanner
+                    .scan()
+                    .map_err(|err| PluginError::Scan(err.to_string()))?,
+            );
+        } else {
+            for path in paths {
+                if let Ok(mut plugins) = scanner.scan_path(path) {
+                    found.append(&mut plugins);
+                }
+            }
+        }
+        Ok(found
+            .into_iter()
+            .map(|info| descriptor_from_info(PluginFormat::Vst2, info))
+            .collect())
+    }
+
+    fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
+        use notwig_rack::core::scanner::PluginScanner;
+        let scanner = notwig_rack::vst2::Vst2Scanner::new();
         let plugin = scanner
             .load(&info_from_descriptor(descriptor))
             .map_err(|err| PluginError::Load(err.to_string()))?;
@@ -132,8 +188,8 @@ impl HostAdapter for AuAdapter {
     }
 
     fn scan(&self, _paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
-        use truce_rack::core::scanner::PluginScanner;
-        let scanner = truce_rack::au::AuScanner::new();
+        use notwig_rack::core::scanner::PluginScanner;
+        let scanner = notwig_rack::au::AuScanner::new();
         let found = scanner
             .scan()
             .map_err(|err| PluginError::Scan(err.to_string()))?;
@@ -144,8 +200,8 @@ impl HostAdapter for AuAdapter {
     }
 
     fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
-        use truce_rack::core::scanner::PluginScanner;
-        let scanner = truce_rack::au::AuScanner::new();
+        use notwig_rack::core::scanner::PluginScanner;
+        let scanner = notwig_rack::au::AuScanner::new();
         let plugin = scanner
             .load(&info_from_descriptor(descriptor))
             .map_err(|err| PluginError::Load(err.to_string()))?;

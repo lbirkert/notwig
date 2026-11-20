@@ -2208,12 +2208,12 @@ version = "0.1.0"
 dependencies = [
  "notwig-core",
  "notwig-dsp",
+ "notwig-rack",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
- "truce-rack",
  "uuid",
 ]
 
@@ -2233,6 +2233,64 @@ dependencies = [
  "symphonia",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "notwig-rack"
+version = "1.1.5"
+dependencies = [
+ "notwig-rack-au",
+ "notwig-rack-core",
+ "notwig-rack-vst2",
+ "notwig-rack-vst3",
+]
+
+[[package]]
+name = "notwig-rack-au"
+version = "1.1.5"
+dependencies = [
+ "block2 0.6.2",
+ "notwig-rack-core",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-audio-toolbox",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "notwig-rack-core"
+version = "1.1.5"
+dependencies = [
+ "bitflags 2.13.2",
+ "crossbeam-queue",
+ "smallvec",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "notwig-rack-vst2"
+version = "1.1.5"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "crossbeam-queue",
+ "libloading",
+ "notwig-rack-core",
+]
+
+[[package]]
+name = "notwig-rack-vst3"
+version = "1.1.5"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "libloading",
+ "notwig-rack-core",
+ "thiserror 2.0.21",
+ "vst3",
 ]
 
 [[package]]
@@ -3978,52 +4036,6 @@ checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
 dependencies = [
  "num-integer",
  "strength_reduce",
-]
-
-[[package]]
-name = "truce-rack"
-version = "1.1.5"
-dependencies = [
- "truce-rack-au",
- "truce-rack-core",
- "truce-rack-vst3",
-]
-
-[[package]]
-name = "truce-rack-au"
-version = "1.1.5"
-dependencies = [
- "block2 0.6.2",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-audio-toolbox",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
- "thiserror 2.0.21",
- "truce-rack-core",
-]
-
-[[package]]
-name = "truce-rack-core"
-version = "1.1.5"
-dependencies = [
- "bitflags 2.13.2",
- "crossbeam-queue",
- "smallvec",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "truce-rack-vst3"
-version = "1.1.5"
-dependencies = [
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "libloading",
- "thiserror 2.0.21",
- "truce-rack-core",
- "vst3",
 ]
 
 [[package]]

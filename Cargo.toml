@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["crates/notwig-truce-rack"]
+exclude = ["crates/notwig-rack"]
 members = [
   "crates/notwig-core",
   "crates/notwig-project",

@@ -583,7 +583,10 @@ impl NotwigUi {
 }
 
 fn is_plugin_device(device: &DeviceInstance) -> bool {
-    device.type_id.starts_with("vst3.") || device.type_id.starts_with("au.")
+    device.type_id.starts_with("vst3.")
+        || device.type_id.starts_with("vst2.")
+        || device.type_id.starts_with("au.")
+        || device.type_id.starts_with("clap.")
 }
 
 fn draw_bracket(ui: &egui::Ui, left: f32, right: f32, y: f32, depth: usize) {
@@ -779,5 +782,11 @@ impl NotwigUi {
 
     pub(crate) fn param_editor_from_panel(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
         self.param_editor(ui, device);
+    }
+}
+
+pub mod test_api {
+    pub fn plugin_format_tag(type_id: &str) -> Option<&'static str> {
+        super::browser::format_tag(type_id)
     }
 }

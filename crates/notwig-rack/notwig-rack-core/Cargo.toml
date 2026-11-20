@@ -1,0 +1,23 @@
+[package]
+name = "notwig-rack-core"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "Core traits and types for the notwig-rack audio-plugin host framework"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack_core"
+path = "src/lib.rs"
+
+[dependencies]
+bitflags = "2"
+crossbeam-queue = "0.3"
+smallvec = "1.13"
+thiserror = "2.0"
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

@@ -1,0 +1,63 @@
+notwig-rack source provenance
+
+The host crates in this directory are a fork of truce-rack:
+https://github.com/truce-audio/truce-rack
+Copyright the truce-rack contributors.
+Licensed under the MIT license (LICENSE-MIT) or the Apache License,
+Version 2.0 (LICENSE-APACHE), at your option.
+
+Changes in this fork include plugin latency query support and a new
+VST 2.4 host implementation. They are offered under the same terms.
+
+The VST 2 ABI in notwig-rack-vst2/src/abi.rs is translated from
+Xaymar/vst2sdk at 339d4f31590bf77c0d0d248e09a380ac6285e069,
+BSD-3-Clause. The complete copyright and license notice is preserved
+in that file and reproduced here:
+
+  Copyright (c) 2020 Xaymar Dirks <info@xaymar.com>
+  (previously known as Michael Fabian Dirks)
+  Copyright 2020 Michael Fabian 'Xaymar' Dirks <info@xaymar.com>
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions
+  are met:
+
+  1. Redistributions of source code must retain the above copyright
+     notice, this list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright
+     notice, this list of conditions and the following disclaimer in the
+     documentation and/or other materials provided with the distribution.
+
+  3. Neither the name of the copyright holder nor the names of its
+     contributors may be used to endorse or promote products derived
+     from this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+  HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The VST2 host callback, event-list, and time-info handling in
+notwig-rack-vst2/src/lib.rs were adapted from 115dkk/vst-audio:
+https://github.com/115dkk/vst-audio
+Copyright (c) 2026 115dkk.
+Licensed under the MIT license or the Apache License, Version 2.0, at
+your option.
+
+VST2 MIDI-list and time-record layouts were cross-checked/adapted from
+DISTRHO/DPF distrho/src/DistrhoPluginVST2.cpp at
+4238e1c7f0351bbe488d79f0899c540543ac7583.
+Copyright (C) 2012-2024 Filipe Coelho. ISC; the complete notice is in
+LICENSE-ISC-DPF.
+
+No Steinberg VST2 SDK is included. VST is a registered trademark of
+Steinberg Media Technologies GmbH. This project is independent of
+Steinberg and is not endorsed by it.

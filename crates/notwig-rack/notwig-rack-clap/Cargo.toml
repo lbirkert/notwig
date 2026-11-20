@@ -1,0 +1,23 @@
+[package]
+name = "notwig-rack-clap"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "CLAP host implementation for the notwig-rack audio-plugin framework"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack_clap"
+path = "src/lib.rs"
+
+[dependencies]
+clap-sys = "0.5"
+libloading = "0.8"
+notwig-rack-core = { path = "../notwig-rack-core" }
+thiserror = "2.0"
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

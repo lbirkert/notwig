@@ -314,9 +314,11 @@ fn plugin_scan_paths() -> Vec<PathBuf> {
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         paths.push(home.join("Library/Audio/Plug-Ins/VST3"));
+        paths.push(home.join("Library/Audio/Plug-Ins/VST"));
         paths.push(home.join("Library/Audio/Plug-Ins/Components"));
     }
     paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST3"));
+    paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST"));
     paths.push(PathBuf::from("/Library/Audio/Plug-Ins/Components"));
     paths
 }
@@ -351,11 +353,11 @@ fn render_doc(
     let plan = notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps)?;
     let config = EngineConfig::new(sample_rate, 512);
     let mut plugins = notwig_plugins::PluginHost::new();
-    let descriptors = if doc
-        .devices
-        .values()
-        .any(|device| device.type_id.starts_with("vst3.") || device.type_id.starts_with("au."))
-    {
+    let descriptors = if doc.devices.values().any(|device| {
+        device.type_id.starts_with("vst3.")
+            || device.type_id.starts_with("vst2.")
+            || device.type_id.starts_with("au.")
+    }) {
         let paths = plugin_scan_paths();
         let _ = plugins.scan(&paths);
         plugins.cache().descriptors()

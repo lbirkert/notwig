@@ -10,10 +10,10 @@ mod imp {
     use std::ptr;
     use std::time::{Duration, Instant};
 
+    use notwig_rack::core::{BusLayout, Plugin, WindowHandle};
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
-    use truce_rack::core::{BusLayout, Plugin, WindowHandle};
 
     use crate::types::{PluginDescriptor, PluginError, PluginFormat, PluginState};
 
@@ -27,6 +27,7 @@ mod imp {
         params: BTreeMap<u32, usize>,
         last_values: BTreeMap<u32, f64>,
         last_poll: Instant,
+        window_size: (u32, u32),
     }
 
     impl NativePluginWindow {
@@ -62,14 +63,18 @@ mod imp {
             editor
                 .open(WindowHandle::NSView(content.cast()), 1.0)
                 .map_err(|err| PluginError::Load(err.to_string()))?;
-            if let Some((width, height)) = editor.size() {
+            let (plugin_size, resizable) = (
+                editor.size().filter(|(w, h)| *w > 0 && *h > 0),
+                editor.is_resizable(),
+            );
+            if let Some((width, height)) = plugin_size {
                 let _ = editor.set_size(width, height);
-                let size = NSSize::new(f64::from(width), f64::from(height));
-                unsafe {
-                    let _: () = msg_send![window, setContentSize: size];
-                }
             }
             editor.show();
+            let window_size = plugin_size.unwrap_or((760, 560));
+            unsafe {
+                lock_window_size(window, window_size, resizable);
+            }
             unsafe {
                 let _: () = msg_send![window, center];
                 let _: () = msg_send![window, makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()];
@@ -84,6 +89,7 @@ mod imp {
                 params,
                 last_values,
                 last_poll: Instant::now(),
+                window_size,
             })
         }
 
@@ -105,8 +111,22 @@ mod imp {
                 self.close();
                 return;
             }
-            if let Some(editor) = self.plugin.editor() {
+            let (plugin_size, resizable) = if let Some(editor) = self.plugin.editor() {
                 editor.on_idle();
+                (
+                    editor.size().filter(|(w, h)| *w > 0 && *h > 0),
+                    editor.is_resizable(),
+                )
+            } else {
+                (None, false)
+            };
+            if let Some(size) = plugin_size
+                && size != self.window_size
+            {
+                unsafe {
+                    lock_window_size(self.window, size, resizable);
+                }
+                self.window_size = size;
             }
         }
 
@@ -186,6 +206,21 @@ mod imp {
     impl Drop for NativePluginWindow {
         fn drop(&mut self) {
             self.close();
+        }
+    }
+
+    unsafe fn lock_window_size(
+        window: *mut AnyObject,
+        (width, height): (u32, u32),
+        resizable: bool,
+    ) {
+        let size = NSSize::new(f64::from(width), f64::from(height));
+        unsafe {
+            let _: () = msg_send![window, setContentSize: size];
+            if !resizable {
+                let _: () = msg_send![window, setContentMinSize: size];
+                let _: () = msg_send![window, setContentMaxSize: size];
+            }
         }
     }
 

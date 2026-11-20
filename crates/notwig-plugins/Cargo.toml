@@ -8,9 +8,9 @@ repository.workspace = true
 
 [features]
 default = []
-au = ["dep:truce-rack"]
-vst3 = ["dep:truce-rack"]
-vst2 = []
+au = ["notwig-rack/au"]
+vst3 = ["notwig-rack/vst3"]
+vst2 = ["notwig-rack/vst2"]
 
 [dependencies]
 notwig-core.workspace = true
@@ -19,7 +19,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-truce-rack = { path = "../notwig-truce-rack/rack", default-features = false, features = ["vst3", "au"], optional = true }
+notwig-rack = { path = "../notwig-rack/notwig-rack", default-features = false, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

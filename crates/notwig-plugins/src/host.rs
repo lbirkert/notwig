@@ -68,6 +68,8 @@ impl PluginHost {
         let mut host = Self::empty();
         #[cfg(feature = "vst3")]
         host.register_adapter(Box::new(crate::adapters::Vst3Adapter));
+        #[cfg(feature = "vst2")]
+        host.register_adapter(Box::new(crate::adapters::Vst2Adapter));
         #[cfg(all(feature = "au", target_vendor = "apple"))]
         host.register_adapter(Box::new(crate::adapters::AuAdapter));
         host

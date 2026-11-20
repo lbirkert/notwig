@@ -5,8 +5,8 @@ use notwig_dsp::{
     DeviceProcessor, GraphError, Latency, NormMap, NoteKind, ParamFlags, ParamKind, ParamSpec,
     ProcessContext, ProcessStatus, RangeSpec, RenderConfig, Unit,
 };
-use truce_rack::core::buffer::BusRange;
-use truce_rack::core::{
+use notwig_rack::core::buffer::BusRange;
+use notwig_rack::core::{
     AudioBuffer, BusLayout, Event, EventBody, EventList, MidiData, Plugin,
     ProcessContext as RackContext, ProcessStatus as RackStatus, TransportInfo,
 };
@@ -233,7 +233,7 @@ impl PluginInstance for RackPluginInstance {
                 && (info.max - 1.0).abs() < f64::EPSILON;
             let is_enum = info
                 .flags
-                .contains(truce_rack::core::info::ParameterFlags::ENUMERATED);
+                .contains(notwig_rack::core::info::ParameterFlags::ENUMERATED);
             let kind = if is_bool {
                 ParamKind::Bool
             } else if is_enum {
@@ -264,10 +264,10 @@ impl PluginInstance for RackPluginInstance {
                 flags: ParamFlags {
                     automatable: info
                         .flags
-                        .contains(truce_rack::core::info::ParameterFlags::AUTOMATABLE),
+                        .contains(notwig_rack::core::info::ParameterFlags::AUTOMATABLE),
                     visible: !info
                         .flags
-                        .contains(truce_rack::core::info::ParameterFlags::HIDDEN),
+                        .contains(notwig_rack::core::info::ParameterFlags::HIDDEN),
                     modulatable_reserved: true,
                     macro_assignable_reserved: true,
                 },

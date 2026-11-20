@@ -1,0 +1,33 @@
+[package]
+name = "notwig-rack"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "Cross-format audio plugin host (CLAP + VST3 + VST2 by default; AU behind a feature)"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack"
+path = "src/lib.rs"
+
+[dependencies]
+notwig-rack-clap = { path = "../notwig-rack-clap", optional = true }
+notwig-rack-core = { path = "../notwig-rack-core" }
+notwig-rack-vst2 = { path = "../notwig-rack-vst2", optional = true }
+notwig-rack-vst3 = { path = "../notwig-rack-vst3", optional = true }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+notwig-rack-au = { path = "../notwig-rack-au", optional = true }
+
+[features]
+default = ["clap", "vst3", "vst2"]
+clap = ["dep:notwig-rack-clap"]
+vst3 = ["dep:notwig-rack-vst3"]
+vst2 = ["dep:notwig-rack-vst2"]
+au = ["dep:notwig-rack-au"]
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

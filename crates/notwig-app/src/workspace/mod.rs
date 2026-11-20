@@ -1168,12 +1168,11 @@ impl Workspace {
         self.plugin_descriptors = PluginCatalog::global().descriptors();
         self.plugins = plugin_entries(&self.plugin_descriptors);
         self.refresh_plugin_specs();
-        if self
-            .doc
-            .devices
-            .values()
-            .any(|device| device.type_id.starts_with("vst3.") || device.type_id.starts_with("au."))
-        {
+        if self.doc.devices.values().any(|device| {
+            device.type_id.starts_with("vst3.")
+                || device.type_id.starts_with("vst2.")
+                || device.type_id.starts_with("au.")
+        }) {
             self.request_engine_rebuild();
         }
         true
@@ -1218,7 +1217,9 @@ impl Workspace {
             .devices
             .values()
             .filter(|device| {
-                device.type_id.starts_with("vst3.") || device.type_id.starts_with("au.")
+                device.type_id.starts_with("vst3.")
+                    || device.type_id.starts_with("vst2.")
+                    || device.type_id.starts_with("au.")
             })
             .map(|device| device.type_id.clone())
             .collect();

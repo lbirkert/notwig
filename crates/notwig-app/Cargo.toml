@@ -43,7 +43,7 @@ wgpu.workspace = true
 mouse_position.workspace = true
 ureq.workspace = true
 tracing-subscriber.workspace = true
-notwig-plugins = { workspace = true, features = ["vst3", "au"] }
+notwig-plugins = { workspace = true, features = ["vst3", "vst2", "au"] }
 notwig-ext = { workspace = true, features = ["native"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
