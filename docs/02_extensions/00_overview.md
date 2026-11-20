@@ -24,7 +24,9 @@ DeviceExtension::draw  ──────►  PanelDraw + actions    ───�
 - `notwig-ext-api` is the author-facing SDK. It has no `egui`, `wasmtime`, or
   I/O.
 - `notwig-ext` is the host. It discovers, compiles, and runs modules with
-  `wasmtime`, enforces trust levels, and creates device instances.
+  `wasmtime` on native and the browser `WebAssembly` API in the browser build,
+  enforces trust levels, and creates device instances. The browser build loads
+  trusted extensions only.
 - `notwig-ui` replays the draw commands and applies validated parameter
   actions.
 

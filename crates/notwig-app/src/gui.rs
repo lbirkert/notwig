@@ -13,7 +13,7 @@ use notwig_ui::{DropAudioTarget, NotificationKind, NotwigUi, RuntimeView, UiInte
 
 use crate::audio::AudioService;
 #[cfg(target_arch = "wasm32")]
-use crate::web::storage::{ProjectHandle, StorageEvent};
+use crate::web::storage::{FilePurpose, ProjectHandle, StorageEvent};
 use crate::workspace::{RenderSession, Workspace};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -392,7 +392,38 @@ impl NotwigApp {
             });
             return;
         }
-        match crate::web::storage::fallback_file_input(sender, "audio/*") {
+        match crate::web::storage::fallback_file_input(sender, "audio/*", FilePurpose::Audio) {
+            Ok(()) => {}
+            Err(error) => {
+                self.web_storage_rx = None;
+                self.notify_error(error);
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_import_extension_zip(&mut self) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+        if let Ok(promise) = crate::web::storage::request_file() {
+            wasm_bindgen_futures::spawn_local(async move {
+                let event = match crate::web::storage::first_file_from_promise(promise).await {
+                    Ok((name, bytes)) => StorageEvent::ExtensionZipPicked { name, bytes },
+                    Err(error) => StorageEvent::Error(error),
+                };
+                let _ = sender.send(event);
+            });
+            return;
+        }
+        match crate::web::storage::fallback_file_input(
+            sender,
+            ".zip,application/zip",
+            FilePurpose::ExtensionZip,
+        ) {
             Ok(()) => {}
             Err(error) => {
                 self.web_storage_rx = None;
@@ -449,6 +480,12 @@ impl NotwigApp {
                             }
                             self.notify_info(format!("Imported {name}"));
                         }
+                        Err(error) => self.notify_error(error),
+                    }
+                }
+                StorageEvent::ExtensionZipPicked { name, bytes } => {
+                    match self.extensions.install_zip_bytes(bytes) {
+                        Ok(()) => self.notify_info(format!("Installing {name}…")),
                         Err(error) => self.notify_error(error),
                     }
                 }
@@ -815,9 +852,7 @@ impl NotwigApp {
             self.notify_error("Plugin is not installed or was not found.".into());
             return;
         };
-        let sample_rate = self.workspace.doc.meta.sample_rate.value();
-        let monitor = self.workspace.monitor(device_id);
-        match NativePluginWindow::open(&descriptor, sample_rate, Some(monitor)) {
+        match NativePluginWindow::open(&descriptor) {
             Ok(mut window) => {
                 if let Some(state) = self.workspace.plugin_state(device_id) {
                     let _ = window.load_state(state);
@@ -1467,9 +1502,7 @@ impl NotwigApp {
                 });
             }
             #[cfg(target_arch = "wasm32")]
-            UiIntent::ImportExtensionZip => {
-                self.notify_error("Extensions are not available in the browser build.".into());
-            }
+            UiIntent::ImportExtensionZip => self.web_import_extension_zip(),
             UiIntent::UninstallExtension { id } => match self.extensions.uninstall(&id) {
                 Ok(()) => {
                     self.sync_extensions();

@@ -1,6 +1,6 @@
 # Browser build plan
 
-Status: first browser milestone implemented. Extension devices, native plugins, and worker-backed engine builds remain deferred.
+Status: first browser milestone implemented. Trusted browser extensions are supported; native plugin hosting, untrusted extension modes, and worker-backed engine builds remain deferred.
 
 Target: run Notwig at `https://notwig.lbirkert.com/app/`, with the existing
 documentation site served from `https://notwig.lbirkert.com/`.
@@ -33,8 +33,8 @@ WebAssembly instead of `wasmtime` or native VST3/AU hosting.
 
 - VST3 and AU hosting. These formats cannot run in a browser.
 - Native plugin editor windows.
-- `wasmtime` extension devices. The browser has its own WebAssembly API, but
-  the host surface has to be rewritten first.
+- `wasmtime` extension devices and untrusted extension modes. The browser runs
+  trusted extension packages through its own WebAssembly API.
 - Background native threads. The first web release must work without
   `SharedArrayBuffer` or cross-origin isolation.
 - CLI commands (`new`, `demo`, `render`, `info`, `scan-plugins`).
@@ -46,7 +46,7 @@ WebAssembly instead of `wasmtime` or native VST3/AU hosting.
 
 ### Later browser milestones
 
-- Extension devices through the browser WebAssembly API.
+- User-visible trust-level selection for browser extensions (trusted only).
 - Lower-latency AudioWorklet output where the host can provide
   cross-origin isolation.
 - Web Worker based engine builds and audio analysis for large projects.
@@ -220,10 +220,10 @@ crashing.
 - The extension index download uses blocking `ureq` on a worker thread
   (`crates/notwig-app/src/extensions.rs:368`, `:382`).
 
-The first milestone should disable extensions in the browser. The later
-browser host uses the browser's `WebAssembly` API instead of wasmtime and the
-same storage abstraction as projects. Fuel/interrupt limits are not available
-through the browser API, so trust levels will be more limited than on native.
+The browser host uses the browser's `WebAssembly` API instead of wasmtime and
+the same storage abstraction as projects. Only `Trusted` extensions are loaded;
+`Limited` and `DrawOnly` modes are rejected because the browser API does not
+provide wasmtime-equivalent fuel and memory limits.
 
 ### 2.9 Network and configuration
 
@@ -558,7 +558,7 @@ Web behavior:
 
 - Disable VST3/AU features on wasm and return an empty plugin catalog.
 - Hide plugin insertion and show a status for unavailable plugin devices.
-- Disable extension host initialization and show a clear browser message.
+- Use the trusted browser extension host and reject untrusted modes.
 - Make loading a project with plugins/extensions succeed with warnings.
 - Exit criterion: a native project with unsupported plugins opens and plays
   its stock-device and audio content.
@@ -572,12 +572,12 @@ Web behavior:
 - Implement autosave recovery for browser storage.
 - Exit criterion: the first-milestone checklist in section 1 works end to end.
 
-### Phase 6: extension host (later)
+### Phase 6: trusted extension host
 
-- Add the browser WebAssembly extension host.
+- Browser WebAssembly host for trusted extensions.
 - Reuse the existing ABI and draw IR.
-- Move extension discovery/install onto the bundle storage abstraction.
-- Add capability and trust reporting appropriate to the browser.
+- Load the stock extension from the same origin and install trusted ZIPs in OPFS.
+- Report trusted-only capability and trust status.
 - Exit criterion: the stock limiter extension loads and processes audio in the
   browser.
 
@@ -594,7 +594,7 @@ Web behavior:
 | App workspace | `crates/notwig-app/src/workspace/mod.rs`, `workspace/assets.rs` | Use `BundleStore`; remove direct `std::fs` |
 | UI intents | `crates/notwig-ui/src/intent.rs`, `runtime.rs`, `views/shell.rs`, `widgets/drop_target.rs` | Support byte-backed files and browser display names |
 | Plugins | `crates/notwig-plugins/Cargo.toml`, `src/lib.rs`, `src/host.rs` | Default no formats; wasm empty host |
-| Extensions | `crates/notwig-ext/Cargo.toml`, `src/lib.rs`, `src/abi.rs`, `src/host.rs` | Native wasmtime feature; web host later; storage abstraction |
+| Extensions | `crates/notwig-ext/Cargo.toml`, `src/lib.rs`, `src/abi.rs`, `src/host.rs`, `src/web/` | Native wasmtime host and trusted browser WebAssembly host |
 | App extensions | `crates/notwig-app/src/extensions.rs` | Async fetch, storage-based install/discovery, web disable path |
 | Logging | `crates/notwig-app/src/logging.rs` | `tracing-wasm` on wasm |
 | Config | `crates/notwig-app/src/audio_config.rs`, `src/shortcuts.rs` | Settings store abstraction |
@@ -927,9 +927,9 @@ cargo test --workspace
 - **Plugin project compatibility:** projects with VST3/AU devices cannot sound
   the same in the browser. The app must show this clearly and preserve plugin
   state so the project remains editable and can be reopened natively.
-- **Extension security:** browser WebAssembly cannot use wasmtime fuel. Do not
-  claim the same sandboxing guarantees in the browser until the host enforces
-  equivalent limits.
+- **Extension security:** browser WebAssembly cannot use wasmtime fuel. The
+  browser build therefore supports trusted extensions only and does not offer
+  the native `Limited`/`DrawOnly` sandboxing levels.
 - **Custom domain:** the current `site-url` and missing `CNAME` mean the
   existing Pages workflow is not configured for `notwig.lbirkert.com`. That is
   a deployment prerequisite, not a code issue.
@@ -944,6 +944,6 @@ The browser milestone is done when:
 - The app starts without panicking in Chromium, Safari, and Firefox.
 - A user can create a project, import WAV/AIFF audio, edit clips and MIDI, play
   back stock devices after enabling audio, save, reload, and render a mixdown.
-- Native plugins and extensions are visibly disabled in the browser with a
-  clear explanation, and projects containing them still open.
+- Native plugins are visibly disabled in the browser with a clear explanation;
+  trusted extensions load and untrusted modes are rejected.
 - Native macOS checks and tests still pass.

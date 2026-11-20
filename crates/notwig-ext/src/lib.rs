@@ -18,6 +18,8 @@ mod host;
 mod install;
 #[cfg(feature = "native")]
 mod panel;
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+mod web;
 
 #[cfg(feature = "native")]
 pub use device::ExtensionDeviceFactory;
@@ -29,5 +31,7 @@ pub use host::ExtensionHost;
 pub use install::{InstalledExtension, install_zip_bytes, install_zip_file, uninstall};
 #[cfg(feature = "native")]
 pub use panel::ExtensionPanelHost;
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+pub use web::{WebExtensionHost, WebExtensionPackage};
 
 pub type HostError = ExtensionError;

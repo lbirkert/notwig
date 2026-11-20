@@ -75,10 +75,14 @@ fn built_limiter_extension_loads_and_processes_audio() {
         tempo_bpm: 120.0,
         transport: &transport,
     };
-    let mut audio = vec![2.0_f32; 128];
-    let status = processor.process(&context, &mut audio, &[]);
+    let mut audio = vec![2.0_f32; 256];
+    let (first, second) = audio.split_at_mut(128);
+    assert!(!processor.process(&context, first, &[]).overloaded);
+    let status = processor.process(&context, second, &[]);
     assert!(!status.overloaded);
-    let peak = audio
+    // The limiter delays by LOOKAHEAD_SAMPLES frames, so inspect the second
+    // block after the initial lookahead has filled.
+    let peak = second
         .iter()
         .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
     let threshold = 10.0_f32.powf(-6.0 / 20.0);

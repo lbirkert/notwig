@@ -88,6 +88,8 @@ installed and loaded, they appear under **EXTENSIONS** in the Add Device browser
 - Extension devices provide their own DSP and can provide a custom panel.
 - If an extension cannot draw a custom panel, Notwig uses the generic
   parameter view as a fallback.
+- In the browser build, only `Trusted` extensions are supported. The native
+  build additionally supports `Limited` and `DrawOnly` trust levels.
 - Extension trust level controls whether the device may process audio and how
   much memory and execution time it gets.
 

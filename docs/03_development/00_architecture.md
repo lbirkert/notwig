@@ -146,7 +146,8 @@ Platform edges are selected by target:
 
 - project storage uses OPFS and the File System Access API instead of `std::fs`;
 - audio uses CPAL's WebAudio backend and starts after a user gesture;
-- native plugin formats and the wasmtime extension host are not compiled;
+- native plugin formats are not compiled;
+- trusted extensions use the browser WebAssembly host instead of wasmtime;
 - the engine build runs synchronously on the UI thread in the first browser
   milestone.
 
@@ -162,7 +163,7 @@ under `/app/` beside the mdBook documentation.
 | `notwig-dsp` | Device/parameter contracts, registry, graph compilation, stock devices | Audio callback, persisted instance state |
 | `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, manifests, ABI wire types | `egui`, `wasmtime`, I/O, canonical state |
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Runtime host behavior |
-| `notwig-ext` | Extension discovery, wasmtime host, WASM device DSP, panel host | UI layout, canonical state, audio-callback compilation |
+| `notwig-ext` | Extension discovery, native wasmtime and trusted browser WebAssembly hosts, WASM device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-ext-devices` | Example and stock extension devices built against the SDK | Host behavior or UI code |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |

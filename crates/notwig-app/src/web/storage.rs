@@ -23,6 +23,10 @@ pub(crate) enum StorageEvent {
         name: String,
         bytes: Vec<u8>,
     },
+    ExtensionZipPicked {
+        name: String,
+        bytes: Vec<u8>,
+    },
     Error(String),
 }
 
@@ -245,9 +249,16 @@ pub(crate) fn download_bytes(name: &str, mime: &str, bytes: &[u8]) -> Result<(),
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum FilePurpose {
+    Audio,
+    ExtensionZip,
+}
+
 pub(crate) fn fallback_file_input(
     sender: Sender<StorageEvent>,
     accept: &str,
+    purpose: FilePurpose,
 ) -> Result<(), String> {
     let document = web_sys::window()
         .and_then(|window| window.document())
@@ -273,7 +284,13 @@ pub(crate) fn fallback_file_input(
             match JsFuture::from(file.array_buffer()).await {
                 Ok(buffer) => {
                     let bytes = Uint8Array::new(&buffer).to_vec();
-                    let _ = sender.send(StorageEvent::AudioPicked { name, bytes });
+                    let event = match purpose {
+                        FilePurpose::Audio => StorageEvent::AudioPicked { name, bytes },
+                        FilePurpose::ExtensionZip => {
+                            StorageEvent::ExtensionZipPicked { name, bytes }
+                        }
+                    };
+                    let _ = sender.send(event);
                 }
                 Err(error) => {
                     let _ = sender.send(StorageEvent::Error(js_error(error)));
@@ -287,4 +304,51 @@ pub(crate) fn fallback_file_input(
     closure.forget();
     input.click();
     Ok(())
+}
+
+pub(crate) async fn read_opfs_optional(path: &str) -> Result<Option<Vec<u8>>, String> {
+    let root = opfs_root().await?;
+    match read_file(&root, path).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(_) => Ok(None),
+    }
+}
+
+pub(crate) async fn write_opfs(path: &str, bytes: &[u8]) -> Result<(), String> {
+    let root = opfs_root().await?;
+    write_file(&root, path, bytes).await
+}
+
+pub(crate) async fn remove_opfs_file(path: &str) -> Result<(), String> {
+    let root = opfs_root().await?;
+    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let Some((file_name, dirs)) = parts.split_last() else {
+        return Err("empty file path".into());
+    };
+    let mut dir = root;
+    for part in dirs {
+        let value = JsFuture::from(dir.get_directory_handle(part))
+            .await
+            .map_err(js_error)?;
+        dir = value.unchecked_into();
+    }
+    JsFuture::from(dir.remove_entry(file_name))
+        .await
+        .map_err(js_error)?;
+    Ok(())
+}
+
+pub(crate) async fn fetch_bytes(url: &str) -> Result<Option<Vec<u8>>, String> {
+    let window = web_sys::window().ok_or_else(|| "no browser window".to_string())?;
+    let value = JsFuture::from(window.fetch_with_str(url))
+        .await
+        .map_err(js_error)?;
+    let response: web_sys::Response = value.unchecked_into();
+    if !response.ok() {
+        return Ok(None);
+    }
+    let buffer = JsFuture::from(response.array_buffer().map_err(js_error)?)
+        .await
+        .map_err(js_error)?;
+    Ok(Some(Uint8Array::new(&buffer).to_vec()))
 }

@@ -6,9 +6,11 @@ extension system; extension authors depend on `notwig-ext-api` instead.
 ## Responsibilities
 
 - Discover extensions from a user-provided directory and validate manifests.
-- Compile and cache core wasm modules with `wasmtime` (Cranelift JIT).
-- Enforce per-extension trust levels: `Trusted` (no fuel), `Limited` (fuel +
-  smaller memory), and `DrawOnly` (no DSP).
+- Compile and cache core wasm modules with `wasmtime` (Cranelift JIT) on
+  native, or the browser `WebAssembly` API for trusted browser extensions.
+- Enforce per-extension trust levels on native: `Trusted` (no fuel), `Limited`
+  (fuel + smaller memory), and `DrawOnly` (no DSP). The browser build supports
+  `Trusted` only.
 - Describe extension devices and register their `DeviceSpec`s.
 - Create WASM-backed `DeviceProcessor`s through `ExtensionDeviceFactory`.
 - Host extension device panels through `ExtensionPanelHost`, translating the
@@ -38,6 +40,7 @@ extension system; extension authors depend on `notwig-ext-api` instead.
 | `error.rs` | `ExtensionError` |
 | `host.rs` | `ExtensionHost`: discovery + compile + specs + factory + panel host |
 | `panel.rs` | UI-side instance cache implementing `DevicePanelHost` |
+| `web/` | Trusted browser WebAssembly host, ZIP package parsing, DSP, and panels |
 
 ## ABI overview
 

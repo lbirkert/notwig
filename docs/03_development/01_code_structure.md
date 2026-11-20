@@ -135,6 +135,7 @@ frame that carries input and returns draw commands plus host actions.
 | `device.rs` | `ExtensionDeviceFactory`, WASM `DeviceProcessor`, draw-only silence |
 | `install.rs` | ZIP validation/extraction, safe install/replace, uninstall |
 | `panel.rs` | cached UI instance implementing `DevicePanelHost` |
+| `web/` | trusted browser WebAssembly host, package parsing, DSP, and panels |
 | `error.rs` | `ExtensionError` |
 
 ### `notwig-ext-devices` — example extension devices

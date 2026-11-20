@@ -47,6 +47,7 @@ notwig-plugins = { workspace = true, features = ["vst3", "vst2", "au"] }
 notwig-ext = { workspace = true, features = ["native"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+notwig-core = { workspace = true, features = ["wasm"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 js-sys.workspace = true
