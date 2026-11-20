@@ -1,6 +1,8 @@
 [book]
 title = "Notwig"
 src = "docs"
+
+[build]
 build-dir = "book"
 
 [output.html]
