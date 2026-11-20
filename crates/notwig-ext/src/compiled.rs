@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use notwig_dsp::DeviceSpec;
@@ -8,6 +9,7 @@ use wasmtime::Module;
 use crate::abi::ExtensionEngines;
 
 pub(crate) struct LoadedExtension {
+    pub(crate) dir: PathBuf,
     pub(crate) manifest: ExtensionManifest,
     pub(crate) trust: TrustLevel,
     pub(crate) enabled: bool,

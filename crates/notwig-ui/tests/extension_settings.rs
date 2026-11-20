@@ -44,6 +44,8 @@ fn runtime() -> RuntimeView {
             name: "Notwig Stock Limiter".into(),
             type_id: "notwig.ext.devices.limiter".into(),
         }],
+        description: Some("A simple peak limiter.".into()),
+        image: Some("icon.png".into()),
         url: "https://example.com/notwig.ext.devices.zip".into(),
     }];
     runtime.extensions = vec![ExtensionInfo {
@@ -51,6 +53,10 @@ fn runtime() -> RuntimeView {
         name: "Notwig Stock Devices".into(),
         vendor: "Notwig".into(),
         version: "0.1.0".into(),
+        description: Some("A simple peak limiter.".into()),
+        image_path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../notwig-ext-devices/icon.png"),
+        ),
         capabilities: vec![ExtensionCapability::Device],
         status: ExtensionStatus::Loaded,
         enabled: true,

@@ -16,7 +16,8 @@ A simple stereo-linked peak limiter:
 - Instant attack, release-smoothed gain recovery, zero reported latency.
 
 The custom panel is a `PanelDraw` with two native Notwig knobs. DSP runs over
-interleaved `f32` samples in extension linear memory.
+interleaved `f32` samples in extension linear memory. The manifest also includes
+a short description and `icon.png` for the extension explorer.
 
 The device is implemented with the SDK trait and registered from the macro
 entrypoint:

@@ -1,24 +1,21 @@
-- MASTER lane should not be sticked to the bottom of the arranger screen and therefore always visible but instead be at the bottom of the screen when tree size is smaller than the arranger height (make the tree containers min-height arranger's height). And if the tree grows (due to more tracks being added) then the master track is placed immediately below the Add Track and scrolls with the other tracks.
-- Add shortcuts for adding instrument track (CMD + T) and audio track (CMD + Shift + T)
-- Add clip joining (CMD + J) for joining selected clips of the same lane if they are adjacent.
-- Move play start above the loop rectangle.
-- Fix bug for midi editor where moving clip start to the left causes notes to move with it.
-- Fix bug where resizing midi clip leftwards in arranger makes clip just jump back.
-- Make notifications disapear automatically if they are not static (something like progress would be considered "static" until it's completed).
-- Make metronome an icon button (luicide-metronome)
-- Make loop icon luicide-repeat instead of repeat2
-- Make record icon circle instead of circle dot.
-- Increase the padding for the icon buttons.
-- Shrink top bar further by reducing icon button size and font size for tempo etc. plus reduced vertical padding.
-- In audio editor make events only moveable and resizeable using the selection handle at the top.
-- In arranger make time selection available for the full height (and not just for below height of lane / 2).
-- In arranger lane tree make the cursor icon for dragging lanes up/down only if actually dragging and make context menu also available for the section where right now the dragging icon is showed.
-- Time selection of arranger and audio editor should be closely similar. Right now the time selection in aranger includes a weird moving icon. Instead set the cursor to a drag hand for signaling that selection can be moved.
-- For time selection, zero width selection should not be moveable.
-- In midi editor, when moving selection or duplicating selection, the time selection width must stay the same instead of shrinking to the notes min/max
-- Rename piano roll in the code to midi editor.
-- Remove the +Source button in audio editor.
-- Playhead is quite jittery. Make it smoother.
-- Lane volume faders in the arranger tree should support CMD+Click to type value and Double Click to reset.
-- Volume somehow does not seem to be added properly? I have got a track with its volume fader at zero DB and when only this track plays its peek volume is different than the master volume.
+- Import audio before creating an audio clip when double clicking an audio lane to create an empty audio clip.
+- Make background of grid lighter.
+- Make grid snapping less granular globally (1/16 -> 1/8 snapping).
+- Newly created clips need to be selected (via Add Track or via CMD + (Shift) + T or CMD + G)
+- CMD + L does not work for object selection (should take min/max object bounds)
+- For audio editor, dragging on the audo event outside of the events audio handle should allow time selection. Same for arranger.
+- Resizing an audio event leftwards at the beginning of its source cannot add silence yet. `AudioSlice` has no silent-prefix field, so the gesture stops at the source boundary. Resizing an audio clip leftwards does add leading silence.
+- Device explorer does not show whether plugin is VST3, AU, or other
+- Some plugin UIs have problems (LALA, Distox crashed, ...)
+- Crash recovery should show unsaved projects when starting the app instead of just when loading a saved project.
+- File/Audio Settings should be renamed to Settings
+- Time selection needs to be extendable horizontally
+- Time selection markers should only extend over the lanes that are actually selected like in Bitwig
+- Analyzing audio notification should have a progress bar (intermediate if no actual progress is available) and close as soon as the analysis is finished.
+- Explore ways of running the audio analysis on the GPU for better MP3/WAV decoding performance.
+- Add a seperate Encoding Audio progress notification after rendering has finished.
+- Zooming in a MIDI clip currently jitters too much.
+- When zooming close to a waveform preview currently the frame rate drops significantly.
+- Draw horizontal lines on the grid between lanes just like in between the notes in MIDI editor.
+- When lane tree is narrow in height, master lane does not sit at the bottom of the arranger like it should.
 

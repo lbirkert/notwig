@@ -260,7 +260,7 @@ Dependencies worth planning around:
 | Extension device DSP | 🧪 Partial | ⭐⭐⭐⭐ | Block `f32` processing, parameters, dynamic latency. Note events and state blobs are not forwarded yet. |
 | Extension device panels | ✅ Implemented | ⭐⭐⭐⭐ | Render-neutral draw commands plus native knob/toggle commands, with generic fallback. |
 | Extension trust levels | ✅ Implemented | ⭐⭐⭐⭐ | Trusted, Limited (fuel), and DrawOnly. Persisted per extension. |
-| Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer lists installed and available extensions from configurable index sources. |
+| Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |
 | General drawing hooks | 📋 Planned | ⭐⭐⭐ | Arranger clips, track headers, lanes, and editors on the shared draw IR. |
 | Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.txt` builds `docs/extensions.json`; CI packages the stock extension and publishes via GitHub Pages. |

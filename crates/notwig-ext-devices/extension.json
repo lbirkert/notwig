@@ -14,5 +14,7 @@
       "name": "Notwig Stock Limiter",
       "type_id": "notwig.ext.devices.limiter"
     }
-  ]
+  ],
+  "description": "A simple stereo-linked peak limiter with threshold and release controls.",
+  "image": "icon.png"
 }

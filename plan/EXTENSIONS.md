@@ -122,9 +122,11 @@ A directory per extension under the per-user Notwig extensions directory:
   "vendor": "Example",
   "version": "0.1.0",
   "api_version": 1,
-  "entry": "extension.wasm",
+  "entrypoint": "extension.wasm",
   "capabilities": ["device", "ui.draw"],
-  "devices": [{ "type_id": "com.example.spectrum.fx", "version": 0 }]
+  "devices": [{ "name": "Spectrum", "type_id": "com.example.spectrum.fx", "version": 0 }],
+  "description": "A spectrum analyzer and filter.",
+  "image": "icon.png"
 }
 ```
 

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::ExtensionCapability;
@@ -52,6 +54,8 @@ pub struct ExtensionInfo {
     pub name: String,
     pub vendor: String,
     pub version: String,
+    pub description: Option<String>,
+    pub image_path: Option<PathBuf>,
     pub capabilities: Vec<ExtensionCapability>,
     pub status: ExtensionStatus,
     pub enabled: bool,

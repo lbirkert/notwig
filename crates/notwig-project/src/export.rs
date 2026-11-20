@@ -61,16 +61,28 @@ pub fn write_audio_export(
     samples: &[f32],
     options: ExportOptions,
 ) -> Result<(), ProjectError> {
-    let mut prepared = samples.to_vec();
     if options.normalize {
+        let mut prepared = samples.to_vec();
         normalize(&mut prepared);
+        write_prepared(path, sample_rate, channels, &prepared, options)
+    } else {
+        write_prepared(path, sample_rate, channels, samples, options)
     }
+}
+
+fn write_prepared(
+    path: &Path,
+    sample_rate: u32,
+    channels: u16,
+    samples: &[f32],
+    options: ExportOptions,
+) -> Result<(), ProjectError> {
     match options.format {
-        ExportFormat::Wav => write_wav(path, sample_rate, channels, &prepared, options),
-        ExportFormat::Aiff => write_aiff(path, sample_rate, channels, &prepared, options),
-        ExportFormat::Flac => write_flac(path, sample_rate, channels, &prepared, options),
-        ExportFormat::Mp3 => write_mp3(path, sample_rate, channels, &prepared),
-        ExportFormat::Ogg => write_ogg(path, sample_rate, channels, &prepared),
+        ExportFormat::Wav => write_wav(path, sample_rate, channels, samples, options),
+        ExportFormat::Aiff => write_aiff(path, sample_rate, channels, samples, options),
+        ExportFormat::Flac => write_flac(path, sample_rate, channels, samples, options),
+        ExportFormat::Mp3 => write_mp3(path, sample_rate, channels, samples),
+        ExportFormat::Ogg => write_ogg(path, sample_rate, channels, samples),
     }
 }
 

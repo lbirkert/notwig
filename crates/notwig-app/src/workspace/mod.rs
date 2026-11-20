@@ -32,6 +32,7 @@ mod assets;
 mod recovery;
 
 const PLUGIN_STATE_ENCODING: &str = "notwig.plugin-state.json";
+const OFFLINE_BLOCK_SIZE: usize = 4096;
 
 pub struct Workspace {
     pub doc: ProjectDoc,
@@ -139,7 +140,9 @@ impl Workspace {
 
     #[allow(dead_code)]
     pub fn rebuild_engine(&mut self) -> Result<(), String> {
-        let prepared = self.engine_build_request().prepare()?;
+        let prepared = self
+            .engine_build_request(self.live_block_size())
+            .prepare()?;
         self.install_prepared_runtime(prepared);
         Ok(())
     }
@@ -170,13 +173,23 @@ impl Workspace {
         self.build_engine()
     }
 
-    fn build_engine(&self) -> Result<Engine, String> {
-        self.engine_build_request().build()
+    fn live_block_size(&self) -> usize {
+        self.audio_block_size.max(16) as usize
     }
 
-    fn engine_build_request(&self) -> EngineBuildRequest {
+    fn build_engine(&self) -> Result<Engine, String> {
+        self.engine_build_request(self.live_block_size()).build()
+    }
+
+    /// Offline rendering is not bound by device latency, so process in large
+    /// blocks to amortise per-block overhead instead of inheriting the live
+    /// audio buffer size.
+    fn build_offline_engine(&self) -> Result<Engine, String> {
+        self.engine_build_request(OFFLINE_BLOCK_SIZE).build()
+    }
+
+    fn engine_build_request(&self, max_block_size: usize) -> EngineBuildRequest {
         let sample_rate = self.doc.meta.sample_rate.value();
-        let max_block_size = self.audio_block_size.max(16) as usize;
         EngineBuildRequest {
             doc: self.doc.clone(),
             caps: EngineCaps {
@@ -196,7 +209,7 @@ impl Workspace {
 
     pub fn request_engine_rebuild(&mut self) {
         self.status = Some("Loading instruments and effects…".into());
-        let request = self.engine_build_request();
+        let request = self.engine_build_request(self.live_block_size());
         if let Err(err) = self.engine_build.request(request) {
             self.error = Some(err.clone());
             self.status = Some(err);
@@ -1608,7 +1621,7 @@ impl Workspace {
         let end_sample = map
             .mus_to_samples(end.max(start + notwig_core::TimeMus::new(1, 16)))
             .max(start_sample + 1);
-        let mut engine = self.build_engine()?;
+        let mut engine = self.build_offline_engine()?;
         engine
             .apply(EngineMsg::SetTransport {
                 playing: true,
@@ -1650,7 +1663,7 @@ impl Workspace {
             .values()
             .filter(|track| track.kind != notwig_core::TrackKind::Master)
         {
-            let mut engine = self.build_engine()?;
+            let mut engine = self.build_offline_engine()?;
             engine
                 .apply(EngineMsg::SetTransport {
                     playing: true,

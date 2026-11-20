@@ -89,6 +89,7 @@ pub struct Engine {
     control_frames_until_sync: u64,
     metronome_enabled: bool,
     metronome_beats_per_bar: u8,
+    offline: bool,
 }
 
 impl std::fmt::Debug for Engine {
@@ -127,6 +128,7 @@ impl Engine {
             control_frames_until_sync: DEFAULT_CONTROL_SYNC_FRAMES,
             metronome_enabled: false,
             metronome_beats_per_bar: 4,
+            offline: false,
         }
     }
 
@@ -508,7 +510,9 @@ impl Engine {
                 let start = self.transport.playhead_samples.max(0.0) as u64;
                 let _ = runtime.render(start, frames, stereo, false, false);
             }
-            self.transport_tick();
+            if !self.offline {
+                self.transport_tick();
+            }
             return Ok(());
         }
 
@@ -573,6 +577,10 @@ impl Engine {
                 self.transport.playhead_samples = self.transport.loop_start_samples as f64;
                 self.all_notes_off = true;
             }
+        }
+
+        if self.offline {
+            return Ok(());
         }
 
         self.push_event(RtEvent::Status {
@@ -648,8 +656,11 @@ impl Engine {
         self.transport.playhead_samples = start_sample as f64;
         self.transport.loop_enabled = false;
         self.all_notes_off = true;
+        self.offline = true;
+        self.events.clear();
         if let Some(runtime) = &mut self.runtime {
             runtime.reset();
+            runtime.set_measure_meters(false);
         }
     }
 

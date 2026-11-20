@@ -33,6 +33,8 @@ whose root contains `extension.json` plus the wasm module and any assets.
     "devices": [
       { "name": "Notwig Stock Limiter", "type_id": "notwig.ext.devices.limiter" }
     ],
+    "description": "A simple stereo-linked peak limiter with threshold and release controls.",
+    "image": "icon.png",
     "url": "extensions/notwig.ext.devices.zip"
   }
 ]
@@ -120,22 +122,20 @@ per-extension settings row is also deleted is an open decision.
 
 Sections:
 
-1. **Index sources**
-   - list of URLs/paths with remove buttons;
-   - text field + Add;
-   - Refresh;
-   - loading/error status.
-2. **Available extensions**
-   - name, vendor, version, capabilities, devices;
-   - installed/version badge;
-   - Install or Reinstall button.
-3. **Installed extensions**
-   - existing status, enable toggle, trust selector;
-   - Uninstall;
-   - error text.
+1. **Toolbar**
+   - `Add .ZIP` opens the file picker;
+   - `Manage Indices` opens a window for index URLs/paths, refresh, and errors.
+2. **Filters**
+   - `All`, `Available`, and `Installed` with live counts;
+   - disabled installed extensions are dimmed.
+3. **Cards**
+   - icon (or `IMG` placeholder), name, vendor, description, version, and
+     device count;
+   - available cards show Install;
+   - installed cards show Uninstall and a context menu with Enable/Disable,
+     Trust, Reinstall, and Uninstall.
 4. **Import**
-   - Import ZIP button;
-   - drop hint;
+   - `Add .ZIP` button;
    - dragging a `.zip` while the Extensions page is active installs it;
    - non-ZIP drops continue to the normal audio import path.
 

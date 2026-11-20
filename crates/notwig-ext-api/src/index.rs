@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::path::{Component, Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,10 @@ pub struct ExtensionIndexEntry {
     pub capabilities: Vec<ExtensionCapability>,
     #[serde(default)]
     pub devices: Vec<ExtensionIndexDevice>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub image: Option<String>,
     pub url: String,
 }
 
@@ -52,6 +57,22 @@ impl ExtensionIndexEntry {
             return Err(ManifestError::Invalid(
                 "extension index url must not be empty".into(),
             ));
+        }
+        if let Some(image) = &self.image {
+            let path = Path::new(image);
+            if image.trim().is_empty()
+                || path.is_absolute()
+                || path.components().any(|component| {
+                    matches!(
+                        component,
+                        Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                    )
+                })
+            {
+                return Err(ManifestError::Invalid(
+                    "extension index image must be a relative path".into(),
+                ));
+            }
         }
         if self.api_version != ABI_VERSION {
             return Err(ManifestError::UnsupportedApi {

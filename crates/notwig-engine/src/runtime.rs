@@ -147,6 +147,7 @@ pub struct ActivePlan {
     tempo_bpm: f64,
     sample_rate: u32,
     route_scratch: Vec<f32>,
+    measure_meters: bool,
 }
 
 impl ActivePlan {
@@ -212,7 +213,12 @@ impl ActivePlan {
             tempo_bpm: plan.config.tempo_bpm,
             sample_rate: plan.config.sample_rate,
             route_scratch: vec![0.0; config.max_block_size.max(1) * 2],
+            measure_meters: true,
         })
+    }
+
+    pub fn set_measure_meters(&mut self, measure: bool) {
+        self.measure_meters = measure;
     }
 
     pub fn reset(&mut self) {
@@ -428,7 +434,9 @@ impl ActivePlan {
             if !is_master {
                 self.route_track(id, frames);
             }
-            self.update_meters(id, frames);
+            if self.measure_meters {
+                self.update_meters(id, frames);
+            }
         }
 
         if let Some(master) = self.tracks.get(&self.master) {

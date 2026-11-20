@@ -1,3 +1,5 @@
+use std::path::{Component, Path};
+
 use notwig_core::SchemaVersion;
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +40,10 @@ pub struct ExtensionManifest {
     pub capabilities: Vec<ExtensionCapability>,
     #[serde(default)]
     pub devices: Vec<ExtensionDeviceDecl>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 fn default_entry() -> String {
@@ -72,6 +78,9 @@ impl ExtensionManifest {
                 expected: ABI_VERSION,
             });
         }
+        if let Some(image) = &self.image {
+            validate_relative_image(image)?;
+        }
         let mut seen = std::collections::BTreeSet::new();
         for device in &self.devices {
             if device.type_id.trim().is_empty() {
@@ -93,6 +102,24 @@ impl ExtensionManifest {
     pub fn has_capability(&self, capability: ExtensionCapability) -> bool {
         self.capabilities.contains(&capability)
     }
+}
+
+fn validate_relative_image(image: &str) -> Result<(), ManifestError> {
+    let path = Path::new(image);
+    if image.trim().is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(ManifestError::Invalid(
+            "extension image must be a relative path inside the package".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]

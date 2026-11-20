@@ -1184,9 +1184,10 @@ impl NotwigApp {
                     match self.workspace.begin_render(start, end) {
                         Ok(session) => {
                             self.ui.render_progress = Some(0.0);
+                            let capacity = session.total_frames().saturating_mul(2);
                             self.render_job = Some(RenderJob {
                                 session,
-                                output: Vec::new(),
+                                output: Vec::with_capacity(capacity),
                                 path,
                                 options: export,
                             });
@@ -1329,6 +1330,7 @@ impl eframe::App for NotwigApp {
             let _ = self.report(result);
         }
         let dialog_open = self.dialog_rx.is_some();
+        let rendering = self.render_job.is_some();
         let dirty = if self.workspace.dirty { "*" } else { "" };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
             "{}{} — Notwig",
@@ -1385,7 +1387,11 @@ impl eframe::App for NotwigApp {
         if dialog_open {
             ctx.request_repaint_after(Duration::from_millis(50));
         }
-        if playing {
+        if rendering {
+            // An active render advances only when `update` runs, so drive it
+            // continuously instead of following the idle repaint cadence.
+            ctx.request_repaint();
+        } else if playing {
             ctx.request_repaint_after(Duration::from_millis(16));
         } else if snapshot.running {
             ctx.request_repaint_after(Duration::from_millis(100));

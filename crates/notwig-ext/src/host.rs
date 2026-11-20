@@ -41,6 +41,7 @@ impl ExtensionHost {
                 load_enabled(&engines, discovered, settings.trust)
             } else {
                 LoadedExtension {
+                    dir: discovered.dir,
                     manifest: discovered.manifest,
                     trust: settings.trust,
                     enabled: false,
@@ -107,18 +108,19 @@ fn load_enabled(
     discovered: discovery::DiscoveredExtension,
     trust: TrustLevel,
 ) -> LoadedExtension {
+    let dir = discovered.dir;
     let manifest = discovered.manifest;
     let engine = engines.engine(trust);
     let module = match Module::from_binary(engine, &discovered.wasm) {
         Ok(module) => module,
         Err(error) => {
-            return failed(manifest, trust, format!("compile wasm: {error}"));
+            return failed(manifest, dir, trust, format!("compile wasm: {error}"));
         }
     };
     let mut instance = match ExtensionInstance::instantiate(engine, &module, &manifest.id, trust) {
         Ok(instance) => instance,
         Err(error) => {
-            return failed(manifest, trust, error.to_string());
+            return failed(manifest, dir, trust, error.to_string());
         }
     };
     let mut specs = Vec::new();
@@ -127,12 +129,13 @@ fn load_enabled(
         let mut spec = match instance.describe(&declaration.type_id) {
             Ok(spec) => spec,
             Err(error) => {
-                return failed(manifest, trust, error.to_string());
+                return failed(manifest, dir, trust, error.to_string());
             }
         };
         if spec.type_id != declaration.type_id {
             return failed(
                 manifest,
+                dir,
                 trust,
                 format!(
                     "device type mismatch: declared {}, described {}",
@@ -146,6 +149,7 @@ fn load_enabled(
         specs.push(spec);
     }
     LoadedExtension {
+        dir,
         manifest,
         trust,
         enabled: true,
@@ -158,10 +162,12 @@ fn load_enabled(
 
 fn failed(
     manifest: notwig_ext_api::ExtensionManifest,
+    dir: std::path::PathBuf,
     trust: TrustLevel,
     error: String,
 ) -> LoadedExtension {
     LoadedExtension {
+        dir,
         manifest,
         trust,
         enabled: true,
@@ -173,11 +179,17 @@ fn failed(
 }
 
 fn info_from(extension: &LoadedExtension) -> ExtensionInfo {
+    let image_path = extension.manifest.image.as_ref().and_then(|image| {
+        let path = extension.dir.join(image);
+        path.is_file().then_some(path)
+    });
     ExtensionInfo {
         id: extension.manifest.id.clone(),
         name: extension.manifest.name.clone(),
         vendor: extension.manifest.vendor.clone(),
         version: extension.manifest.version.clone(),
+        description: extension.manifest.description.clone(),
+        image_path,
         capabilities: extension.manifest.capabilities.clone(),
         status: extension.status,
         enabled: extension.enabled,
@@ -197,6 +209,8 @@ fn failure_info(failure: DiscoveryFailure) -> ExtensionInfo {
         name: failure.name,
         vendor: String::new(),
         version: String::new(),
+        description: None,
+        image_path: None,
         capabilities: Vec::new(),
         status: ExtensionStatus::Failed,
         enabled: true,

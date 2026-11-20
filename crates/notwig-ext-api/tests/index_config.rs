@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use notwig_ext_api::{
-    CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig, ExtensionIndexEntry, ExtensionSettings,
-    TrustLevel,
+    CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig, ExtensionIndexEntry, ExtensionManifest,
+    ExtensionSettings, TrustLevel,
 };
 
 const INDEX: &str = r#"[
@@ -17,6 +17,8 @@ const INDEX: &str = r#"[
     "devices": [
       { "name": "Notwig Stock Limiter", "type_id": "notwig.ext.devices.limiter" }
     ],
+    "description": "Stock devices.",
+    "image": "icon.png",
     "url": "extensions/notwig.ext.devices.zip"
   }
 ]"#;
@@ -27,6 +29,8 @@ fn parses_and_validates_an_index() {
     assert_eq!(entries.len(), 1);
     entries[0].validate().unwrap();
     assert_eq!(entries[0].devices[0].type_id, "notwig.ext.devices.limiter");
+    assert_eq!(entries[0].description.as_deref(), Some("Stock devices."));
+    assert_eq!(entries[0].image.as_deref(), Some("icon.png"));
 }
 
 #[test]
@@ -43,6 +47,20 @@ fn rejects_invalid_index_entries() {
     entry.api_version = 1;
     entry.devices.push(entry.devices[0].clone());
     assert!(entry.validate().is_err());
+
+    let mut entry: ExtensionIndexEntry =
+        serde_json::from_str::<Vec<ExtensionIndexEntry>>(INDEX).unwrap()[0].clone();
+    entry.image = Some("../escape.png".into());
+    assert!(entry.validate().is_err());
+}
+
+#[test]
+fn manifest_rejects_path_traversal_images() {
+    let manifest: ExtensionManifest = serde_json::from_str(
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":1,"image":"../escape.png"}"#,
+    )
+    .unwrap();
+    assert!(manifest.validate().is_err());
 }
 
 #[test]

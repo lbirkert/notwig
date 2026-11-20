@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use egui::{Color32, Rect, RichText};
 use notwig_core::{ProjectDoc, TrackId, TrackKind};
@@ -28,9 +29,13 @@ pub struct NotwigUi {
     pub intents: Vec<UiIntent>,
     pub registry: DeviceRegistry,
     pub(crate) device_panel_host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
-    pub extension_index_input: String,
-    pub extension_index_requested: bool,
-    pub pending_extension_replace: Option<String>,
+    pub(crate) extension_index_input: String,
+    pub(crate) extension_index_requested: bool,
+    pub(crate) extension_filter: crate::settings::ExtensionFilter,
+    pub(crate) show_extension_index_manager: bool,
+    pub(crate) pending_extension_replace: Option<String>,
+    pub(crate) extension_images:
+        BTreeMap<PathBuf, (Option<SystemTime>, Option<egui::TextureHandle>)>,
     pub drag: Option<ClipDrag>,
     pub time_drag: Option<TimeDrag>,
     pub track_drag: Option<TrackId>,
@@ -97,7 +102,10 @@ impl Default for NotwigUi {
             device_panel_host: None,
             extension_index_input: String::new(),
             extension_index_requested: false,
+            extension_filter: crate::settings::ExtensionFilter::default(),
+            show_extension_index_manager: false,
             pending_extension_replace: None,
+            extension_images: BTreeMap::new(),
             drag: None,
             time_drag: None,
             track_drag: None,

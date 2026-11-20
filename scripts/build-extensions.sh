@@ -104,6 +104,8 @@ for source in sources:
         "entrypoint": manifest.get("entrypoint") or manifest.get("entry") or "extension.wasm",
         "capabilities": manifest.get("capabilities", []),
         "devices": devices,
+        "description": manifest.get("description"),
+        "image": manifest.get("image"),
         "url": published_url(source, resolved),
     }
     entries[entry["id"]] = entry
