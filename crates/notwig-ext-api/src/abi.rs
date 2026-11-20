@@ -3,10 +3,10 @@ pub mod pointers;
 pub mod store;
 
 pub use heap::{alloc, free, packed_pointer};
-pub use pointers::{read_param_id, with_audio_buffer, with_audio_frames, with_str};
+pub use pointers::{read_param_id, with_audio_buffer, with_audio_frames, with_bytes, with_str};
 pub use store::DeviceStore;
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]

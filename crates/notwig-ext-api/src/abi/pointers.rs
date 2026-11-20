@@ -22,6 +22,22 @@ pub fn with_str<R>(ptr: i32, len: i32, f: impl FnOnce(&str) -> R) -> Option<R> {
     Some(f(text))
 }
 
+/// Calls `f` with a byte slice from extension linear memory.
+///
+/// The host is responsible for passing a valid pointer/length pair into the
+/// module's memory. Invalid or oversized inputs return `None`.
+pub fn with_bytes<R>(ptr: i32, len: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
+    if ptr <= 0 || len < 0 {
+        return None;
+    }
+    let len = usize::try_from(len).ok()?;
+    if len > MAX_INPUT_BYTES {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len) };
+    Some(f(bytes))
+}
+
 /// Parses a parameter UUID from extension linear memory without allocating.
 pub fn read_param_id(ptr: i32, len: i32) -> Option<ParamId> {
     with_str(ptr, len, |text| text.parse().ok()).flatten()

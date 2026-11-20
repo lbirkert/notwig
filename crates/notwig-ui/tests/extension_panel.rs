@@ -1,15 +1,16 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use notwig_core::ids::{Device, DeviceChain, Track};
+use notwig_core::ids::{Device, DeviceChain, Param, Track};
 use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_dsp::{DeviceSpec, DeviceUiSpec};
+use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, DevicePanelHost, DrawCommand, PanelCommand, PanelDraw, Point, Rect,
+    Color, DeviceDrawContext, DevicePanelHost, DrawCommand, PanelAction, PanelCommand, PanelDraw,
+    Point, Rect,
 };
-use notwig_ui::{NotwigUi, RuntimeView};
+use notwig_ui::{NotwigUi, RuntimeView, UiIntent};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -99,10 +100,11 @@ fn panel() -> PanelDraw {
             radius: 2.0,
             color: Color::rgb(255, 0, 0),
         })],
+        actions: Vec::new(),
     }
 }
 
-fn render(ui: &mut NotwigUi, doc: &ProjectDoc) {
+fn render(ui: &mut NotwigUi, doc: &ProjectDoc) -> Vec<UiIntent> {
     let ctx = egui::Context::default();
     let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
@@ -111,9 +113,54 @@ fn render(ui: &mut NotwigUi, doc: &ProjectDoc) {
         )),
         ..Default::default()
     };
+    let mut intents = Vec::new();
     let _ = ctx.run(input, |ctx| {
-        let _ = ui.show(ctx, doc, &RuntimeView::default());
+        intents = ui.show(ctx, doc, &RuntimeView::default());
     });
+    intents
+}
+
+fn extension_spec_with_param(param_id: ParamId) -> DeviceSpec {
+    let mut spec = extension_spec();
+    spec.params.push(ParamSpec::continuous(
+        param_id,
+        "Gain",
+        Unit::Decibels,
+        -24.0,
+        24.0,
+        0.0,
+    ));
+    spec
+}
+
+#[test]
+fn panel_action_sets_param_normalized() {
+    let doc = doc();
+    let param_id = id::<Param>(7);
+    let mut ui = NotwigUi::default();
+    ui.registry.register(extension_spec_with_param(param_id));
+    ui.state.selection.select_track(id::<Track>(2), false);
+    ui.set_device_panel_host(Some(Box::new(FakeHost {
+        called: Arc::new(AtomicBool::new(false)),
+        panel: PanelDraw {
+            commands: Vec::new(),
+            actions: vec![PanelAction::SetParamNormalized {
+                param_id,
+                norm: 0.5,
+            }],
+        },
+    })));
+    let intents = render(&mut ui, &doc);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::SetParam {
+            device_id,
+            param_id: param,
+            value,
+        } if *device_id == id::<Device>(50)
+            && *param == param_id
+            && *value == ParamValue::F64(0.0)
+    )));
 }
 
 #[test]
@@ -127,7 +174,7 @@ fn extension_panel_host_receives_device_context() {
         called: Arc::clone(&called),
         panel: panel(),
     })));
-    render(&mut ui, &doc);
+    let _ = render(&mut ui, &doc);
     assert!(called.load(Ordering::Relaxed));
 }
 
@@ -146,8 +193,9 @@ fn invalid_extension_panel_falls_back_without_panicking() {
                 radius: 0.0,
                 color: Color::WHITE,
             })],
+            actions: Vec::new(),
         },
     })));
-    render(&mut ui, &doc);
+    let _ = render(&mut ui, &doc);
     assert!(called.load(Ordering::Relaxed));
 }

@@ -1,6 +1,14 @@
 use notwig_dsp::DeviceUiSpec;
-use notwig_ext_api::{DeviceExtension, PanelCommand};
+use notwig_ext_api::{
+    DeviceExtension, DrawCommand, PanelCommand,
+    geometry::{Point, Rect, Size},
+    ui::{RecordUi, Style, UiContext, UiInput, UiMemory},
+};
 use notwig_ext_devices::{LimiterDevice, TYPE_ID, release_id, threshold_id};
+
+fn target() -> Rect {
+    Rect::from_min_size(Point::new(0.0, 0.0), Size::new(240.0, 200.0))
+}
 
 #[test]
 fn spec_is_a_valid_device_spec() {
@@ -14,15 +22,38 @@ fn spec_is_a_valid_device_spec() {
 }
 
 #[test]
-fn panel_is_valid_and_contains_knobs() {
-    let panel = LimiterDevice::panel();
+fn draw_produces_a_valid_panel() {
+    let mut limiter = LimiterDevice::new();
+    let input = UiInput::default();
+    let mut memory = UiMemory::new();
+    let panel = {
+        let mut record = RecordUi::new(&input, &mut memory);
+        {
+            let mut ui = UiContext::new(&mut record, Style::default(), target());
+            limiter.draw(&mut ui);
+        }
+        record.into_panel()
+    };
+
     panel.validate().unwrap();
-    let knobs = panel
+    assert_ne!(panel.commands.len(), 0);
+
+    let texts: Vec<&str> = panel
         .commands
         .iter()
-        .filter(|command| matches!(command, PanelCommand::Knob { .. }))
-        .count();
-    assert_eq!(knobs, 2);
+        .filter_map(|command| match command {
+            PanelCommand::Draw(DrawCommand::Text { text, .. }) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.eq_ignore_ascii_case("Limiter"))
+    );
+    assert!(texts.contains(&"Threshold"));
+    assert!(texts.contains(&"Release"));
+    assert!(texts.contains(&"Reset"));
 }
 
 #[test]

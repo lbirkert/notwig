@@ -1,0 +1,246 @@
+use crate::draw::FontFamily;
+use crate::geometry::{Color, Point, Rect, Size, Stroke};
+
+use super::drawer::{Align, Drawer, Font};
+use super::{CursorIcon, Response, Sense, UiContext, UiId};
+use crate::context::ThemeSnapshot;
+
+/// Draws a standard button into a rectangle.
+pub fn paint_button(
+    drawer: &mut dyn Drawer,
+    theme: &ThemeSnapshot,
+    rect: Rect,
+    text: &str,
+    response: &Response,
+) {
+    let fill = if response.hovered() {
+        theme.grid_strong
+    } else {
+        theme.panel_light
+    };
+    drawer.fill_rect(rect, 4.0, fill);
+    drawer.stroke_rect(rect, 4.0, Stroke::new(1.0, theme.grid));
+    drawer.text(
+        rect.center(),
+        text,
+        Font::new(FontFamily::Proportional, 11.0),
+        theme.text,
+        Align::center(),
+    );
+}
+
+/// Draws a toggle button into a rectangle.
+pub fn paint_toggle(
+    drawer: &mut dyn Drawer,
+    theme: &ThemeSnapshot,
+    rect: Rect,
+    active: bool,
+    label: &str,
+) {
+    drawer.fill_rect(
+        rect,
+        4.0,
+        if active {
+            theme.accent
+        } else {
+            theme.panel_light
+        },
+    );
+    drawer.text(
+        rect.center(),
+        label,
+        Font::new(FontFamily::Proportional, 10.0),
+        if active {
+            Color::BLACK
+        } else {
+            theme.text_muted
+        },
+        Align::center(),
+    );
+}
+
+/// Draws a rotary knob into a rectangle.
+pub fn paint_knob(
+    drawer: &mut dyn Drawer,
+    theme: &ThemeSnapshot,
+    rect: Rect,
+    value_norm: f32,
+    bipolar: bool,
+) {
+    let center = rect.center();
+    let radius = 15.0;
+    drawer.circle_filled(center, radius + 3.0, Color::rgba(29, 31, 37, 255));
+    drawer.circle_stroke(
+        center,
+        radius,
+        Stroke::new(3.0, Color::rgba(73, 77, 88, 255)),
+    );
+    let start = std::f32::consts::PI * 0.75;
+    let end = std::f32::consts::PI * 2.25;
+    let angle = start + (end - start) * value_norm.clamp(0.0, 1.0);
+    let arc_start = if bipolar {
+        start + (end - start) * 0.5
+    } else {
+        start
+    };
+    let steps = 24;
+    let mut points = Vec::with_capacity(steps + 1);
+    for step in 0..=steps {
+        let t = step as f32 / steps as f32;
+        let angle = arc_start + (angle - arc_start) * t;
+        points.push(Point::new(
+            center.x + radius * angle.cos(),
+            center.y + radius * angle.sin(),
+        ));
+    }
+    drawer.path(&points, false, None, Some(Stroke::new(3.0, theme.accent)));
+    drawer.line(
+        center,
+        Point::new(
+            center.x + (radius - 3.0) * angle.cos(),
+            center.y + (radius - 3.0) * angle.sin(),
+        ),
+        Stroke::new(2.0, Color::WHITE),
+    );
+    if bipolar {
+        drawer.line(
+            Point::new(center.x, rect.min.y - 1.0),
+            Point::new(center.x, rect.min.y + 1.0),
+            Stroke::new(1.5, theme.text_muted),
+        );
+    }
+}
+
+/// Draws a text label placed at the top-left of a rectangle.
+pub fn paint_label(drawer: &mut dyn Drawer, theme: &ThemeSnapshot, rect: Rect, text: &str) {
+    drawer.text(
+        rect.min,
+        text,
+        Font::new(FontFamily::Proportional, 11.0),
+        theme.text_muted,
+        Align::left_top(),
+    );
+}
+
+/// Draws a section header placed at the top-left of a rectangle.
+pub fn paint_section(drawer: &mut dyn Drawer, theme: &ThemeSnapshot, rect: Rect, title: &str) {
+    drawer.text(
+        rect.min,
+        &title.to_uppercase(),
+        Font::new(FontFamily::Monospace, 9.0),
+        theme.text_muted,
+        Align::left_top(),
+    );
+}
+
+/// Draws a horizontal divider.
+pub fn paint_divider(drawer: &mut dyn Drawer, theme: &ThemeSnapshot, rect: Rect) {
+    drawer.line(
+        Point::new(rect.min.x, rect.center().y),
+        Point::new(rect.max.x, rect.center().y),
+        Stroke::new(1.0, theme.grid),
+    );
+}
+
+/// Allocates and draws a standard clickable button.
+///
+/// Use [`Response::clicked`] to react in the same frame:
+///
+/// ```ignore
+/// if ui.button("Reset").clicked() {
+///     ui.set_param_value(param_id, ParamValue::F64(0.0));
+/// }
+/// ```
+pub fn button(ui: &mut UiContext<'_>, text: &str) -> Response {
+    let id = ui.id(("button", text));
+    let rect = ui.allocate(ui.style().button_size);
+    let response = ui.interact(id, rect, Sense::click());
+    if response.hovered() {
+        ui.set_cursor(CursorIcon::PointingHand);
+    }
+    let theme = ui.theme();
+    paint_button(ui.painter(), &theme, rect, text, &response);
+    response
+}
+
+/// Allocates and draws a text label.
+pub fn label(ui: &mut UiContext<'_>, text: &str) -> Rect {
+    let rect = ui.allocate(Size::new(ui.available_rect().width(), 14.0));
+    let theme = ui.theme();
+    paint_label(ui.painter(), &theme, rect, text);
+    rect
+}
+
+/// Allocates and draws a section header.
+pub fn section(ui: &mut UiContext<'_>, title: &str) -> Rect {
+    let rect = ui.allocate(Size::new(ui.available_rect().width(), 14.0));
+    let theme = ui.theme();
+    paint_section(ui.painter(), &theme, rect, title);
+    rect
+}
+
+/// Allocates and draws a horizontal divider.
+pub fn divider(ui: &mut UiContext<'_>) -> Rect {
+    let rect = ui.allocate(Size::new(ui.available_rect().width(), 1.0));
+    let theme = ui.theme();
+    paint_divider(ui.painter(), &theme, rect);
+    rect
+}
+
+/// Draws and interacts with a toggle button.
+///
+/// Returns `Some(new_value)` when the toggle was clicked this frame.
+pub fn toggle(
+    ui: &mut UiContext<'_>,
+    id: UiId,
+    rect: Rect,
+    active: bool,
+    text: &str,
+) -> Option<bool> {
+    let response = ui.interact(id, rect, Sense::click());
+    if response.hovered() {
+        ui.set_cursor(CursorIcon::PointingHand);
+    }
+    let theme = ui.theme();
+    paint_toggle(ui.painter(), &theme, rect, active, text);
+    response.clicked().then_some(!active)
+}
+
+/// Draws and interacts with a rotary knob.
+///
+/// Returns `Some(new_normalized_value)` when the knob changed this frame.
+pub fn knob(
+    ui: &mut UiContext<'_>,
+    id: UiId,
+    rect: Rect,
+    value_norm: f32,
+    default_norm: f32,
+    bipolar: bool,
+    label: &str,
+) -> Option<f32> {
+    let response = ui.interact(id, rect, Sense::click_and_drag());
+    let mut norm = value_norm;
+    if response.dragged() {
+        let fine = ui.input().modifiers.shift;
+        let speed = if fine { 0.001 } else { 0.005 };
+        norm = (norm - response.drag_delta().y * speed).clamp(0.0, 1.0);
+    }
+    if response.double_clicked() {
+        norm = default_norm;
+    }
+    if response.hovered() || response.dragged() {
+        ui.set_cursor(CursorIcon::ResizeVertical);
+    }
+    let theme = ui.theme();
+    paint_knob(ui.painter(), &theme, rect, norm, bipolar);
+    paint_label(
+        ui.painter(),
+        &theme,
+        Rect::from_min_size(
+            Point::new(rect.min.x, rect.max.y - 14.0),
+            Size::new(rect.width(), 14.0),
+        ),
+        label,
+    );
+    ((norm - value_norm).abs() > f32::EPSILON).then_some(norm)
+}

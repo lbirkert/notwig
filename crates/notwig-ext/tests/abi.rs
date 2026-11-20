@@ -12,21 +12,23 @@ const DESCRIBE: &str = r#"{"type_id":"com.test.gain","version":{"major":0,"minor
 
 const DRAW: &str = r#"{"commands":[{"Draw":{"FillRect":{"rect":{"min":{"x":0.0,"y":0.0},"max":{"x":10.0,"y":10.0}},"radius":2.0,"color":{"r":255,"g":0,"b":0,"a":255}}}}]}"#;
 
+const DRAW_WITH_ACTIONS: &str = r#"{"commands":[{"Draw":{"FillRect":{"rect":{"min":{"x":0.0,"y":0.0},"max":{"x":10.0,"y":10.0}},"radius":2.0,"color":{"r":255,"g":0,"b":0,"a":255}}}}],"actions":["RequestRepaint"]}"#;
+
 fn escape(text: &str) -> String {
     text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn module_wat() -> String {
+fn module_wat(draw_json: &str) -> String {
     let describe = escape(DESCRIBE);
-    let draw = escape(DRAW);
-    let draw_packed = (1024u64 << 32) | DRAW.len() as u64;
+    let draw = escape(draw_json);
+    let draw_packed = (1024u64 << 32) | draw_json.len() as u64;
     format!(
         r#"(module
   (memory (export "memory") 1)
   (data (i32.const 0) "{describe}")
   (data (i32.const 1024) "{draw}")
   (global $next (mut i32) (i32.const 4096))
-  (func (export "notwig_abi_version") (result i32) i32.const 1)
+  (func (export "notwig_abi_version") (result i32) i32.const 2)
   (func (export "notwig_alloc") (param $len i32) (result i32)
     (local $ptr i32)
     global.get $next
@@ -92,6 +94,10 @@ fn module_wat() -> String {
 }
 
 fn write_extension() -> PathBuf {
+    write_extension_with(DRAW)
+}
+
+fn write_extension_with(draw_json: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("notwig-ext-test-{}", uuid::Uuid::new_v4()));
     let extension = dir.join("com.test.gain");
     std::fs::create_dir_all(&extension).unwrap();
@@ -100,7 +106,7 @@ fn write_extension() -> PathBuf {
         "name": "Test Gain",
         "vendor": "Test",
         "version": "0.1.0",
-        "api_version": 1,
+        "api_version": 2,
         "capabilities": ["device", "ui.draw"],
         "devices": [{
             "type_id": "com.test.gain",
@@ -112,7 +118,7 @@ fn write_extension() -> PathBuf {
         serde_json::to_vec_pretty(&manifest).unwrap(),
     )
     .unwrap();
-    let wasm = wat::parse_str(module_wat()).unwrap();
+    let wasm = wat::parse_str(module_wat(draw_json)).unwrap();
     std::fs::write(extension.join("extension.wasm"), wasm).unwrap();
     dir
 }
@@ -176,12 +182,42 @@ fn loads_device_spec_and_draws_panel() {
         bypassed: false,
         params: BTreeMap::new(),
         theme: ThemeSnapshot::default(),
+        input: notwig_ext_api::UiInput::default(),
     };
     let draw = panel
         .draw_device_panel("com.test.gain", &context)
         .expect("panel draw");
     assert_eq!(draw.commands.len(), 1);
     assert!(matches!(draw.commands[0], PanelCommand::Draw(_)));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn extension_panel_actions_survive_host_draw() {
+    let dir = write_extension_with(DRAW_WITH_ACTIONS);
+    let host = ExtensionHost::load(&dir, &BTreeMap::new()).unwrap();
+    let mut panel = host.panel_host();
+    let context = DeviceDrawContext {
+        device_id: DeviceId::nil().to_string(),
+        type_id: "com.test.gain".into(),
+        name: "Gain".into(),
+        sample_rate: 48_000,
+        width: 100.0,
+        height: 100.0,
+        selected: false,
+        bypassed: false,
+        params: BTreeMap::new(),
+        theme: ThemeSnapshot::default(),
+        input: notwig_ext_api::UiInput::default(),
+    };
+    let draw = panel
+        .draw_device_panel("com.test.gain", &context)
+        .expect("panel draw");
+    assert_eq!(draw.actions.len(), 1);
+    assert!(matches!(
+        draw.actions[0],
+        notwig_ext_api::PanelAction::RequestRepaint
+    ));
     let _ = std::fs::remove_dir_all(dir);
 }
 

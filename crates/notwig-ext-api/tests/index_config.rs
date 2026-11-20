@@ -11,7 +11,7 @@ const INDEX: &str = r#"[
     "name": "Notwig Stock Devices",
     "vendor": "Notwig",
     "version": "0.1.0",
-    "api_version": 1,
+    "api_version": 2,
     "entrypoint": "notwig_ext_devices.wasm",
     "capabilities": ["device", "ui.draw"],
     "devices": [
@@ -44,7 +44,7 @@ fn rejects_invalid_index_entries() {
     entry.api_version = 999;
     assert!(entry.validate().is_err());
 
-    entry.api_version = 1;
+    entry.api_version = 2;
     entry.devices.push(entry.devices[0].clone());
     assert!(entry.validate().is_err());
 
@@ -57,7 +57,7 @@ fn rejects_invalid_index_entries() {
 #[test]
 fn manifest_rejects_path_traversal_images() {
     let manifest: ExtensionManifest = serde_json::from_str(
-        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":1,"image":"../escape.png"}"#,
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":2,"image":"../escape.png"}"#,
     )
     .unwrap();
     assert!(manifest.validate().is_err());

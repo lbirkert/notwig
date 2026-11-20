@@ -11,6 +11,12 @@ struct UiInstance {
     handle: i32,
 }
 
+/// Host-side panel drawer for wasm extension devices.
+///
+/// Retained UI instances are keyed by [`DeviceDrawContext::device_id`], so two
+/// devices of the same type keep independent hover, focus, and drag state. The
+/// device type still selects the loaded extension and creates the underlying
+/// wasm instance.
 pub struct ExtensionPanelHost {
     loaded: Arc<LoadedExtensions>,
     instances: BTreeMap<String, UiInstance>,
@@ -33,7 +39,8 @@ impl DevicePanelHost for ExtensionPanelHost {
     ) -> Option<PanelDraw> {
         let extension = self.loaded.find_type(type_id)?;
         let module = extension.module.as_ref()?;
-        if !self.instances.contains_key(type_id) {
+        let device_key = context.device_id.as_str();
+        if !self.instances.contains_key(device_key) {
             let engine = self.loaded.engines.engine(extension.trust);
             let mut instance = ExtensionInstance::instantiate(
                 engine,
@@ -45,6 +52,7 @@ impl DevicePanelHost for ExtensionPanelHost {
                 tracing::warn!(
                     extension = %extension.manifest.id,
                     type_id,
+                    device_id = %context.device_id,
                     error = %error,
                     "could not create extension panel instance"
                 );
@@ -52,14 +60,11 @@ impl DevicePanelHost for ExtensionPanelHost {
             })
             .ok()?;
             let handle = instance.create_device(type_id).ok()?;
-            for (param_id, value) in &context.params {
-                let _ = instance.set_param(handle, *param_id, value);
-            }
             self.instances
-                .insert(type_id.to_owned(), UiInstance { instance, handle });
+                .insert(context.device_id.clone(), UiInstance { instance, handle });
         }
         let result = {
-            let ui = self.instances.get_mut(type_id)?;
+            let ui = self.instances.get_mut(device_key)?;
             for (param_id, value) in &context.params {
                 let _ = ui.instance.set_param(ui.handle, *param_id, value);
             }
@@ -71,10 +76,11 @@ impl DevicePanelHost for ExtensionPanelHost {
                 tracing::warn!(
                     extension = %extension.manifest.id,
                     type_id,
+                    device_id = %context.device_id,
                     error = %error,
                     "extension panel draw failed"
                 );
-                self.instances.remove(type_id);
+                self.instances.remove(device_key);
                 None
             }
         }

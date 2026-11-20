@@ -14,7 +14,7 @@ notwig-core = { workspace = true, default-features = false }
 notwig-dsp = { workspace = true, default-features = false }
 notwig-ext-api = { workspace = true, default-features = false }
 serde_json.workspace = true
-uuid.workspace = true
+uuid = { version = "1", default-features = false, features = ["serde", "std"] }
 
 [lints]
 workspace = true

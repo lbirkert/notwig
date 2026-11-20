@@ -28,6 +28,8 @@ fn valid_draw_list_passes() {
                 size: 10.0,
                 color: Color::WHITE,
                 align: notwig_ext_api::TextAlign::Left,
+                family: notwig_ext_api::FontFamily::Monospace,
+                valign: notwig_ext_api::VerticalAlign::Top,
             },
         ],
     };

@@ -1,9 +1,10 @@
 # Extension drawing API
 
-Status: design proposal. This note records the options considered and the
-recommended path for letting WASM extensions draw and interact with device
-panels using an egui-like immediate-mode API while sharing primitives and
-widgets with `notwig-ui`.
+Status: implemented for pointer-based device panels (ABI v2). The
+`Drawer`/`UiContext`/`UiBackend` split, `RecordUi`/`EguiUi`, shared widgets,
+dynamic `DeviceExtension::draw`, per-device `UiMemory`, and validated
+`PanelAction`s are in the code. Keyboard focus, text IME, and richer layout are
+still deferred.
 
 ## Short recommendation
 
@@ -44,7 +45,7 @@ future-proof contract.
 
 ## Constraints
 
-- `notwig-ext-api` must stay egui-free. `docs/ARCHITECTURE.md` lists `egui` as
+- `notwig-ext-api` must stay egui-free. `docs/03_development/00_architecture.md` lists `egui` as
   something the SDK crate must not depend on, and the same crate must compile
   to `wasm32-unknown-unknown` for extension authors.
 - `notwig-ui` already depends on `notwig-ext-api`, so the neutral layer can

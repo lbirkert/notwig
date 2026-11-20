@@ -37,7 +37,7 @@ fn runtime() -> RuntimeView {
         name: "Notwig Stock Devices".into(),
         vendor: "Notwig".into(),
         version: "0.1.0".into(),
-        api_version: 1,
+        api_version: 2,
         entrypoint: "notwig_ext_devices.wasm".into(),
         capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiDraw],
         devices: vec![ExtensionIndexDevice {

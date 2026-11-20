@@ -18,6 +18,7 @@ use crate::theme;
 use crate::widgets::format_param;
 
 mod browser;
+mod drawer;
 mod eq;
 mod extension;
 mod params;

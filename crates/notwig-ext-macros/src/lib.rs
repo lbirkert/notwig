@@ -38,7 +38,7 @@ pub fn notwig_extension(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             use std::sync::{Mutex, MutexGuard, OnceLock};
 
-            use notwig_ext_api::abi::{alloc, free, read_param_id, with_str};
+            use notwig_ext_api::abi::{alloc, free, read_param_id, with_bytes, with_str};
             use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension};
 
             static EXTENSION: OnceLock<Mutex<Extension>> = OnceLock::new();
@@ -157,10 +157,13 @@ pub fn notwig_extension(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_draw(
                 handle: i32,
-                _ctx_ptr: i32,
-                _ctx_len: i32,
+                ctx_ptr: i32,
+                ctx_len: i32,
             ) -> i64 {
-                extension_state().panel_pointer(handle)
+                with_bytes(ctx_ptr, ctx_len, |bytes| {
+                    extension_state().draw_pointer(handle, bytes)
+                })
+                .unwrap_or(0)
             }
         }
     };

@@ -3,7 +3,7 @@
   "name": "Notwig Stock Devices",
   "vendor": "Notwig",
   "version": "0.1.0",
-  "api_version": 1,
+  "api_version": 2,
   "entrypoint": "notwig_ext_devices.wasm",
   "capabilities": [
     "device",

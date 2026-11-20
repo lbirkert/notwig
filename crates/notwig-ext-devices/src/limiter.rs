@@ -1,8 +1,6 @@
-use notwig_core::{DeviceKind, ParamId, SchemaVersion};
+use notwig_core::{DeviceKind, ParamId, ParamValue, SchemaVersion};
 use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
-use notwig_ext_api::{
-    Color, DeviceExtension, DrawCommand, PanelCommand, PanelDraw, Point, Rect, Size,
-};
+use notwig_ext_api::{DeviceExtension, UiContext, button, divider, knob, label, section};
 use uuid::Uuid;
 
 pub const TYPE_ID: &str = "notwig.ext.devices.limiter";
@@ -13,6 +11,11 @@ const RELEASE_UUID: u128 = 0x4c49_4d49_5445_5200_0000_0000_0000_0002;
 const DEFAULT_THRESHOLD_DB: f64 = -6.0;
 const DEFAULT_RELEASE_SECONDS: f64 = 0.1;
 
+const MIN_THRESHOLD_DB: f64 = -24.0;
+const MAX_THRESHOLD_DB: f64 = 0.0;
+const MIN_RELEASE_SECONDS: f64 = 0.01;
+const MAX_RELEASE_SECONDS: f64 = 0.5;
+
 #[must_use]
 pub fn threshold_id() -> ParamId {
     ParamId::from_uuid(Uuid::from_u128(THRESHOLD_UUID))
@@ -21,6 +24,14 @@ pub fn threshold_id() -> ParamId {
 #[must_use]
 pub fn release_id() -> ParamId {
     ParamId::from_uuid(Uuid::from_u128(RELEASE_UUID))
+}
+
+fn threshold_norm(value_db: f64) -> f32 {
+    ((value_db - MIN_THRESHOLD_DB) / (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB)) as f32
+}
+
+fn release_norm(seconds: f64) -> f32 {
+    ((seconds - MIN_RELEASE_SECONDS) / (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS)) as f32
 }
 
 #[derive(Debug, Clone)]
@@ -94,11 +105,18 @@ impl DeviceExtension for LimiterDevice {
                     threshold_id(),
                     "Threshold",
                     Unit::Decibels,
-                    -24.0,
-                    0.0,
-                    -6.0,
+                    MIN_THRESHOLD_DB,
+                    MAX_THRESHOLD_DB,
+                    DEFAULT_THRESHOLD_DB,
                 ),
-                ParamSpec::continuous(release_id(), "Release", Unit::Seconds, 0.01, 0.5, 0.1),
+                ParamSpec::continuous(
+                    release_id(),
+                    "Release",
+                    Unit::Seconds,
+                    MIN_RELEASE_SECONDS,
+                    MAX_RELEASE_SECONDS,
+                    DEFAULT_RELEASE_SECONDS,
+                ),
             ],
             latency_samples: 0,
             name: "Limiter".into(),
@@ -107,36 +125,62 @@ impl DeviceExtension for LimiterDevice {
         }
     }
 
-    fn panel() -> PanelDraw {
-        PanelDraw {
-            commands: vec![
-                PanelCommand::Section {
-                    rect: Rect::from_min_size(Point::new(0.0, 2.0), Size::new(220.0, 14.0)),
-                    title: "Limiter".into(),
-                },
-                PanelCommand::Knob {
-                    rect: Rect::from_min_size(Point::new(12.0, 24.0), Size::new(78.0, 84.0)),
-                    param_id: threshold_id(),
-                    label: "Threshold".into(),
-                    bipolar: true,
-                },
-                PanelCommand::Knob {
-                    rect: Rect::from_min_size(Point::new(108.0, 24.0), Size::new(78.0, 84.0)),
-                    param_id: release_id(),
-                    label: "Release".into(),
-                    bipolar: false,
-                },
-                PanelCommand::Draw(DrawCommand::Line {
-                    from: Point::new(10.0, 116.0),
-                    to: Point::new(194.0, 116.0),
-                    width: 1.0,
-                    color: Color::rgb(44, 47, 56),
-                }),
-                PanelCommand::Label {
-                    rect: Rect::from_min_size(Point::new(10.0, 122.0), Size::new(200.0, 16.0)),
-                    text: "Simple peak limiter".into(),
-                },
-            ],
+    fn draw(&mut self, ui: &mut UiContext<'_>) {
+        section(ui, "Limiter");
+
+        let knob_size = ui.style().knob_size;
+        let mut threshold_change = None;
+        let mut release_change = None;
+        ui.horizontal(|ui| {
+            let threshold_rect = ui.allocate(knob_size);
+            let threshold_ui_id = ui.id("threshold");
+            threshold_change = knob(
+                ui,
+                threshold_ui_id,
+                threshold_rect,
+                threshold_norm(self.threshold_db),
+                threshold_norm(DEFAULT_THRESHOLD_DB),
+                true,
+                "Threshold",
+            );
+
+            let release_rect = ui.allocate(knob_size);
+            let release_ui_id = ui.id("release");
+            release_change = knob(
+                ui,
+                release_ui_id,
+                release_rect,
+                release_norm(self.release_seconds),
+                release_norm(DEFAULT_RELEASE_SECONDS),
+                false,
+                "Release",
+            );
+        });
+
+        if let Some(norm) = threshold_change {
+            self.threshold_db =
+                MIN_THRESHOLD_DB + f64::from(norm) * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB);
+            self.update_threshold();
+            ui.set_param_normalized(threshold_id(), norm);
+        }
+
+        if let Some(norm) = release_change {
+            self.release_seconds =
+                MIN_RELEASE_SECONDS + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
+            self.update_release();
+            ui.set_param_normalized(release_id(), norm);
+        }
+
+        divider(ui);
+        label(ui, "Simple peak limiter");
+
+        if button(ui, "Reset").clicked() {
+            self.threshold_db = DEFAULT_THRESHOLD_DB;
+            self.release_seconds = DEFAULT_RELEASE_SECONDS;
+            self.update_threshold();
+            self.update_release();
+            ui.set_param_value(threshold_id(), ParamValue::F64(DEFAULT_THRESHOLD_DB));
+            ui.set_param_value(release_id(), ParamValue::F64(DEFAULT_RELEASE_SECONDS));
         }
     }
 
@@ -149,11 +193,11 @@ impl DeviceExtension for LimiterDevice {
 
     fn set_param(&mut self, param_id: ParamId, value: f64) -> bool {
         if param_id == threshold_id() {
-            self.threshold_db = value.clamp(-24.0, 0.0);
+            self.threshold_db = value.clamp(MIN_THRESHOLD_DB, MAX_THRESHOLD_DB);
             self.update_threshold();
             true
         } else if param_id == release_id() {
-            self.release_seconds = value.clamp(0.01, 0.5);
+            self.release_seconds = value.clamp(MIN_RELEASE_SECONDS, MAX_RELEASE_SECONDS);
             self.update_release();
             true
         } else {

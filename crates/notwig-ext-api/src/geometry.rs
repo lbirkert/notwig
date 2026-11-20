@@ -16,6 +16,27 @@ impl Point {
     pub fn is_finite(self) -> bool {
         self.x.is_finite() && self.y.is_finite()
     }
+
+    #[must_use]
+    pub fn distance(self, other: Self) -> f32 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
+}
+
+impl std::ops::Add for Point {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.x + rhs.x, self.y + rhs.y)
+    }
+}
+
+impl std::ops::Sub for Point {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::new(self.x - rhs.x, self.y - rhs.y)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -92,6 +113,30 @@ impl Rect {
             && point.x <= self.max.x
             && point.y >= self.min.y
             && point.y <= self.max.y
+    }
+
+    #[must_use]
+    pub fn intersect(self, other: Self) -> Self {
+        Self::new(
+            Point::new(self.min.x.max(other.min.x), self.min.y.max(other.min.y)),
+            Point::new(self.max.x.min(other.max.x), self.max.y.min(other.max.y)),
+        )
+    }
+
+    #[must_use]
+    pub fn center(self) -> Point {
+        Point::new(
+            f32::midpoint(self.min.x, self.max.x),
+            f32::midpoint(self.min.y, self.max.y),
+        )
+    }
+
+    #[must_use]
+    pub fn shrink(self, amount: f32) -> Self {
+        Self::new(
+            Point::new(self.min.x + amount, self.min.y + amount),
+            Point::new(self.max.x - amount, self.max.y - amount),
+        )
     }
 }
 

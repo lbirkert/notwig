@@ -6,6 +6,22 @@ pub const MAX_COMMANDS: usize = 4096;
 pub const MAX_PATH_POINTS: usize = 1024;
 pub const MAX_TEXT_BYTES: usize = 8 * 1024;
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;
+pub const MAX_ACTIONS: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FontFamily {
+    #[default]
+    Proportional,
+    Monospace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum DrawError {
@@ -23,59 +39,109 @@ pub enum DrawError {
     InvalidStroke { index: usize },
     #[error("panel draw exceeds {limit} commands")]
     TooManyPanelCommands { limit: usize },
+    #[error("panel draw exceeds {limit} actions")]
+    TooManyActions { limit: usize },
+    #[error("action {index} contains a non-finite value")]
+    InvalidAction { index: usize },
 }
 
+/// A single render-neutral drawing operation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DrawCommand {
+    /// Pushes an additional clip rectangle.
     PushClip {
+        /// Clip rectangle in panel-local pixels.
         rect: Rect,
     },
+    /// Pops the most recent clip rectangle.
     PopClip,
+    /// Fills a rectangle with an optional corner radius.
     FillRect {
+        /// Rectangle to fill.
         rect: Rect,
+        /// Corner radius in pixels.
         radius: f32,
+        /// Fill color.
         color: Color,
     },
+    /// Strokes a rectangle with an optional corner radius.
     StrokeRect {
+        /// Rectangle to stroke.
         rect: Rect,
+        /// Corner radius in pixels.
         radius: f32,
+        /// Stroke width in pixels.
         width: f32,
+        /// Stroke color.
         color: Color,
     },
+    /// Draws a line segment.
     Line {
+        /// Segment start.
         from: Point,
+        /// Segment end.
         to: Point,
+        /// Line width in pixels.
         width: f32,
+        /// Line color.
         color: Color,
     },
+    /// Fills a circle.
     CircleFill {
+        /// Circle center.
         center: Point,
+        /// Circle radius in pixels.
         radius: f32,
+        /// Fill color.
         color: Color,
     },
+    /// Strokes a circle.
     CircleStroke {
+        /// Circle center.
         center: Point,
+        /// Circle radius in pixels.
         radius: f32,
+        /// Stroke width in pixels.
         width: f32,
+        /// Stroke color.
         color: Color,
     },
+    /// Draws text at an anchor.
     Text {
+        /// Anchor position.
         pos: Point,
+        /// Text content.
         text: String,
+        /// Nominal font size in pixels.
         size: f32,
+        /// Text color.
         color: Color,
+        /// Horizontal anchor.
         align: TextAlign,
+        /// Font family.
+        #[serde(default)]
+        family: FontFamily,
+        /// Vertical anchor.
+        #[serde(default)]
+        valign: VerticalAlign,
     },
+    /// Draws a polyline or polygon.
     Path {
+        /// Path points.
         points: Vec<Point>,
+        /// Whether the path closes back to its first point.
         closed: bool,
+        /// Optional fill color.
         fill: Option<Color>,
+        /// Optional stroke.
         stroke: Option<Stroke>,
     },
 }
 
+/// A validated list of drawing operations.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DrawList {
+    /// Ordered drawing operations.
     pub commands: Vec<DrawCommand>,
 }
 

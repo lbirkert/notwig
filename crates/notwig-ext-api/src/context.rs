@@ -4,6 +4,7 @@ use notwig_core::{ParamId, ParamValue};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::Color;
+use crate::ui::UiInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeSnapshot {
@@ -54,4 +55,7 @@ pub struct DeviceDrawContext {
     pub bypassed: bool,
     pub params: BTreeMap<ParamId, ParamValue>,
     pub theme: ThemeSnapshot,
+    /// Pointer, modifier, and focus snapshot for this frame.
+    #[serde(default)]
+    pub input: UiInput,
 }
