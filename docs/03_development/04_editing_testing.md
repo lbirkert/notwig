@@ -1,6 +1,6 @@
 # Testing edit operations
 
-Status: test contract for [`EDITING.md`](./EDITING.md). The tape model, property tests, adapter tests, lowering tests, and gesture tests are in place. Read the design contract first.
+Status: test contract for [`Editing`](03_editing.md). The tape model, property tests, adapter tests, lowering tests, and gesture tests are in place. Read the design contract first.
 
 ## 1. Test seam
 

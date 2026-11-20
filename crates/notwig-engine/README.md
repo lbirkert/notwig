@@ -42,7 +42,7 @@ audio thread tries the slot once per fixed frame interval, swaps boxes, and
 applies the control data; retired values return to the app thread for disposal.
 Heavy plan builds, plugin instantiation, and buffer allocation happen on the
 engine build/plugin-loader thread, never on the audio thread. See
-[`docs/AUDIO_ENGINE.md`](../../docs/AUDIO_ENGINE.md).
+[`docs/03_development/02_audio_engine.md`](../../docs/03_development/02_audio_engine.md).
 
 ## Module map
 

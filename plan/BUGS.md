@@ -1,4 +1,4 @@
-- Import audio before creating an audio clip when double clicking an audio lane to create an empty audio clip.
+- "Import audio before creating an audio clip" when double clicking an audio lane to create an empty audio clip.
 - Make background of grid lighter.
 - Make grid snapping less granular globally (1/16 -> 1/8 snapping).
 - Newly created clips need to be selected (via Add Track or via CMD + (Shift) + T or CMD + G)
@@ -18,4 +18,8 @@
 - When zooming close to a waveform preview currently the frame rate drops significantly.
 - Draw horizontal lines on the grid between lanes just like in between the notes in MIDI editor.
 - When lane tree is narrow in height, master lane does not sit at the bottom of the arranger like it should.
-
+- For empty time selection make Delete command split the clip.
+- Fix audio drag and drop for browser demo.
+- Make https://notwig.lbirkert.com/extensions.json the default extension index.
+- Web needs a loading spinner while WASM is loading.
+- Shift clicking the drag handle (currently on the title of a lane) causes multi selection of lanes to fail.

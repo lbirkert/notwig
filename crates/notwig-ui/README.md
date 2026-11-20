@@ -56,5 +56,5 @@ Headless `egui` tests live in `tests/`. They cover rendering, selection,
 shortcuts, gestures, timeline math, widgets, MIDI editor editing, and headless
 window layouts. Use `notwig_ui::test_api` only from tests.
 
-See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the UI's place in
+See [`docs/03_development/00_architecture.md`](../../docs/03_development/00_architecture.md) for the UI's place in
 the data flow.

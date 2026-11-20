@@ -1,9 +1,14 @@
 [book]
 title = "Notwig"
+authors = ["Notwig contributors"]
+language = "en"
 src = "docs"
 
 [build]
 build-dir = "book"
+create-missing = false
 
 [output.html]
 site-url = "https://notwig.lbirkert.com/"
+git-repository-url = "https://github.com/lbirkert/notwig"
+edit-url-template = "https://github.com/lbirkert/notwig/edit/main/{path}"

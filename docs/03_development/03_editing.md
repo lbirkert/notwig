@@ -2,7 +2,7 @@
 
 Status: design contract. It is implemented for the arranger and the audio clip editor. The MIDI and automation adapters are the remaining editors to wire up.
 
-Related: [`EDITING_TESTING.md`](./EDITING_TESTING.md).
+Related: [`Editing Testing`](04_editing_testing.md).
 
 ## 1. Problem
 
@@ -759,7 +759,7 @@ The clip editor is closed by dragging its top handle down. Its height remains re
 The algebra has no behaviour to preserve yet. Build it first, then move one editor at a time.
 
 1. Add `crates/notwig-core/src/edit/` with `mod.rs` (selection, extract, plan, and model types), `algebra.rs`, and `arranger.rs`. Export the types from `notwig-core`.
-2. Add the tape model, property tests, and explicit snapshot tests from [`EDITING_TESTING.md`](./EDITING_TESTING.md) before any adapter exists. The pure tests are the reference.
+2. Add the tape model, property tests, and explicit snapshot tests from [`Editing Testing`](04_editing_testing.md) before any adapter exists. The pure tests are the reference.
 3. Add the arranger model (`ClipId`, `TrackId`, clip payloads) and lowering in `notwig-app/src/edit_lowering.rs`.
 4. Replace the clip-level editing functions in `notwig-app/src/workspace.rs`: `copy_clips`, `copy_time_range`, `cut_selection`, `paste_clips`, `delete_time_range`, `duplicate_time_range`, and the duplicate helpers. The app keeps asset and notification concerns.
 5. Add the audio clip editor model (`SliceId`, one clip lane) and slice lowering in `notwig-ui/src/views/audio_editor/`. Delete the old copy, paste, and delete helpers.

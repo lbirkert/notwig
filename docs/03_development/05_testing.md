@@ -407,7 +407,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 
 ## Gaps that matter most
 
-- Editing tests cover many operations, but not every operation in [`EDITING.md`](EDITING.md). The arranger and audio editor disagree on events outside the container and leftward trim. Add the boundary, hit-target, and parity tests before changing the interaction code.
+- Editing tests cover many operations, but not every operation in [`Editing`](03_editing.md). The arranger and audio editor disagree on events outside the container and leftward trim. Add the boundary, hit-target, and parity tests before changing the interaction code.
 - DSP tests cover stock processing and block sizes. They do not cover long runs, sample-rate changes, denormals, or NaN input.
 - PDC for tracks, nested groups, sends, bypasses, and inactive tracks is tested. Hosted plugin latency is queried but real plugin hosting is not exercised headlessly.
 - Autosave recovery and session locks are tested. Schema migration and corrupt project manifests are not.

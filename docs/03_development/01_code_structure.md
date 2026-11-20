@@ -14,7 +14,7 @@ and test layer before editing.
   AGENTS.md                  contributor/agent workflow and code style
   scripts/                   extension package/index build scripts
   .github/workflows/         CI, including GitHub Pages publishing
-  docs/                      authoritative documentation
+  docs/                      mdBook sources, ordered by audience
   plan/                      scratch/planning notes (not part of the stable docs)
   crates/
     notwig-core/
@@ -29,7 +29,8 @@ and test layer before editing.
     notwig-ui/
     notwig-app/
     notwig-web/              wasm-bindgen browser entry point
-    notwig-truce-rack/       vendored VST3/AU host crates (excluded from workspace lints)
+    notwig-rack/             vendored VST3/AU/CLAP/VST2 host crates
+                             (separate Cargo workspace, excluded from lints)
 ```
 
 Every crate has a `README.md` describing its purpose and boundaries. The
@@ -94,18 +95,25 @@ that needs them; most cross-layer types live in `notwig-core`.
 
 ### `notwig-ext-api` — extension SDK and render-neutral drawing
 
+ABI v2 replaces the static `panel()` output with a dynamic `draw(&mut UiContext)`
+frame that carries input and returns draw commands plus host actions.
+
 | Module | Responsibility |
 |---|---|
 | `geometry.rs` | `Point`, `Rect`, `Color`, `Stroke`, text alignment |
 | `draw.rs` | `DrawList`/`DrawCommand` and validation limits |
-| `panel.rs` | `PanelDraw`/`PanelCommand`, `DevicePanelHost` |
-| `context.rs` | device panel context and theme snapshot |
+| `panel.rs` | `PanelDraw`/`PanelCommand`, `PanelAction`, `DevicePanelHost` |
+| `context.rs` | `DeviceDrawContext` (including `UiInput`) and theme snapshot |
+| `ui/mod.rs` | `UiContext`, layout, `Sense`/`Response`, `UiInput`, `UiMemory`, `RecordUi` |
+| `ui/drawer.rs` | `Drawer` primitive painter, `Font`, `Align` |
+| `ui/record.rs` | `RecordDrawer` command buffering for the WASM boundary |
+| `ui/widgets.rs` | Shared `button`/`knob`/`toggle`/`label`/`section`/`divider` widgets and `paint_*` helpers |
 | `manifest.rs` | extension manifest/capability/device declaration types |
 | `status.rs` | `TrustLevel`, `ExtensionStatus`, `ExtensionInfo`, settings |
 | `config.rs` | Versioned user config, default index URL, legacy migration |
 | `index.rs` | Extension index entry/device types and validation |
-| `extension.rs` | `DeviceExtension`, `Extension`, registration and ABI-facing dispatch |
-| `abi.rs` | ABI version, status codes, pointer/length packing, helper re-exports |
+| `extension.rs` | `DeviceExtension`, `Extension`, registration and per-device draw dispatch |
+| `abi.rs` | ABI version (`2`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with const construction |
 | `abi/pointers.rs` | Safe wrappers for reading strings, param IDs, and audio slices |
@@ -165,7 +173,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display; extension panel adapter (`EguiUi`/`EguiDrawer`) for `UiContext` interaction and `DrawCommand` replay |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
@@ -274,7 +282,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 2. Handle the command in `notwig-ui/src/views/shell.rs` (or the focused editor) with
    `shortcuts.was_pressed(ctx, ShortcutCommand::YourCommand)`.
 3. Emit a `UiIntent` or call the existing workspace/UI behavior.
-4. Add the user-facing action to `docs/ROADMAP.md` when it lands.
+4. Add the user-facing action to [`Roadmap`](06_roadmap.md) when it lands.
 5. Add a config round-trip or capture test under `crates/notwig-ui/tests/`.
 
 ### Add a UI panel or window
@@ -287,15 +295,23 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 ### Add an extension device
 
-1. Build the device against `notwig-ext-api` exports (`notwig_device_*`) and
-   ship a manifest plus wasm module under the user extensions directory.
-2. Return a `DeviceSpec` from `notwig_device_describe`; set `DeviceUiSpec` to
-   `Generic` to let the host assign the extension panel renderer.
-3. Return a `PanelDraw` from `notwig_device_draw` using draw commands or native
-   knob/toggle commands.
-4. Keep DSP in `notwig_device_process` with block-based interleaved `f32` audio.
-5. Add a WAT fixture in `crates/notwig-ext/tests/` and a headless panel test in
-   `crates/notwig-ui/tests/`.
+1. Depend on `notwig-ext-api`; use `notwig-core` and `notwig-dsp` without
+   default features and build the crate as a `cdylib` for
+   `wasm32-unknown-unknown`.
+2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
+   `draw(&mut UiContext)`, and keep DSP in `process` over interleaved `f32`
+   audio. Register the type with `#[notwig_extension]`.
+3. In `draw`, use the shared widgets or `UiContext::painter`, keep IDs stable
+   with `ui.id("...")`, and emit parameter changes through
+   `set_param_normalized`/`set_param_value`. The host validates the resulting
+   `PanelAction`s against the device spec.
+4. Ship `extension.json` with `api_version: 2`, a relative `entry` wasm module,
+   and the `device`/`ui.draw` capabilities. Set `DeviceUiSpec::custom` to route
+   the panel to the extension renderer.
+5. Add interaction tests in `crates/notwig-ext-api/tests/`, a device test in
+   `crates/notwig-ext-devices/tests/`, and a headless panel test in
+   `crates/notwig-ui/tests/`. See [Extension Overview](../02_extensions/00_overview.md) for the full
+   package and drawing guide.
 
 ### Add an audio feature
 
@@ -303,7 +319,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 2. Keep file decoding and resampling in `notwig-project`.
 3. Keep real-time processing in `notwig-engine`/`notwig-dsp`.
 4. Keep device/stream selection and snapshots in `notwig-app/src/audio.rs`.
-5. Follow the real-time rules in `AGENTS.md` and `docs/ARCHITECTURE.md`.
+5. Follow the real-time rules in `AGENTS.md` and [`Architecture`](00_architecture.md).
 
 ## Known structural hotspots
 

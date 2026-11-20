@@ -63,4 +63,4 @@ Integration tests live in `tests/`:
 - `domain_flow.rs` — command application and document flows.
 - `time.rs`, `ids.rs` — time and identity behavior.
 
-See [`docs/EDITING.md`](../../docs/EDITING.md) for the editing contract.
+See [`docs/03_development/03_editing.md`](../../docs/03_development/03_editing.md) for the editing contract.

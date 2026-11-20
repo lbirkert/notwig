@@ -44,3 +44,15 @@ not persist device instance state.
 `tests/stock.rs` covers stock device behavior and plan compilation.
 `tests/graph.rs` covers bypass, nested-chain, and inactive-track latency.
 DSP changes should include a rendering/behavior test, not only a compile check.
+
+## Benchmarks
+
+`benches/dsp.rs` uses Criterion to measure Tool, EQ, Chain, plan compilation, EQ
+magnitude response, and pan gains. Run:
+
+```sh
+cargo bench -p notwig-dsp
+```
+
+For the current numbers and interpretation, see
+[`docs/03_development/08_dsp_performance.md`](../../docs/03_development/08_dsp_performance.md).

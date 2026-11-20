@@ -15,7 +15,7 @@ phase.
 - **Platform:** macOS first; platform-specific code sits behind adapters.
 - **Implemented today:** project bundles, autosave/recovery with a startup
   recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
-  event editing, a MIDI MIDI editor, device chains with stock EQ/Tool/Chain,
+  event editing, a MIDI editor, device chains with stock EQ/Tool/Chain,
   VST3/AU hosting, WASM extension devices and panels with per-extension trust
   levels, an extension explorer with index/ZIP installs and uninstall,
   render mixdown, persisted audio settings, customizable keyboard shortcuts,
@@ -28,19 +28,25 @@ phase.
 
 ## Where to start
 
-Read the stable documentation first:
+Read the stable documentation first. It is an mdBook under `docs/`, ordered by
+audience with `<number>_` prefixes:
 
-- [`docs/README.md`](docs/README.md) — documentation index and reading paths.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — layers, state flow, threading,
-  real-time rules, and invariants.
-- [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md) — crate/module map,
-  extension recipes, and known structural hotspots.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — current features, candidate next
-  milestones, and deferred scope.
-- [`docs/EDITING.md`](docs/EDITING.md) — shared editing algebra and adapter
-  contracts. Read before changing arranger or clip editor operations.
-- [`docs/EDITING_TESTING.md`](docs/EDITING_TESTING.md) — testing strategy for
-  editing behavior.
+- [`docs/00_introduction.md`](docs/00_introduction.md) — what Notwig is and the
+  documentation paths.
+- [`docs/01_users/`](docs/01_users/) — user guide for the application.
+- [`docs/02_extensions/`](docs/02_extensions/) — extension package, device, panel,
+  and distribution docs.
+- [`docs/03_development/00_architecture.md`](docs/03_development/00_architecture.md)
+  — layers, state flow, threading, real-time rules, and invariants.
+- [`docs/03_development/01_code_structure.md`](docs/03_development/01_code_structure.md)
+  — crate/module map, extension recipes, and structural hotspots.
+- [`docs/03_development/03_editing.md`](docs/03_development/03_editing.md) —
+  shared editing algebra and adapter contracts. Read before changing arranger or
+  clip editor operations.
+- [`docs/03_development/04_editing_testing.md`](docs/03_development/04_editing_testing.md)
+  — testing strategy for editing behavior.
+- [`docs/03_development/06_roadmap.md`](docs/03_development/06_roadmap.md) —
+  current features, candidate next milestones, and deferred scope.
 
 Each crate has a `README.md` with its exact purpose, owned concerns, module map,
 and boundaries. Start there when working inside a crate.
@@ -72,7 +78,7 @@ and boundaries. Start there when working inside a crate.
 
 ### Architecture and ownership
 
-- Follow the dependency direction in [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md).
+- Follow the dependency direction in [`docs/03_development/01_code_structure.md`](docs/03_development/01_code_structure.md).
   Lower layers must not depend on higher layers.
 - Keep `notwig-core` free of I/O, UI, plugin loading, and real-time execution.
 - Keep canonical project state in `ProjectDoc`. UI code emits `UiIntent`; it
@@ -129,8 +135,8 @@ and boundaries. Start there when working inside a crate.
   cargo test --workspace
   ```
 
-- For documentation-only changes, verify links and referenced paths; run code
-  checks if any code or examples changed.
+- For documentation-only changes, verify links and referenced paths and run
+  `mdbook build`; run code checks if any code or examples changed.
 
 ### Dependencies and documentation
 
@@ -141,6 +147,22 @@ and boundaries. Start there when working inside a crate.
   public APIs change.
 - Write comments for non-obvious reasons and invariants, not for restating what
   the code already says.
+
+### Documentation
+
+- Documentation is part of the change, not a follow-up. Update it in the same
+  patch that alters user-visible behavior, an extension API, a crate boundary,
+  a persisted format, or an architectural invariant.
+- Keep the three audience sections intact: `01_users`, `02_extensions`, and
+  `03_development`. Put user instructions in the user guide, author-facing API
+  guidance in the extension guide, and design rationale in development docs.
+- Keep technical pages current with the code. If the code and a development page
+  disagree, fix the page (or the code) before merging. These pages lock the
+  design in place.
+- Use `<number>_` prefixes for page files and register every page in
+  [`docs/SUMMARY.md`](docs/SUMMARY.md). Keep links relative to the page.
+- For documentation-only changes, verify links and referenced paths, and run
+  `mdbook build`. Run code checks when examples or code snippets change.
 
 ## Todo workflow
 

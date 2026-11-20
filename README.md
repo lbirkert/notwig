@@ -30,8 +30,8 @@ assets, or other copyrighted material is used in this project.
 ## Scope
 
 Notwig is an early-stage, playback/edit-only macOS prototype. Current features,
-candidate next milestones, and deferred scope live in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+candidate next milestones, and deferred scope live in the
+[roadmap](docs/03_development/06_roadmap.md).
 
 ## Build and run
 
@@ -83,15 +83,19 @@ cargo test --workspace
 
 ## Documentation
 
-- [`docs/README.md`](docs/README.md) — documentation index and reading paths.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system layers, state flow, and invariants.
-- [`docs/CODE_STRUCTURE.md`](docs/CODE_STRUCTURE.md) — repository and module map, extension recipes.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — current features, next milestones, and deferred scope.
-- [`docs/EDITING.md`](docs/EDITING.md) — editing algebra and adapter contracts.
-- [`docs/EDITING_TESTING.md`](docs/EDITING_TESTING.md) — testing strategy for edit operations.
+The documentation is an mdBook under `docs/`, organized by audience:
+
+- [`docs/00_introduction.md`](docs/00_introduction.md) — what Notwig is and how
+  to choose a reading path.
+- [`docs/01_users/`](docs/01_users/) — user guide: workspace, projects,
+  arranging, audio and MIDI editing, devices, rendering, and settings.
+- [`docs/02_extensions/`](docs/02_extensions/) — extension quickstart, package
+  format, device API, panel API, and distribution.
+- [`docs/03_development/`](docs/03_development/) — architecture, code structure,
+  audio engine, editing, testing, roadmap, and crate reference.
 
 Each crate has its own `README.md` describing its exact responsibility and
-boundaries.
+boundaries. Run `mdbook build` from the repository root to build the book.
 
 ## Inspiration
 

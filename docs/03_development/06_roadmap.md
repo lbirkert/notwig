@@ -322,4 +322,4 @@ These are outside the core. The device and editor systems should leave room for 
 
 ## Updating this page
 
-When a feature changes status, edit the row and its notes. Move an item to ✅ Implemented only after the test exists. When scope is dropped, move the item to 🚫 Not Planned or to the extension points list and record the reason in the relevant design document. Test coverage is tracked separately in [`TESTING.md`](TESTING.md).
+When a feature changes status, edit the row and its notes. Move an item to ✅ Implemented only after the test exists. When scope is dropped, move the item to 🚫 Not Planned or to the extension points list and record the reason in the relevant design document. Test coverage is tracked separately in [`Testing`](05_testing.md).

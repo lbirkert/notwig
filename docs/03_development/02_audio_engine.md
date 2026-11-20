@@ -2,9 +2,9 @@
 
 Status: implemented.
 
-Related: [`ARCHITECTURE.md`](./ARCHITECTURE.md),
-[`CODE_STRUCTURE.md`](./CODE_STRUCTURE.md), and the
-[`notwig-engine` README](../crates/notwig-engine/README.md).
+Related: [`Architecture`](00_architecture.md),
+[`Code Structure`](01_code_structure.md), and the
+`crates/notwig-engine/README.md`.
 
 ## 1. Principle
 

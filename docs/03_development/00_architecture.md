@@ -1,9 +1,9 @@
 # Architecture
 
-Notwig is a Rust workspace with one binary (`notwig`) and six libraries. The
-architecture favors a small number of explicit boundaries: domain state is
-separate from runtime audio state, UI code emits intents instead of mutating
-documents directly, and the real-time engine owns playback.
+Notwig is a Rust workspace with one application binary (`notwig`) and a set of
+libraries. The architecture favors a small number of explicit boundaries:
+domain state is separate from runtime audio state, UI code emits intents
+instead of mutating documents directly, and the real-time engine owns playback.
 
 ## Layers
 
@@ -87,7 +87,7 @@ parameters, and refreshes the playback schedule without rebuilding the plan.
 `notwig-app::audio::AudioService` owns the CPAL output stream and the
 audio-thread `Engine`. The audio thread does not share a mutex with the UI.
 Instead the app publishes control data through the exchange described in
-[`AUDIO_ENGINE.md`](AUDIO_ENGINE.md):
+[`Audio Engine`](02_audio_engine.md):
 
 - the app owns a `Box<EngineData>` and modifies it without locks;
 - `EngineControl::flush` swaps it into `Mutex<(Option<Box<EngineData>>, bool)>`;
@@ -161,12 +161,15 @@ under `/app/` beside the mdBook documentation.
 | `notwig-project` | Bundle read/write, autosave/recovery, audio import/decode/resample, WAV export | UI, real-time processing |
 | `notwig-dsp` | Device/parameter contracts, registry, graph compilation, stock devices | Audio callback, persisted instance state |
 | `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, manifests, ABI wire types | `egui`, `wasmtime`, I/O, canonical state |
+| `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Runtime host behavior |
 | `notwig-ext` | Extension discovery, wasmtime host, WASM device DSP, panel host | UI layout, canonical state, audio-callback compilation |
+| `notwig-ext-devices` | Example and stock extension devices built against the SDK | Host behavior or UI code |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | Canonical state, engine internals, blocking work |
 | `notwig-app` | Composition, workspace policy, audio I/O, thread wiring, dialogs, history | Reusable domain/DSP logic |
 | `notwig-web` | Browser entry point, wasm-bindgen handle, WebRunner startup | UI/domain/DSP behavior |
+| `notwig-rack` | Vendored VST3/AU/CLAP/VST2 wrapper crates outside the workspace | Notwig domain or UI behavior |
 
 ## Threads and processes
 
