@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use notwig_core::{
     AssetId, ClipId, Color, Db, DeviceChainId, DeviceId, DeviceKind, NoteEntity, NoteId, Pan,
@@ -215,6 +216,12 @@ pub enum UiIntent {
         target: DropAudioTarget,
         at: TimeMus,
     },
+    DropAudioBytes {
+        name: String,
+        bytes: Arc<[u8]>,
+        target: DropAudioTarget,
+        at: TimeMus,
+    },
     InsertAudioClip {
         track_id: TrackId,
         asset_id: AssetId,
@@ -263,6 +270,10 @@ pub enum UiIntent {
     RefreshExtensionIndex,
     InstallExtensionFromIndex {
         id: String,
+    },
+    InstallExtensionZipBytes {
+        name: String,
+        bytes: Arc<[u8]>,
     },
     InstallExtensionZip {
         path: PathBuf,

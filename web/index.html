@@ -12,9 +12,23 @@
     <script type="module">
       import init, { WebApp } from "./pkg/notwig_web.js";
 
+      const canvas = document.getElementById("notwig-canvas");
+      window.__notwigDragPos = null;
+      const recordDragPosition = (event) => {
+        const rect = canvas.getBoundingClientRect();
+        window.__notwigDragPos = [event.clientX - rect.left, event.clientY - rect.top];
+      };
+      canvas.addEventListener("dragover", recordDragPosition);
+      canvas.addEventListener("drop", recordDragPosition);
+      window.__notwigTakeDragPos = () => {
+        const position = window.__notwigDragPos;
+        window.__notwigDragPos = null;
+        return position;
+      };
+
       await init();
       const app = new WebApp();
-      await app.start(document.getElementById("notwig-canvas"));
+      await app.start(canvas);
 
       const enableAudio = document.getElementById("enable-audio");
       enableAudio.addEventListener("click", () => {

@@ -887,6 +887,44 @@ impl NotwigApp {
         self.notify_info("Drop audio from the browser file picker instead.".into());
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn perform_drop_bytes(
+        &mut self,
+        name: String,
+        bytes: Arc<[u8]>,
+        target: DropAudioTarget,
+        at: TimeMus,
+    ) {
+        let asset_id = match self.workspace.import_audio_bytes(&name, bytes.to_vec()) {
+            Ok(asset_id) => asset_id,
+            Err(error) => {
+                self.notify_error(error);
+                return;
+            }
+        };
+        let result = match target {
+            DropAudioTarget::ClipEditor { clip_id } => {
+                self.workspace.add_audio_slice(clip_id, asset_id, at)
+            }
+            DropAudioTarget::Track(track_id) => {
+                self.workspace.insert_audio_clip_at(track_id, asset_id, at)
+            }
+            DropAudioTarget::NewTrack { index } => {
+                match self
+                    .workspace
+                    .create_track_at(TrackKind::Audio, Some(index))
+                {
+                    Ok(track_id) => self.workspace.insert_audio_clip_at(track_id, asset_id, at),
+                    Err(error) => Err(error),
+                }
+            }
+        };
+        match result {
+            Ok(()) => self.notify_info(format!("Imported {name}")),
+            Err(error) => self.notify_error(error),
+        }
+    }
+
     fn handle_intent(&mut self, intent: UiIntent) {
         match intent {
             UiIntent::Play => {
@@ -1242,6 +1280,15 @@ impl NotwigApp {
             UiIntent::DropAudio { path, target, at } => {
                 self.perform_drop(path, target, at);
             }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::DropAudioBytes {
+                name,
+                bytes,
+                target,
+                at,
+            } => self.perform_drop_bytes(name, bytes, target, at),
+            #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::DropAudioBytes { .. } => {}
             UiIntent::InsertAudioClip { track_id, asset_id } => {
                 let result = self.workspace.insert_audio_clip(track_id, asset_id);
                 let _ = self.report(result);
@@ -1500,6 +1547,15 @@ impl NotwigApp {
                     self.notify_error(error);
                 }
             }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::InstallExtensionZipBytes { name, bytes } => {
+                match self.extensions.install_zip_bytes(bytes.to_vec()) {
+                    Ok(()) => self.notify_info(format!("Installing {name}…")),
+                    Err(error) => self.notify_error(error),
+                }
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::InstallExtensionZipBytes { .. } => {}
             #[cfg(not(target_arch = "wasm32"))]
             UiIntent::ImportExtensionZip => {
                 self.spawn_dialog(DialogAction::ImportExtensionZip, || {
@@ -1825,8 +1881,10 @@ impl eframe::App for NotwigApp {
         #[cfg(not(target_arch = "wasm32"))]
         self.ui.set_platform_pointer(platform_pointer(ctx));
         #[cfg(target_arch = "wasm32")]
-        self.ui
-            .set_platform_pointer(ctx.input(|input| input.pointer.latest_pos()));
+        self.ui.set_platform_pointer(
+            crate::web::take_drag_pointer()
+                .or_else(|| ctx.input(|input| input.pointer.latest_pos())),
+        );
         for spec in self.workspace.plugin_specs() {
             self.ui.registry.register(spec.clone());
         }

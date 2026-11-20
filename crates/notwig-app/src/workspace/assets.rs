@@ -2,10 +2,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use notwig_core::protocol::CommandPayload;
-use notwig_core::{AssetId, AudioAssetBuffer, Id};
 #[cfg(not(target_arch = "wasm32"))]
-use notwig_core::{ClipId, ClipPayload, Db, TrackId};
+use notwig_core::TrackId;
+use notwig_core::protocol::CommandPayload;
+use notwig_core::{AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, Id};
 use notwig_ui::AudioWaveform;
 use uuid::Uuid;
 
@@ -106,65 +106,6 @@ impl Workspace {
     ) -> Result<(), String> {
         let asset_id = self.import_audio(source)?;
         self.add_audio_slice(clip_id, asset_id, at)
-    }
-
-    pub fn add_audio_slice(
-        &mut self,
-        clip_id: ClipId,
-        asset_id: AssetId,
-        at: notwig_core::TimeMus,
-    ) -> Result<(), String> {
-        let clip = self
-            .doc
-            .arranger
-            .clips
-            .get(&clip_id)
-            .cloned()
-            .ok_or_else(|| "clip not found".to_string())?;
-        let ClipPayload::Audio(audio) = &clip.payload else {
-            return Err("clip is not an audio clip".into());
-        };
-        let duration = self
-            .doc
-            .assets
-            .assets
-            .get(&asset_id)
-            .ok_or_else(|| "asset not found".to_string())?
-            .duration_samples
-            .ok_or_else(|| "asset has no duration".to_string())?;
-        let entering_slice_mode = !audio.uses_slices();
-        let mut slices = if entering_slice_mode {
-            vec![notwig_core::sequencer::AudioSlice {
-                id: notwig_core::SliceId::from_uuid(Uuid::new_v4()),
-                start: notwig_core::TimeMus::zero(),
-                source_start_sample: audio.source_start_sample,
-                source_end_sample: audio.source_end_sample,
-                silent_prefix_samples: 0,
-                gain_db: audio.gain_db,
-                asset_id: None,
-            }]
-        } else {
-            audio.slices.clone()
-        };
-        if entering_slice_mode {
-            self.apply(CommandPayload::SetClipSlices {
-                clip_id,
-                slices: slices.clone(),
-            })?;
-        }
-        let start = at.max(notwig_core::TimeMus::zero());
-        slices.push(notwig_core::sequencer::AudioSlice {
-            id: notwig_core::SliceId::from_uuid(Uuid::new_v4()),
-            start,
-            source_start_sample: 0,
-            source_end_sample: duration,
-            silent_prefix_samples: 0,
-            gain_db: Db(0.0),
-            asset_id: Some(asset_id),
-        });
-        self.apply(CommandPayload::SetClipSlices { clip_id, slices })?;
-        self.status = Some("Added audio event.".into());
-        Ok(())
     }
 
     pub fn relink_asset(&mut self, asset_id: AssetId, path: &Path) -> Result<(), String> {
@@ -366,6 +307,67 @@ impl Workspace {
         }
         self.prepare_asset();
         self.status = Some("Audio import finished.".into());
+        Ok(())
+    }
+}
+
+impl Workspace {
+    pub fn add_audio_slice(
+        &mut self,
+        clip_id: ClipId,
+        asset_id: AssetId,
+        at: notwig_core::TimeMus,
+    ) -> Result<(), String> {
+        let clip = self
+            .doc
+            .arranger
+            .clips
+            .get(&clip_id)
+            .cloned()
+            .ok_or_else(|| "clip not found".to_string())?;
+        let ClipPayload::Audio(audio) = &clip.payload else {
+            return Err("clip is not an audio clip".into());
+        };
+        let duration = self
+            .doc
+            .assets
+            .assets
+            .get(&asset_id)
+            .ok_or_else(|| "asset not found".to_string())?
+            .duration_samples
+            .ok_or_else(|| "asset has no duration".to_string())?;
+        let entering_slice_mode = !audio.uses_slices();
+        let mut slices = if entering_slice_mode {
+            vec![notwig_core::sequencer::AudioSlice {
+                id: notwig_core::SliceId::from_uuid(Uuid::new_v4()),
+                start: notwig_core::TimeMus::zero(),
+                source_start_sample: audio.source_start_sample,
+                source_end_sample: audio.source_end_sample,
+                silent_prefix_samples: 0,
+                gain_db: audio.gain_db,
+                asset_id: None,
+            }]
+        } else {
+            audio.slices.clone()
+        };
+        if entering_slice_mode {
+            self.apply(CommandPayload::SetClipSlices {
+                clip_id,
+                slices: slices.clone(),
+            })?;
+        }
+        let start = at.max(notwig_core::TimeMus::zero());
+        slices.push(notwig_core::sequencer::AudioSlice {
+            id: notwig_core::SliceId::from_uuid(Uuid::new_v4()),
+            start,
+            source_start_sample: 0,
+            source_end_sample: duration,
+            silent_prefix_samples: 0,
+            gain_db: Db(0.0),
+            asset_id: Some(asset_id),
+        });
+        self.apply(CommandPayload::SetClipSlices { clip_id, slices })?;
+        self.status = Some("Added audio event.".into());
         Ok(())
     }
 }

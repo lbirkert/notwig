@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+#[cfg(target_arch = "wasm32")]
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use egui::{Color32, Rect, RichText};
@@ -1391,33 +1393,116 @@ impl NotwigUi {
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
-        let files: Vec<PathBuf> = ctx.input(|input| {
-            input
-                .raw
-                .dropped_files
-                .iter()
-                .filter_map(|file| file.path.clone())
-                .collect()
-        });
-        if files.is_empty() {
+        let dropped = ctx.input(|input| input.raw.dropped_files.clone());
+        if dropped.is_empty() {
             return;
         }
+
         if self.settings_open
             && self.settings_category == crate::settings::SettingsCategory::Extensions
         {
-            let zips: Vec<PathBuf> = files
-                .iter()
-                .filter(|path| is_zip_path(path))
-                .cloned()
-                .collect();
-            if !zips.is_empty() {
-                for path in zips {
-                    self.emit(UiIntent::InstallExtensionZip { path });
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let zips: Vec<PathBuf> = dropped
+                    .iter()
+                    .filter_map(|file| file.path.clone())
+                    .filter(|path| is_zip_path(path))
+                    .collect();
+                if !zips.is_empty() {
+                    for path in zips {
+                        self.emit(UiIntent::InstallExtensionZip { path });
+                    }
+                    return;
                 }
-                return;
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let zips: Vec<(String, Arc<[u8]>)> = dropped
+                    .iter()
+                    .filter(|file| is_zip_name(&file.name))
+                    .filter_map(|file| {
+                        file.bytes
+                            .as_ref()
+                            .map(|bytes| (file.name.clone(), Arc::clone(bytes)))
+                    })
+                    .collect();
+                if !zips.is_empty() {
+                    for (name, bytes) in zips {
+                        self.emit(UiIntent::InstallExtensionZipBytes { name, bytes });
+                    }
+                    return;
+                }
             }
         }
-        let preview = self.drag_preview.clone();
+
+        let Some((first_target, at)) = self.drop_location(ctx, doc) else {
+            self.state.notify(
+                NotificationKind::Warning,
+                "Drop audio files onto the timeline or clip editor.",
+            );
+            return;
+        };
+        let order: Vec<TrackId> = doc.track_order.depth_first();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let files: Vec<PathBuf> = dropped
+                .iter()
+                .filter_map(|file| file.path.clone())
+                .collect();
+            if files.is_empty() {
+                return;
+            }
+            for (file_index, file) in files.into_iter().enumerate() {
+                let target = file_drop_target(&order, first_target, file_index);
+                self.emit(UiIntent::DropAudio {
+                    path: file,
+                    target,
+                    at,
+                });
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let files: Vec<(String, Arc<[u8]>)> = dropped
+                .iter()
+                .filter(|file| is_audio_name(&file.name) || file.mime.starts_with("audio/"))
+                .filter_map(|file| {
+                    file.bytes.as_ref().map(|bytes| {
+                        let name = if file.name.is_empty() {
+                            "dropped-audio".to_owned()
+                        } else {
+                            file.name.clone()
+                        };
+                        (name, Arc::clone(bytes))
+                    })
+                })
+                .collect();
+            if files.is_empty() {
+                self.state.notify(
+                    NotificationKind::Warning,
+                    "The dropped files do not contain supported audio.",
+                );
+                return;
+            }
+            for (file_index, (name, bytes)) in files.into_iter().enumerate() {
+                let target = file_drop_target(&order, first_target, file_index);
+                self.emit(UiIntent::DropAudioBytes {
+                    name,
+                    bytes,
+                    target,
+                    at,
+                });
+            }
+        }
+    }
+
+    fn drop_location(
+        &self,
+        ctx: &egui::Context,
+        doc: &ProjectDoc,
+    ) -> Option<(DropAudioTarget, notwig_core::TimeMus)> {
         let pointer = self
             .last_pointer
             .or_else(|| ctx.input(|input| input.pointer.latest_pos()));
@@ -1441,38 +1526,11 @@ impl NotwigUi {
             );
             Some((target, at))
         });
-        let Some((first_target, at)) =
-            from_pointer.or_else(|| preview.map(|preview| (preview.target, preview.at)))
-        else {
-            self.state.notify(
-                NotificationKind::Warning,
-                "Drop audio files onto the timeline or clip editor.",
-            );
-            return;
-        };
-        let order: Vec<TrackId> = doc.track_order.depth_first();
-        for (file_index, file) in files.into_iter().enumerate() {
-            let target = match (file_index, first_target) {
-                (0, target) | (_, target @ DropAudioTarget::ClipEditor { .. }) => target,
-                (_, DropAudioTarget::Track(track_id)) => {
-                    let index = order
-                        .iter()
-                        .position(|id| *id == track_id)
-                        .map_or(order.len(), |index| index + 1);
-                    DropAudioTarget::NewTrack {
-                        index: index + file_index - 1,
-                    }
-                }
-                (_, DropAudioTarget::NewTrack { index }) => DropAudioTarget::NewTrack {
-                    index: index + file_index,
-                },
-            };
-            self.emit(UiIntent::DropAudio {
-                path: file,
-                target,
-                at,
-            });
-        }
+        from_pointer.or_else(|| {
+            self.drag_preview
+                .as_ref()
+                .map(|preview| (preview.target, preview.at))
+        })
     }
 
     pub(crate) fn track_at(&self, y: f32) -> Option<TrackId> {
@@ -1668,6 +1726,45 @@ pub mod test_api {
     }
 }
 
+fn file_drop_target(
+    order: &[TrackId],
+    first_target: DropAudioTarget,
+    file_index: usize,
+) -> DropAudioTarget {
+    match (file_index, first_target) {
+        (0, target) | (_, target @ DropAudioTarget::ClipEditor { .. }) => target,
+        (_, DropAudioTarget::Track(track_id)) => {
+            let index = order
+                .iter()
+                .position(|id| *id == track_id)
+                .map_or(order.len(), |index| index + 1);
+            DropAudioTarget::NewTrack {
+                index: index + file_index - 1,
+            }
+        }
+        (_, DropAudioTarget::NewTrack { index }) => DropAudioTarget::NewTrack {
+            index: index + file_index,
+        },
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_audio_name(name: &str) -> bool {
+    matches!(
+        name.rsplit_once('.')
+            .map(|(_, extension)| extension.to_ascii_lowercase())
+            .as_deref(),
+        Some("wav" | "wave" | "aif" | "aiff" | "aifc" | "mp3" | "flac" | "ogg" | "oga")
+    )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_zip_name(name: &str) -> bool {
+    name.rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("zip"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn is_zip_path(path: &std::path::Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("zip"))
