@@ -3,6 +3,7 @@
 pub mod devices;
 pub mod factory;
 pub mod graph;
+pub mod monitor;
 pub mod params;
 pub mod registry;
 pub mod smoothing;
@@ -14,6 +15,7 @@ pub use devices::{
 };
 pub use factory::{CompositeDeviceFactory, DeviceFactory, StockDeviceFactory};
 pub use graph::{CompiledPlan, GraphError, PlanDevice, PlanSend, PlanTrack, compile};
+pub use monitor::{AudioMonitor, MonitorBlock, MonitorRegistry};
 pub use notwig_core::DeviceKind;
 pub use params::{
     NormMap, ParamFlags, ParamKind, ParamSet, ParamSpec, RangeSpec, SmoothingSpec, Unit, Value,

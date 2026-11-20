@@ -8,9 +8,14 @@ mod imp {
     use std::collections::BTreeMap;
     use std::ffi::CString;
     use std::ptr;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use notwig_rack::core::{BusLayout, Plugin, WindowHandle};
+    use notwig_dsp::{AudioMonitor, MonitorBlock};
+    use notwig_rack::core::buffer::BusRange;
+    use notwig_rack::core::{
+        AudioBuffer, BusLayout, EventList, Plugin, ProcessContext as RackContext, WindowHandle,
+    };
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
@@ -28,12 +33,21 @@ mod imp {
         last_values: BTreeMap<u32, f64>,
         last_poll: Instant,
         window_size: (u32, u32),
+        monitor: Option<Arc<AudioMonitor>>,
+        sample_rate: f64,
+        monitor_input: [Vec<f32>; 2],
+        monitor_output: [Vec<f32>; 2],
     }
 
     impl NativePluginWindow {
-        pub fn open(descriptor: &PluginDescriptor) -> Result<Self, PluginError> {
+        pub fn open(
+            descriptor: &PluginDescriptor,
+            sample_rate: u32,
+            monitor: Option<Arc<AudioMonitor>>,
+        ) -> Result<Self, PluginError> {
             let mut plugin = crate::adapters::load_plugin(descriptor)?;
-            let _ = plugin.activate(BusLayout::stereo(), 48_000.0, 512);
+            let sample_rate = f64::from(sample_rate.max(1));
+            let _ = plugin.activate(BusLayout::stereo(), sample_rate, 512);
             let mut params = BTreeMap::new();
             let mut last_values = BTreeMap::new();
             for index in 0..plugin.parameter_count() {
@@ -79,6 +93,9 @@ mod imp {
                 let _: () = msg_send![window, center];
                 let _: () = msg_send![window, makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()];
             }
+            if let Some(monitor) = &monitor {
+                monitor.set_enabled(true);
+            }
             Ok(Self {
                 plugin,
                 format: descriptor.format,
@@ -90,6 +107,10 @@ mod imp {
                 last_values,
                 last_poll: Instant::now(),
                 window_size,
+                monitor,
+                sample_rate,
+                monitor_input: std::array::from_fn(|_| vec![0.0; 512]),
+                monitor_output: std::array::from_fn(|_| vec![0.0; 512]),
             })
         }
 
@@ -128,6 +149,58 @@ mod imp {
                 }
                 self.window_size = size;
             }
+            self.drain_monitor();
+        }
+
+        fn drain_monitor(&mut self) {
+            let Some(monitor) = self.monitor.clone() else {
+                return;
+            };
+            while let Some(block) = monitor.pop() {
+                self.process_monitor_block(&block);
+            }
+        }
+
+        fn process_monitor_block(&mut self, block: &MonitorBlock) {
+            let frames = block.frames.min(512);
+            if frames == 0 {
+                return;
+            }
+            for channel in &mut self.monitor_input {
+                if channel.len() < frames {
+                    channel.resize(frames, 0.0);
+                }
+            }
+            for channel in &mut self.monitor_output {
+                if channel.len() < frames {
+                    channel.resize(frames, 0.0);
+                }
+                channel[..frames].fill(0.0);
+            }
+            for frame in 0..frames {
+                self.monitor_input[0][frame] = block.samples[frame * 2];
+                self.monitor_input[1][frame] = block.samples[frame * 2 + 1];
+            }
+
+            let input_refs: [&[f32]; 2] = [
+                &self.monitor_input[0][..frames],
+                &self.monitor_input[1][..frames],
+            ];
+            let (left, right) = self.monitor_output.split_at_mut(1);
+            let mut output_refs: [&mut [f32]; 2] =
+                [&mut left[0][..frames], &mut right[0][..frames]];
+            let buses = [BusRange::new(0, 2)];
+            let mut buffer =
+                AudioBuffer::new(&input_refs, &mut output_refs, frames, &buses, &buses);
+            let events = EventList::new();
+            let mut output_events = EventList::new();
+            let mut context = RackContext {
+                sample_rate: self.sample_rate,
+                max_block_size: 512,
+                transport: None,
+                output_events: &mut output_events,
+            };
+            let _ = self.plugin.process(&mut buffer, &events, &mut context);
         }
 
         pub fn is_open(&self) -> bool {
@@ -193,6 +266,9 @@ mod imp {
             }
             if let Some(editor) = self.plugin.editor() {
                 editor.close();
+            }
+            if let Some(monitor) = &self.monitor {
+                monitor.set_enabled(false);
             }
             unsafe {
                 let _: () = msg_send![self.window, orderOut: ptr::null_mut::<AnyObject>()];
@@ -280,7 +356,11 @@ pub struct NativePluginWindow;
 
 #[cfg(not(target_os = "macos"))]
 impl NativePluginWindow {
-    pub fn open(descriptor: &PluginDescriptor) -> Result<Self, PluginError> {
+    pub fn open(
+        descriptor: &PluginDescriptor,
+        _sample_rate: u32,
+        _monitor: Option<std::sync::Arc<notwig_dsp::AudioMonitor>>,
+    ) -> Result<Self, PluginError> {
         Err(PluginError::BackendUnavailable(descriptor.format))
     }
 

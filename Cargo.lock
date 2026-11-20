@@ -2275,6 +2275,7 @@ name = "notwig-dsp"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "crossbeam-queue",
  "notwig-core",
  "serde",
  "serde_json",

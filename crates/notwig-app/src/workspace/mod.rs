@@ -20,7 +20,7 @@ use notwig_core::{
     Meta, NoteId, ProjectDoc, Rational, SampleRate, SchemaVersion, StateBlobRef, TrackId,
     TrackKind, apply,
 };
-use notwig_dsp::{DeviceFactory, DeviceSpec, EngineCaps};
+use notwig_dsp::{AudioMonitor, DeviceFactory, DeviceSpec, EngineCaps, MonitorRegistry};
 use notwig_engine::{
     ControlHandle, Engine, EngineControl, ParamUpdate, PreparedRuntime, PreviewNote,
     TrackStateUpdate, TransportUpdate,
@@ -55,6 +55,7 @@ pub struct Workspace {
     plugin_specs: BTreeMap<String, DeviceSpec>,
     extension_specs: BTreeMap<String, DeviceSpec>,
     extension_factory: Option<Arc<dyn DeviceFactory>>,
+    monitors: Arc<MonitorRegistry>,
     pub status: Option<String>,
     pub error: Option<String>,
     pub last_autosave: Instant,
@@ -126,6 +127,7 @@ impl Workspace {
             plugin_specs: BTreeMap::new(),
             extension_specs: BTreeMap::new(),
             extension_factory: None,
+            monitors: Arc::new(MonitorRegistry::new()),
             status: None,
             error: None,
             last_autosave: Instant::now(),
@@ -209,6 +211,7 @@ impl Workspace {
             assets: self.assets.clone(),
             sample_rate,
             max_block_size,
+            monitors: Arc::clone(&self.monitors),
         }
     }
 
@@ -1151,6 +1154,11 @@ impl Workspace {
             child_chain_ids: child_chains,
             name: None,
         })
+    }
+
+    /// Audio tap used by an open plugin editor to drive meters and previews.
+    pub fn monitor(&self, device_id: DeviceId) -> Arc<AudioMonitor> {
+        self.monitors.monitor(device_id)
     }
 
     pub fn plugin_descriptor(&self, device_id: DeviceId) -> Option<PluginDescriptor> {

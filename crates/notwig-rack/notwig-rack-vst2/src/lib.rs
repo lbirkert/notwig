@@ -54,7 +54,7 @@ pub const VST2_EXTENSION: &str = ".vst";
 
 const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
 const DEFAULT_BLOCK_SIZE: usize = 512;
-const MAX_CHANNELS: usize = 32;
+const MAX_CHANNELS: usize = 64;
 const MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
 
 thread_local! {
@@ -268,6 +268,8 @@ pub struct Vst2Plugin {
     num_outputs: usize,
     sample_rate: f64,
     max_block_size: usize,
+    input_silence: Vec<Vec<f32>>,
+    output_scratch: Vec<Vec<f32>>,
     active: bool,
     editor_open: bool,
     editor_size: Cell<Option<(u32, u32)>>,
@@ -392,6 +394,8 @@ impl Vst2Plugin {
             num_outputs,
             sample_rate: DEFAULT_SAMPLE_RATE,
             max_block_size: DEFAULT_BLOCK_SIZE,
+            input_silence: Vec::new(),
+            output_scratch: Vec::new(),
             active: false,
             editor_open: false,
             editor_size: Cell::new(None),
@@ -834,6 +838,9 @@ impl PluginCore for Vst2Plugin {
 
         self.sample_rate = sample_rate;
         self.max_block_size = max_block_size;
+        let block = max_block_size.max(1);
+        self.input_silence = (0..self.num_inputs).map(|_| vec![0.0; block]).collect();
+        self.output_scratch = (0..self.num_outputs).map(|_| vec![0.0; block]).collect();
         self.host
             .sample_rate
             .store(sample_rate.to_bits(), Ordering::Relaxed);
@@ -900,18 +907,22 @@ impl Plugin<f32> for Vst2Plugin {
         let mut input_ptrs = [ptr::null::<f32>(); MAX_CHANNELS];
         {
             let inputs = buffer.main_inputs();
-            if inputs.len() < self.num_inputs {
-                return Err(Error::Other(format!(
-                    "VST2 plugin expects {} input channels, host supplied {}",
-                    self.num_inputs,
-                    inputs.len()
-                )));
+            let provided = inputs.len().min(self.num_inputs);
+            for (slot, channel) in input_ptrs.iter_mut().zip(inputs.iter()).take(provided) {
+                *slot = channel.as_ptr();
             }
-            for (slot, channel) in input_ptrs
+            for (index, slot) in input_ptrs
                 .iter_mut()
-                .zip(inputs.iter())
+                .enumerate()
                 .take(self.num_inputs)
+                .skip(provided)
             {
+                let Some(channel) = self.input_silence.get(index) else {
+                    return Err(Error::Other("VST2 input scratch is not allocated".into()));
+                };
+                if channel.len() < frames {
+                    return Err(Error::Other("VST2 input scratch is too small".into()));
+                }
                 *slot = channel.as_ptr();
             }
         }
@@ -919,18 +930,26 @@ impl Plugin<f32> for Vst2Plugin {
         let mut output_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
         {
             let outputs = buffer.main_outputs();
-            if outputs.len() < self.num_outputs {
-                return Err(Error::Other(format!(
-                    "VST2 plugin expects {} output channels, host supplied {}",
-                    self.num_outputs,
-                    outputs.len()
-                )));
-            }
+            let provided = outputs.len().min(self.num_outputs);
             for (slot, channel) in output_ptrs
                 .iter_mut()
                 .zip(outputs.iter_mut())
-                .take(self.num_outputs)
+                .take(provided)
             {
+                *slot = channel.as_mut_ptr();
+            }
+            for (index, slot) in output_ptrs
+                .iter_mut()
+                .enumerate()
+                .take(self.num_outputs)
+                .skip(provided)
+            {
+                let Some(channel) = self.output_scratch.get_mut(index) else {
+                    return Err(Error::Other("VST2 output scratch is not allocated".into()));
+                };
+                if channel.len() < frames {
+                    return Err(Error::Other("VST2 output scratch is too small".into()));
+                }
                 *slot = channel.as_mut_ptr();
             }
         }

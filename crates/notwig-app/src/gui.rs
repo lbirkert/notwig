@@ -815,7 +815,9 @@ impl NotwigApp {
             self.notify_error("Plugin is not installed or was not found.".into());
             return;
         };
-        match NativePluginWindow::open(&descriptor) {
+        let sample_rate = self.workspace.doc.meta.sample_rate.value();
+        let monitor = self.workspace.monitor(device_id);
+        match NativePluginWindow::open(&descriptor, sample_rate, Some(monitor)) {
             Ok(mut window) => {
                 if let Some(state) = self.workspace.plugin_state(device_id) {
                     let _ = window.load_state(state);

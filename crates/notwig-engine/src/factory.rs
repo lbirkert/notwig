@@ -3,8 +3,8 @@ use std::sync::Mutex;
 
 use notwig_core::{DeviceId, ParamId, ParamValue};
 use notwig_dsp::{
-    CompiledPlan, DeviceFactory, DeviceProcessor, Latency, NoteEvent, PlanDevice, ProcessContext,
-    ProcessStatus, RenderConfig, StockDeviceFactory,
+    AudioMonitor, CompiledPlan, DeviceFactory, DeviceProcessor, Latency, MonitorRegistry,
+    NoteEvent, PlanDevice, ProcessContext, ProcessStatus, RenderConfig, StockDeviceFactory,
 };
 use notwig_plugins::{PluginDescriptor, PluginHost, PluginInstance, PluginState};
 
@@ -12,6 +12,7 @@ pub struct PluginDeviceFactory {
     host: Mutex<PluginHost>,
     descriptors: BTreeMap<String, PluginDescriptor>,
     states: BTreeMap<DeviceId, PluginState>,
+    monitors: Option<std::sync::Arc<MonitorRegistry>>,
 }
 
 impl std::fmt::Debug for PluginDeviceFactory {
@@ -34,23 +35,46 @@ impl PluginDeviceFactory {
                 .map(|descriptor| (descriptor.type_id.clone(), descriptor))
                 .collect(),
             states,
+            monitors: None,
+        }
+    }
+
+    /// Build a factory that taps each plugin device's input for open editors.
+    #[must_use]
+    pub fn with_monitors(
+        host: PluginHost,
+        descriptors: Vec<PluginDescriptor>,
+        states: BTreeMap<DeviceId, PluginState>,
+        monitors: std::sync::Arc<MonitorRegistry>,
+    ) -> Self {
+        Self {
+            host: Mutex::new(host),
+            descriptors: descriptors
+                .into_iter()
+                .map(|descriptor| (descriptor.type_id.clone(), descriptor))
+                .collect(),
+            states,
+            monitors: Some(monitors),
         }
     }
 }
 
-struct PluginDevice(Box<dyn PluginInstance>);
+struct PluginDevice {
+    instance: Box<dyn PluginInstance>,
+    monitor: Option<std::sync::Arc<AudioMonitor>>,
+}
 
 impl DeviceProcessor for PluginDevice {
     fn prepare(&mut self, config: RenderConfig) -> Result<(), notwig_dsp::GraphError> {
-        self.0.prepare(config)
+        self.instance.prepare(config)
     }
 
     fn reset(&mut self) {
-        self.0.reset();
+        self.instance.reset();
     }
 
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
-        self.0.set_param(param_id, value);
+        self.instance.set_param(param_id, value);
     }
 
     fn process(
@@ -59,11 +83,14 @@ impl DeviceProcessor for PluginDevice {
         audio: &mut [f32],
         events: &[NoteEvent],
     ) -> ProcessStatus {
-        self.0.process(ctx, audio, events)
+        if let Some(monitor) = &self.monitor {
+            monitor.push_interleaved(audio, audio.len() / 2);
+        }
+        self.instance.process(ctx, audio, events)
     }
 
     fn latency(&self) -> Latency {
-        self.0.latency()
+        self.instance.latency()
     }
 }
 
@@ -78,6 +105,10 @@ impl DeviceFactory for PluginDeviceFactory {
         if let Some(state) = self.states.get(&device.id) {
             let _ = host.restore_instance_state(instance.as_mut(), state);
         }
-        Some(Box::new(PluginDevice(instance)) as Box<dyn DeviceProcessor>)
+        let monitor = self
+            .monitors
+            .as_ref()
+            .map(|monitors| monitors.monitor(device.id));
+        Some(Box::new(PluginDevice { instance, monitor }) as Box<dyn DeviceProcessor>)
     }
 }

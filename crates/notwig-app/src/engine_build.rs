@@ -23,6 +23,7 @@ pub(crate) struct EngineBuildRequest {
     pub(crate) assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
     pub(crate) sample_rate: u32,
     pub(crate) max_block_size: usize,
+    pub(crate) monitors: Arc<notwig_dsp::MonitorRegistry>,
 }
 
 type BuildParts = (
@@ -45,15 +46,17 @@ impl EngineBuildRequest {
             assets,
             sample_rate,
             max_block_size,
+            monitors,
         } = self;
         let plan =
             Arc::new(notwig_dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?);
         let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
         let config = EngineConfig::new(sample_rate, max_block_size);
-        let plugin_factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::new(
+        let plugin_factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::with_monitors(
             new_plugin_host(),
             plugin_descriptors,
             plugin_states,
+            monitors,
         ));
         let mut factories: Vec<Arc<dyn DeviceFactory>> = vec![Arc::new(StockDeviceFactory)];
         if let Some(extension_factory) = extension_factory {
