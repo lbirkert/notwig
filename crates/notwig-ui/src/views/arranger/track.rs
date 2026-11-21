@@ -577,6 +577,15 @@ impl NotwigUi {
             painter.rect_filled(header_rect, CornerRadius::ZERO, dim);
             painter.rect_filled(lane_rect, CornerRadius::ZERO, dim);
         }
+        if track.kind == TrackKind::Master {
+            painter.line_segment(
+                [
+                    egui::pos2(lane_rect.left(), row_rect.top()),
+                    egui::pos2(lane_rect.right(), row_rect.top()),
+                ],
+                Stroke::new(1.0_f32, theme::GRID),
+            );
+        }
         painter.line_segment(
             [
                 egui::pos2(lane_rect.left(), row_rect.bottom()),

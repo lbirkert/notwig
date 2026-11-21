@@ -126,9 +126,7 @@ impl NotwigUi {
 
         let rows_top = ui.cursor().top();
         let master = doc.master_track();
-        let master_h = if master.is_some() { ROW_H } else { 0.0 };
         let rows_height = (ui.available_height() - SCROLLBAR_H - 4.0).max(60.0);
-        let tree_height = (rows_height - master_h).max(0.0);
         let tree_ids: Vec<TrackId> = visible_tracks(doc, &self.collapsed_tracks)
             .into_iter()
             .filter(|id| Some(*id) != master)
@@ -136,14 +134,10 @@ impl NotwigUi {
         let add_row_h = 28.0;
         let tree_rect = Rect::from_min_max(
             egui::pos2(ruler_rect.left(), rows_top),
-            egui::pos2(timeline_left, rows_top + tree_height),
+            egui::pos2(timeline_left, rows_top + rows_height),
         );
         let content_bg = Rect::from_min_max(
             egui::pos2(timeline_left, rows_top),
-            egui::pos2(ruler_rect.right(), rows_top + rows_height),
-        );
-        let master_rect = Rect::from_min_max(
-            egui::pos2(ruler_rect.left(), rows_top + tree_height),
             egui::pos2(ruler_rect.right(), rows_top + rows_height),
         );
         let background = ui.painter();
@@ -155,66 +149,60 @@ impl NotwigUi {
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                ui.allocate_ui_with_layout(
-                    Vec2::new(width, tree_height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("arranger_rows")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                for track_id in &tree_ids {
-                                    self.track_row(
-                                        ui, doc, *track_id, header_w, ppb, start, runtime, grid,
-                                    );
-                                }
-                                let (add_rect, add_resp) = ui.allocate_exact_size(
-                                    Vec2::new(header_w, add_row_h),
-                                    Sense::click(),
+                egui::ScrollArea::vertical()
+                    .id_salt("arranger_rows")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        for track_id in &tree_ids {
+                            self.track_row(
+                                ui, doc, *track_id, header_w, ppb, start, runtime, grid,
+                            );
+                        }
+                        let (add_rect, add_resp) = ui.allocate_exact_size(
+                            Vec2::new(header_w, add_row_h),
+                            Sense::click(),
+                        );
+                        let painter = ui.painter();
+                        painter.rect_filled(add_rect, CornerRadius::ZERO, theme::PANEL);
+                        painter.text(
+                            egui::pos2(add_rect.left() + 14.0, add_rect.center().y),
+                            Align2::LEFT_CENTER,
+                            "+ Add track",
+                            FontId::proportional(11.0),
+                            theme::TEXT_MUTED,
+                        );
+                        if add_resp.clicked() {
+                            self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+                        }
+                        add_resp.context_menu(|ui| {
+                            if ui.button("Add audio track").clicked() {
+                                self.emit(UiIntent::CreateTrack(TrackKind::Audio));
+                                ui.close();
+                            }
+                            if ui.button("Add instrument track").clicked() {
+                                self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
+                                ui.close();
+                            }
+                            if ui.button("Add group track").clicked() {
+                                self.emit(UiIntent::CreateTrack(TrackKind::Group));
+                                ui.close();
+                            }
+                        });
+                        if let Some(master) = master {
+                            // Fill the remaining viewport so the master lane sits at
+                            // the bottom while lanes fit, but is pushed down once the
+                            // lane list overflows.
+                            let spacer = (ui.available_height() - ROW_H).max(0.0);
+                            if spacer > 0.0 {
+                                ui.allocate_exact_size(
+                                    Vec2::new(ui.available_width(), spacer),
+                                    Sense::hover(),
                                 );
-                                let painter = ui.painter();
-                                painter.rect_filled(add_rect, CornerRadius::ZERO, theme::PANEL);
-                                painter.text(
-                                    egui::pos2(add_rect.left() + 14.0, add_rect.center().y),
-                                    Align2::LEFT_CENTER,
-                                    "+ Add track",
-                                    FontId::proportional(11.0),
-                                    theme::TEXT_MUTED,
-                                );
-                                if add_resp.clicked() {
-                                    self.emit(UiIntent::CreateTrack(TrackKind::Audio));
-                                }
-                                add_resp.context_menu(|ui| {
-                                    if ui.button("Add audio track").clicked() {
-                                        self.emit(UiIntent::CreateTrack(TrackKind::Audio));
-                                        ui.close();
-                                    }
-                                    if ui.button("Add instrument track").clicked() {
-                                        self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
-                                        ui.close();
-                                    }
-                                    if ui.button("Add group track").clicked() {
-                                        self.emit(UiIntent::CreateTrack(TrackKind::Group));
-                                        ui.close();
-                                    }
-                                });
-                            });
-                    },
-                );
-                if let Some(master) = master {
-                    let lane_left = master_rect.left() + header_w.min(master_rect.width());
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(lane_left, master_rect.top()),
-                            egui::pos2(master_rect.right(), master_rect.top()),
-                        ],
-                        Stroke::new(1.0_f32, theme::GRID),
-                    );
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(master_rect), |ui| {
-                        self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
+                            }
+                            self.track_row(ui, doc, master, header_w, ppb, start, runtime, grid);
+                        }
                     });
-                }
             },
         );
 

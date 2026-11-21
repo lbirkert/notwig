@@ -931,7 +931,7 @@ fn copy_and_paste_events_use_the_current_selection() {
     );
 }
 #[test]
-fn master_track_is_pinned_below_the_scrolling_lane_list() {
+fn master_track_follows_the_lane_list() {
     let doc = doc();
     let master = doc.master_track().expect("master");
     let mut ui = NotwigUi::default();
@@ -951,7 +951,7 @@ fn master_track_is_pinned_below_the_scrolling_lane_list() {
     let track_rect = *ui.track_rows.get(&id::<Track>(2)).expect("instrument row");
     assert!(
         master_rect.top() >= track_rect.bottom(),
-        "master should be pinned below scrolling tracks"
+        "master should follow the scrolling lane list"
     );
 }
 #[test]

@@ -53,7 +53,9 @@ The arranger contains the track headers and the timeline.
 - Click the **+ Add track** row to create a track. Right-click it to choose the
   track kind.
 
-The master track is pinned below the other tracks.
+The master track sits below the other tracks: at the bottom of the arranger
+while the lane list fits, and pushed down into the scroll flow once the list
+grows beyond the visible area.
 
 ## Info panel
 

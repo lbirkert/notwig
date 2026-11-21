@@ -201,7 +201,7 @@ fn white_vertical_lines(output: &egui::FullOutput) -> Vec<[Pos2; 2]> {
 }
 
 #[test]
-fn master_lane_is_pinned_to_the_bottom_of_the_arranger() {
+fn master_lane_sits_at_the_bottom_when_lanes_fit() {
     let doc = with_track(&empty_doc(), 2, TrackKind::Instrument);
     let master = doc.master_track().expect("master track");
     let (ui, _, _, _) = mount(&doc, 900.0);
@@ -209,11 +209,31 @@ fn master_lane_is_pinned_to_the_bottom_of_the_arranger() {
     let track_rect = *ui.track_rows.get(&id::<Track>(2)).expect("track row");
     assert!(
         master_rect.top() >= track_rect.bottom(),
-        "master should stay below the scrolling lane list"
+        "master should stay below the lane list"
     );
     assert!(
         (ui.arranger_rect.bottom() - master_rect.bottom()).abs() < 40.0,
-        "master should sit at the bottom of the arranger"
+        "master should sit at the bottom of the arranger while lanes fit"
+    );
+}
+
+#[test]
+fn master_lane_is_pushed_down_when_the_lane_list_overflows() {
+    let mut doc = empty_doc();
+    for n in 2..=20 {
+        doc = with_track(&doc, n, TrackKind::Instrument);
+    }
+    let master = doc.master_track().expect("master track");
+    let (ui, _, _, _) = mount(&doc, 900.0);
+    let master_rect = *ui.track_rows.get(&master).expect("master row");
+    let last_rect = *ui.track_rows.get(&id::<Track>(20)).expect("last track row");
+    assert!(
+        master_rect.top() >= last_rect.bottom() - 0.5,
+        "master should follow the growing lane list instead of pinning to the viewport"
+    );
+    assert!(
+        master_rect.bottom() > ui.arranger_rect.bottom(),
+        "master should scroll below the visible arranger when lanes overflow"
     );
 }
 
