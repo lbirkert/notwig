@@ -26,7 +26,7 @@ jobs:
           - os: ubuntu-latest
             target: wasm
             rust_targets: wasm32-unknown-unknown
-          - os: macos-14
+          - os: macos-15
             target: macos-aarch64
             rust_targets: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
