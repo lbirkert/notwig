@@ -1,10 +1,12 @@
 use egui::{Id, Rect, Vec2};
 use notwig_core::TimeMus;
 
+use crate::widgets::SnapSettings;
+
 use super::geometry::{ROW_HEIGHT, clamp_pitch_scroll};
 use super::state::MidiEditorState;
 
-pub(super) const SCROLLBAR_H: f32 = 14.0;
+pub(super) const SCROLLBAR_H: f32 = 18.0;
 
 /// Updates the viewport in place from this frame's zoom and pan input.
 ///
@@ -61,23 +63,27 @@ pub(super) fn midi_editor_navigation(
 pub(super) fn midi_editor_scrollbar(
     ui: &mut egui::Ui,
     state: &mut MidiEditorState,
+    snap: &mut SnapSettings,
     rect: Rect,
     content: Rect,
     content_end: TimeMus,
     ppb: f32,
+    beats_per_bar: u8,
 ) {
     let bar = Rect::from_min_size(
         egui::pos2(rect.left(), rect.bottom() - SCROLLBAR_H + 2.0),
         Vec2::new(rect.width(), SCROLLBAR_H - 2.0),
     );
+    let scroll_right = bar.right() - crate::timeline::CONTROLS_WIDTH - 8.0;
     let track = Rect::from_min_max(
-        egui::pos2(content.left() + 4.0, bar.top() + 3.0),
-        egui::pos2(bar.right() - 4.0, bar.bottom() - 3.0),
+        egui::pos2(content.left() + 4.0, bar.top() + 4.0),
+        egui::pos2(scroll_right - 4.0, bar.bottom() - 4.0),
     );
     let visible = f64::from((content.width() / ppb.max(0.001)).max(1.0));
+    let scroll_rect = Rect::from_min_max(bar.min, egui::pos2(scroll_right, bar.bottom()));
     if let Some(start) = crate::timeline::horizontal_scrollbar(
         ui,
-        bar,
+        scroll_rect,
         track,
         content_end.as_f64(),
         visible,
@@ -86,4 +92,12 @@ pub(super) fn midi_editor_scrollbar(
     ) {
         state.viewport.start = start;
     }
+    let controls = Rect::from_min_max(
+        egui::pos2(
+            bar.right() - crate::timeline::CONTROLS_WIDTH - 4.0,
+            bar.top(),
+        ),
+        egui::pos2(bar.right() - 4.0, bar.bottom()),
+    );
+    crate::timeline::snap_controls(ui, controls, "midi-editor", snap, ppb, beats_per_bar);
 }

@@ -119,7 +119,7 @@ impl NotwigUi {
                 .filter(|drag| drag.edge == BarSelectionEdge::Body)
             {
                 let current = drag_current_pos(ui, &body_response, drag.start_pointer);
-                let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+                let bypass = self.state.snap.bypassed(ui.input(|i| i.modifiers));
                 let delta = pointer_delta(drag.start_pointer, current, ppb);
                 let requested = snapped_delta(drag.origin.start, delta, grid, bypass);
                 let preview_start = drag.origin.start + requested;
@@ -138,7 +138,7 @@ impl NotwigUi {
             && let Some(drag) = self.bar_selection_drag.take()
         {
             let current = drag_current_pos(ui, &body_response, drag.start_pointer);
-            let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+            let bypass = self.state.snap.bypassed(ui.input(|i| i.modifiers));
             let delta = pointer_delta(drag.start_pointer, current, ppb);
             let requested = snapped_delta(drag.origin.start, delta, grid, bypass);
             if requested != TimeMus::zero() {
@@ -183,7 +183,7 @@ impl NotwigUi {
         {
             let current = drag_current_pos(ui, response, drag.start_pointer);
             let delta = pointer_delta(drag.start_pointer, current, ppb);
-            let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+            let bypass = self.state.snap.bypassed(ui.input(|i| i.modifiers));
             let core_edge = match edge {
                 BarSelectionEdge::Start => Edge::Start,
                 BarSelectionEdge::End => Edge::End,

@@ -2,24 +2,36 @@ use egui::{Painter, Rect, Stroke};
 use notwig_core::TimeMus;
 
 use crate::theme;
-use crate::widgets::{snap_step, snap_time};
+use crate::widgets::{SnapSettings, snap_step_label};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TimelineGrid {
     pub start: TimeMus,
     pub pixels_per_beat: f32,
     pub beats_per_bar: u8,
+    /// Step used to paint visible grid lines.
     pub step: TimeMus,
+    /// Step used by snapping gestures.
+    pub snap_step: TimeMus,
+    pub snap_enabled: bool,
 }
 
 impl TimelineGrid {
     #[must_use]
-    pub fn new(start: TimeMus, pixels_per_beat: f32, beats_per_bar: u8) -> Self {
+    pub fn new(
+        start: TimeMus,
+        pixels_per_beat: f32,
+        beats_per_bar: u8,
+        snap: SnapSettings,
+    ) -> Self {
+        let step = snap.display_step(pixels_per_beat, beats_per_bar);
         Self {
             start,
             pixels_per_beat,
             beats_per_bar: beats_per_bar.max(1),
-            step: snap_step(pixels_per_beat, beats_per_bar),
+            step,
+            snap_step: snap.step(pixels_per_beat, beats_per_bar),
+            snap_enabled: snap.enabled,
         }
     }
 
@@ -36,7 +48,17 @@ impl TimelineGrid {
 
     #[must_use]
     pub fn snap(self, beat: TimeMus, bypass: bool) -> TimeMus {
-        snap_time(beat, self.step, bypass)
+        crate::widgets::snap_time(beat, self.snap_step, !self.snap_enabled || bypass)
+    }
+
+    #[must_use]
+    pub fn bypassed(self, modifiers: egui::Modifiers) -> bool {
+        !self.snap_enabled || modifiers.shift || modifiers.alt
+    }
+
+    #[must_use]
+    pub fn step_label(self) -> String {
+        snap_step_label(self.step, self.beats_per_bar)
     }
 
     pub fn draw(self, painter: &Painter, rect: Rect) {
@@ -59,19 +81,25 @@ impl TimelineGrid {
             }
             let strong = (beat / bar_len).fract().abs() < 1e-6;
             let beat_line = beat.fract().abs() < 1e-6;
+            let color = if strong {
+                egui::Color32::from_rgb(92, 97, 112)
+            } else if beat_line {
+                theme::GRID_STRONG
+            } else {
+                theme::GRID
+            };
             painter.line_segment(
                 [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                Stroke::new(
-                    1.0_f32,
-                    if strong {
-                        egui::Color32::from_rgb(92, 97, 112)
-                    } else if beat_line {
-                        theme::GRID_STRONG
-                    } else {
-                        theme::GRID
-                    },
-                ),
+                Stroke::new(1.0_f32, grid_color(color, self.snap_enabled)),
             );
         }
+    }
+}
+
+pub(crate) fn grid_color(color: egui::Color32, snap_enabled: bool) -> egui::Color32 {
+    if snap_enabled {
+        color
+    } else {
+        color.gamma_multiply(0.55)
     }
 }

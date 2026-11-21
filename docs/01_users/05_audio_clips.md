@@ -51,7 +51,7 @@ losing it.
 
 Trim advances or reduces the source window; it never stretches the audio. A
 start trim moves the first audible sample, and an end trim changes the last
-sample. Event moves and trims snap to the visible grid unless you hold **Alt**.
+sample. Event moves and trims snap to the visible grid unless you hold **Shift** or **Alt**.
 
 Paste places the clipboard at the time selection start, or at the playhead when
 there is no time selection. Destination content is cleared first. Pasting an

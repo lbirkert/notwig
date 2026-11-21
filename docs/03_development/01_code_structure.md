@@ -194,11 +194,12 @@ frame that carries input and returns draw commands plus host actions.
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
 | `widgets/` | Knobs, faders, draggable numbers, form helpers, brand assets, icons, theme |
-| `widgets/timeline/` | Shared beat strip, clip visuals, grid, selection, drop preview, interaction math |
+| `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
+| `widgets/timeline/` | Shared beat strip, clip visuals, grid, snap controls, selection, drop preview, interaction math |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
-| `state.rs` | Selection, viewport, open editor, notifications, edit focus |
+| `state.rs` | Selection, viewport, global snap settings, open editor, notifications, edit focus |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
 

@@ -6,6 +6,7 @@ mod grid;
 pub(crate) mod interaction;
 mod playhead;
 mod selection;
+mod snap_controls;
 
 use egui::{CornerRadius, Id, Rect, Sense};
 use notwig_core::TimeMus;
@@ -16,9 +17,10 @@ pub(crate) use beat_strip::{BeatStrip, BeatStripAction, draw_playhead};
 pub(crate) use clip::*;
 pub(crate) use clip_chrome::{ClipChrome, ClipChromeDrag, ClipChromeEdge, draw_clip_chrome};
 pub(crate) use drop_preview::draw_drop_preview;
-pub(crate) use grid::TimelineGrid;
+pub(crate) use grid::{TimelineGrid, grid_color};
 pub(crate) use playhead::playhead_for_strip;
 pub(crate) use selection::{draw_time_selection_fill, draw_time_selection_markers};
+pub(crate) use snap_controls::{CONTROLS_WIDTH, show as snap_controls};
 
 pub(crate) fn horizontal_scrollbar(
     ui: &mut egui::Ui,
@@ -62,6 +64,7 @@ pub(crate) fn horizontal_scrollbar(
 pub mod test_api {
     pub use super::clip::test_api as clip;
     pub use super::grid::TimelineGrid;
+    pub use super::snap_controls::test_api as snap_controls;
 
     pub fn pointer_delta(start: egui::Pos2, current: egui::Pos2, ppb: f32) -> f64 {
         super::interaction::pointer_delta(start, current, ppb)

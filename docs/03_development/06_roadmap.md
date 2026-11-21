@@ -133,8 +133,8 @@ Dependencies worth planning around:
 | Time selection create and move | ✅ Implemented | ⭐⭐⭐⭐⭐ |  |
 | Time selection copy, cut, paste, duplicate, delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | Shared edit algebra with the app. |
 | Time selection edge trim | 📋 Planned | ⭐⭐⭐ | In and out markers are painted but not draggable. |
-| Adaptive snap grid | ✅ Implemented | ⭐⭐⭐⭐ | Snap step changes with zoom. |
-| User grid and snap settings | 📋 Planned | ⭐⭐⭐⭐ | No grid selector or snap toggle. |
+| Adaptive snap grid | ✅ Implemented | ⭐⭐⭐⭐ | Uses a 40 px minimum spacing and follows zoom. |
+| User grid and snap settings | ✅ Implemented | ⭐⭐⭐⭐ | Global snap toggle plus adaptive/manual levels from 2/1 to 1/65536. |
 | Zoom and pan | ✅ Implemented | ⭐⭐⭐⭐⭐ | Pinch zoom, middle-drag pan, and zoom to fit. |
 | Audio drag and drop | ✅ Implemented | ⭐⭐⭐⭐⭐ | Drops onto a track, a new track, or the audio editor. |
 | Clip gain | 🧪 Partial | ⭐⭐⭐⭐ | Core and engine support it. No editor. |

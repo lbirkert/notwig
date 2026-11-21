@@ -36,10 +36,11 @@ pub enum Icon {
     Sliders,
     Clip,
     MoveHorizontal,
+    Snap,
 }
 
 impl Icon {
-    fn glyph(self) -> char {
+    pub(crate) fn glyph(self) -> char {
         match self {
             Self::Play => '\u{e13c}',                   // play
             Self::Pause => '\u{e12e}',                  // pause
@@ -65,6 +66,7 @@ impl Icon {
             Self::Search => '\u{e151}',                 // search
             Self::Clip => '\u{e29b}',                   // clapperboard
             Self::MoveHorizontal => '\u{e1c6}',         // move-horizontal
+            Self::Snap => '\u{e2b5}',                   // magnet
         }
     }
 }

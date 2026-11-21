@@ -71,9 +71,14 @@ impl NotwigUi {
         header_w: f32,
         ppb: f32,
     ) {
+        let controls_w = crate::timeline::CONTROLS_WIDTH + 8.0;
+        let scroll_rect = Rect::from_min_max(
+            bar_rect.min,
+            egui::pos2(bar_rect.right() - controls_w, bar_rect.bottom()),
+        );
         let track = Rect::from_min_max(
-            egui::pos2(bar_rect.left() + header_w + 4.0, bar_rect.top() + 3.0),
-            egui::pos2(bar_rect.right() - 4.0, bar_rect.bottom() - 3.0),
+            egui::pos2(scroll_rect.left() + header_w + 4.0, bar_rect.top() + 4.0),
+            egui::pos2(scroll_rect.right() - 4.0, bar_rect.bottom() - 4.0),
         );
         let content_end = doc
             .arranger
@@ -82,10 +87,11 @@ impl NotwigUi {
             .map(|clip| clip.range.end.as_f64())
             .fold(8.0_f64, f64::max)
             + 4.0;
-        let visible = f64::from(((bar_rect.right() - bar_rect.left() - header_w) / ppb).max(1.0));
+        let visible =
+            f64::from(((scroll_rect.right() - scroll_rect.left() - header_w) / ppb).max(1.0));
         if let Some(start) = crate::timeline::horizontal_scrollbar(
             ui,
-            bar_rect,
+            scroll_rect,
             track,
             content_end,
             visible,
@@ -94,5 +100,22 @@ impl NotwigUi {
         ) {
             self.state.viewport.start = start;
         }
+        let controls = Rect::from_min_max(
+            egui::pos2(
+                bar_rect.right() - crate::timeline::CONTROLS_WIDTH - 4.0,
+                bar_rect.top(),
+            ),
+            egui::pos2(bar_rect.right() - 4.0, bar_rect.bottom()),
+        );
+        let mut snap = self.state.snap;
+        crate::timeline::snap_controls(
+            ui,
+            controls,
+            "arranger",
+            &mut snap,
+            ppb,
+            doc.meta.time_sig_num.max(1),
+        );
+        self.state.snap = snap;
     }
 }

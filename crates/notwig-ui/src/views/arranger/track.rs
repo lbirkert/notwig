@@ -26,6 +26,7 @@ impl NotwigUi {
         let Some(track) = doc.tracks.get(&track_id) else {
             return;
         };
+        let snap = self.state.snap;
         let width = ui.available_width().max(320.0);
         let (row_rect, _) = ui.allocate_exact_size(Vec2::new(width, ROW_H), Sense::hover());
         self.track_rows.insert(track_id, row_rect);
@@ -382,12 +383,12 @@ impl NotwigUi {
                 start,
                 ppb,
                 grid,
-                ui.input(|i| i.modifiers.shift),
+                snap.bypassed(ui.input(|i| i.modifiers)),
             );
         }
         if lane_resp.clicked() {
             if let Some(pos) = lane_resp.interact_pointer_pos() {
-                let shift = ui.input(|i| i.modifiers.shift);
+                let shift = snap.bypassed(ui.input(|i| i.modifiers));
                 let beat = snap_time(
                     self.state.viewport.x_to_beat(pos.x, lane_rect.left()),
                     grid,
@@ -403,7 +404,7 @@ impl NotwigUi {
                 .input(|i| i.pointer.press_origin())
                 .or_else(|| lane_resp.interact_pointer_pos())
             {
-                let shift = ui.input(|i| i.modifiers.shift);
+                let shift = snap.bypassed(ui.input(|i| i.modifiers));
                 let beat = snap_time(
                     self.state.viewport.x_to_beat(pos.x, lane_rect.left()),
                     grid,
@@ -421,7 +422,7 @@ impl NotwigUi {
         if lane_resp.dragged() {
             if let Some(drag) = self.time_drag {
                 if let Some(pos) = lane_resp.interact_pointer_pos() {
-                    let shift = ui.input(|i| i.modifiers.shift);
+                    let shift = snap.bypassed(ui.input(|i| i.modifiers));
                     let beat = snap_time(
                         self.state.viewport.x_to_beat(pos.x, lane_rect.left()),
                         grid,
@@ -565,7 +566,7 @@ impl NotwigUi {
         {
             crate::timeline::draw_time_selection_fill(
                 &painter,
-                TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1)),
+                TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1), snap),
                 lane_rect.left(),
                 lane_rect,
                 time.range,

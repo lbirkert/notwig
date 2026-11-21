@@ -1,6 +1,7 @@
 mod draggable_number;
 mod fader;
 mod knob;
+mod snap;
 
 pub(crate) mod brand;
 pub(crate) mod drop_target;
@@ -12,25 +13,13 @@ pub(crate) mod timeline;
 pub(crate) use draggable_number::draggable_number;
 pub(crate) use fader::{DB_MAX, DB_MIN, volume_fader};
 pub(crate) use knob::knob;
+pub use snap::{
+    SNAP_LEVELS, SnapLevel, SnapSettings, adaptive_step, snap_step, snap_step_label, snap_time,
+};
 
 use egui::{Color32, Id, Rect, Sense, Vec2};
 use notwig_core::{Db, TimeMus};
 use notwig_dsp::Unit;
-
-pub fn snap_step(pixels_per_beat: f32, beats_per_bar: u8) -> TimeMus {
-    let bar = f64::from(beats_per_bar.max(1));
-    // An eighth note (0.5 beat) is the finest default snap. Coarser steps
-    // replace it as the view zooms out so grid lines stay legible.
-    let candidates = [1.0 / 2.0, 1.0, bar, bar * 2.0, bar * 4.0, bar * 8.0];
-    let mut chosen = *candidates.last().expect("grid candidates");
-    for step in candidates {
-        if (step as f32) * pixels_per_beat >= 12.0 {
-            chosen = step;
-            break;
-        }
-    }
-    TimeMus::new((chosen * 1_000_000.0).round() as i64, 1_000_000)
-}
 
 pub fn snap_label(step: TimeMus, beats_per_bar: u8) -> String {
     let beats = step.as_f64();
@@ -53,16 +42,6 @@ pub fn snap_label(step: TimeMus, beats_per_bar: u8) -> String {
         let denominator = (1.0 / beats).round() as i64;
         format!("1/{denominator} SNAP")
     }
-}
-
-pub fn snap_time(time: TimeMus, step: TimeMus, bypass: bool) -> TimeMus {
-    if bypass || step.is_zero() {
-        return time;
-    }
-    let beats = time.as_f64();
-    let step_beats = step.as_f64();
-    let snapped = (beats / step_beats).round() * step_beats;
-    TimeMus::new((snapped * 1_000_000.0).round() as i64, 1_000_000)
 }
 
 pub fn snap_16(time: TimeMus, bypass: bool) -> TimeMus {

@@ -9,7 +9,6 @@ use crate::state::Viewport;
 use crate::theme;
 use crate::timeline::interaction::{drag_current_pos, drag_start_pos};
 use crate::timeline::{ClipChrome, ClipChromeDrag, ClipChromeEdge, TimelineGrid};
-use crate::widgets::snap_step;
 
 use super::actions::{apply_slice_edit, handle_clip_editor_actions};
 use super::geometry::{finish_slice_drag, group_move_shift, group_starts, slice_geometry};
@@ -19,7 +18,7 @@ use super::state::{BarDrag, ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, 
 
 const CLIP_HEADER_W: f32 = 120.0;
 const RULER_H: f32 = 38.0;
-const SCROLLBAR_H: f32 = 14.0;
+const SCROLLBAR_H: f32 = 18.0;
 
 pub(super) fn playhead_for_strip(runtime: &RuntimeView) -> TimeMus {
     crate::timeline::playhead_for_strip(runtime)
@@ -65,6 +64,7 @@ impl NotwigUi {
         }
         let clip_start = clip.range.start;
         let display_range = state.preview_range.unwrap_or(clip.range);
+        let mut snap = self.state.snap;
 
         handle_clip_editor_actions(
             self,
@@ -113,8 +113,9 @@ impl NotwigUi {
                     .pixels_per_beat
                     .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
                 let beats_per_bar = doc.meta.time_sig_num.max(1);
-                let grid = snap_step(ppb, beats_per_bar);
-                let timeline_grid = TimelineGrid::new(state.viewport.start, ppb, beats_per_bar);
+                let grid = snap.step(ppb, beats_per_bar);
+                let timeline_grid =
+                    TimelineGrid::new(state.viewport.start, ppb, beats_per_bar, snap);
                 let clip_start_x = timeline_grid.x_for_beat(display_range.start, content.left());
                 let clip_end_x = timeline_grid.x_for_beat(display_range.end, content.left());
 
@@ -163,7 +164,7 @@ impl NotwigUi {
                 );
                 if bg_resp.clicked() {
                     if let Some(pos) = bg_resp.interact_pointer_pos() {
-                        let bypass = ui.input(|input| input.modifiers.shift);
+                        let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                         let beat = timeline_grid
                             .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
                             .max(TimeMus::zero());
@@ -174,7 +175,7 @@ impl NotwigUi {
                 }
                 if bg_resp.drag_started() {
                     if let Some(pos) = drag_start_pos(ui, &bg_resp) {
-                        let bypass = ui.input(|input| input.modifiers.shift);
+                        let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                         let beat = timeline_grid
                             .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
                             .max(TimeMus::zero());
@@ -188,7 +189,7 @@ impl NotwigUi {
                     if let (Some(origin), Some(pos)) =
                         (state.range_start, bg_resp.interact_pointer_pos())
                     {
-                        let bypass = ui.input(|input| input.modifiers.shift);
+                        let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                         let beat = timeline_grid
                             .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
                             .max(TimeMus::zero());
@@ -204,7 +205,7 @@ impl NotwigUi {
                     clear_empty_time_selection(&mut state);
                 }
 
-                let bypass = ui.input(|input| input.modifiers.alt);
+                let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                 let slices = editor_slices(&clip, &audio);
                 let drag_pointer = ui
                     .input(|input| input.pointer.hover_pos())
@@ -458,7 +459,7 @@ impl NotwigUi {
                     }
                     if body_resp.drag_started() {
                         if let Some(pos) = drag_start_pos(ui, &body_resp) {
-                            let bypass = ui.input(|input| input.modifiers.shift);
+                            let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                             let beat = timeline_grid
                                 .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
                                 .max(TimeMus::zero());
@@ -472,7 +473,7 @@ impl NotwigUi {
                         && let (Some(origin), Some(pos)) =
                             (state.range_start, body_resp.interact_pointer_pos())
                     {
-                        let bypass = ui.input(|input| input.modifiers.shift);
+                        let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                         let beat = timeline_grid
                             .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
                             .max(TimeMus::zero());
@@ -725,7 +726,17 @@ impl NotwigUi {
                     .max()
                     .unwrap_or(clip.range.end);
                 let content_end = event_end.max(clip.range.end) + TimeMus::new(4, 1);
-                clip_editor_scrollbar(ui, &mut state, rect, content, content_end, ppb);
+                clip_editor_scrollbar(
+                    ui,
+                    &mut state,
+                    &mut snap,
+                    rect,
+                    content,
+                    content_end,
+                    ppb,
+                    beats_per_bar,
+                );
+                self.state.snap = snap;
                 true
             },
         );

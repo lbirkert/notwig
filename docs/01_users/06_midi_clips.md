@@ -55,7 +55,7 @@ Creating a note replaces any existing note it would overlap.
 | Delete | **Delete** |
 
 Moves and resizes are collision-aware: a note is trimmed instead of overlapping
-another note on the same pitch. Hold **Alt** to bypass snapping.
+another note on the same pitch. Hold **Shift** or **Alt** to bypass snapping.
 
 The editor previews a note when you create it, select it, move it, or change its
 velocity on the keyboard. Playing notes are highlighted while the transport

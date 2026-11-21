@@ -29,6 +29,7 @@ impl NotwigUi {
         let Some(clip) = doc.arranger.clips.get(&clip_id) else {
             return;
         };
+        let snap = self.state.snap;
         let preview = self
             .group_preview
             .iter()
@@ -47,7 +48,7 @@ impl NotwigUi {
             clip,
             range,
             lane_rect,
-            TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1)),
+            TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1), snap),
             &runtime.waveforms,
             selected,
             preview.is_some(),
@@ -207,10 +208,11 @@ impl NotwigUi {
         ppb: f32,
         grid: TimeMus,
     ) {
+        let snap = self.state.snap;
         if response.dragged() {
             if let Some(drag) = self.group_drag.clone() {
                 let current = drag_current_pos(ui, response, drag.start_pointer);
-                let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+                let bypass = snap.bypassed(ui.input(|i| i.modifiers));
                 let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
                 let primary_start = snap_time(
                     TimeMus::new(
@@ -267,10 +269,11 @@ impl NotwigUi {
         ppb: f32,
         grid: TimeMus,
     ) {
+        let snap = self.state.snap;
         if response.dragged() {
             if let Some(drag) = self.drag.filter(|drag| drag.clip_id == clip_id) {
                 let current = drag_current_pos(ui, response, drag.start_pointer);
-                let bypass = ui.input(|i| i.modifiers.alt || i.modifiers.shift);
+                let bypass = snap.bypassed(ui.input(|i| i.modifiers));
                 let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
                 let range = drag_range(drag, delta, bypass, grid);
                 let target = if drag.mode == ClipDragMode::Move {

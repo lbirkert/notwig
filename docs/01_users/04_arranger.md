@@ -101,8 +101,16 @@ MIDI clips open the MIDI editor.
 - **Cmd+0** fits the whole arrangement.
 - Use the horizontal scrollbar below the lanes to scroll precisely.
 
-The visible snap grid changes with zoom. An eighth note is the finest default
-snap; the grid coarsens to beats and bars as you zoom out. The grid is always
-based on the project time signature.
+The compact snap controls sit at the right end of the horizontal scrollbar and
+appear in the same place in both clip editors. The magnet button toggles
+snapping for every editor; when it is off, the grid is dimmed. The grid label
+opens grid settings:
+
+- **Adaptive** follows the zoom level and picks the finest subdivision that
+  still leaves at least 40 px between grid lines.
+- With adaptive off, choose an explicit note value from **2/1** down to
+  **1/65536** (including **1/8**).
+
+Hold **Shift** or **Alt** to bypass snapping for a gesture.
 
 Next: [Audio Clips](05_audio_clips.md).

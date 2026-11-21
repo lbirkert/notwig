@@ -124,7 +124,7 @@ pub(super) fn handle_midi_editor_actions(
         } else {
             let beat = paste_target(None, playhead);
             let at = content_time_from_beat(beat, clip.range.start, midi.content_start);
-            snap_time(at.max(TimeMus::zero()), grid, false)
+            snap_time(at.max(TimeMus::zero()), grid, !ui.state.snap.enabled)
         };
         let plan = {
             let model = MidiModel::new(midi);

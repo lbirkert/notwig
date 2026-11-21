@@ -32,7 +32,8 @@ pub use views::settings::SettingsCategory;
 pub use waveform::{AudioWaveform, WaveformCache};
 pub use widgets::icons::Icon;
 pub use widgets::{
-    format_beats, format_db, format_param, snap_16, snap_label, snap_step, snap_time,
+    SNAP_LEVELS, SnapLevel, SnapSettings, adaptive_step, format_beats, format_db, format_param,
+    snap_16, snap_label, snap_step, snap_step_label, snap_time,
 };
 
 #[doc(hidden)]

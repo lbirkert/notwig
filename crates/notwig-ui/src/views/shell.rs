@@ -1358,12 +1358,13 @@ impl NotwigUi {
             crate::state::Viewport::MIN_PPB,
             crate::state::Viewport::MAX_PPB,
         );
-        let grid = crate::widgets::snap_step(ppb, doc.meta.time_sig_num);
-        let absolute = crate::widgets::snap_time(
+        let snap = self.state.snap;
+        let absolute = snap.snap(
             state
                 .viewport
                 .x_to_beat(pointer.x, self.clip_editor_content_rect.left()),
-            grid,
+            ppb,
+            doc.meta.time_sig_num,
             false,
         );
         let at = absolute - clip.range.start;
@@ -1409,13 +1410,11 @@ impl NotwigUi {
                 self.drag_preview = None;
                 return;
             };
-            let grid = crate::widgets::snap_step(
+            let snap = self.state.snap;
+            let at = snap.snap(
+                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
                 self.state.viewport.pixels_per_beat,
                 doc.meta.time_sig_num,
-            );
-            let at = crate::widgets::snap_time(
-                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
-                grid,
                 false,
             );
             (target, at)
@@ -1566,13 +1565,11 @@ impl NotwigUi {
             }
             let target =
                 crate::drop_target::resolve_drop_target(doc, &self.last_track_rows, pointer.y)?;
-            let grid = crate::widgets::snap_step(
+            let snap = self.state.snap;
+            let at = snap.snap(
+                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
                 self.state.viewport.pixels_per_beat,
                 doc.meta.time_sig_num,
-            );
-            let at = crate::widgets::snap_time(
-                self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
-                grid,
                 false,
             );
             Some((target, at))

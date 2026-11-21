@@ -2,6 +2,8 @@ use std::collections::BTreeSet;
 
 use notwig_core::{ClipId, DeviceId, NoteId, RangeMus, TimeMus, TrackId};
 
+use crate::widgets::SnapSettings;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectionGroup<T: Ord> {
     items: BTreeSet<T>,
@@ -410,6 +412,7 @@ impl Notification {
 pub struct UiState {
     pub selection: Selection,
     pub viewport: Viewport,
+    pub snap: SnapSettings,
     pub notifications: Vec<Notification>,
     pub peak_hold: std::collections::BTreeMap<TrackId, f32>,
     /// Last timestamp passed to [`UiState::expire_notifications`]. Notifications

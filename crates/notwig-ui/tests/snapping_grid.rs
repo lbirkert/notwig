@@ -1,5 +1,8 @@
+use egui::Modifiers;
 use notwig_core::TimeMus;
-use notwig_ui::{snap_step, snap_time};
+use notwig_ui::{
+    SNAP_LEVELS, SnapLevel, SnapSettings, adaptive_step, snap_step, snap_step_label, snap_time,
+};
 
 const ZOOM_LEVELS: [f32; 12] = [
     1.0,
@@ -15,19 +18,6 @@ const ZOOM_LEVELS: [f32; 12] = [
     10_000.0,
     1_000_000.0,
 ];
-
-#[test]
-fn snap_step_never_goes_below_an_eighth_note() {
-    for ppb in ZOOM_LEVELS {
-        for beats_per_bar in [1u8, 2, 3, 4, 6, 7, 12] {
-            let step = snap_step(ppb, beats_per_bar);
-            assert!(
-                step >= TimeMus::new(1, 2),
-                "step {step} at {ppb} px/beat in {beats_per_bar}/4 is finer than an eighth note"
-            );
-        }
-    }
-}
 
 #[test]
 fn snap_step_is_monotonic_as_zoom_increases() {
@@ -47,15 +37,97 @@ fn snap_step_is_monotonic_as_zoom_increases() {
 }
 
 #[test]
-fn snap_step_keeps_chosen_grid_readable() {
-    for ppb in ZOOM_LEVELS {
+fn snap_step_keeps_chosen_grid_readable_when_zoomed_in() {
+    for ppb in ZOOM_LEVELS.into_iter().filter(|ppb| *ppb >= 40.0) {
         let step = snap_step(ppb, 4);
         let pixels = step.as_f64() as f32 * ppb;
         assert!(
-            pixels >= 12.0 - 1e-3 || step == TimeMus::new(1, 2),
+            pixels >= 40.0 - 1e-3,
             "step {step} is only {pixels} px wide at {ppb} px/beat"
         );
     }
+}
+
+#[test]
+fn adaptive_mode_uses_larger_spacing_than_the_old_twelve_pixel_grid() {
+    // The previous implementation picked a 1/8 note (0.5 beats) at the
+    // default zoom; the new threshold intentionally picks a whole beat.
+    assert_eq!(adaptive_step(64.0, 4), TimeMus::new(1, 1));
+    assert_eq!(snap_step(64.0, 4), TimeMus::new(1, 1));
+}
+
+#[test]
+fn manual_levels_cover_the_supported_range_including_eighth_notes() {
+    let labels: Vec<String> = SNAP_LEVELS.iter().map(|level| level.label()).collect();
+    assert!(labels.contains(&"1/8".to_string()));
+    assert_eq!(labels.first().map(String::as_str), Some("2/1"));
+    assert_eq!(labels.last().map(String::as_str), Some("1/65536"));
+    for expected in [
+        "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256", "1/512",
+        "1/1024", "1/2048", "1/4096", "1/8192", "1/16384", "1/32768", "1/65536",
+    ] {
+        assert!(
+            labels.iter().any(|label| label == expected),
+            "missing snap level {expected}"
+        );
+    }
+}
+
+#[test]
+fn manual_level_snaps_to_the_selected_note_value() {
+    let snap = SnapSettings {
+        enabled: true,
+        adaptive: false,
+        level: SnapLevel::new(1, 8),
+    };
+    let five_sixteenths = TimeMus::new(5, 16);
+    assert_eq!(
+        snap.snap(five_sixteenths, 64.0, 4, false),
+        TimeMus::new(1, 2)
+    );
+    assert_eq!(snap.step(64.0, 4), TimeMus::new(1, 2));
+    assert_eq!(snap_step_label(snap.step(64.0, 4), 4), "1/8");
+}
+
+#[test]
+fn disabling_snap_and_modifier_bypass_return_raw_times() {
+    let snap = SnapSettings::default();
+    let time = TimeMus::new(37, 16);
+    assert_eq!(snap.snap(time, 64.0, 4, false), TimeMus::new(2, 1));
+    assert_eq!(snap.snap(time, 64.0, 4, true), time);
+    assert!(snap.bypassed(Modifiers {
+        shift: true,
+        ..Modifiers::NONE
+    }));
+    assert!(snap.bypassed(Modifiers {
+        alt: true,
+        ..Modifiers::NONE
+    }));
+
+    let disabled = SnapSettings {
+        enabled: false,
+        ..snap
+    };
+    assert_eq!(disabled.snap(time, 64.0, 4, false), time);
+    assert!(disabled.bypassed(Modifiers::NONE));
+}
+
+#[test]
+fn fine_manual_levels_do_not_explode_the_visible_grid() {
+    let snap = SnapSettings {
+        enabled: true,
+        adaptive: false,
+        level: SnapLevel::new(1, 65536),
+    };
+    let display = snap.display_step(64.0, 4);
+    let pixels = display.as_f64() as f32 * 64.0;
+    assert!(
+        pixels >= 40.0 - 1e-3,
+        "display step {display} is only {pixels} px wide"
+    );
+    // Snapping itself still uses the exact fine level.
+    assert_eq!(snap.step(64.0, 4), SnapLevel::new(1, 65536).step());
+    assert_eq!(snap_step_label(snap.step(64.0, 4), 4), "1/65536");
 }
 
 #[test]

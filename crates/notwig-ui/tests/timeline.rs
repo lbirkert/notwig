@@ -1,16 +1,21 @@
 use egui::{Pos2, Rect};
 use notwig_core::edit::Edge;
 use notwig_core::{RangeMus, TimeMus};
-use notwig_ui::Viewport;
 use notwig_ui::test_api::timeline::TimelineGrid;
 use notwig_ui::test_api::timeline::{
     navigation_update, pointer_delta, resize_loop_edge, selection_range, snapped_delta, trim_range,
 };
 use notwig_ui::test_api::waveform::waveform_region;
+use notwig_ui::{SnapLevel, SnapSettings, Viewport};
 
 #[test]
 fn coordinates_round_trip_and_snap() {
-    let grid = TimelineGrid::new(TimeMus::zero(), 64.0, 4);
+    let snap = SnapSettings {
+        enabled: true,
+        adaptive: false,
+        level: SnapLevel::new(1, 8),
+    };
+    let grid = TimelineGrid::new(TimeMus::zero(), 64.0, 4, snap);
     let x = grid.x_for_beat(TimeMus::new(2, 1), 10.0);
     assert!((x - 138.0).abs() < 0.01);
     assert_eq!(grid.beat_for_x(x, 10.0), TimeMus::new(2, 1));

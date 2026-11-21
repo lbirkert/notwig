@@ -14,7 +14,6 @@ use crate::shell::NotwigUi;
 use crate::state::Viewport;
 use crate::theme;
 use crate::timeline::{BeatStrip, ClipChrome, TimelineGrid, playhead_for_strip};
-use crate::widgets::snap_step;
 
 use super::actions::handle_midi_editor_actions;
 use super::geometry::{
@@ -80,7 +79,8 @@ impl NotwigUi {
             .pixels_per_beat
             .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
         let beats_per_bar = doc.meta.time_sig_num.max(1);
-        let grid = snap_step(ppb, beats_per_bar);
+        let mut snap = self.state.snap;
+        let grid = snap.step(ppb, beats_per_bar);
 
         handle_midi_editor_actions(
             self,
@@ -140,7 +140,7 @@ impl NotwigUi {
                     .viewport
                     .pixels_per_beat
                     .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
-                let grid = snap_step(ppb, beats_per_bar);
+                let grid = snap.step(ppb, beats_per_bar);
 
                 let painter = ui.painter().clone();
                 painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
@@ -148,7 +148,8 @@ impl NotwigUi {
                 painter.rect_filled(note_area, CornerRadius::ZERO, theme::LANE);
                 painter.rect_filled(velocity, CornerRadius::ZERO, theme::PANEL_LIGHT);
 
-                let timeline_grid = TimelineGrid::new(state.viewport.start, ppb, beats_per_bar);
+                let timeline_grid =
+                    TimelineGrid::new(state.viewport.start, ppb, beats_per_bar, snap);
                 let strip_rect =
                     Rect::from_min_max(rect.min, egui::pos2(content.right(), rect.top() + RULER_H));
                 let strip = BeatStrip {
@@ -230,7 +231,7 @@ impl NotwigUi {
                 );
                 timeline_grid.draw(&clipped, note_area);
 
-                let bypass = ui.input(|input| input.modifiers.alt);
+                let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                 let cursor_pos = ui
                     .input(|input| input.pointer.hover_pos())
                     .or_else(|| state.drag.as_ref().map(|drag| drag.origin_pointer));
@@ -613,7 +614,17 @@ impl NotwigUi {
                         .max(display_range.end)
                         .max(clip.range.end)
                         + TimeMus::new(4, 1);
-                midi_editor_scrollbar(ui, &mut state, rect, content, content_end, ppb);
+                midi_editor_scrollbar(
+                    ui,
+                    &mut state,
+                    &mut snap,
+                    rect,
+                    content,
+                    content_end,
+                    ppb,
+                    beats_per_bar,
+                );
+                self.state.snap = snap;
                 true
             },
         );

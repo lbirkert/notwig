@@ -8,12 +8,11 @@ use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
 use crate::theme;
 use crate::timeline::TimelineGrid;
-use crate::widgets::snap_step;
 
 const HEADER_W: f32 = 230.0;
 const ROW_H: f32 = 64.0;
 const RULER_H: f32 = 38.0;
-const SCROLLBAR_H: f32 = 14.0;
+const SCROLLBAR_H: f32 = 18.0;
 pub(crate) const TRACK_INDENT: f32 = 14.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,7 +85,8 @@ impl NotwigUi {
         );
         let start = self.state.viewport.start;
         let beats_per_bar = doc.meta.time_sig_num.max(1);
-        let grid = snap_step(ppb, beats_per_bar);
+        let snap = self.state.snap;
+        let grid = snap.step(ppb, beats_per_bar);
         let width = ui.available_width().max(320.0);
         let header_w = HEADER_W.min(width * 0.45);
         self.timeline_width = (width - header_w).max(80.0);
@@ -99,7 +99,7 @@ impl NotwigUi {
         self.timeline_left = timeline_left;
         let playhead = runtime.playing.then_some(runtime.playhead);
         let strip = crate::timeline::BeatStrip {
-            grid: TimelineGrid::new(start, ppb, beats_per_bar),
+            grid: TimelineGrid::new(start, ppb, beats_per_bar, snap),
             header_width: header_w,
             header_label: Some("TRACKS"),
             loop_range: if doc.transport.loop_enabled {
@@ -143,7 +143,7 @@ impl NotwigUi {
         let background = ui.painter();
         background.rect_filled(tree_rect, CornerRadius::ZERO, Color32::BLACK);
         background.rect_filled(content_bg, CornerRadius::ZERO, theme::ARRANGER_BG);
-        TimelineGrid::new(start, ppb, beats_per_bar).draw(background, content_bg);
+        TimelineGrid::new(start, ppb, beats_per_bar, snap).draw(background, content_bg);
         ui.allocate_ui_with_layout(
             Vec2::new(width, rows_height),
             egui::Layout::top_down(egui::Align::Min),
@@ -155,14 +155,10 @@ impl NotwigUi {
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         for track_id in &tree_ids {
-                            self.track_row(
-                                ui, doc, *track_id, header_w, ppb, start, runtime, grid,
-                            );
+                            self.track_row(ui, doc, *track_id, header_w, ppb, start, runtime, grid);
                         }
-                        let (add_rect, add_resp) = ui.allocate_exact_size(
-                            Vec2::new(header_w, add_row_h),
-                            Sense::click(),
-                        );
+                        let (add_rect, add_resp) =
+                            ui.allocate_exact_size(Vec2::new(header_w, add_row_h), Sense::click());
                         let painter = ui.painter();
                         painter.rect_filled(add_rect, CornerRadius::ZERO, theme::PANEL);
                         painter.text(
@@ -242,7 +238,7 @@ impl NotwigUi {
                 &overlay,
                 content_rect,
                 timeline_left,
-                TimelineGrid::new(start, ppb, beats_per_bar),
+                TimelineGrid::new(start, ppb, beats_per_bar, snap),
                 playhead,
             );
         }
@@ -264,7 +260,7 @@ impl NotwigUi {
                 );
                 crate::timeline::draw_time_selection_markers(
                     &selection_painter,
-                    TimelineGrid::new(start, ppb, beats_per_bar),
+                    TimelineGrid::new(start, ppb, beats_per_bar, snap),
                     timeline_left,
                     row_rect,
                     ruler_rect,

@@ -113,9 +113,11 @@ These gestures work in the arranger and both clip editors:
 | Horizontal scrollbar | Pan the timeline. |
 | **Cmd+0** | Fit the arrangement in the arranger. |
 
-Snapping follows the zoom level: the visible grid gets coarser as you zoom out,
-with an eighth note as the finest default step. Hold **Alt** or **Shift** while
-dragging clips to bypass snapping, and **Shift** while selecting, moving, or
-resizing a time range. Audio-editor events use **Alt** to bypass snapping.
+Snapping uses one shared setting for the arranger and both clip editors. Every
+editor scrollbar ends with the same compact controls: the magnet toggles
+snapping on or off and the grid label opens the grid settings. Adaptive mode
+coarsens the grid as you zoom out and exposes finer levels as you zoom in,
+while manual mode pins an explicit note value from **2/1** to **1/65536**.
+Hold **Shift** or **Alt** while dragging to bypass snapping.
 
 Next: [Projects and Recovery](02_projects_and_recovery.md).

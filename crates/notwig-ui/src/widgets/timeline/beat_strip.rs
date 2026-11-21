@@ -116,7 +116,7 @@ impl BeatStrip<'_> {
                 .filter(|pos| pos.x > content_left)
                 .map(|pos| {
                     let raw = self.grid.beat_for_x(pos.x, content_left);
-                    let bypass = ui.input(|input| input.modifiers.shift);
+                    let bypass = ui.input(|input| self.grid.bypassed(input.modifiers));
                     BeatStripAction::Locate(self.grid.snap(raw, bypass))
                 });
         }
@@ -227,7 +227,7 @@ impl BeatStrip<'_> {
         if let Some(active) = drag
             && let Some(pos) = ui.input(|input| input.pointer.interact_pos())
         {
-            let bypass = ui.input(|input| input.modifiers.shift);
+            let bypass = ui.input(|input| self.grid.bypassed(input.modifiers));
             preview = self.loop_drag_candidate(active, pos, content_left, bypass);
         }
         let stopped = body_response.is_some_and(|response| response.drag_stopped())
@@ -375,6 +375,13 @@ fn draw_beats(painter: &Painter, rect: Rect, content_left: f32, grid: TimelineGr
         }
         let strong = (beat / bar_len).fract().abs() < 1e-6;
         let beat_line = beat.fract().abs() < 1e-6;
+        let color = if strong {
+            Color32::from_rgb(92, 97, 112)
+        } else if beat_line {
+            theme::GRID_STRONG
+        } else {
+            theme::GRID
+        };
         painter.line_segment(
             [
                 egui::pos2(
@@ -392,28 +399,23 @@ fn draw_beats(painter: &Painter, rect: Rect, content_left: f32, grid: TimelineGr
             ],
             Stroke::new(
                 1.0_f32,
-                if strong {
-                    Color32::from_rgb(92, 97, 112)
-                } else if beat_line {
-                    theme::GRID_STRONG
-                } else {
-                    theme::GRID
-                },
+                crate::timeline::grid_color(color, grid.snap_enabled),
             ),
         );
         if strong || (show_beats && beat_line) {
             let bar = (beat / bar_len).floor() as i64 + 1;
             let beat_in_bar = (beat % bar_len).floor() as i64 + 1;
+            let label_color = if strong {
+                theme::TEXT_MUTED
+            } else {
+                theme::GRID_STRONG
+            };
             painter.text(
                 egui::pos2(x + 3.0, rect.top() + 3.0),
                 Align2::LEFT_TOP,
                 format!("{bar}.{beat_in_bar}"),
                 FontId::monospace(9.0),
-                if strong {
-                    theme::TEXT_MUTED
-                } else {
-                    theme::GRID_STRONG
-                },
+                crate::timeline::grid_color(label_color, grid.snap_enabled),
             );
         }
     }

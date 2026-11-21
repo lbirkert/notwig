@@ -696,7 +696,7 @@ No operation stretches audio. Waveform scale follows the source sample position,
 
 Snapping is not part of the algebra. The algebra receives resolved times (`to`, `at`, `delta`) and only clamps them to model limits. This keeps the algebra free of display state and makes it deterministic.
 
-The gesture layer owns three pure helpers:
+The gesture layer owns the shared `SnapSettings` value plus three pure helpers:
 
 ```
 pointer_delta(pointer, press_origin, pixels_per_beat) -> TimeMus
@@ -704,25 +704,40 @@ snap(time, step, bypass) -> TimeMus
 resolve_target(pointer, viewport, snap_step, bypass) -> TimeMus
 ```
 
+`SnapSettings` is the single source of truth for snapping. It holds whether
+snap is enabled, whether the grid is adaptive, and the manual `SnapLevel`
+(`2/1` through `1/65536`). Every editor reads the same value from `UiState`, so
+the scrollbar toggle applies to the arranger, the audio editor, and the MIDI
+editor at once.
+
+`SnapSettings::step` computes the active step. Adaptive mode chooses the finest
+note value (or bar multiple) that leaves at least 40 px between lines.
+`SnapSettings::display_step` bounds the painted grid when a very fine manual
+level would otherwise draw an enormous number of lines; snapping still uses the
+exact selected step.
+
 Rules:
 
 - Deltas are always measured from the press origin, never accumulated per frame.
 - `snap(snap(t)) == snap(t)`.
 - A bypass modifier returns the input time unchanged.
 - The algebra is called once per gesture update with the resolved value. It does not remember the previous frame.
-
-Current bypass rules stay as they are:
+- Disabled snapping behaves like a permanent bypass. When snap is off, the
+  timeline grid is drawn dimmed.
+- **Shift** is the universal bypass modifier. **Alt** remains supported for the
+  clip and audio editors. Both routes go through `SnapSettings::bypassed`.
 
 | Gesture | Bypass |
 | --- | --- |
-| Clip move or trim | Alt |
-| Group move | Alt |
-| Time selection move | Alt |
+| Any gesture while snap is disabled | Global snap toggle |
+| Clip move or trim | Shift or Alt |
+| Group move | Shift or Alt |
+| Time selection move | Shift or Alt |
 | Time range drag in a lane | Shift |
 | Lane click or double-click clip creation | Shift |
 | Ruler play start | Shift |
 | Clip editor range selection | Shift |
-| Clip editor event move or trim | Alt |
+| Clip editor event move or trim | Shift or Alt |
 
 ### 12.1 Editor chrome
 
