@@ -121,3 +121,31 @@ fn zero_target_rate_is_rejected() {
     let input = buffer(44_100, 1, vec![0.1, 0.2]);
     assert!(resample(&input, 0, ResampleQuality::Standard).is_err());
 }
+
+#[test]
+fn high_frequency_material_has_no_startup_transient() {
+    let source_rate = 44_100_u32;
+    let target_rate = 48_000_u32;
+    let in_frames = 4_096_usize;
+    let frequency = 1_000.0_f64;
+    let phase = 0.7_f64;
+    let samples = (0..in_frames)
+        .map(|frame| {
+            let t = frame as f64 / f64::from(source_rate);
+            0.5 * (std::f64::consts::TAU * frequency * t + phase).sin() as f32
+        })
+        .collect();
+    let input = buffer(source_rate, 1, samples);
+
+    let output = resample(&input, target_rate, ResampleQuality::High).unwrap();
+
+    for frame in 64..1_024 {
+        let t = frame as f64 / f64::from(target_rate);
+        let expected = 0.5 * (std::f64::consts::TAU * frequency * t + phase).sin() as f32;
+        let actual = output.samples[frame];
+        assert!(
+            (actual - expected).abs() < 0.02,
+            "startup transient at frame {frame}: expected {expected}, got {actual}"
+        );
+    }
+}

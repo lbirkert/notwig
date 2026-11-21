@@ -56,7 +56,11 @@ fn drawing_a_huge_clip_only_builds_geometry_for_the_visible_window() {
         |ctx| {
             let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
             let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
-            let waveform = AudioWaveform::from_samples(vec![0.5; 1_000_000]);
+            let waveform = AudioWaveform::from_samples(
+                (0..1_000_000)
+                    .map(|index| if index % 2 == 0 { 0.5 } else { -0.5 })
+                    .collect::<Vec<f32>>(),
+            );
             let full = Rect::from_min_max(pos2(-5_000_000.0, 40.0), pos2(5_000_000.0, 140.0));
             draw_waveform(&painter, full, full, &waveform, 0, 1_000_000);
         },
@@ -78,4 +82,46 @@ fn drawing_a_huge_clip_only_builds_geometry_for_the_visible_window() {
         .sum();
     assert!(indices > 0);
     assert!(indices < 10_000, "waveform built {indices} indices");
+}
+
+#[test]
+fn close_zoom_sample_graph_still_fills_the_area() {
+    let waveform = AudioWaveform::from_samples(
+        (0..4_000)
+            .map(|index| if index % 2 == 0 { 0.5 } else { -0.5 })
+            .collect::<Vec<f32>>(),
+    );
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
+            let full = Rect::from_min_max(pos2(0.0, 40.0), pos2(4_000.0, 140.0));
+            draw_waveform(&painter, full, clip, &waveform, 0, 4_000);
+        },
+    );
+    let indices: usize = output
+        .shapes
+        .iter()
+        .map(|clipped| match &clipped.shape {
+            egui::Shape::Mesh(mesh) => mesh.indices.len(),
+            egui::Shape::Vec(shapes) => shapes
+                .iter()
+                .map(|shape| match shape {
+                    egui::Shape::Mesh(mesh) => mesh.indices.len(),
+                    _ => 0,
+                })
+                .sum(),
+            _ => 0,
+        })
+        .sum();
+    assert!(
+        indices > 0,
+        "close-zoom sample graph must fill the area, not only draw a line"
+    );
 }

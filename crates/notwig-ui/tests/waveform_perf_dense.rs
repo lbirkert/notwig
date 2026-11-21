@@ -9,13 +9,13 @@ fn dense_samples(count: usize) -> Vec<f32> {
 }
 
 #[test]
-fn dense_regions_always_select_a_pyramid_level() {
+fn samples_below_the_baseline_bucket_use_exact_data() {
     let waveform = AudioWaveform::from_samples(dense_samples(65_536));
     for samples_per_pixel in [0.1, 0.5, 1.0, 8.0, 32.0, 48.0, 63.9] {
         assert_eq!(
             level_for(&waveform, samples_per_pixel),
-            64,
-            "samples_per_pixel={samples_per_pixel} should use the baseline level"
+            0,
+            "samples_per_pixel={samples_per_pixel} should use per-sample extents"
         );
     }
     assert_eq!(level_for(&waveform, 64.0), 64);
@@ -58,13 +58,39 @@ fn dense_envelope_near_the_lod_threshold_bounds_geometry() {
 
     assert_eq!(
         level_for(&waveform, 10.0),
-        64,
-        "ten samples per pixel should use the pyramid, not the sample graph"
+        0,
+        "ten samples per pixel should derive exact per-pixel extents"
     );
     let indices = mesh_indices(&output);
     assert!(indices > 0, "the waveform should draw something");
     assert!(
         indices < 10_000,
         "dense waveform built {indices} indices; it should scale with pixels"
+    );
+}
+
+#[test]
+fn wide_sample_graph_span_falls_back_to_the_area_envelope() {
+    let waveform = AudioWaveform::from_samples(dense_samples(1_000_000));
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(1600.0, 200.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(1600.0, 140.0));
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
+            let full = Rect::from_min_max(pos2(0.0, 40.0), pos2(100_000.0, 140.0));
+            draw_waveform(&painter, full, clip, &waveform, 0, 800_000);
+        },
+    );
+
+    let indices = mesh_indices(&output);
+    assert!(indices > 0, "the waveform should draw something");
+    assert!(
+        indices < 10_000,
+        "wide eight-samples-per-pixel view built {indices} indices; it should use the envelope"
     );
 }

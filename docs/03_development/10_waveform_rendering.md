@@ -51,25 +51,26 @@ that is no larger than the number of source samples covered by one screen pixel.
 Each pixel then reads at most two buckets, so the per-frame cost is bounded by
 the number of visible pixels, not by the zoom level.
 
-When fewer than 64 samples map to a pixel, the renderer still uses the baseline
-pyramid level rather than scanning decoded samples per column. The close-up
-approximation is exact enough at that density, and it keeps per-frame work
-bounded by visible pixels even while zooming.
+When fewer than 64 samples map to a pixel, the renderer derives each pixel
+column's signed extents from the decoded samples instead of the baseline bucket.
+The work is bounded by the visible span (at most 64 samples per pixel column),
+and the envelope gains detail continuously as the user zooms in.
 
 ## 4. Two render modes
 
-The renderer chooses a mode from the visible source span:
+Both modes draw a black signed area with a black line:
 
-- **Envelope mode** (more than one sample per pixel). For each pixel column,
-  read the signed `min` and `max` from the selected pyramid level and fill the
-  area between them. This is a single triangle mesh per waveform, not one shape
-  per column, and it preserves asymmetry around zero.
-- **Sample graph mode** (one sample per pixel or fewer). Walk the actual
-  sample points across the visible range, connect them with a line, and fill the
-  area between that graph and the zero axis. Segments that cross zero are split
-  at the crossing so the fill is two triangles rather than a self-intersecting
-  polygon. This is the Bitwig-style close-up view where the individual waveform
-  cycles and sample values are visible.
+- **Area envelope** (farther zoom). For each pixel column, read the signed
+  `min` and `max` from the selected pyramid level, or from the decoded samples
+  below the baseline bucket, and fill the area between them. This is a single
+  triangle mesh per waveform, not one shape per column, and it preserves
+  asymmetry around zero.
+- **Sample graph** (eight samples per pixel or fewer, capped at 8,192 visible
+  points). Walk the actual sample points across the visible range, fill the area
+  between the graph and the zero axis, and draw a one-pixel line. Segments that
+  cross zero are split at the crossing so the fill is two triangles rather than
+  a self-intersecting polygon. This is the Bitwig-style close-up detail where
+  the individual waveform cycles and sample values are visible.
 
 Both modes clip against the painter's visible rectangle before building any
 geometry. A long clip that extends far off-screen therefore contributes only the

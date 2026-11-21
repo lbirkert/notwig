@@ -11,6 +11,13 @@ use crate::runtime::ActivePlan;
 /// This is deterministic and keeps the lock attempt off most callbacks.
 pub const DEFAULT_CONTROL_SYNC_FRAMES: u64 = 256;
 
+/// Final hard ceiling for the stereo output, +10 dBFS (`10^(10/20)`).
+///
+/// A misbehaving plugin can otherwise emit extreme sample values when it is
+/// enabled or disabled. Clipping at the very end of the engine keeps those
+/// spikes away from speakers while leaving normal material untouched.
+const SAFETY_CLIP_CEILING: f32 = 3.162_277_7;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineConfig {
     pub sample_rate: u32,
@@ -497,6 +504,16 @@ impl Engine {
             let range = written * 2..(written + count) * 2;
             self.process_chunk(&mut output[range], count)?;
             written += count;
+        }
+        // Clip the final interleaved output after every chunk has been mixed.
+        // Non-finite plugin output is replaced with silence rather than passed
+        // through to the device.
+        for sample in &mut output[..frames * channels] {
+            *sample = if sample.is_finite() {
+                sample.clamp(-SAFETY_CLIP_CEILING, SAFETY_CLIP_CEILING)
+            } else {
+                0.0
+            };
         }
         if let Some(control) = &self.control {
             control.store_playhead_samples(self.playhead_samples());

@@ -85,6 +85,17 @@ fn add_asset(doc: &mut ProjectDoc, n: u128, frames: u64) -> AssetId {
 }
 
 fn add_audio_clip(doc: &mut ProjectDoc, track: TrackId, asset: AssetId, clip_n: u128, beats: i64) {
+    add_audio_clip_with_gain(doc, track, asset, clip_n, beats, Db(0.0));
+}
+
+fn add_audio_clip_with_gain(
+    doc: &mut ProjectDoc,
+    track: TrackId,
+    asset: AssetId,
+    clip_n: u128,
+    beats: i64,
+    gain_db: Db,
+) {
     let samples = (beats as u64) * 24_000;
     let result = apply(
         doc,
@@ -97,7 +108,7 @@ fn add_audio_clip(doc: &mut ProjectDoc, track: TrackId, asset: AssetId, clip_n: 
                 asset_id: asset,
                 source_start_sample: 0,
                 source_end_sample: samples,
-                gain_db: Db(0.0),
+                gain_db,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
@@ -1025,4 +1036,32 @@ fn stopping_transport_sends_note_off() {
     let mut stopped = vec![0.0_f32; 128 * 2];
     engine.process(&mut stopped, 128).unwrap();
     assert!(stopped.iter().all(|sample| sample.abs() < 1e-4));
+}
+
+#[test]
+fn safety_clipper_caps_runaway_audio_at_ten_db() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 560, 24_000);
+    add_audio_clip_with_gain(&mut doc, track, asset, 60, 1, Db(40.0));
+
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(24_000, 1.0))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 24_000).unwrap();
+    let ceiling = 10.0_f32.powf(10.0 / 20.0);
+
+    assert!(
+        output.iter().all(|sample| sample.abs() <= ceiling + 1.0e-5),
+        "output must stay below the +10 dB safety ceiling"
+    );
+    assert!(
+        output
+            .iter()
+            .any(|sample| (sample.abs() - ceiling).abs() < 1.0e-3),
+        "a +40 dB clip must reach the safety ceiling"
+    );
 }

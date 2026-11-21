@@ -36,7 +36,10 @@ For a dropped or imported file:
 3. `decode_audio` reads the entire source file into memory, then Symphonia
    probes it, decodes the default track, and appends interleaved `f32` samples.
 4. `resample` converts to the project sample rate with `rubato`'s synchronous
-   `Fft` resampler. If the rates already match, it clones the whole buffer.
+   `Fft` resampler. It prepends two chunks of silence and discards the matching
+   output so the first FFT overlap window warms up outside the audible signal;
+   without that run-in the first ~20 ms of high-frequency material is corrupted.
+   If the rates already match, it clones the whole buffer.
 5. Mono is duplicated to stereo.
 6. `write_wav_f32_bytes` encodes a 32-bit float WAV in memory.
 7. `hash_bytes` computes SHA-256 over those final WAV bytes. The bytes are

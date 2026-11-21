@@ -154,6 +154,9 @@ the audio callback.
 7. Structural values are fully prepared before they are published.
 8. Offline rendering and unit tests may still use `Engine::apply`/`process`
    directly; the shared exchange path is the real-time path.
+9. The final interleaved output is hard-clipped to +10 dBFS and non-finite
+   samples are replaced with silence. This protects speakers from runaway plugin
+   output when a plugin is enabled, disabled, or reloaded.
 
 ## 8. Tests
 

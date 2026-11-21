@@ -5,6 +5,10 @@ use rubato::{Fft, FixedSync, Resampler};
 use crate::error::ProjectError;
 
 const CHUNK_SIZE: usize = 1024;
+/// Leading silence fed to the resampler so its FFT overlap windows can warm up
+/// outside the audible signal. Without this the first output chunk contains a
+/// loud startup transient for high-frequency material.
+const LEAD_PAD_FRAMES: usize = CHUNK_SIZE * 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResampleQuality {
@@ -40,19 +44,15 @@ pub fn resample(
     // variants share the same implementation.
     let _ = quality;
 
-    // `process_all` only trims its initial delay while iterating over full chunks.
-    // Clips shorter than one chunk are padded with trailing zeros so the delay is
-    // trimmed too; the extra frames are discarded below.
-    let mut padded = Vec::new();
-    let (samples, processed_frames) = if in_frames <= CHUNK_SIZE {
-        let padded_frames = CHUNK_SIZE + 1;
-        padded.resize(padded_frames * channels, 0.0);
-        let used = in_frames * channels;
-        padded[..used].copy_from_slice(&input.samples[..used]);
-        (padded.as_slice(), padded_frames)
-    } else {
-        (input.samples.as_slice(), in_frames)
-    };
+    // Feed leading silence to the resampler so the first FFT overlap window is
+    // not built from an abrupt signal start. `process_all` trims its own delay,
+    // but the first chunk still carries a startup transient unless it has this
+    // run-in. The corresponding output frames are discarded below.
+    let processed_frames = LEAD_PAD_FRAMES.saturating_add(in_frames);
+    let mut padded = vec![0.0; processed_frames * channels];
+    let lead_samples = LEAD_PAD_FRAMES * channels;
+    let used = in_frames * channels;
+    padded[lead_samples..lead_samples + used].copy_from_slice(&input.samples[..used]);
 
     let mut resampler = Fft::<f32>::new(
         input.sample_rate as usize,
@@ -63,7 +63,7 @@ pub fn resample(
     )
     .map_err(|err| ProjectError::Resample(format!("failed to build resampler: {err}")))?;
 
-    let input_adapter = InterleavedSlice::new(samples, channels, processed_frames)
+    let input_adapter = InterleavedSlice::new(&padded, channels, processed_frames)
         .map_err(|err| ProjectError::Resample(format!("invalid input buffer: {err}")))?;
 
     let output = resampler
@@ -72,8 +72,19 @@ pub fn resample(
 
     let output_frames =
         (in_frames as f64 * f64::from(target_rate) / f64::from(input.sample_rate)).round() as usize;
+    let lead_output_frames = (LEAD_PAD_FRAMES as f64 * f64::from(target_rate)
+        / f64::from(input.sample_rate))
+    .floor() as usize;
     let mut output_samples = output.take_data();
-    output_samples.truncate(output_frames * channels);
+    let discard = lead_output_frames
+        .saturating_mul(channels)
+        .min(output_samples.len());
+    output_samples.drain(0..discard);
+    let expected_samples = output_frames * channels;
+    if output_samples.len() < expected_samples {
+        output_samples.resize(expected_samples, 0.0);
+    }
+    output_samples.truncate(expected_samples);
 
     Ok(AudioAssetBuffer {
         sample_rate: target_rate,

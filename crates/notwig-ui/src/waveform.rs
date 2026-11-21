@@ -8,7 +8,10 @@ use notwig_core::{AssetId, AudioAssetBuffer};
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
 const BASE_BUCKET: u64 = 64;
-const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 1.0;
+const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 8.0;
+/// Keep the sample-graph path bounded on very wide viewports. Once the visible
+/// span exceeds this many samples, the area envelope takes over.
+const MAX_SAMPLE_GRAPH_POINTS: f64 = 8_192.0;
 const FILL: Color32 = Color32::from_black_alpha(132);
 const LINE: Color32 = Color32::from_black_alpha(190);
 
@@ -68,6 +71,12 @@ impl AudioWaveform {
     }
 
     fn level_for(&self, samples_per_pixel: f64) -> Option<&PeakLevel> {
+        if samples_per_pixel < BASE_BUCKET as f64 {
+            // Below the baseline bucket, derive per-pixel extents from the
+            // decoded samples so the envelope keeps gaining detail as the user
+            // zooms in.
+            return None;
+        }
         let index = self
             .levels
             .partition_point(|level| level.bucket as f64 <= samples_per_pixel)
@@ -183,7 +192,8 @@ pub(crate) fn draw_waveform(
     };
     let samples_per_pixel = (end - start) / f64::from(rect.width().max(1.0));
     let painter = painter.with_clip_rect(rect);
-    if samples_per_pixel <= SAMPLE_GRAPH_SAMPLES_PER_PIXEL {
+    let span = end - start;
+    if samples_per_pixel <= SAMPLE_GRAPH_SAMPLES_PER_PIXEL && span <= MAX_SAMPLE_GRAPH_POINTS {
         draw_sample_graph(&painter, rect, waveform, start, end);
     } else {
         draw_envelope(&painter, rect, waveform, start, end, samples_per_pixel);
