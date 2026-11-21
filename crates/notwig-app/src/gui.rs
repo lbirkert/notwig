@@ -95,6 +95,8 @@ pub struct NotwigApp {
     #[cfg(not(target_arch = "wasm32"))]
     plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
     recovery_error: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    recovery_selection: Option<PathBuf>,
     render_job: Option<RenderJob>,
     #[cfg(not(target_arch = "wasm32"))]
     render_encode_rx: Option<mpsc::Receiver<RenderEncodeResult>>,
@@ -130,6 +132,9 @@ impl NotwigApp {
                 workspace
             }
         };
+        if initial.is_none() {
+            workspace.load_startup_recovery_candidates();
+        }
         let fallback_playhead = workspace.doc.transport.playhead.as_f64();
         let audio_options = AudioService::available_options();
         let mut audio_settings =
@@ -165,9 +170,14 @@ impl NotwigApp {
         let (audio_analysis_results, audio_analysis_rx) = mpsc::channel::<(PathBuf, Option<f64>)>();
         std::thread::spawn(move || {
             while let Ok(path) = audio_analysis_requests.recv() {
-                let duration = notwig_project::decode_audio(&path).ok().map(|buffer| {
-                    buffer.frame_count() as f64 / f64::from(buffer.sample_rate.max(1))
-                });
+                let duration = notwig_project::probe_audio(&path)
+                    .ok()
+                    .map(|probe| probe.duration_seconds)
+                    .or_else(|| {
+                        notwig_project::decode_audio(&path).ok().map(|buffer| {
+                            buffer.frame_count() as f64 / f64::from(buffer.sample_rate.max(1))
+                        })
+                    });
                 if audio_analysis_results.send((path, duration)).is_err() {
                     break;
                 }
@@ -188,6 +198,8 @@ impl NotwigApp {
             #[cfg(not(target_arch = "wasm32"))]
             plugin_editors: Vec::new(),
             recovery_error: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery_selection: None,
             render_job: None,
             #[cfg(not(target_arch = "wasm32"))]
             render_encode_rx: None,
@@ -871,6 +883,11 @@ impl NotwigApp {
         if !self.workspace.recovery_offered {
             return;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.workspace.recovery_candidates.is_empty() {
+            self.show_recovery_candidates_dialog(ctx);
+            return;
+        }
         let mut recover = false;
         let mut discard = false;
         egui::Modal::new(egui::Id::new("recovery-modal")).show(ctx, |ui| {
@@ -912,6 +929,89 @@ impl NotwigApp {
                 Ok(()) => {
                     self.recovery_error = None;
                     self.workspace.begin_session();
+                    self.notify_info("Discarded recovery autosaves.".into());
+                }
+                Err(err) => {
+                    self.recovery_error = Some(format!("Could not discard autosaves: {err}"));
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn show_recovery_candidates_dialog(&mut self, ctx: &egui::Context) {
+        let candidates = self.workspace.recovery_candidates.clone();
+        if self.recovery_selection.as_ref().is_none_or(|selected| {
+            !candidates
+                .iter()
+                .any(|candidate| &candidate.bundle == selected)
+        }) {
+            self.recovery_selection = candidates.first().map(|candidate| candidate.bundle.clone());
+        }
+        let mut select = None;
+        let mut recover = false;
+        let mut discard = false;
+        egui::Modal::new(egui::Id::new("recovery-modal")).show(ctx, |ui| {
+            ui.set_max_width(520.0);
+            ui.heading("Recover unsaved projects?");
+            ui.label(
+                "One or more projects did not close cleanly. Select a project to recover or discard its autosaves.",
+            );
+            if let Some(error) = &self.recovery_error {
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            }
+            ui.separator();
+            for candidate in &candidates {
+                let selected = self.recovery_selection.as_ref() == Some(&candidate.bundle);
+                let label = format!(
+                    "{} ({} autosave(s))\n{}",
+                    candidate.project_name,
+                    candidate.autosave_count,
+                    candidate.bundle.display()
+                );
+                if ui.selectable_label(selected, label).clicked() {
+                    select = Some(candidate.bundle.clone());
+                }
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Recover latest autosave").clicked() {
+                    recover = true;
+                }
+                if ui.button("Discard").clicked() {
+                    discard = true;
+                }
+            });
+        });
+        if let Some(bundle) = select {
+            self.recovery_selection = Some(bundle);
+        }
+        let Some(bundle) = self.recovery_selection.clone() else {
+            return;
+        };
+        if recover {
+            match self.workspace.recover_candidate(&bundle) {
+                Ok(()) => {
+                    self.recovery_error = None;
+                    self.recovery_selection = None;
+                    self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                    self.ui.state.selection.clear();
+                    self.restart_audio();
+                    self.notify_info("Recovered latest autosave.".into());
+                }
+                Err(err) => {
+                    self.recovery_error = Some(format!("Could not recover autosave: {err}"));
+                }
+            }
+        } else if discard {
+            match self.workspace.discard_candidate(&bundle) {
+                Ok(()) => {
+                    self.recovery_error = None;
+                    self.recovery_selection = None;
+                    self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                    self.ui.state.selection.clear();
+                    self.workspace.begin_session();
+                    self.restart_audio();
                     self.notify_info("Discarded recovery autosaves.".into());
                 }
                 Err(err) => {
@@ -1075,10 +1175,12 @@ impl NotwigApp {
             | UiIntent::SelectTrack(_)
             | UiIntent::SelectClip(_)
             | UiIntent::SelectDevice(_) => {}
-            UiIntent::CreateTrack(kind) => {
-                let result = self.workspace.create_track(kind);
-                let _ = self.report(result);
-            }
+            UiIntent::CreateTrack(kind) => match self.workspace.create_track(kind) {
+                Ok(track) => {
+                    self.ui.state.selection.select_track(track, false);
+                }
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::DeleteTrack(track_id) => {
                 let result = self
                     .workspace
@@ -1097,12 +1199,24 @@ impl NotwigApp {
                 let _ = self.report(result);
             }
             UiIntent::CreateMidiClip { track_id, range } => {
-                let result = self.workspace.create_midi_clip(track_id, range);
-                let _ = self.report(result);
+                match self.workspace.create_midi_clip(track_id, range) {
+                    Ok(clip_id) => self
+                        .ui
+                        .state
+                        .selection
+                        .select_clip(clip_id, track_id, false),
+                    Err(err) => self.notify_error(err),
+                }
             }
             UiIntent::CreateAudioClip { track_id, range } => {
-                let result = self.workspace.create_audio_clip(track_id, range);
-                let _ = self.report(result);
+                match self.workspace.create_audio_clip(track_id, range) {
+                    Ok(clip_id) => self
+                        .ui
+                        .state
+                        .selection
+                        .select_clip(clip_id, track_id, false),
+                    Err(err) => self.notify_error(err),
+                }
             }
             UiIntent::EditClipRange { clip_id, range } => {
                 let result = self.workspace.trim_clip(clip_id, range);
@@ -1373,6 +1487,10 @@ impl NotwigApp {
                 let result = self
                     .workspace
                     .apply(CommandPayload::RemoveDevice { device_id });
+                if result.is_ok() {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    self.plugin_editors.retain(|(id, _)| *id != device_id);
+                }
                 let _ = self.report(result);
             }
             UiIntent::OpenPluginWindow { device_id } => self.open_plugin_window(device_id),
@@ -1896,8 +2014,10 @@ impl eframe::App for NotwigApp {
         {
             let mut editor_changes = Vec::new();
             let mut closed_states = Vec::new();
+            let mut playback_toggle = false;
             self.plugin_editors.retain_mut(|(device_id, window)| {
                 window.pump();
+                playback_toggle |= window.take_playback_toggle();
                 if !window.is_open() {
                     if let Ok(state) = window.save_state() {
                         closed_states.push((*device_id, state));
@@ -1909,6 +2029,14 @@ impl eframe::App for NotwigApp {
                 }
                 true
             });
+            if playback_toggle {
+                let intent = if self.workspace.doc.transport.playing {
+                    UiIntent::Stop
+                } else {
+                    UiIntent::Play
+                };
+                self.handle_intent(intent);
+            }
             for (device_id, state) in closed_states {
                 self.workspace.set_plugin_state(device_id, state);
             }

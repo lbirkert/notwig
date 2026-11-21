@@ -278,3 +278,189 @@ fn track_creation_shortcuts_emit_create_track_intents() {
             .any(|intent| matches!(intent, UiIntent::CreateTrack(notwig_core::TrackKind::Audio)))
     );
 }
+
+fn press_command_l(doc: &ProjectDoc, ui: &mut NotwigUi) -> Vec<UiIntent> {
+    let command = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let runtime = RuntimeView::default();
+    let ctx = egui::Context::default();
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            modifiers: command,
+            events: vec![egui::Event::Key {
+                key: egui::Key::L,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: command,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            handle_shortcuts(ui, ctx, doc, &runtime);
+            intents = std::mem::take(&mut ui.intents);
+        },
+    );
+    intents
+}
+
+fn mixed_clip_doc() -> ProjectDoc {
+    use notwig_core::{
+        AssetEntry, AssetKind, AudioClipData, ClipId, ClipKind, ClipPayload, Command,
+        CommandPayload, DeviceChainId, FadeShape, Meta, MidiClipData, RangeMus, Rational,
+        SampleRate, TrackId,
+    };
+
+    let meta = Meta {
+        name: "Mixed".into(),
+        created_utc: 0,
+        modified_utc: 0,
+        sample_rate: SampleRate::DEFAULT,
+        tempo_bpm: 120.0,
+        time_sig_num: 4,
+        time_sig_den: 4,
+    };
+    let mut doc = ProjectDoc::new_template(meta, TrackId::nil(), DeviceChainId::nil()).unwrap();
+    let midi_track = TrackId::from_uuid(uuid::Uuid::from_u128(2));
+    let audio_track = TrackId::from_uuid(uuid::Uuid::from_u128(3));
+    for (id, chain, kind, name) in [
+        (midi_track, 102, TrackKind::Instrument, "Keys"),
+        (audio_track, 103, TrackKind::Audio, "Audio"),
+    ] {
+        doc = notwig_core::apply(
+            &doc,
+            &Command::new(CommandPayload::CreateTrack {
+                id,
+                chain_id: DeviceChainId::from_uuid(uuid::Uuid::from_u128(chain)),
+                kind,
+                name: name.into(),
+                parent: None,
+                index: None,
+                color: None,
+            }),
+        )
+        .unwrap()
+        .doc;
+    }
+    let asset = notwig_core::AssetId::from_uuid(uuid::Uuid::from_u128(600));
+    doc = notwig_core::apply(
+        &doc,
+        &Command::new(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: AssetEntry {
+                id: asset,
+                kind: AssetKind::Audio,
+                uri: "assets/test.wav".into(),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(96_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        }),
+    )
+    .unwrap()
+    .doc;
+    doc = notwig_core::apply(
+        &doc,
+        &Command::new(CommandPayload::CreateClip {
+            id: ClipId::from_uuid(uuid::Uuid::from_u128(20)),
+            track_id: midi_track,
+            kind: ClipKind::Midi,
+            range: RangeMus::new(Rational::new(1, 1), Rational::new(2, 1)).unwrap(),
+            payload: ClipPayload::Midi(MidiClipData {
+                length: Rational::new(1, 1),
+                content_start: Rational::zero(),
+                notes: Vec::new(),
+            }),
+        }),
+    )
+    .unwrap()
+    .doc;
+    notwig_core::apply(
+        &doc,
+        &Command::new(CommandPayload::CreateClip {
+            id: ClipId::from_uuid(uuid::Uuid::from_u128(60)),
+            track_id: audio_track,
+            kind: ClipKind::Audio,
+            range: RangeMus::new(Rational::new(3, 1), Rational::new(7, 1)).unwrap(),
+            payload: ClipPayload::Audio(AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 96_000,
+                gain_db: notwig_core::Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
+            }),
+        }),
+    )
+    .unwrap()
+    .doc
+}
+
+#[test]
+fn loop_selection_uses_selected_clip_bounds() {
+    let doc = timeline_doc();
+    let clip = notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20));
+    let track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_clip(clip, track, false);
+
+    let intents = press_command_l(&doc, &mut ui);
+
+    assert_eq!(
+        intents,
+        vec![UiIntent::SetLoopRange(
+            notwig_core::RangeMus::new(
+                notwig_core::Rational::zero(),
+                notwig_core::Rational::new(2, 1),
+            )
+            .unwrap()
+        )]
+    );
+}
+
+#[test]
+fn loop_selection_spans_mixed_midi_and_audio_clips() {
+    let doc = mixed_clip_doc();
+    let midi = notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20));
+    let audio = notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(60));
+    let midi_track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
+    let audio_track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(3));
+    let mut ui = NotwigUi::default();
+    ui.state
+        .selection
+        .select_clips(&[(midi, midi_track), (audio, audio_track)]);
+
+    let intents = press_command_l(&doc, &mut ui);
+
+    assert_eq!(
+        intents,
+        vec![UiIntent::SetLoopRange(
+            notwig_core::RangeMus::new(
+                notwig_core::Rational::new(1, 1),
+                notwig_core::Rational::new(7, 1),
+            )
+            .unwrap()
+        )]
+    );
+}
+
+#[test]
+fn loop_selection_without_a_selection_toggles_the_loop() {
+    let doc = timeline_doc();
+    let mut ui = NotwigUi::default();
+
+    let intents = press_command_l(&doc, &mut ui);
+
+    assert_eq!(intents, vec![UiIntent::ToggleLoop]);
+}

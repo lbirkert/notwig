@@ -998,6 +998,10 @@ unsafe fn fetch_parameter_ids(unit: AudioComponentInstance) -> Vec<AudioUnitPara
 impl Drop for AuPlugin {
     fn drop(&mut self) {
         if !self.instance.is_null() {
+            // Tear down the Cocoa view while the AudioUnit is still alive;
+            // disposing the instance first leaves the view's callbacks dangling.
+            notwig_rack_core::editor::PluginEditor::close(self);
+            self.deactivate();
             unsafe { AudioComponentInstanceDispose(self.instance) };
         }
     }

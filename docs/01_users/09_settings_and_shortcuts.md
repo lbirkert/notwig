@@ -50,7 +50,7 @@ command catalog and are not rebindable.
 | Application | Save As | Cmd+Shift+S |
 | Transport | Play / stop | Space |
 | Transport | Stop | Shift+Space |
-| Transport | Loop selection / toggle loop | Cmd+L |
+| Transport | Loop time or clip selection / toggle loop | Cmd+L |
 | Edit | Undo | Cmd+Z |
 | Edit | Redo | Cmd+Shift+Z |
 | Edit | Copy | Cmd+C |

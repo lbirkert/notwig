@@ -49,6 +49,12 @@ When a native project is opened or saved, Notwig creates a `session.lock` file
 in the bundle. A clean exit removes the lock. If Notwig exits without removing
 the lock and autosaves exist, the next open offers recovery.
 
+Notwig also remembers recently opened and saved bundles in a per-user registry.
+When the application starts without a project argument, it checks those bundles
+for a stale `session.lock` and autosave snapshots, then offers every recovery
+candidate in the same modal. Select the project you want before choosing an
+action.
+
 The recovery modal has two actions:
 
 - **Recover latest autosave** loads the newest snapshot and marks the project
@@ -62,6 +68,7 @@ settings are stored separately in the per-user configuration directory:
 ~/Library/Application Support/notwig/
   shortcuts.json
   audio.json
+  projects.json
   extensions.json
   extensions/
 ```

@@ -463,6 +463,30 @@ impl NotwigUi {
         }
     }
 
+    fn loop_range_for_selected_clips(
+        doc: &ProjectDoc,
+        clips: &[notwig_core::ClipId],
+    ) -> Option<notwig_core::RangeMus> {
+        let mut bounds: Option<notwig_core::RangeMus> = None;
+        for id in clips {
+            let Some(clip) = doc.arranger.clips.get(id) else {
+                continue;
+            };
+            bounds = Some(match bounds {
+                Some(current) => notwig_core::RangeMus {
+                    start: current.start.min(clip.range.start),
+                    end: current.end.max(clip.range.end),
+                },
+                None => clip.range,
+            });
+        }
+        bounds.map(|bounds| {
+            let start = bounds.start.max(notwig_core::TimeMus::zero());
+            let end = bounds.end.max(start);
+            notwig_core::RangeMus { start, end }
+        })
+    }
+
     fn handle_shortcuts(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
         if self.shortcut_editor.capture.is_some() {
             return;
@@ -579,6 +603,8 @@ impl NotwigUi {
             .was_pressed(ctx, ShortcutCommand::LoopSelection)
         {
             if let Some((range, _)) = time.clone() {
+                self.emit(UiIntent::SetLoopRange(range));
+            } else if let Some(range) = Self::loop_range_for_selected_clips(doc, &clips) {
                 self.emit(UiIntent::SetLoopRange(range));
             } else {
                 self.emit(UiIntent::ToggleLoop);

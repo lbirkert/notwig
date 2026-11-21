@@ -47,6 +47,33 @@ fn create_clip_save_and_render() {
 }
 
 #[test]
+fn creation_helpers_return_created_ids() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let instrument = workspace.create_track(TrackKind::Instrument).unwrap();
+    assert!(workspace.doc.tracks.contains_key(&instrument));
+    let midi_clip = workspace
+        .create_midi_clip(
+            instrument,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+        )
+        .unwrap();
+    assert!(workspace.doc.arranger.clips.contains_key(&midi_clip));
+
+    let audio = workspace.create_track(TrackKind::Audio).unwrap();
+    assert!(workspace.doc.tracks.contains_key(&audio));
+    let audio_clip = workspace
+        .create_audio_clip(
+            audio,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(2, 1)).unwrap(),
+        )
+        .unwrap();
+    assert!(workspace.doc.arranger.clips.contains_key(&audio_clip));
+
+    let group = workspace.group_tracks(&[instrument]).unwrap();
+    assert_eq!(workspace.doc.tracks[&group].kind, TrackKind::Group);
+}
+
+#[test]
 fn split_clip_generates_new_note_ids() {
     let mut workspace = Workspace::new_empty().unwrap();
     workspace.create_track(TrackKind::Instrument).unwrap();
@@ -503,6 +530,63 @@ fn delete_time_range_splits_multiple_audio_slices() {
     assert_eq!(right_audio.slices.len(), 1);
     assert_eq!(right_audio.slices[0].start, Rational::zero());
     assert_eq!(right_audio.slices[0].source_start_sample, 48_000);
+}
+
+#[test]
+fn deleting_an_empty_time_selection_splits_clips_at_the_point() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Instrument).unwrap();
+    workspace
+        .create_midi_clip(
+            track,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+        )
+        .unwrap();
+    workspace
+        .create_midi_clip(
+            track,
+            notwig_core::RangeMus::new(Rational::new(4, 1), Rational::new(8, 1)).unwrap(),
+        )
+        .unwrap();
+    let point = notwig_core::RangeMus::new(Rational::new(2, 1), Rational::new(2, 1)).unwrap();
+
+    let info = workspace
+        .delete_selection(&[], Some((point, vec![track])))
+        .unwrap();
+    assert_eq!(workspace.doc.arranger.clips.len(), 3);
+    assert!(info.time.is_some());
+    assert!(
+        workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .any(|clip| clip.range.start == Rational::zero()
+                && clip.range.end == Rational::new(2, 1))
+    );
+    assert!(
+        workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .any(|clip| clip.range.start == Rational::new(2, 1)
+                && clip.range.end == Rational::new(4, 1))
+    );
+    assert!(
+        workspace
+            .doc
+            .arranger
+            .clips
+            .values()
+            .any(|clip| clip.range.start == Rational::new(4, 1)
+                && clip.range.end == Rational::new(8, 1))
+    );
+
+    workspace
+        .delete_selection(&[], Some((point, vec![track])))
+        .unwrap();
+    assert_eq!(workspace.doc.arranger.clips.len(), 3);
 }
 
 #[test]
@@ -1404,6 +1488,60 @@ fn creating_an_empty_audio_clip_keeps_it_silent() {
     };
     assert!(audio.slices_enabled);
     assert_eq!(audio.slices.len(), 0);
+}
+
+#[test]
+fn empty_audio_clip_without_assets_round_trips_and_accepts_slices() {
+    let dir = temp_dir();
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Audio).unwrap();
+    let range = notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap();
+    let clip = workspace.create_audio_clip(track, range).unwrap();
+    workspace.doc.validate().unwrap();
+
+    let ClipPayload::Audio(audio) = &workspace.doc.arranger.clips[&clip].payload else {
+        panic!("audio clip");
+    };
+    assert_eq!(audio.asset_id, notwig_core::AssetId::nil());
+    assert!(audio.slices_enabled);
+    assert_eq!(audio.slices.len(), 0);
+
+    let bundle = dir.join("Empty.notwig");
+    workspace.save(Some(&bundle)).unwrap();
+    let mut reopened = Workspace::open(&bundle).unwrap();
+    assert!(reopened.doc.arranger.clips.contains_key(&clip));
+    reopened.doc.validate().unwrap();
+
+    let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(902));
+    reopened
+        .apply(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: notwig_core::AssetEntry {
+                id: asset,
+                kind: notwig_core::AssetKind::Audio,
+                uri: "assets/later.wav".into(),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(48_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        })
+        .unwrap();
+    reopened
+        .add_audio_slice(clip, asset, Rational::new(1, 1))
+        .unwrap();
+    let ClipPayload::Audio(audio) = &reopened.doc.arranger.clips[&clip].payload else {
+        panic!("audio clip");
+    };
+    assert_eq!(audio.slices.len(), 1);
+    assert_eq!(audio.slices[0].asset_id, Some(asset));
+    reopened.doc.validate().unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

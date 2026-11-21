@@ -110,6 +110,43 @@ fn loop_wraps_when_the_playhead_crosses_the_loop_end() {
 }
 
 #[test]
+fn tempo_change_keeps_the_loop_on_the_same_musical_bars() {
+    let doc = doc_at_tempo(120.0);
+    let mut engine = prepare_engine(&doc);
+
+    let setup = apply(
+        &doc,
+        &Command::new(CommandPayload::SetTransport {
+            playing: Some(true),
+            playhead: Some(Rational::zero()),
+            loop_enabled: Some(true),
+            loop_range: Some(Some(
+                RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )),
+            metronome: None,
+        }),
+    )
+    .unwrap();
+    for message in setup.engine_msgs {
+        engine.apply(message).unwrap();
+    }
+    assert_eq!(engine.transport().loop_end_samples, 96_000);
+
+    let result = apply(
+        &setup.doc,
+        &Command::new(CommandPayload::SetTempo { tempo_bpm: 60.0 }),
+    )
+    .unwrap();
+    for message in result.engine_msgs {
+        engine.apply(message).unwrap();
+    }
+
+    // Four beats at 60 BPM and a 48 kHz sample rate is 192_000 samples.
+    assert_eq!(engine.transport().loop_start_samples, 0);
+    assert_eq!(engine.transport().loop_end_samples, 192_000);
+}
+
+#[test]
 fn tempo_change_is_reflected_in_engine_plan_ticks() {
     let mut doc = doc_at_tempo(120.0);
     let mut engine = prepare_engine(&doc);

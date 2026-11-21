@@ -458,26 +458,23 @@ impl NotwigUi {
                     }
                     if body_resp.drag_started() {
                         if let Some(pos) = drag_start_pos(ui, &body_resp) {
-                            let shift = ui.input(|input| input.modifiers.shift);
-                            if shift {
-                                let beat = timeline_grid
-                                    .snap(timeline_grid.beat_for_x(pos.x, content.left()), true)
-                                    .max(TimeMus::zero());
-                                if let Ok(range) = RangeMus::new(beat, beat) {
-                                    state.select_bar(range);
-                                }
-                                state.range_start = Some(beat);
-                            } else if !state.selected.contains(&slice.id) {
-                                state.select_node(slice.id, false);
+                            let bypass = ui.input(|input| input.modifiers.shift);
+                            let beat = timeline_grid
+                                .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
+                                .max(TimeMus::zero());
+                            if let Ok(range) = RangeMus::new(beat, beat) {
+                                state.select_bar(range);
                             }
+                            state.range_start = Some(beat);
                         }
                     }
                     if body_resp.dragged()
                         && let (Some(origin), Some(pos)) =
                             (state.range_start, body_resp.interact_pointer_pos())
                     {
+                        let bypass = ui.input(|input| input.modifiers.shift);
                         let beat = timeline_grid
-                            .snap(timeline_grid.beat_for_x(pos.x, content.left()), true)
+                            .snap(timeline_grid.beat_for_x(pos.x, content.left()), bypass)
                             .max(TimeMus::zero());
                         if let Some(range) =
                             crate::timeline::interaction::selection_range(origin, beat)

@@ -4,6 +4,10 @@ An audio clip references an asset and contains one or more audio events. The
 arranger shows the clip on its audio track. The audio clip editor shows the
 events inside the clip and the clip's own start and end boundaries.
 
+You can create an empty audio clip before importing any audio. It stays silent
+until you place an event in it, for example by dragging an audio file into the
+clip editor.
+
 Open the audio clip editor by double-clicking an audio clip, or select the clip
 and use the clip editor button in the status bar.
 
@@ -26,7 +30,8 @@ losing it.
 ## Selecting events
 
 - Click an event to select it. Cmd-click or Shift-click adds events.
-- Drag on an empty part of the editor to create a time selection.
+- Drag on an empty part of the editor or across an event body to create a time
+  selection.
 - Drag the time selection to move its content.
 - Hold **Shift** while selecting or moving to bypass snapping.
 - Click an empty area to clear the selection.
@@ -35,7 +40,7 @@ losing it.
 
 | Action | How |
 | --- | --- |
-| Move | Drag the event's title or body horizontally. |
+| Move | Drag the event's title bar horizontally. |
 | Trim start | Drag the event's left edge. |
 | Trim end | Drag the event's right edge. |
 | Copy | **Cmd+C** |

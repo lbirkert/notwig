@@ -258,7 +258,16 @@ impl AudioClipData {
                 reason: "audio source range must be non-empty".into(),
             });
         }
-        if !doc.assets.assets.contains_key(&self.asset_id) {
+        // An empty audio clip (slice mode with no events yet) may carry a nil
+        // asset id. Sliced clips only need the top-level asset when at least one
+        // slice falls back to it; slices with explicit asset ids are checked
+        // individually below.
+        let needs_top_level_asset = if self.uses_slices() {
+            self.slices.iter().any(|slice| slice.asset_id.is_none())
+        } else {
+            true
+        };
+        if needs_top_level_asset && !doc.assets.assets.contains_key(&self.asset_id) {
             return Err(CoreError::ValidationFailed {
                 reason: "audio clip references missing asset".into(),
             });

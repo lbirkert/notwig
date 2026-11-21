@@ -1,4 +1,6 @@
 use super::Workspace;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
 
 impl Workspace {
     #[cfg(target_arch = "wasm32")]
@@ -20,6 +22,13 @@ impl Workspace {
             );
             self.status = Some(format!("Could not create session lock: {err}"));
         }
+        if let Err(err) = super::project_registry::register_bundle(&bundle) {
+            tracing::warn!(
+                path = %bundle.display(),
+                error = %err,
+                "could not register project bundle"
+            );
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -35,6 +44,47 @@ impl Workspace {
             );
             self.status = Some(format!("Could not remove session lock: {err}"));
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_startup_recovery_candidates(&mut self) {
+        if self.bundle.is_some() {
+            return;
+        }
+        let candidates = super::project_registry::recovery_candidates();
+        if candidates.is_empty() {
+            return;
+        }
+        self.status = Some(format!(
+            "{} unsaved project(s) can be recovered.",
+            candidates.len()
+        ));
+        self.recovery_candidates = candidates;
+        self.recovery_offered = true;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn recover_candidate(&mut self, bundle: &Path) -> Result<(), String> {
+        let mut workspace = Workspace::open(bundle)?;
+        if let Err(err) = workspace.recover_latest_autosave() {
+            workspace.end_session();
+            return Err(err);
+        }
+        self.end_session();
+        *self = workspace;
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn discard_candidate(&mut self, bundle: &Path) -> Result<(), String> {
+        let mut workspace = Workspace::open(bundle)?;
+        if let Err(err) = workspace.discard_recovery() {
+            workspace.end_session();
+            return Err(err);
+        }
+        self.end_session();
+        *self = workspace;
+        Ok(())
     }
 
     pub fn recover_latest_autosave(&mut self) -> Result<(), String> {

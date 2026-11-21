@@ -51,19 +51,20 @@ that is no larger than the number of source samples covered by one screen pixel.
 Each pixel then reads at most two buckets, so the per-frame cost is bounded by
 the number of visible pixels, not by the zoom level.
 
-If fewer than 64 samples map to a pixel, the renderer reads the decoded samples
-directly. That keeps the close-up range exact instead of approximating it from a
-coarse pyramid level.
+When fewer than 64 samples map to a pixel, the renderer still uses the baseline
+pyramid level rather than scanning decoded samples per column. The close-up
+approximation is exact enough at that density, and it keeps per-frame work
+bounded by visible pixels even while zooming.
 
 ## 4. Two render modes
 
 The renderer chooses a mode from the visible source span:
 
-- **Envelope mode** (more than 32 samples per pixel). For each pixel column,
+- **Envelope mode** (more than one sample per pixel). For each pixel column,
   read the signed `min` and `max` from the selected pyramid level and fill the
   area between them. This is a single triangle mesh per waveform, not one shape
   per column, and it preserves asymmetry around zero.
-- **Sample graph mode** (32 samples per pixel or fewer). Walk the actual
+- **Sample graph mode** (one sample per pixel or fewer). Walk the actual
   sample points across the visible range, connect them with a line, and fill the
   area between that graph and the zero axis. Segments that cross zero are split
   at the crossing so the fill is two triangles rather than a self-intersecting

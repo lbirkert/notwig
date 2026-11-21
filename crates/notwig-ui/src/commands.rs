@@ -324,7 +324,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         command: ShortcutCommand::LoopSelection,
         id: "loop_selection",
         label: "Loop selection / toggle loop",
-        description: "Loop the selected time range, or toggle the loop.",
+        description: "Loop the selected time range or clip bounds, or toggle the loop.",
         category: CommandCategory::Transport,
         defaults: &[KeyChord::command(Key::L)],
     },

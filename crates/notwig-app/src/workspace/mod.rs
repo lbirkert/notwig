@@ -33,6 +33,9 @@ use crate::edit_lowering::lower_arranger;
 use notwig_core::edit::{self, ArrangerModel, ClipContent, SelectionInfo};
 
 mod assets;
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub mod project_registry;
 mod recovery;
 
 const PLUGIN_STATE_ENCODING: &str = "notwig.plugin-state.json";
@@ -62,6 +65,8 @@ pub struct Workspace {
     pub play_start: Option<notwig_core::TimeMus>,
     pub audio_block_size: u32,
     pub recovery_offered: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub recovery_candidates: Vec<project_registry::RecoveryCandidate>,
     clipboard: Clipboard,
     history: History,
     engine_build: EngineBuild,
@@ -134,6 +139,8 @@ impl Workspace {
             play_start: None,
             audio_block_size: 512,
             recovery_offered: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery_candidates: Vec::new(),
             clipboard: Clipboard::default(),
             history: History::default(),
             engine_build: EngineBuild::new(),
@@ -257,8 +264,10 @@ impl Workspace {
     }
 
     fn install_prepared_runtime(&mut self, runtime: Box<PreparedRuntime>) {
-        let transport =
-            (!self.engine_ready).then(|| self.transport_update(self.preserved_playhead_samples()));
+        // Always republish transport when a runtime is installed. Tempo and
+        // sample-rate changes rebuild the runtime and must also refresh the
+        // sample positions of a musical loop range.
+        let transport = Some(self.transport_update(self.preserved_playhead_samples()));
         self.engine_ready = true;
         self.publish_engine_control(transport, false, Some(runtime));
     }
@@ -761,8 +770,8 @@ impl Workspace {
         })
     }
 
-    pub fn create_track(&mut self, kind: TrackKind) -> Result<(), String> {
-        self.create_track_at(kind, None).map(|_| ())
+    pub fn create_track(&mut self, kind: TrackKind) -> Result<TrackId, String> {
+        self.create_track_at(kind, None)
     }
 
     pub fn create_track_at(
@@ -801,7 +810,7 @@ impl Workspace {
         &mut self,
         track_id: TrackId,
         range: notwig_core::RangeMus,
-    ) -> Result<(), String> {
+    ) -> Result<ClipId, String> {
         let id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
         self.apply(CommandPayload::CreateClip {
             id,
@@ -813,7 +822,8 @@ impl Workspace {
                 content_start: notwig_core::TimeMus::zero(),
                 notes: Vec::new(),
             }),
-        })
+        })?;
+        Ok(id)
     }
 
     pub fn create_note(
@@ -847,17 +857,7 @@ impl Workspace {
         &mut self,
         track_id: TrackId,
         range: notwig_core::RangeMus,
-    ) -> Result<(), String> {
-        let Some(asset_id) = self
-            .doc
-            .assets
-            .assets
-            .values()
-            .find(|asset| asset.kind == notwig_core::AssetKind::Audio)
-            .map(|asset| asset.id)
-        else {
-            return Err("Import audio before creating an audio clip.".into());
-        };
+    ) -> Result<ClipId, String> {
         let id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
         self.apply(CommandPayload::CreateClip {
             id,
@@ -865,7 +865,7 @@ impl Workspace {
             kind: notwig_core::ClipKind::Audio,
             range,
             payload: ClipPayload::Audio(notwig_core::AudioClipData {
-                asset_id,
+                asset_id: AssetId::nil(),
                 source_start_sample: 0,
                 source_end_sample: 1,
                 gain_db: Db(0.0),
@@ -875,7 +875,8 @@ impl Workspace {
                 slices: Vec::new(),
                 slices_enabled: true,
             }),
-        })
+        })?;
+        Ok(id)
     }
 
     pub fn split_clip(&mut self, clip_id: ClipId, at: notwig_core::TimeMus) -> Result<(), String> {
@@ -1612,12 +1613,45 @@ impl Workspace {
         clip_ids: &[ClipId],
         time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
     ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
+        if let Some((range, tracks)) = &time
+            && range.is_empty()
+        {
+            return self.split_clips_at_point(*range, tracks);
+        }
         let selection = Self::edit_selection(clip_ids, time);
         let plan = {
             let model = ArrangerModel::new(&self.doc);
             edit::delete(&model, &selection).map_err(|err| err.to_string())?
         };
         self.lower_and_apply(plan).map(Option::unwrap_or_default)
+    }
+
+    fn split_clips_at_point(
+        &mut self,
+        range: notwig_core::RangeMus,
+        tracks: &[TrackId],
+    ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
+        let at = range.start;
+        let clip_ids: Vec<ClipId> = self
+            .doc
+            .arranger
+            .clips
+            .values()
+            .filter(|clip| tracks.contains(&clip.track_id))
+            .filter(|clip| clip.range.start < at && at < clip.range.end)
+            .map(|clip| clip.id)
+            .collect();
+        for clip_id in clip_ids {
+            self.split_clip(clip_id, at)?;
+        }
+        self.status = Some("Split clips at time selection.".into());
+        Ok(SelectionInfo {
+            objects: Vec::new(),
+            time: Some(edit::TimeSelection {
+                span: range,
+                lanes: tracks.iter().copied().collect(),
+            }),
+        })
     }
 
     #[doc(hidden)]

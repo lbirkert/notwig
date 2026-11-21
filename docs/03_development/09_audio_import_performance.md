@@ -14,7 +14,8 @@ There are three separate paths, and only one of them is a real CPU cost:
 
 1. **Duration probe.** `notwig_project::probe_audio` reads headers only. It
    parses WAV/AIFF/FLAC/MP3/Ogg metadata without decoding. Measured at roughly
-   `0.01-0.02 ms` per file. The arranger drag preview uses it first.
+   `0.01-0.02 ms` per file. The arranger drag preview and the import analysis
+   worker use it first, falling back to a full decode only if probing fails.
 2. **Full import.** `notwig_project::import_asset` decodes the whole source,
    resamples it to the project rate with `rubato`, duplicates mono to stereo,
    encodes a managed WAV in memory, hashes the final bytes, writes the file, and
@@ -202,6 +203,18 @@ technically available. It is still not the shortest route to a faster import:
 - the first dispatch pays shader compilation cost;
 - decoding remains on the CPU, so Amdahl's law caps the gain;
 - a table-based CPU resampler already turns 228 ms into 32.5 ms for this file.
+
+### Duration analysis and header probing
+
+The import worker needs a duration for the drag preview and placement. For WAV,
+AIFF, FLAC, MP3, and Ogg that value is encoded in the header, so `probe_audio`
+reads a few kilobytes and returns in about `0.01-0.02 ms` per file. Full decode
+is only a fallback when a header cannot be parsed. A GPU path would first upload
+the file and pay shader setup costs to parse one small header, with no
+parallel work to hide them. Where analysis does become measurable (waveform
+min/max reduction or resampling), the data-parallel work is a better fit for
+SIMD first and GPU second, because the CPU path avoids upload, download, and
+shader-compilation overhead.
 
 ## 6. Alternatives, ranked by expected impact
 

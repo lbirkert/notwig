@@ -5,22 +5,36 @@ use crate::types::{PluginDescriptor, PluginError, PluginFormat};
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use std::collections::BTreeMap;
+    use std::cell::RefCell;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::ffi::CString;
     use std::ptr;
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
+    use block2::RcBlock;
     use notwig_dsp::{AudioMonitor, MonitorBlock};
     use notwig_rack::core::buffer::BusRange;
     use notwig_rack::core::{
         AudioBuffer, BusLayout, EventList, Plugin, ProcessContext as RackContext, WindowHandle,
     };
+    use objc2::MainThreadMarker;
     use objc2::msg_send;
+    use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject};
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventType};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
 
     use crate::types::{PluginDescriptor, PluginError, PluginFormat, PluginState};
+
+    static PLUGIN_WINDOWS: Mutex<BTreeSet<usize>> = Mutex::new(BTreeSet::new());
+    static PLAYBACK_TOGGLE_PENDING: AtomicBool = AtomicBool::new(false);
+
+    thread_local! {
+        static SPACE_MONITOR: RefCell<Option<Retained<AnyObject>>> =
+            const { RefCell::new(None) };
+    }
 
     pub struct NativePluginWindow {
         plugin: Box<dyn Plugin<f32>>,
@@ -62,7 +76,7 @@ mod imp {
             let content: *mut AnyObject = unsafe { msg_send![window, contentView] };
             if content.is_null() {
                 unsafe {
-                    let _: () = msg_send![window, release];
+                    release_window(window);
                 }
                 return Err(PluginError::Load(
                     "plugin window has no content view".into(),
@@ -70,13 +84,17 @@ mod imp {
             }
             let Some(editor) = plugin.editor() else {
                 unsafe {
-                    let _: () = msg_send![window, release];
+                    release_window(window);
                 }
                 return Err(PluginError::Load("plugin has no editor".into()));
             };
-            editor
-                .open(WindowHandle::NSView(content.cast()), 1.0)
-                .map_err(|err| PluginError::Load(err.to_string()))?;
+            if let Err(err) = editor.open(WindowHandle::NSView(content.cast()), 1.0) {
+                editor.close();
+                unsafe {
+                    release_window(window);
+                }
+                return Err(PluginError::Load(err.to_string()));
+            }
             let (plugin_size, resizable) = (
                 editor.size().filter(|(w, h)| *w > 0 && *h > 0),
                 editor.is_resizable(),
@@ -93,6 +111,7 @@ mod imp {
                 let _: () = msg_send![window, center];
                 let _: () = msg_send![window, makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()];
             }
+            register_plugin_window(window);
             if let Some(monitor) = &monitor {
                 monitor.set_enabled(true);
             }
@@ -207,6 +226,13 @@ mod imp {
             self.open
         }
 
+        /// Returns and clears a playback-toggle request recorded while a plugin
+        /// window was key. The Space key itself has already been delivered to
+        /// the plugin editor.
+        pub fn take_playback_toggle(&mut self) -> bool {
+            PLAYBACK_TOGGLE_PENDING.swap(false, Ordering::AcqRel)
+        }
+
         pub fn set_parameter(&mut self, id: u32, value: f64) {
             if let Some(index) = self.params.get(&id).copied() {
                 let _ = self.plugin.set_parameter(index, value);
@@ -270,9 +296,10 @@ mod imp {
             if let Some(monitor) = &self.monitor {
                 monitor.set_enabled(false);
             }
+            unregister_plugin_window(self.window);
             unsafe {
                 let _: () = msg_send![self.window, orderOut: ptr::null_mut::<AnyObject>()];
-                let _: () = msg_send![self.window, release];
+                release_window(self.window);
             }
             self.window = ptr::null_mut();
             self.open = false;
@@ -282,6 +309,111 @@ mod imp {
     impl Drop for NativePluginWindow {
         fn drop(&mut self) {
             self.close();
+        }
+    }
+
+    const SPACE_KEY_CODE: u16 = 49;
+
+    fn register_plugin_window(window: *mut AnyObject) {
+        let mut windows = PLUGIN_WINDOWS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        windows.insert(window as usize);
+        drop(windows);
+        install_space_monitor();
+    }
+
+    fn unregister_plugin_window(window: *mut AnyObject) {
+        let empty = {
+            let mut windows = PLUGIN_WINDOWS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            windows.remove(&(window as usize));
+            windows.is_empty()
+        };
+        if empty {
+            remove_space_monitor();
+        }
+    }
+
+    fn install_space_monitor() {
+        if MainThreadMarker::new().is_none() {
+            return;
+        }
+        SPACE_MONITOR.with(|slot| {
+            if slot.borrow().is_some() {
+                return;
+            }
+            let block = RcBlock::new(|event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+                unsafe {
+                    record_space_toggle(event.as_ptr());
+                }
+                event.as_ptr()
+            });
+            let monitor = unsafe {
+                NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+            };
+            if let Some(monitor) = monitor {
+                *slot.borrow_mut() = Some(monitor);
+            }
+        });
+    }
+
+    fn remove_space_monitor() {
+        if MainThreadMarker::new().is_none() {
+            return;
+        }
+        SPACE_MONITOR.with(|slot| {
+            if let Some(monitor) = slot.borrow_mut().take() {
+                unsafe {
+                    NSEvent::removeMonitor(&monitor);
+                }
+            }
+        });
+    }
+
+    unsafe fn record_space_toggle(event: *mut NSEvent) {
+        if event.is_null() {
+            return;
+        }
+        let event = unsafe { &*event };
+        if event.r#type() != NSEventType::KeyDown
+            || event.isARepeat()
+            || event.keyCode() != SPACE_KEY_CODE
+        {
+            return;
+        }
+        let event_window: *mut AnyObject = unsafe { msg_send![event, window] };
+        if is_plugin_window(event_window) || is_plugin_window(key_window()) {
+            PLAYBACK_TOGGLE_PENDING.store(true, Ordering::Release);
+        }
+    }
+
+    fn is_plugin_window(window: *mut AnyObject) -> bool {
+        if window.is_null() {
+            return false;
+        }
+        PLUGIN_WINDOWS
+            .lock()
+            .is_ok_and(|windows| windows.contains(&(window as usize)))
+    }
+
+    fn key_window() -> *mut AnyObject {
+        let Some(app_class) = AnyClass::get(c"NSApplication") else {
+            return ptr::null_mut();
+        };
+        let app: *mut AnyObject = unsafe { msg_send![app_class, sharedApplication] };
+        if app.is_null() {
+            return ptr::null_mut();
+        }
+        unsafe { msg_send![app, keyWindow] }
+    }
+
+    unsafe fn release_window(window: *mut AnyObject) {
+        if !window.is_null() {
+            unsafe {
+                let _: () = msg_send![window, release];
+            }
         }
     }
 
@@ -369,6 +501,10 @@ impl NativePluginWindow {
     pub fn pump(&mut self) {}
 
     pub fn is_open(&self) -> bool {
+        false
+    }
+
+    pub fn take_playback_toggle(&mut self) -> bool {
         false
     }
 

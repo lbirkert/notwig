@@ -518,8 +518,6 @@ pub struct Vst3Plugin {
     layouts: Vec<BusLayout>,
     active_layout: Option<BusLayout>,
 
-    // Hold the module open for the lifetime of the instance.
-    _module: LoadedModule,
     component: ComPtr<IComponent>,
     processor: ComPtr<IAudioProcessor>,
     controller: ComPtr<IEditController>,
@@ -537,6 +535,10 @@ pub struct Vst3Plugin {
     /// `open()`, released on `close()` / Drop.
     view: Option<ComPtr<IPlugView>>,
     editor_open: bool,
+
+    // Declared last so all COM objects and the view are released before
+    // `bundleExit` runs when the struct is dropped.
+    _module: LoadedModule,
 }
 
 impl Vst3Plugin {
@@ -706,6 +708,11 @@ where
 
 impl Drop for Vst3Plugin {
     fn drop(&mut self) {
+        // Remove the plugin view before terminating the component; live views
+        // call back into the controller during teardown.
+        if self.editor_open {
+            notwig_rack_core::editor::PluginEditor::close(self);
+        }
         if self.processing {
             unsafe { self.processor.setProcessing(0) };
         }

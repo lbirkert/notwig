@@ -106,7 +106,7 @@ fn apply_payload(
             }
             doc.validate()?;
             changes.push(DocChange::Meta(doc.meta.clone()));
-            Ok(vec![schedule_msg(doc)])
+            Ok(vec![schedule_msg(doc), transport_msg(doc)])
         }
         CommandPayload::SetTimeSignature {
             numerator,

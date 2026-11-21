@@ -1194,3 +1194,118 @@ fn trim_start_preview_adds_silence_past_the_available_source() {
     assert_eq!(geometry_source_start(&geometry), 0);
     assert!(geometry_silent_prefix(&geometry) > 0);
 }
+
+#[test]
+fn dragging_an_event_body_starts_a_time_selection_without_moving_the_event() {
+    let (doc, clip) = panel_doc(0);
+    let mut runtime = RuntimeView::default();
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
+    let mut ui = NotwigUi::default();
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    let ctx = egui::Context::default();
+    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+
+    let content = ui.clip_editor_content_rect;
+    let from = egui::pos2(content.left() + 40.0, content.top() + 80.0);
+    let to = egui::pos2(content.left() + 120.0, content.top() + 80.0);
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::PointerMoved(from)],
+    );
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(from, true)],
+    );
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::PointerMoved(to)],
+    );
+    let intents = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(to, false)],
+    );
+
+    let state = ui.clip_editor.as_ref().expect("clip editor open");
+    let range = state
+        .bar_selection()
+        .expect("dragging an event body should create a time selection");
+    assert!(!range.is_empty());
+    assert!(
+        state.selected_is_empty(),
+        "the time selection should clear the object selection"
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetClipSlices { .. })),
+        "dragging the event body must not move the event"
+    );
+}
+
+#[test]
+fn leftward_trim_at_the_exact_source_start_adds_silence_prefix() {
+    let original = slice_at(5, 2, 0, 48_000);
+    let drag = slice_drag(
+        SliceDragMode::TrimStart,
+        original.id,
+        TimeMus::new(2, 1),
+        0,
+        48_000,
+    );
+
+    let geometry = slice_geometry(
+        &original,
+        Some(drag),
+        -1.0,
+        TimeMus::zero(),
+        &map(),
+        TimeMus::new(1, 4),
+        false,
+        TimeMus::zero(),
+        true,
+    );
+    assert_eq!(geometry_start(&geometry), TimeMus::new(1, 1));
+    assert_eq!(geometry_source_start(&geometry), 0);
+    assert_eq!(geometry_source_end(&geometry), 48_000);
+    assert_eq!(geometry_silent_prefix(&geometry), 24_000);
+    assert_eq!(
+        geometry_start(&geometry) + geometry_duration(&geometry, &map()),
+        TimeMus::new(4, 1),
+        "the opposite edge must stay fixed"
+    );
+
+    let slices = vec![original];
+    let model = model_for(&slices);
+    let plan =
+        edit::trim_object(&model, slices[0].id, edit::Edge::Start, TimeMus::new(1, 1)).unwrap();
+    let lowered = lower(&slices, plan);
+    let slice = &lowered.slices[0];
+    assert_eq!(slice.start, TimeMus::new(1, 1));
+    assert_eq!(slice.source_start_sample, 0);
+    assert_eq!(slice.source_end_sample, 48_000);
+    assert_eq!(slice.silent_prefix_samples, 24_000);
+    assert_eq!(
+        slice.start + source_duration(&map(), slice),
+        TimeMus::new(4, 1)
+    );
+}

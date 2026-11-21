@@ -9,8 +9,9 @@ MIDI and audio clips on the right, ordered by beat.
   where playback will return when you stop.
 - Shift-drag the ruler to set the loop range.
 - Click the loop button in the top bar to enable or disable looping.
-- With a time selection, **Cmd+L** sets the loop to that range. Without a time
-  selection, it toggles the loop.
+- With a time selection, **Cmd+L** sets the loop to that range. With clips
+  selected and no time selection, it sets the loop to their combined bounds.
+  With neither, it toggles the loop.
 
 The playhead moves during playback. Stop returns to the loop start when looping
 is enabled, otherwise to the play start. Playback wraps at the loop end with
@@ -31,9 +32,10 @@ sample accuracy.
 
 - Click a clip to select it. Cmd-click or Shift-click adds clips to the
   selection.
-- Drag a selected clip to move it in time. Drag it vertically onto a compatible
-  track to move it across tracks. MIDI clips accept instrument tracks; audio
-  clips accept audio tracks.
+- Drag a clip's title bar to move it in time. Drag it vertically onto a
+  compatible track to move it across tracks. MIDI clips accept instrument
+  tracks; audio clips accept audio tracks.
+- Drag across a clip body to create a time selection without moving the clip.
 - Drag a group selection to move all selected clips by the same amount. Group
   moves keep relative offsets and stay to the right of beat zero.
 - Hold **Alt** or **Shift** while dragging to bypass snapping.
@@ -42,15 +44,15 @@ sample accuracy.
 
 ## Time selection
 
-- Drag on an empty lane to create a time selection.
+- Drag on an empty lane or across clip bodies to create a time selection.
 - Drag vertically while creating one to include more tracks.
 - Drag the selection itself to move it, together with its content, in time.
 - Drag either selection edge to extend or shorten the time range.
 - Hold **Shift** while selecting, moving, or resizing to bypass snapping.
 - Click an empty lane once to clear the selection.
 
-A time selection is the input for copy, cut, paste, duplicate, delete, and loop
-range commands.
+A time selection is the input for copy, cut, paste, duplicate, and delete. The
+loop range command also accepts a clip selection when no time selection exists.
 
 ## Clipboard and structure
 

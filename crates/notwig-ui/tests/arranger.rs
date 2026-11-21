@@ -1,9 +1,12 @@
 use egui::{Pos2, Rect, Vec2};
-use notwig_core::ids::{Clip, DeviceChain, Track};
+use notwig_core::ids::{Asset, Clip, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload};
-use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData};
+use notwig_core::sequencer::{AudioClipData, AudioSlice, ClipKind, ClipPayload, MidiClipData};
 use notwig_core::tracks::TrackKind;
-use notwig_core::{Id, Meta, ProjectDoc, RangeMus, SampleRate, TimeMus, TrackId, apply};
+use notwig_core::{
+    AssetEntry, AssetKind, Db, Id, Meta, ProjectDoc, RangeMus, SampleRate, SliceId, TimeMus,
+    TrackId, apply,
+};
 use notwig_ui::{NotwigUi, OpenedEditor, RuntimeView, UiIntent};
 use uuid::Uuid;
 
@@ -59,6 +62,67 @@ fn with_midi_clip(
                 length: end - start,
                 content_start: TimeMus::zero(),
                 notes: Vec::new(),
+            }),
+        }),
+    )
+    .unwrap()
+    .doc
+}
+
+fn with_audio_clip(
+    doc: &ProjectDoc,
+    track: TrackId,
+    n: u128,
+    start: TimeMus,
+    end: TimeMus,
+) -> ProjectDoc {
+    let asset = id::<Asset>(n + 2000);
+    let doc = apply(
+        doc,
+        &Command::new(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: AssetEntry {
+                id: asset,
+                kind: AssetKind::Audio,
+                uri: format!("assets/{n}.wav"),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(1),
+                duration_samples: Some(48_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(1),
+            },
+        }),
+    )
+    .unwrap()
+    .doc;
+    apply(
+        &doc,
+        &Command::new(CommandPayload::CreateClip {
+            id: id::<Clip>(n),
+            track_id: track,
+            kind: ClipKind::Audio,
+            range: RangeMus::new(start, end).unwrap(),
+            payload: ClipPayload::Audio(AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 48_000,
+                gain_db: Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                slices: vec![AudioSlice {
+                    id: SliceId::from_uuid(Uuid::from_u128(n + 3000)),
+                    start: TimeMus::zero(),
+                    source_start_sample: 0,
+                    source_end_sample: 48_000,
+                    silent_prefix_samples: 0,
+                    gain_db: Db(0.0),
+                    asset_id: None,
+                }],
+                slices_enabled: true,
             }),
         }),
     )
@@ -604,5 +668,117 @@ fn arranger_playhead_is_hidden_when_transport_is_stopped() {
         white_vertical_lines(&playing)
             .iter()
             .any(|line| (line[0].x - x).abs() < 0.5)
+    );
+}
+
+#[test]
+fn dragging_a_clip_body_starts_a_time_selection_without_moving_the_clip() {
+    let track = id::<Track>(2);
+    let doc = with_midi_clip(
+        &with_track(&empty_doc(), 2, TrackKind::Instrument, None),
+        track,
+        20,
+        TimeMus::new(2, 1),
+        TimeMus::new(6, 1),
+    );
+    let (mut ui, ctx, runtime) = mount(&doc);
+    let row = *ui.track_rows.get(&track).unwrap();
+    let from = Pos2::new(x_for_beat(&ui, 3.0), row.center().y);
+    let to = Pos2::new(x_for_beat(&ui, 4.0), row.center().y);
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        0.2,
+        vec![egui::Event::PointerMoved(from)],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        0.22,
+        vec![button(from, true)],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        0.24,
+        vec![egui::Event::PointerMoved(to)],
+    );
+    let (intents, _) = frame(&ctx, &mut ui, &doc, &runtime, 0.26, vec![button(to, false)]);
+
+    let time = ui
+        .state
+        .selection
+        .time
+        .as_ref()
+        .expect("clip body drag should create a time selection");
+    assert_eq!(
+        time.range,
+        RangeMus::new(TimeMus::new(3, 1), TimeMus::new(4, 1)).unwrap()
+    );
+    assert!(ui.state.selection.clips.is_empty());
+    assert!(!intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::MoveClip { .. } | UiIntent::MoveClips { .. }
+    )));
+}
+
+#[test]
+fn leftward_trim_at_source_start_extends_the_audio_clip() {
+    let track = id::<Track>(2);
+    let doc = with_audio_clip(
+        &with_track(&empty_doc(), 2, TrackKind::Audio, None),
+        track,
+        20,
+        TimeMus::new(2, 1),
+        TimeMus::new(4, 1),
+    );
+    let (mut ui, ctx, runtime) = mount(&doc);
+    let row = *ui.track_rows.get(&track).unwrap();
+    let from = Pos2::new(x_for_beat(&ui, 2.0), row.top() + 10.0);
+    let to = Pos2::new(x_for_beat(&ui, 1.0), row.top() + 10.0);
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        0.2,
+        vec![egui::Event::PointerMoved(from)],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        0.22,
+        vec![button(from, true)],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        0.24,
+        vec![egui::Event::PointerMoved(to)],
+    );
+    let (intents, _) = frame(&ctx, &mut ui, &doc, &runtime, 0.26, vec![button(to, false)]);
+
+    let range = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipRange { range, .. } => Some(*range),
+            _ => None,
+        })
+        .expect("leftward audio trim should set the clip range");
+    assert_eq!(range.start, TimeMus::new(1, 1));
+    assert_eq!(range.end, TimeMus::new(4, 1));
+    assert!(
+        range.start < TimeMus::new(2, 1),
+        "the trim should extend before the original source start"
     );
 }

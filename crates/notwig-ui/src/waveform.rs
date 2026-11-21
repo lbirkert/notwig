@@ -8,7 +8,7 @@ use notwig_core::{AssetId, AudioAssetBuffer};
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
 const BASE_BUCKET: u64 = 64;
-const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 32.0;
+const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 1.0;
 const FILL: Color32 = Color32::from_black_alpha(132);
 const LINE: Color32 = Color32::from_black_alpha(190);
 
@@ -68,9 +68,6 @@ impl AudioWaveform {
     }
 
     fn level_for(&self, samples_per_pixel: f64) -> Option<&PeakLevel> {
-        if samples_per_pixel < BASE_BUCKET as f64 {
-            return None;
-        }
         let index = self
             .levels
             .partition_point(|level| level.bucket as f64 <= samples_per_pixel)

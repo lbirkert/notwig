@@ -294,6 +294,59 @@ fn transport_stop_returns_to_loop_start_and_emits_engine_msg() {
 }
 
 #[test]
+fn tempo_change_recomputes_loop_samples_from_musical_range() {
+    let doc = new_doc();
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::SetTransport {
+            playing: Some(true),
+            playhead: Some(Rational::new(1, 1)),
+            loop_enabled: Some(true),
+            loop_range: Some(Some(
+                RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            )),
+            metronome: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetTempo { tempo_bpm: 60.0 }),
+    )
+    .unwrap();
+
+    assert!(
+        result
+            .engine_msgs
+            .iter()
+            .any(|msg| matches!(msg, EngineMsg::UpdateSchedule { .. })),
+        "tempo change must still refresh the playback schedule"
+    );
+
+    let (playhead_samples, loop_start_samples, loop_end_samples) = result
+        .engine_msgs
+        .iter()
+        .find_map(|msg| match msg {
+            EngineMsg::SetTransport {
+                playhead_samples,
+                loop_start_samples,
+                loop_end_samples,
+                ..
+            } => Some((*playhead_samples, *loop_start_samples, *loop_end_samples)),
+            _ => None,
+        })
+        .expect("tempo change must emit a transport update");
+
+    // Four beats at 60 BPM and a 48 kHz sample rate is 192_000 samples.
+    assert_eq!(loop_start_samples, Some(0));
+    assert_eq!(loop_end_samples, Some(192_000));
+    // One beat at 60 BPM is 48_000 samples.
+    assert_eq!(playhead_samples, 48_000);
+}
+
+#[test]
 fn audio_clip_requires_sample_accurate_range() {
     let mut doc = new_doc();
     let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
