@@ -14,8 +14,8 @@ domain or DSP logic belongs in lower crates, not here.
 - CLI entrypoint and commands (`ui`, `new`, `demo`, `render`, `info`,
   `scan-plugins`).
 - The `eframe` app loop and UI intent handling for native and browser targets.
-- Browser entry composition, OPFS/File System Access storage, async file
-  pickers, and user-gesture-gated WebAudio startup.
+- Browser entry composition, OPFS `Projects` folder storage, async file
+  pickers, ZIP download, and user-gesture-gated WebAudio startup.
 - `Workspace`: document mutation, command application, undo/redo, tracks,
   devices, transport, and project lifecycle policy.
 - Asset import/relink/preparation for the engine.
@@ -47,7 +47,7 @@ domain or DSP logic belongs in lower crates, not here.
 | `main.rs` | CLI, demo project, offline render/info commands |
 | `gui.rs` | `eframe` app, intent handling, native dialogs, plugin windows |
 | `web/mod.rs` | Browser app construction |
-| `web/storage.rs` | OPFS and File System Access project storage |
+| `web/storage.rs` | OPFS `Projects` folder storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
 | `workspace/mod.rs` | Project lifecycle, commands, history, tracks/devices/transport |
 | `workspace/assets.rs` | Asset load/import/relink/peaks/engine prepare |

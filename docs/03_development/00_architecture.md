@@ -147,7 +147,8 @@ rate stays project-scoped.
 same `notwig-ui`/`notwig-engine` composition through `eframe::WebRunner`.
 Platform edges are selected by target:
 
-- project storage uses OPFS and the File System Access API instead of `std::fs`;
+- project storage uses a `Projects` folder in OPFS instead of `std::fs`, with an
+  in-app project picker and `.notwig.zip` download;
 - audio uses CPAL's WebAudio backend and starts after a user gesture;
 - native plugin formats are not compiled;
 - trusted extensions use the browser WebAssembly host instead of wasmtime;

@@ -1,7 +1,7 @@
 use notwig_core::ids::{Asset, DeviceChain, Track};
 use notwig_core::*;
 use notwig_project::{
-    BundleFiles, decode_audio_bytes, open_files, save_files, write_wav_f32_bytes,
+    BundleFiles, bundle_zip_bytes, decode_audio_bytes, open_files, save_files, write_wav_f32_bytes,
 };
 use uuid::Uuid;
 
@@ -88,4 +88,24 @@ fn wav_bytes_roundtrip() {
     for (decoded, original) in decoded.samples.iter().zip(&samples) {
         assert!((decoded - original).abs() < 1.0e-6);
     }
+}
+
+#[test]
+fn bundle_zip_contains_bundle_files() {
+    use std::io::{Cursor, Read};
+
+    let mut files = save_files(&doc(), BundleFiles::default()).unwrap();
+    files.insert("assets/tone.wav", vec![1, 2, 3, 4]);
+    let zip = bundle_zip_bytes(&files).unwrap();
+    assert!(zip.starts_with(b"PK"));
+
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip)).unwrap();
+    let mut project = String::new();
+    archive
+        .by_name("project.json")
+        .unwrap()
+        .read_to_string(&mut project)
+        .unwrap();
+    assert!(project.contains("Browser Project"));
+    assert!(archive.by_name("assets/tone.wav").is_ok());
 }

@@ -68,7 +68,7 @@ Dependencies worth planning around:
 | FLAC and OGG import | 🧪 Partial | ⭐⭐⭐ | Routed through Symphonia; probe and export round-trips are covered, but import-decode tests are still missing. |
 | Asset relink | 🧪 Partial | ⭐⭐⭐ | Stores a path and decodes it. It does not copy the file into the bundle or verify the hash. |
 | Asset garbage collection | 📋 Planned | ⭐⭐ |  |
-| Recent projects | 📋 Planned | ⭐⭐ |  |
+| Recent projects | ✅ Implemented | ⭐⭐ | FILE menu submenu backed by the native registry and browser local storage. |
 | Project templates | 📋 Planned | ⭐⭐ | New projects use one default template. There is no template picker or user template store. |
 | Project rename UI | 📋 Planned | ⭐⭐ |  |
 | Settings persistence | ✅ Implemented | ⭐⭐⭐⭐ | Shortcuts, audio driver, audio device, and block size persist in the per-user config. Missing drivers/devices fall back safely. Sample rate remains project-scoped. |

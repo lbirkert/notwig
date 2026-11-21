@@ -55,14 +55,15 @@ cp web/index.html web/styles.css target/web/
 python3 -m http.server --directory target/web 8080
 ```
 
-The browser build uses the File System Access API and Origin Private File
-System for project storage, and WebAudio through CPAL. Native VST3/VST2/AU
-plugins are unavailable. Trusted extensions run through the browser WebAssembly host:
-the stock extension is fetched from the same origin, and trusted ZIP packages
-can be installed into browser storage. Untrusted extension modes are not
-supported in the browser. Audio starts after the first user gesture, and
-browsers without the File System Access API fall back to OPFS plus zip/import
-download flows.
+The browser build stores projects in a `Projects` folder inside the Origin
+Private File System (OPFS) and uses WebAudio through CPAL. Project open and save
+use an in-app project picker, and **FILE > Download Project** exports the
+project folder as a `.notwig.zip`. Local audio and extension ZIP files are read
+through the browser's standard file input. Native VST3/VST2/AU plugins are
+unavailable. Trusted extensions run through the browser WebAssembly host: the
+stock extension is fetched from the same origin, and trusted ZIP packages can be
+installed into browser storage. Untrusted extension modes are not supported in
+the browser. Audio starts after the first user gesture.
 
 CI publishes the docs at `https://notwig.lbirkert.com/` and the app at
 `https://notwig.lbirkert.com/app/`.

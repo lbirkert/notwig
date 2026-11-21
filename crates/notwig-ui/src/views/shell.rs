@@ -85,6 +85,9 @@ pub struct NotwigUi {
     pub render_end: notwig_core::TimeMus,
     pub render_options: crate::intent::ExportOptions,
     pub render_progress: Option<f32>,
+    pub(crate) project_picker_epoch: u64,
+    pub(crate) project_picker_name: String,
+    pub(crate) project_picker_confirm_overwrite: bool,
     pub platform_pointer: Option<egui::Pos2>,
     pub analyzer_pre: bool,
     pub analyzer_post: bool,
@@ -154,6 +157,9 @@ impl Default for NotwigUi {
             render_end: notwig_core::TimeMus::zero(),
             render_options: crate::intent::ExportOptions::default(),
             render_progress: None,
+            project_picker_epoch: 0,
+            project_picker_name: String::new(),
+            project_picker_confirm_overwrite: false,
             platform_pointer: None,
             analyzer_pre: true,
             analyzer_post: false,
@@ -229,6 +235,7 @@ impl NotwigUi {
         if self.render_open {
             self.render_window(ctx, doc);
         }
+        self.project_picker_window(ctx, runtime);
         if self.show_notifications {
             self.notifications_window(ctx);
         }
@@ -1015,24 +1022,37 @@ impl NotwigUi {
             Color32::WHITE,
         );
         egui::Popup::menu(&response).show(|ui| {
+            ui.menu_button("Recent Projects", |ui| {
+                if runtime.recent_projects.is_empty() {
+                    ui.add_enabled(false, egui::Button::new("No recent projects"));
+                } else {
+                    for project in &runtime.recent_projects {
+                        if ui.button(&project.label).clicked() {
+                            self.emit(UiIntent::OpenProjectNamed(project.key.clone()));
+                            ui.close();
+                        }
+                    }
+                }
+            });
             if ui.button("New Project").clicked() {
                 self.emit(UiIntent::NewProject);
                 ui.close();
             }
-            if ui.button("Open Project…").clicked() {
+            if ui.button("Open Project").clicked() {
                 self.emit(UiIntent::OpenProject);
                 ui.close();
             }
-            if ui.button("Open Project Folder…").clicked() {
-                self.emit(UiIntent::OpenProjectFolder);
-                ui.close();
-            }
-            if ui.button("Save").clicked() {
+            if ui.button("Save Project").clicked() {
                 self.emit(UiIntent::Save);
                 ui.close();
             }
-            if ui.button("Save As…").clicked() {
+            if ui.button("Save As").clicked() {
                 self.emit(UiIntent::SaveAs);
+                ui.close();
+            }
+            #[cfg(target_arch = "wasm32")]
+            if ui.button("Download Project").clicked() {
+                self.emit(UiIntent::DownloadProject);
                 ui.close();
             }
             ui.separator();

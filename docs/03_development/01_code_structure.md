@@ -213,7 +213,7 @@ frame that carries input and returns draw commands plus host actions.
 | `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |
-| `web/storage.rs` | OPFS and File System Access project storage |
+| `web/storage.rs` | OPFS `Projects` folder storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |

@@ -31,3 +31,9 @@ impl From<serde_json::Error> for ProjectError {
         Self::Schema(value.to_string())
     }
 }
+
+impl From<zip::result::ZipError> for ProjectError {
+    fn from(value: zip::result::ZipError) -> Self {
+        Self::Io(value.to_string())
+    }
+}

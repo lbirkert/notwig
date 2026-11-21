@@ -244,8 +244,12 @@ pub enum UiIntent {
     NewProject,
     OpenProject,
     OpenProjectFolder,
+    OpenProjectNamed(String),
     Save,
     SaveAs,
+    SaveProjectNamed(String),
+    CancelProjectPicker,
+    DownloadProject,
     RenderMixdownRange {
         start: TimeMus,
         end: TimeMus,

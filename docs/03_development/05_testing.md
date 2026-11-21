@@ -370,7 +370,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Corrupt project file | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Atomic save under failure | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Sample-rate change with assets | 🧪 Partial | ⭐⭐⭐⭐ | Undo is tested. Resampling is not. |
-| Recent projects | 📋 Planned | ⭐⭐ | |
+| Recent projects | 🧪 Partial | ⭐⭐ | Registry and menu data are covered indirectly; no headless menu test. |
 | Project templates | 📋 Planned | ⭐⭐ | |
 
 ## Performance and realtime safety tests

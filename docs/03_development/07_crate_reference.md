@@ -37,7 +37,7 @@ is excluded from the main workspace and its lint policy.
 | VST3/VST2/AU discovery and hosting | `notwig-plugins` |
 | View, widget, gesture, editor UI | `notwig-ui` |
 | Intent handling, workspace policy, audio device, dialogs | `notwig-app` |
-| Browser startup, OPFS storage, WebAudio gate | `notwig-app::web`, `notwig-web` |
+| Browser startup, OPFS `Projects` folder storage, WebAudio gate | `notwig-app::web`, `notwig-web` |
 
 ## Crate documents
 

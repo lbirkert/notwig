@@ -20,6 +20,7 @@ sha2 = "0.10"
 symphonia.workspace = true
 thiserror.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+zip.workspace = true
 
 [lints]
 workspace = true

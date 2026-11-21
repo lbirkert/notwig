@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
 use notwig_core::{CoreError, ProjectDoc, SCHEMA_VERSION};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 use crate::error::ProjectError;
 use crate::fsutil;
@@ -80,6 +83,20 @@ pub fn save_files(doc: &ProjectDoc, mut files: BundleFiles) -> Result<BundleFile
     let text = serde_json::to_vec_pretty(&manifest)?;
     files.insert("project.json", text);
     Ok(files)
+}
+
+/// Encodes a bundle as a ZIP archive suitable for browser download.
+///
+/// Entries are stored uncompressed so the encoder has no native compressor
+/// dependency and works on every browser target.
+pub fn bundle_zip_bytes(files: &BundleFiles) -> Result<Vec<u8>, ProjectError> {
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    for (path, bytes) in &files.files {
+        writer.start_file(path, options)?;
+        writer.write_all(bytes)?;
+    }
+    Ok(writer.finish()?.into_inner())
 }
 
 pub fn save(doc: &ProjectDoc, bundle: &Path) -> Result<SaveResult, ProjectError> {

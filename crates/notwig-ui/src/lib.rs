@@ -17,7 +17,8 @@ pub use commands::{KeyChord, ShortcutCommand, Shortcuts};
 pub use intent::{DropAudioTarget, ExportBitDepth, ExportFormat, ExportOptions, UiIntent};
 pub use runtime::{
     AudioDeviceView, AudioDriverView, AudioSettingsValue, AudioSettingsView, DspAnalysisView,
-    MeterValues, PluginEntry, RuntimeView,
+    MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView, RecentProjectView,
+    RuntimeView,
 };
 pub use shell::NotwigUi;
 pub use state::{

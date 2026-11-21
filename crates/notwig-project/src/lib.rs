@@ -14,9 +14,9 @@ pub use assets::{
     write_wav_f32_bytes,
 };
 pub use bundle::{
-    BundleFiles, LoadResult, SaveResult, autosave, cleanup_autosaves, create_session_lock,
-    has_session_lock, list_autosaves, load_latest_autosave, open, open_files, remove_session_lock,
-    save, save_files, session_lock_path,
+    BundleFiles, LoadResult, SaveResult, autosave, bundle_zip_bytes, cleanup_autosaves,
+    create_session_lock, has_session_lock, list_autosaves, load_latest_autosave, open, open_files,
+    remove_session_lock, save, save_files, session_lock_path,
 };
 pub use error::ProjectError;
 pub use export::{ExportBitDepth, ExportFormat, ExportOptions, write_audio_export};

@@ -1,14 +1,18 @@
 use std::sync::mpsc::Sender;
 
-use js_sys::{Array, Function, Promise, Reflect, Uint8Array};
+use js_sys::{Array, Reflect, Uint8Array};
 use notwig_project::{BundleFiles, Manifest};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     File, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemWritableFileStream,
+    FileSystemGetFileOptions, FileSystemRemoveOptions, FileSystemWritableFileStream,
 };
+
+const PROJECTS_DIR: &str = "Projects";
+const RECENT_PROJECTS_KEY: &str = "notwig.recent-projects";
+const MAX_RECENT_PROJECTS: usize = 10;
 
 #[derive(Debug)]
 pub(crate) enum StorageEvent {
@@ -19,6 +23,14 @@ pub(crate) enum StorageEvent {
     ProjectSaved {
         handle: ProjectHandle,
     },
+    ProjectsListed {
+        epoch: u64,
+        result: Result<Vec<String>, String>,
+    },
+    ProjectDownloaded {
+        name: String,
+        result: Result<(), String>,
+    },
     AudioPicked {
         name: String,
         bytes: Vec<u8>,
@@ -27,6 +39,7 @@ pub(crate) enum StorageEvent {
         name: String,
         bytes: Vec<u8>,
     },
+    FileSelectionCancelled,
     Error(String),
 }
 
@@ -36,74 +49,70 @@ pub(crate) struct ProjectHandle {
     pub(crate) name: String,
 }
 
-pub(crate) fn request_directory() -> Result<Promise, String> {
-    let window = web_sys::window().ok_or_else(|| "no browser window".to_string())?;
-    let function =
-        Reflect::get(&window, &JsValue::from_str("showDirectoryPicker")).map_err(js_error)?;
-    if !function.is_function() {
-        return Err("this browser does not support the File System Access API".into());
+pub(crate) async fn list_projects() -> Result<Vec<String>, String> {
+    let root = projects_root().await?;
+    let iterator = root.entries();
+    let mut names = Vec::new();
+    loop {
+        let next = JsFuture::from(iterator.next().map_err(js_error)?)
+            .await
+            .map_err(js_error)?;
+        if reflect_bool(&next, "done")?.unwrap_or(true) {
+            break;
+        }
+        let value = Reflect::get(&next, &JsValue::from_str("value")).map_err(js_error)?;
+        let pair = Array::from(&value);
+        let Some(name) = pair.get(0).as_string() else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        if pair.get(1).dyn_into::<FileSystemDirectoryHandle>().is_ok() {
+            names.push(name);
+        }
     }
-    let function: Function = function.unchecked_into();
-    function
-        .call0(&window)
-        .map(wasm_bindgen::JsCast::unchecked_into)
-        .map_err(js_error)
+    names.sort();
+    Ok(names)
 }
 
-pub(crate) fn request_file() -> Result<Promise, String> {
-    let window = web_sys::window().ok_or_else(|| "no browser window".to_string())?;
-    let function =
-        Reflect::get(&window, &JsValue::from_str("showOpenFilePicker")).map_err(js_error)?;
-    if !function.is_function() {
-        return Err("this browser does not support the File System Access API".into());
-    }
-    let function: Function = function.unchecked_into();
-    let options = js_sys::Object::new();
-    Reflect::set(&options, &JsValue::from_str("multiple"), &JsValue::FALSE).map_err(js_error)?;
-    function
-        .call1(&window, &options)
-        .map(wasm_bindgen::JsCast::unchecked_into)
-        .map_err(js_error)
+pub(crate) async fn open_project(name: &str) -> Result<ProjectHandle, String> {
+    project_handle(name, false).await
 }
 
-pub(crate) async fn directory_from_promise(promise: Promise) -> Result<ProjectHandle, String> {
-    let value = JsFuture::from(promise).await.map_err(js_error)?;
-    let dir: FileSystemDirectoryHandle = value.unchecked_into();
-    let name = dir.name();
-    Ok(ProjectHandle { dir, name })
+pub(crate) async fn create_project(name: &str) -> Result<ProjectHandle, String> {
+    project_handle(name, true).await
 }
 
-pub(crate) async fn first_file_from_promise(promise: Promise) -> Result<(String, Vec<u8>), String> {
-    let value = JsFuture::from(promise).await.map_err(js_error)?;
-    let files: Array = value.unchecked_into();
-    let first = files
-        .get(0)
-        .dyn_into::<FileSystemFileHandle>()
-        .map_err(|_| "no file was selected".to_string())?;
-    let file: File = JsFuture::from(first.get_file())
-        .await
-        .map_err(js_error)?
-        .unchecked_into();
-    let name = file.name();
-    let buffer = JsFuture::from(file.array_buffer())
-        .await
-        .map_err(js_error)?;
-    let bytes = Uint8Array::new(&buffer).to_vec();
-    Ok((name, bytes))
-}
-
-pub(crate) async fn open_opfs_project(name: &str) -> Result<ProjectHandle, String> {
-    let root = opfs_root().await?;
-    let options = FileSystemGetDirectoryOptions::new();
-    options.set_create(true);
-    let value = JsFuture::from(root.get_directory_handle_with_options(name, &options))
-        .await
-        .map_err(js_error)?;
+async fn project_handle(name: &str, create: bool) -> Result<ProjectHandle, String> {
+    let root = projects_root().await?;
+    let value = if create {
+        let options = FileSystemGetDirectoryOptions::new();
+        options.set_create(true);
+        JsFuture::from(root.get_directory_handle_with_options(name, &options))
+            .await
+            .map_err(js_error)?
+    } else {
+        JsFuture::from(root.get_directory_handle(name))
+            .await
+            .map_err(js_error)?
+    };
     let dir: FileSystemDirectoryHandle = value.unchecked_into();
     Ok(ProjectHandle {
         dir,
         name: name.to_owned(),
     })
+}
+
+pub(crate) async fn delete_project(name: &str) -> Result<(), String> {
+    let root = projects_root().await?;
+    let options = FileSystemRemoveOptions::new();
+    options.set_recursive(true);
+    match JsFuture::from(root.remove_entry_with_options(name, &options)).await {
+        Ok(_) => Ok(()),
+        Err(error) if js_error_name(&error) == "NotFoundError" => Ok(()),
+        Err(error) => Err(js_error(error)),
+    }
 }
 
 pub(crate) async fn read_bundle(handle: &ProjectHandle) -> Result<BundleFiles, String> {
@@ -120,6 +129,12 @@ pub(crate) async fn read_bundle(handle: &ProjectHandle) -> Result<BundleFiles, S
     Ok(files)
 }
 
+pub(crate) async fn read_project_files(handle: &ProjectHandle) -> Result<BundleFiles, String> {
+    let mut files = BundleFiles::default();
+    read_directory(&handle.dir, "", &mut files).await?;
+    Ok(files)
+}
+
 pub(crate) async fn write_bundle(
     handle: &ProjectHandle,
     files: &BundleFiles,
@@ -128,6 +143,18 @@ pub(crate) async fn write_bundle(
         write_file(&handle.dir, path, bytes).await?;
     }
     Ok(())
+}
+
+async fn projects_root() -> Result<FileSystemDirectoryHandle, String> {
+    let root = opfs_root().await?;
+    let options = FileSystemGetDirectoryOptions::new();
+    options.set_create(true);
+    let value = JsFuture::from(root.get_directory_handle_with_options(PROJECTS_DIR, &options))
+        .await
+        .map_err(js_error)?;
+    value
+        .dyn_into::<FileSystemDirectoryHandle>()
+        .map_err(|_| "could not open the Projects folder".to_string())
 }
 
 async fn opfs_root() -> Result<FileSystemDirectoryHandle, String> {
@@ -139,6 +166,49 @@ async fn opfs_root() -> Result<FileSystemDirectoryHandle, String> {
     value
         .dyn_into::<FileSystemDirectoryHandle>()
         .map_err(|_| "could not open browser storage".to_string())
+}
+
+async fn read_directory(
+    root: &FileSystemDirectoryHandle,
+    prefix: &str,
+    files: &mut BundleFiles,
+) -> Result<(), String> {
+    let mut pending = vec![(root.clone(), prefix.to_owned())];
+    while let Some((dir, prefix)) = pending.pop() {
+        let iterator = dir.entries();
+        loop {
+            let next = JsFuture::from(iterator.next().map_err(js_error)?)
+                .await
+                .map_err(js_error)?;
+            if reflect_bool(&next, "done")?.unwrap_or(true) {
+                break;
+            }
+            let value = Reflect::get(&next, &JsValue::from_str("value")).map_err(js_error)?;
+            let pair = Array::from(&value);
+            let Some(name) = pair.get(0).as_string() else {
+                continue;
+            };
+            let path = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let handle = pair.get(1);
+            if let Ok(child) = handle.clone().dyn_into::<FileSystemDirectoryHandle>() {
+                pending.push((child, path));
+            } else if let Ok(file_handle) = handle.dyn_into::<FileSystemFileHandle>() {
+                let file: File = JsFuture::from(file_handle.get_file())
+                    .await
+                    .map_err(js_error)?
+                    .unchecked_into();
+                let buffer = JsFuture::from(file.array_buffer())
+                    .await
+                    .map_err(js_error)?;
+                files.insert(path, Uint8Array::new(&buffer).to_vec());
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn read_file(root: &FileSystemDirectoryHandle, path: &str) -> Result<Vec<u8>, String> {
@@ -202,25 +272,56 @@ async fn write_file(
     Ok(())
 }
 
-fn js_error(value: JsValue) -> String {
-    value.as_string().unwrap_or_else(|| format!("{value:?}"))
+fn reflect_bool(value: &JsValue, key: &str) -> Result<Option<bool>, String> {
+    Ok(Reflect::get(value, &JsValue::from_str(key))
+        .map_err(js_error)?
+        .as_bool())
 }
 
-const LAST_PROJECT_KEY: &str = "notwig.last-project";
+fn js_error_name(value: &JsValue) -> String {
+    Reflect::get(value, &JsValue::from_str("name"))
+        .ok()
+        .and_then(|name| name.as_string())
+        .unwrap_or_default()
+}
 
-pub(crate) fn remember_last_project(name: &str) {
-    if let Some(storage) =
-        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
-    {
-        let _ = storage.set_item(LAST_PROJECT_KEY, name);
+fn js_error(value: JsValue) -> String {
+    if let Some(message) = value.as_string() {
+        return message;
+    }
+    let name = js_error_name(&value);
+    let message = Reflect::get(&value, &JsValue::from_str("message"))
+        .ok()
+        .and_then(|message| message.as_string())
+        .unwrap_or_default();
+    if message.is_empty() {
+        format!("{value:?}")
+    } else if name.is_empty() {
+        message
+    } else {
+        format!("{name}: {message}")
     }
 }
 
-pub(crate) fn last_project_name() -> Option<String> {
+pub(crate) fn remember_recent_project(name: &str) {
+    let mut projects = recent_project_names();
+    projects.retain(|project| project != name);
+    projects.insert(0, name.to_owned());
+    projects.truncate(MAX_RECENT_PROJECTS);
+    if let Some(storage) =
+        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+    {
+        let text = serde_json::to_string(&projects).unwrap_or_default();
+        let _ = storage.set_item(RECENT_PROJECTS_KEY, &text);
+    }
+}
+
+pub(crate) fn recent_project_names() -> Vec<String> {
     web_sys::window()
         .and_then(|window| window.local_storage().ok().flatten())
-        .and_then(|storage| storage.get_item(LAST_PROJECT_KEY).ok().flatten())
-        .filter(|name| !name.is_empty())
+        .and_then(|storage| storage.get_item(RECENT_PROJECTS_KEY).ok().flatten())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
 }
 
 pub(crate) fn download_bytes(name: &str, mime: &str, bytes: &[u8]) -> Result<(), String> {
@@ -271,14 +372,13 @@ pub(crate) fn fallback_file_input(
     input.set_type("file");
     input.set_accept(accept);
     let input_for_closure = input.clone();
+    let change_sender = sender.clone();
     let closure = Closure::<dyn FnMut(web_sys::Event)>::new(move |_event| {
-        let Some(files) = input_for_closure.files() else {
+        let Some(file) = input_for_closure.files().and_then(|files| files.get(0)) else {
+            let _ = change_sender.send(StorageEvent::FileSelectionCancelled);
             return;
         };
-        let Some(file) = files.get(0) else {
-            return;
-        };
-        let sender = sender.clone();
+        let sender = change_sender.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let name = file.name();
             match JsFuture::from(file.array_buffer()).await {
@@ -302,6 +402,14 @@ pub(crate) fn fallback_file_input(
         .add_event_listener_with_callback("change", closure.as_ref().unchecked_ref())
         .map_err(js_error)?;
     closure.forget();
+
+    let cancel_closure = Closure::<dyn FnMut(web_sys::Event)>::new(move |_event| {
+        let _ = sender.send(StorageEvent::FileSelectionCancelled);
+    });
+    input
+        .add_event_listener_with_callback("cancel", cancel_closure.as_ref().unchecked_ref())
+        .map_err(js_error)?;
+    cancel_closure.forget();
     input.click();
     Ok(())
 }

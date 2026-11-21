@@ -22,10 +22,12 @@ page assumes the application is already running.
 A Notwig project is a directory bundle ending in `.notwig`. Use the **FILE**
 menu in the top-left corner:
 
+- **Recent Projects** opens a submenu of recently used bundles.
 - **New Project** creates an empty project with a master track.
-- **Open Project…** opens a bundle.
-- **Open Project Folder…** opens a project folder directly.
-- **Save** and **Save As…** write the bundle.
+- **Open Project** opens a bundle.
+- **Save Project** and **Save As** write the bundle.
+- **Download Project** exports the browser project as a `.notwig.zip` (browser
+  build only).
 - **Import Audio…** adds an audio file to the project.
 
 On first launch, use **New Project**. Notwig does not prompt for a save

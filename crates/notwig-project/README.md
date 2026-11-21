@@ -12,6 +12,7 @@ real-time code.
 ## Owns
 
 - Saving and opening the project bundle directory.
+- Byte-oriented bundle I/O for browser storage and ZIP download.
 - Atomic JSON writes for the project manifest and autosave snapshots.
 - The versioned JSON manifest and schema-major checks.
 - Autosave snapshots, cleanup, and recovery detection.
@@ -54,7 +55,7 @@ temp-file-and-rename writes.
 
 | Module | Contents |
 |---|---|
-| `bundle.rs` | Save/open/autosave/recovery |
+| `bundle.rs` | Save/open/autosave/recovery, byte bundles, ZIP encoding |
 | `manifest.rs` | Manifest, schema version, load issues |
 | `assets.rs` | Decode, import, hash, and persist audio assets |
 | `probe.rs` | Header-only duration, sample-rate, and channel probing |

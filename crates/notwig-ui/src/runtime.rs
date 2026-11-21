@@ -86,6 +86,28 @@ impl Default for DspAnalysisView {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecentProjectView {
+    pub label: String,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectPickerAction {
+    Open,
+    SaveAs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectPickerView {
+    pub epoch: u64,
+    pub action: ProjectPickerAction,
+    pub projects: Vec<String>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub suggested_name: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeView {
     pub playing: bool,
@@ -114,6 +136,8 @@ pub struct RuntimeView {
     pub extension_index_errors: Vec<String>,
     pub extension_index_loading: bool,
     pub extension_index_loaded: bool,
+    pub recent_projects: Vec<RecentProjectView>,
+    pub project_picker: Option<ProjectPickerView>,
 }
 
 impl Default for RuntimeView {
@@ -145,6 +169,8 @@ impl Default for RuntimeView {
             extension_index_errors: Vec::new(),
             extension_index_loading: false,
             extension_index_loaded: false,
+            recent_projects: Vec::new(),
+            project_picker: None,
         }
     }
 }

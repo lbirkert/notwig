@@ -15,12 +15,39 @@ my-project.notwig/
   cache/             reserved for derived data
 ```
 
-Use **FILE > Save** to write the current bundle and **Save As…** to copy it to a
-new location. Saving writes through a temporary file and renames it into place,
-so an interrupted save does not leave a half-written `project.json`.
+Use **FILE > Save Project** to write the current bundle and **FILE > Save As**
+to copy it to a new location. Saving writes through a temporary file and renames
+it into place, so an interrupted save does not leave a half-written
+`project.json`.
 
-Notwig also accepts a project folder that contains the bundle layout. Use
-**Open Project Folder…** when the directory does not end in `.notwig`.
+**FILE > Recent Projects** lists recently opened or saved bundles. Native builds
+read the per-user project registry; browser builds read the recent list stored
+in browser local storage.
+
+### Browser projects
+
+The browser build keeps projects under a `Projects` folder in the Origin
+Private File System (OPFS):
+
+```text
+Projects/
+  my-project/
+    project.json
+    assets/
+    state/
+```
+
+- **Open Project** and **Save As** show an in-app project picker that lists the
+  folders under `Projects`. The picker is browser-only; native builds use the
+  operating system dialogs.
+- **Save Project** writes to the current project folder. If no browser project
+  is open, it opens the Save As picker.
+- Choosing an existing name in Save As asks for confirmation before replacing
+  that project folder.
+- **FILE > Download Project** writes the entire browser project folder to a
+  `.notwig.zip` file. This item is hidden in native builds.
+- Local audio imports and extension ZIP installs use the browser's standard file
+  input, not a directory picker.
 
 ## Importing audio
 

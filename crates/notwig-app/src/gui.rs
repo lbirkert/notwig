@@ -9,7 +9,11 @@ use notwig_core::protocol::CommandPayload;
 use notwig_core::{AssetId, DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
 #[cfg(not(target_arch = "wasm32"))]
 use notwig_plugins::NativePluginWindow;
-use notwig_ui::{DropAudioTarget, NotificationKind, NotwigUi, RuntimeView, UiIntent};
+#[cfg(target_arch = "wasm32")]
+use notwig_ui::ProjectPickerAction;
+use notwig_ui::{
+    DropAudioTarget, NotificationKind, NotwigUi, RecentProjectView, RuntimeView, UiIntent,
+};
 
 use crate::audio::AudioService;
 #[cfg(target_arch = "wasm32")]
@@ -55,6 +59,16 @@ struct AudioImportRequest {
     source: PathBuf,
     target: PathBuf,
     project_rate: u32,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct WebProjectPicker {
+    epoch: u64,
+    action: ProjectPickerAction,
+    projects: Vec<String>,
+    loading: bool,
+    error: Option<String>,
+    suggested_name: String,
 }
 
 struct RenderJob {
@@ -111,10 +125,15 @@ pub struct NotwigApp {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     audio_import_rx: mpsc::Receiver<(AssetId, Result<notwig_project::ImportedAsset, String>)>,
     engine_crash_reported: bool,
+    recent_projects: Vec<RecentProjectView>,
     #[cfg(target_arch = "wasm32")]
     web_project: Option<ProjectHandle>,
     #[cfg(target_arch = "wasm32")]
     web_storage_rx: Option<mpsc::Receiver<StorageEvent>>,
+    #[cfg(target_arch = "wasm32")]
+    web_picker: Option<WebProjectPicker>,
+    #[cfg(target_arch = "wasm32")]
+    web_picker_epoch: u64,
 }
 
 impl NotwigApp {
@@ -211,6 +230,7 @@ impl NotwigApp {
             audio_import_tx,
             audio_import_rx,
             engine_crash_reported: false,
+            recent_projects: load_recent_projects(),
         };
         app.ui.set_shortcuts(crate::shortcuts::load());
         app.sync_extensions();
@@ -252,8 +272,11 @@ impl NotwigApp {
             audio_import_tx,
             audio_import_rx,
             engine_crash_reported: false,
+            recent_projects: load_recent_projects(),
             web_project: None,
             web_storage_rx: None,
+            web_picker: None,
+            web_picker_epoch: 0,
         };
         app.ui.set_shortcuts(crate::shortcuts::load());
         app.sync_extensions();
@@ -268,69 +291,54 @@ impl NotwigApp {
 
     #[cfg(target_arch = "wasm32")]
     fn web_open_project(&mut self) {
-        if self.web_storage_rx.is_some() {
-            self.notify_info("A browser storage operation is already running.".into());
-            return;
-        }
-        let (sender, receiver) = mpsc::channel();
-        self.web_storage_rx = Some(receiver);
-
-        if let Some(name) = crate::web::storage::last_project_name() {
-            wasm_bindgen_futures::spawn_local(async move {
-                let result = async {
-                    let handle = crate::web::storage::open_opfs_project(&name).await?;
-                    let files = crate::web::storage::read_bundle(&handle).await?;
-                    Ok((handle, files))
-                }
-                .await;
-                let event = match result {
-                    Ok((handle, files)) => StorageEvent::ProjectLoaded { handle, files },
-                    Err(error) => StorageEvent::Error(error),
-                };
-                let _ = sender.send(event);
-            });
-            return;
-        }
-
-        if let Ok(promise) = crate::web::storage::request_directory() {
-            wasm_bindgen_futures::spawn_local(async move {
-                let result = async {
-                    let handle = crate::web::storage::directory_from_promise(promise).await?;
-                    let files = crate::web::storage::read_bundle(&handle).await?;
-                    Ok((handle, files))
-                }
-                .await;
-                let event = match result {
-                    Ok((handle, files)) => StorageEvent::ProjectLoaded { handle, files },
-                    Err(error) => StorageEvent::Error(error),
-                };
-                let _ = sender.send(event);
-            });
-            return;
-        }
-
-        self.web_storage_rx = None;
-        self.notify_error("No browser project has been saved yet.".into());
+        self.web_show_picker(ProjectPickerAction::Open);
     }
 
     #[cfg(target_arch = "wasm32")]
     fn web_open_project_folder(&mut self) {
+        self.web_show_picker(ProjectPickerAction::Open);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_show_picker(&mut self, action: ProjectPickerAction) {
         if self.web_storage_rx.is_some() {
             self.notify_info("A browser storage operation is already running.".into());
             return;
         }
-        let promise = match crate::web::storage::request_directory() {
-            Ok(promise) => promise,
-            Err(error) => {
-                self.notify_error(error);
-                return;
-            }
-        };
+        let suggested_name = self.web_project.as_ref().map_or_else(
+            || web_project_name(&self.workspace.doc.meta.name),
+            |handle| handle.name.clone(),
+        );
+        self.web_picker_epoch = self.web_picker_epoch.wrapping_add(1);
+        let epoch = self.web_picker_epoch;
+        self.web_picker = Some(WebProjectPicker {
+            epoch,
+            action,
+            projects: Vec::new(),
+            loading: true,
+            error: None,
+            suggested_name,
+        });
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+        wasm_bindgen_futures::spawn_local(async move {
+            let result = crate::web::storage::list_projects().await;
+            let _ = sender.send(StorageEvent::ProjectsListed { epoch, result });
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn web_open_project_named(&mut self, name: String) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        self.web_picker = None;
         let (sender, receiver) = mpsc::channel();
         self.web_storage_rx = Some(receiver);
         wasm_bindgen_futures::spawn_local(async move {
             let result = async {
-                let handle = crate::web::storage::directory_from_promise(promise).await?;
+                let handle = crate::web::storage::open_project(&name).await?;
                 let files = crate::web::storage::read_bundle(&handle).await?;
                 Ok((handle, files))
             }
@@ -349,17 +357,16 @@ impl NotwigApp {
             self.notify_info("A browser storage operation is already running.".into());
             return;
         }
-        let files = match self.workspace.bundle_files() {
-            Ok(files) => files,
-            Err(error) => {
-                self.notify_error(error);
-                return;
-            }
-        };
-        let (sender, receiver) = mpsc::channel();
-        self.web_storage_rx = Some(receiver);
-
-        if let Some(handle) = self.web_project.clone().filter(|_| !choose_new) {
+        if !choose_new && let Some(handle) = self.web_project.clone() {
+            let files = match self.workspace.bundle_files() {
+                Ok(files) => files,
+                Err(error) => {
+                    self.notify_error(error);
+                    return;
+                }
+            };
+            let (sender, receiver) = mpsc::channel();
+            self.web_storage_rx = Some(receiver);
             wasm_bindgen_futures::spawn_local(async move {
                 let event = match crate::web::storage::write_bundle(&handle, &files).await {
                     Ok(()) => StorageEvent::ProjectSaved { handle },
@@ -369,30 +376,31 @@ impl NotwigApp {
             });
             return;
         }
+        self.web_show_picker(ProjectPickerAction::SaveAs);
+    }
 
-        if choose_new {
-            if let Ok(promise) = crate::web::storage::request_directory() {
-                wasm_bindgen_futures::spawn_local(async move {
-                    let result = async {
-                        let handle = crate::web::storage::directory_from_promise(promise).await?;
-                        crate::web::storage::write_bundle(&handle, &files).await?;
-                        Ok(handle)
-                    }
-                    .await;
-                    let event = match result {
-                        Ok(handle) => StorageEvent::ProjectSaved { handle },
-                        Err(error) => StorageEvent::Error(error),
-                    };
-                    let _ = sender.send(event);
-                });
+    #[cfg(target_arch = "wasm32")]
+    fn web_save_project_named(&mut self, name: String) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let name = web_project_name(&name);
+        self.sync_playhead();
+        let files = match self.workspace.bundle_files() {
+            Ok(files) => files,
+            Err(error) => {
+                self.notify_error(error);
                 return;
             }
-        }
-
-        let name = sanitized_bundle_name(&self.workspace.doc.meta.name);
+        };
+        self.web_picker = None;
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
         wasm_bindgen_futures::spawn_local(async move {
             let result = async {
-                let handle = crate::web::storage::open_opfs_project(&name).await?;
+                crate::web::storage::delete_project(&name).await?;
+                let handle = crate::web::storage::create_project(&name).await?;
                 crate::web::storage::write_bundle(&handle, &files).await?;
                 Ok(handle)
             }
@@ -406,6 +414,35 @@ impl NotwigApp {
     }
 
     #[cfg(target_arch = "wasm32")]
+    fn web_download_project(&mut self) {
+        if self.web_storage_rx.is_some() {
+            self.notify_info("A browser storage operation is already running.".into());
+            return;
+        }
+        let Some(handle) = self.web_project.clone() else {
+            self.notify_error("Save the project before downloading it.".into());
+            return;
+        };
+        let (sender, receiver) = mpsc::channel();
+        self.web_storage_rx = Some(receiver);
+        wasm_bindgen_futures::spawn_local(async move {
+            let name = handle.name.clone();
+            let result = async {
+                let files = crate::web::storage::read_project_files(&handle).await?;
+                let bytes =
+                    notwig_project::bundle_zip_bytes(&files).map_err(|error| error.to_string())?;
+                crate::web::storage::download_bytes(
+                    &format!("{name}.notwig.zip"),
+                    "application/zip",
+                    &bytes,
+                )
+            }
+            .await;
+            let _ = sender.send(StorageEvent::ProjectDownloaded { name, result });
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
     fn web_import_audio(&mut self) {
         if self.web_storage_rx.is_some() {
             self.notify_info("A browser storage operation is already running.".into());
@@ -413,16 +450,6 @@ impl NotwigApp {
         }
         let (sender, receiver) = mpsc::channel();
         self.web_storage_rx = Some(receiver);
-        if let Ok(promise) = crate::web::storage::request_file() {
-            wasm_bindgen_futures::spawn_local(async move {
-                let event = match crate::web::storage::first_file_from_promise(promise).await {
-                    Ok((name, bytes)) => StorageEvent::AudioPicked { name, bytes },
-                    Err(error) => StorageEvent::Error(error),
-                };
-                let _ = sender.send(event);
-            });
-            return;
-        }
         match crate::web::storage::fallback_file_input(sender, "audio/*", FilePurpose::Audio) {
             Ok(()) => {}
             Err(error) => {
@@ -440,16 +467,6 @@ impl NotwigApp {
         }
         let (sender, receiver) = mpsc::channel();
         self.web_storage_rx = Some(receiver);
-        if let Ok(promise) = crate::web::storage::request_file() {
-            wasm_bindgen_futures::spawn_local(async move {
-                let event = match crate::web::storage::first_file_from_promise(promise).await {
-                    Ok((name, bytes)) => StorageEvent::ExtensionZipPicked { name, bytes },
-                    Err(error) => StorageEvent::Error(error),
-                };
-                let _ = sender.send(event);
-            });
-            return;
-        }
         match crate::web::storage::fallback_file_input(
             sender,
             ".zip,application/zip",
@@ -465,62 +482,107 @@ impl NotwigApp {
 
     #[cfg(target_arch = "wasm32")]
     fn poll_web_storage(&mut self) {
-        let Some(receiver) = self.web_storage_rx.take() else {
+        let Some(receiver) = self.web_storage_rx.as_ref() else {
             return;
         };
-        while let Ok(event) = receiver.try_recv() {
-            match event {
-                StorageEvent::ProjectLoaded { handle, files } => {
-                    match Workspace::from_bundle_files(&files, handle.name.clone()) {
-                        Ok(mut workspace) => {
-                            workspace.bundle =
-                                Some(PathBuf::from(format!("browser://{}", handle.name)));
-                            self.workspace = workspace;
-                            self.web_project = Some(handle.clone());
-                            crate::web::storage::remember_last_project(&handle.name);
-                            self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
-                            self.ui.state.selection.clear();
-                            self.recovery_error = None;
-                            self.notify_info(format!("Opened {}", handle.name));
-                        }
-                        Err(error) => self.notify_error(error),
+        let mut events = Vec::new();
+        let mut disconnected = false;
+        loop {
+            match receiver.try_recv() {
+                Ok(event) => events.push(event),
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+        if disconnected {
+            self.web_storage_rx = None;
+        }
+        for event in events {
+            self.handle_web_storage_event(event);
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn handle_web_storage_event(&mut self, event: StorageEvent) {
+        match event {
+            StorageEvent::ProjectLoaded { handle, files } => {
+                match Workspace::from_bundle_files(&files, handle.name.clone()) {
+                    Ok(mut workspace) => {
+                        workspace.bundle =
+                            Some(PathBuf::from(format!("browser://{}", handle.name)));
+                        self.workspace = workspace;
+                        self.web_project = Some(handle.clone());
+                        self.web_picker = None;
+                        crate::web::storage::remember_recent_project(&handle.name);
+                        self.refresh_recent_projects();
+                        self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+                        self.ui.state.selection.clear();
+                        self.recovery_error = None;
+                        self.notify_info(format!("Opened {}", handle.name));
+                    }
+                    Err(error) => self.notify_error(error),
+                }
+            }
+            StorageEvent::ProjectSaved { handle } => {
+                self.workspace.bundle = Some(PathBuf::from(format!("browser://{}", handle.name)));
+                self.workspace.dirty = false;
+                crate::web::storage::remember_recent_project(&handle.name);
+                self.refresh_recent_projects();
+                self.web_project = Some(handle.clone());
+                self.notify_info(format!("Saved {}", handle.name));
+            }
+            StorageEvent::ProjectsListed { epoch, result } => {
+                if let Some(picker) = self
+                    .web_picker
+                    .as_mut()
+                    .filter(|picker| picker.epoch == epoch)
+                {
+                    picker.loading = false;
+                    match result {
+                        Ok(projects) => picker.projects = projects,
+                        Err(error) => picker.error = Some(error),
                     }
                 }
-                StorageEvent::ProjectSaved { handle } => {
-                    self.workspace.bundle =
-                        Some(PathBuf::from(format!("browser://{}", handle.name)));
-                    self.workspace.dirty = false;
-                    crate::web::storage::remember_last_project(&handle.name);
-                    self.web_project = Some(handle.clone());
-                    self.notify_info(format!("Saved {}", handle.name));
-                }
-                StorageEvent::AudioPicked { name, bytes } => {
-                    match self.workspace.import_audio_bytes(&name, bytes) {
-                        Ok(asset_id) => {
-                            let track_id = self
-                                .ui
-                                .selected_track(&self.workspace.doc)
-                                .or_else(|| self.create_audio_track_for_import());
-                            if let Some(track_id) = track_id {
-                                let at = self.workspace.doc.transport.playhead;
-                                if let Err(error) =
-                                    self.workspace.insert_audio_clip_at(track_id, asset_id, at)
-                                {
-                                    self.notify_error(error);
-                                }
+            }
+            StorageEvent::ProjectDownloaded { name, result } => match result {
+                Ok(()) => self.notify_info(format!("Downloaded {name}.notwig.zip")),
+                Err(error) => self.notify_error(error),
+            },
+            StorageEvent::AudioPicked { name, bytes } => {
+                self.web_storage_rx = None;
+                match self.workspace.import_audio_bytes(&name, bytes) {
+                    Ok(asset_id) => {
+                        let track_id = self
+                            .ui
+                            .selected_track(&self.workspace.doc)
+                            .or_else(|| self.create_audio_track_for_import());
+                        if let Some(track_id) = track_id {
+                            let at = self.workspace.doc.transport.playhead;
+                            if let Err(error) =
+                                self.workspace.insert_audio_clip_at(track_id, asset_id, at)
+                            {
+                                self.notify_error(error);
                             }
-                            self.notify_info(format!("Imported {name}"));
                         }
-                        Err(error) => self.notify_error(error),
+                        self.notify_info(format!("Imported {name}"));
                     }
+                    Err(error) => self.notify_error(error),
                 }
-                StorageEvent::ExtensionZipPicked { name, bytes } => {
-                    match self.extensions.install_zip_bytes(bytes) {
-                        Ok(()) => self.notify_info(format!("Installing {name}…")),
-                        Err(error) => self.notify_error(error),
-                    }
+            }
+            StorageEvent::ExtensionZipPicked { name, bytes } => {
+                self.web_storage_rx = None;
+                match self.extensions.install_zip_bytes(bytes) {
+                    Ok(()) => self.notify_info(format!("Installing {name}…")),
+                    Err(error) => self.notify_error(error),
                 }
-                StorageEvent::Error(error) => self.notify_error(error),
+            }
+            StorageEvent::FileSelectionCancelled => self.web_storage_rx = None,
+            StorageEvent::Error(error) => {
+                self.web_storage_rx = None;
+                self.notify_error(error);
             }
         }
     }
@@ -545,6 +607,10 @@ impl NotwigApp {
         self.workspace
             .set_extension_devices(self.extensions.specs(), self.extensions.factory());
         self.ui.set_device_panel_host(self.extensions.panel_host());
+    }
+
+    fn refresh_recent_projects(&mut self) {
+        self.recent_projects = load_recent_projects();
     }
 
     fn restart_audio(&mut self) {
@@ -760,6 +826,20 @@ impl NotwigApp {
             &self.audio_settings,
             snapshot.error.clone(),
         );
+        #[cfg(target_arch = "wasm32")]
+        let project_picker = self
+            .web_picker
+            .as_ref()
+            .map(|picker| notwig_ui::ProjectPickerView {
+                epoch: picker.epoch,
+                action: picker.action,
+                projects: picker.projects.clone(),
+                loading: picker.loading,
+                error: picker.error.clone(),
+                suggested_name: picker.suggested_name.clone(),
+            });
+        #[cfg(not(target_arch = "wasm32"))]
+        let project_picker = None;
         RuntimeView {
             playing: self.render_playhead.is_some() || self.workspace.doc.transport.playing,
             playhead,
@@ -790,6 +870,8 @@ impl NotwigApp {
             extension_index_errors: self.extensions.index_errors(),
             extension_index_loading: self.extensions.index_loading(),
             extension_index_loaded: self.extensions.index_loaded(),
+            recent_projects: self.recent_projects.clone(),
+            project_picker,
         }
     }
 
@@ -1571,6 +1653,11 @@ impl NotwigApp {
                     self.workspace = workspace;
                     self.recovery_error = None;
                     self.fallback_playhead = 0.0;
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.web_project = None;
+                        self.web_picker = None;
+                    }
                     self.restart_audio();
                     self.notify_info("New project created.".into());
                 }
@@ -1593,10 +1680,19 @@ impl NotwigApp {
             #[cfg(target_arch = "wasm32")]
             UiIntent::OpenProjectFolder => self.web_open_project_folder(),
             #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::OpenProjectNamed(key) => {
+                self.apply_dialog(DialogAction::OpenProject, Some(PathBuf::from(key)));
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::OpenProjectNamed(name) => self.web_open_project_named(name),
+            #[cfg(not(target_arch = "wasm32"))]
             UiIntent::Save => {
                 self.sync_playhead();
                 match self.workspace.save(None) {
-                    Ok(path) => self.notify_info(format!("Saved {}", path.display())),
+                    Ok(path) => {
+                        self.refresh_recent_projects();
+                        self.notify_info(format!("Saved {}", path.display()));
+                    }
                     Err(_err) if self.workspace.bundle.is_none() => {
                         self.handle_save_as();
                     }
@@ -1611,7 +1707,26 @@ impl NotwigApp {
             #[cfg(not(target_arch = "wasm32"))]
             UiIntent::SaveAs => self.handle_save_as(),
             #[cfg(target_arch = "wasm32")]
-            UiIntent::SaveAs => self.web_save_project(true),
+            UiIntent::SaveAs => {
+                self.sync_playhead();
+                self.web_save_project(true);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::SaveProjectNamed(_) => {
+                self.notify_error("Named project saves are only available in the browser.".into());
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::SaveProjectNamed(name) => self.web_save_project_named(name),
+            #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::CancelProjectPicker => {}
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::CancelProjectPicker => self.web_picker = None,
+            #[cfg(not(target_arch = "wasm32"))]
+            UiIntent::DownloadProject => {
+                self.notify_error("Project downloading is only available in the browser.".into());
+            }
+            #[cfg(target_arch = "wasm32")]
+            UiIntent::DownloadProject => self.web_download_project(),
             #[cfg(not(target_arch = "wasm32"))]
             UiIntent::RenderMixdownRange {
                 start,
@@ -1825,6 +1940,7 @@ impl NotwigApp {
                         self.fallback_playhead = workspace.doc.transport.playhead.as_f64();
                         self.recovery_error = None;
                         self.workspace = workspace;
+                        self.refresh_recent_projects();
                         self.restart_audio();
                         self.notify_info(format!("Opened {}", path.display()));
                     }
@@ -1840,6 +1956,7 @@ impl NotwigApp {
                 }
                 match self.workspace.save(Some(&path)) {
                     Ok(path) => {
+                        self.refresh_recent_projects();
                         self.notify_info(format!("Saved {}", path.display()));
                         let drops = std::mem::take(&mut self.pending_drops);
                         for (source, target, at) in drops {
@@ -2145,17 +2262,55 @@ impl eframe::App for NotwigApp {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn sanitized_bundle_name(name: &str) -> String {
-    let name: String = name
+#[cfg(target_arch = "wasm32")]
+fn web_project_name(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .map(|ch| {
+            if ch == '/' || ch == '\\' || ch == '\0' || ch.is_control() {
+                '-'
+            } else {
+                ch
+            }
+        })
         .collect();
-    let trimmed = name.trim_matches('-');
+    let trimmed = cleaned.trim_matches(|ch| ch == ' ' || ch == '.');
     if trimmed.is_empty() {
-        "untitled".into()
+        "Untitled".into()
     } else {
-        trimmed.to_ascii_lowercase()
+        trimmed.to_owned()
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_recent_projects() -> Vec<RecentProjectView> {
+    crate::workspace::project_registry::registered_bundles()
+        .into_iter()
+        .rev()
+        .filter_map(|path| {
+            let label = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())?
+                .to_owned();
+            Some(RecentProjectView {
+                label,
+                key: path.to_string_lossy().into_owned(),
+            })
+        })
+        .collect()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn load_recent_projects() -> Vec<RecentProjectView> {
+    crate::web::storage::recent_project_names()
+        .into_iter()
+        .map(|name| RecentProjectView {
+            label: name.clone(),
+            key: name,
+        })
+        .collect()
 }
 
 fn f64_to_time(value: f64) -> TimeMus {
