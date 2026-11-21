@@ -1,6 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
 
@@ -13,14 +12,9 @@ use notwig_ext_api::{
 };
 
 use super::ExtensionEvent;
+use super::index::{IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes};
 
-const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
-
-struct IndexFetchResult {
-    entries: Vec<ExtensionIndexEntry>,
-    errors: Vec<String>,
-}
 
 type InstallResult = Result<InstalledExtension, String>;
 
@@ -101,6 +95,10 @@ impl ExtensionManager {
             }
         }
         events
+    }
+
+    pub(crate) fn busy(&self) -> bool {
+        self.index_loading || self.index_rx.is_some() || self.install_rx.is_some()
     }
 
     fn poll_index(&mut self) {
@@ -278,88 +276,20 @@ impl ExtensionManager {
 }
 
 fn fetch_indexes(indexes: Vec<String>) -> IndexFetchResult {
-    let mut entries: BTreeMap<String, ExtensionIndexEntry> = BTreeMap::new();
+    let mut documents = Vec::new();
     let mut errors = Vec::new();
     for source in indexes {
-        let bytes = match read_source_bytes(&source).and_then(|bytes| {
-            if bytes.len() > MAX_INDEX_BYTES {
-                Err(format!("{source}: index is too large"))
-            } else {
-                Ok(bytes)
+        match read_source_bytes(&source) {
+            Ok(bytes) if bytes.len() > MAX_INDEX_BYTES => {
+                errors.push(format!("{source}: index is too large"));
             }
-        }) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                errors.push(error);
-                continue;
-            }
-        };
-        let list: Vec<ExtensionIndexEntry> = match serde_json::from_slice(&bytes) {
-            Ok(list) => list,
-            Err(error) => {
-                errors.push(format!("{source}: {error}"));
-                continue;
-            }
-        };
-        for mut entry in list {
-            if let Err(error) = resolve_entry_url(&mut entry, &source) {
-                errors.push(format!("{source}: {}: {error}", entry.id));
-                continue;
-            }
-            if let Err(error) = entry.validate() {
-                errors.push(format!("{source}: {}: {error}", entry.id));
-                continue;
-            }
-            match entries.get(&entry.id) {
-                Some(existing) if !version_is_newer(&entry.version, &existing.version) => {}
-                _ => {
-                    entries.insert(entry.id.clone(), entry);
-                }
-            }
+            Ok(bytes) => documents.push((source, bytes)),
+            Err(error) => errors.push(error),
         }
     }
-    IndexFetchResult {
-        entries: entries.into_values().collect(),
-        errors,
-    }
-}
-
-fn resolve_entry_url(entry: &mut ExtensionIndexEntry, index_source: &str) -> Result<(), String> {
-    if let Ok(url) = url::Url::parse(&entry.url) {
-        if url.has_host() || url.scheme() == "file" {
-            return Ok(());
-        }
-    }
-    if let Ok(base) = url::Url::parse(index_source) {
-        entry.url = base
-            .join(&entry.url)
-            .map_err(|error| format!("resolve url: {error}"))?
-            .to_string();
-        return Ok(());
-    }
-    let base = Path::new(index_source).parent().unwrap_or(Path::new("."));
-    entry.url = base.join(&entry.url).to_string_lossy().into_owned();
-    Ok(())
-}
-
-fn version_is_newer(candidate: &str, existing: &str) -> bool {
-    match (
-        semver::Version::parse(candidate),
-        semver::Version::parse(existing),
-    ) {
-        (Ok(candidate), Ok(existing)) => candidate > existing,
-        _ => true,
-    }
-}
-
-fn normalize_indexes(indexes: Vec<String>) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    indexes
-        .into_iter()
-        .map(|index| index.trim().to_owned())
-        .filter(|index| !index.is_empty())
-        .filter(|index| seen.insert(index.clone()))
-        .collect()
+    let mut result = merge_indexes(documents);
+    result.errors.splice(0..0, errors);
+    result
 }
 
 fn read_source_bytes(source: &str) -> Result<Vec<u8>, String> {

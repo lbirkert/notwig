@@ -93,6 +93,19 @@ installed and loaded, they appear under **EXTENSIONS** in the Add Device browser
 - Extension trust level controls whether the device may process audio and how
   much memory and execution time it gets.
 
+### Browser extensions
+
+The browser build uses the same extension index as the native app. The default
+index is `https://notwig.lbirkert.com/extensions.json`; change or add sources
+under **Settings > Extensions > Manage Indices**. The list is stored in browser
+local storage.
+
+- Installing from the index or importing a `.ZIP` extracts the package into a
+  `notwig-extensions/<id>/` folder in the Origin Private File System (OPFS).
+- Extensions installed in OPFS are discovered and loaded when the app starts.
+- Uninstalling removes the extension folder. Packages installed as ZIP files by
+  older browser builds are migrated into extension folders on the next start.
+
 See [Extension Overview](../02_extensions/00_overview.md) for installation and
 [Device API](../02_extensions/03_device_api.md) for the authoring contract.
 

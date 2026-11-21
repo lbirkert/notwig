@@ -138,13 +138,14 @@ frame that carries input and returns draw commands plus host actions.
 | Module | Responsibility |
 |---|---|
 | `discovery.rs` | user-directory scan, manifest parse/validate, module size checks |
+| `archive.rs` | shared ZIP/file-tree validation, safe relative paths, manifest and size limits |
 | `abi.rs` | wasmtime engines/stores, host imports, typed exports, memory checks |
 | `compiled.rs` | loaded extension records and device-type lookup |
 | `host.rs` | `ExtensionHost`: compile, specs, factory, panel host, infos |
 | `device.rs` | `ExtensionDeviceFactory`, WASM `DeviceProcessor`, draw-only silence |
-| `install.rs` | ZIP validation/extraction, safe install/replace, uninstall |
+| `install.rs` | filesystem install/replace and uninstall using validated archives |
 | `panel.rs` | cached UI instance implementing `DevicePanelHost` |
-| `web/` | trusted browser WebAssembly host, package parsing, DSP, and panels |
+| `web/` | trusted browser host, package loading, DSP, and panels |
 | `error.rs` | `ExtensionError` |
 
 ### `notwig-ext-devices` — example extension devices
@@ -214,7 +215,7 @@ frame that carries input and returns draw commands plus host actions.
 | `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |
-| `web/storage.rs` | OPFS `Projects` folder storage, project picker, and ZIP download |
+| `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
@@ -223,8 +224,9 @@ frame that carries input and returns draw commands plus host actions.
 | `plugins/native.rs` | Plugin catalog, scan subprocess, and cache glue |
 | `plugins/web.rs` | Empty browser plugin catalog |
 | `extensions/mod.rs` | Target-selected extension manager and events |
+| `extensions/index.rs` | Shared index URL resolution, validation, and version deduplication |
 | `extensions/native.rs` | Config/index fetch, install/uninstall jobs, wasmtime host lifecycle |
-| `extensions/web.rs` | Browser extension host, package loading, and app sync |
+| `extensions/web.rs` | Index fetch, OPFS install/discovery, browser host lifecycle, and app sync |
 | `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Convert edit plans into `CommandPayload`s |
 | `history.rs` | Undo/redo stack with structural/non-structural entries |

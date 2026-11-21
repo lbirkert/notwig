@@ -26,7 +26,8 @@ DeviceExtension::draw  ──────►  PanelDraw + actions    ───�
 - `notwig-ext` is the host. It discovers, compiles, and runs modules with
   `wasmtime` on native and the browser `WebAssembly` API in the browser build,
   enforces trust levels, and creates device instances. The browser build loads
-  trusted extensions only.
+  trusted extensions only, discovers them from extracted packages in OPFS, and
+  installs packages from the same JSON index as the native app.
 - `notwig-ui` replays the draw commands and applies validated parameter
   actions.
 

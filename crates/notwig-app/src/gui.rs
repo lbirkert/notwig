@@ -2121,6 +2121,7 @@ impl eframe::App for NotwigApp {
         self.workspace.poll_plugin_catalog();
         for event in self.extensions.poll() {
             match event {
+                crate::extensions::ExtensionEvent::Loaded => self.sync_extensions(),
                 crate::extensions::ExtensionEvent::Installed { name, version } => {
                     self.sync_extensions();
                     self.notify_info(format!("Installed {name} {version}"));
@@ -2128,7 +2129,7 @@ impl eframe::App for NotwigApp {
                 crate::extensions::ExtensionEvent::Error(error) => self.notify_error(error),
             }
         }
-        if self.extensions.index_loading() {
+        if self.extensions.busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         #[cfg(not(target_arch = "wasm32"))]

@@ -16,6 +16,8 @@ domain or DSP logic belongs in lower crates, not here.
 - The `eframe` app loop and UI intent handling for native and browser targets.
 - Browser entry composition, OPFS `Projects` folder storage, async file
   pickers, ZIP download, and user-gesture-gated WebAudio startup.
+- Browser extension index fetching, OPFS extraction/discovery, uninstall, and
+  trusted extension loading.
 - `Workspace`: document mutation, command application, undo/redo, tracks,
   devices, transport, and project lifecycle policy.
 - Asset import/relink/preparation for the engine.
@@ -47,7 +49,7 @@ domain or DSP logic belongs in lower crates, not here.
 | `main.rs` | CLI, demo project, offline render/info commands |
 | `gui.rs` | `eframe` app, intent handling, native dialogs, plugin windows |
 | `web/mod.rs` | Browser app construction |
-| `web/storage.rs` | OPFS `Projects` folder storage, project picker, and ZIP download |
+| `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
 | `workspace/mod.rs` | Project lifecycle, commands, history, tracks/devices/transport |
 | `workspace/assets.rs` | Asset load/import/relink/peaks/engine prepare |
@@ -59,8 +61,9 @@ domain or DSP logic belongs in lower crates, not here.
 | `plugins/native.rs` | Plugin catalog, scan subprocess, and cache glue |
 | `plugins/web.rs` | Empty browser plugin catalog |
 | `extensions/mod.rs` | Target-selected extension manager and events |
+| `extensions/index.rs` | Shared index URL resolution, validation, and version deduplication |
 | `extensions/native.rs` | Extension config/index fetch, install/uninstall, wasmtime host lifecycle |
-| `extensions/web.rs` | Browser extension host, package loading, and app sync |
+| `extensions/web.rs` | Index fetch, OPFS install/discovery, browser host lifecycle, and app sync |
 | `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Edit plan to command lowering |
 | `history.rs` | Undo/redo stack |

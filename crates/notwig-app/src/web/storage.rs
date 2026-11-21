@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::mpsc::Sender;
 
 use js_sys::{Array, Reflect, Uint8Array};
@@ -130,9 +131,8 @@ pub(crate) async fn read_bundle(handle: &ProjectHandle) -> Result<BundleFiles, S
 }
 
 pub(crate) async fn read_project_files(handle: &ProjectHandle) -> Result<BundleFiles, String> {
-    let mut files = BundleFiles::default();
-    read_directory(&handle.dir, "", &mut files).await?;
-    Ok(files)
+    let files = read_directory(&handle.dir).await?;
+    Ok(BundleFiles { files })
 }
 
 pub(crate) async fn write_bundle(
@@ -170,10 +170,9 @@ async fn opfs_root() -> Result<FileSystemDirectoryHandle, String> {
 
 async fn read_directory(
     root: &FileSystemDirectoryHandle,
-    prefix: &str,
-    files: &mut BundleFiles,
-) -> Result<(), String> {
-    let mut pending = vec![(root.clone(), prefix.to_owned())];
+) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let mut files = BTreeMap::new();
+    let mut pending = vec![(root.clone(), String::new())];
     while let Some((dir, prefix)) = pending.pop() {
         let iterator = dir.entries();
         loop {
@@ -208,7 +207,7 @@ async fn read_directory(
             }
         }
     }
-    Ok(())
+    Ok(files)
 }
 
 async fn read_file(root: &FileSystemDirectoryHandle, path: &str) -> Result<Vec<u8>, String> {
@@ -422,28 +421,117 @@ pub(crate) async fn read_opfs_optional(path: &str) -> Result<Option<Vec<u8>>, St
     }
 }
 
-pub(crate) async fn write_opfs(path: &str, bytes: &[u8]) -> Result<(), String> {
-    let root = opfs_root().await?;
-    write_file(&root, path, bytes).await
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpfsEntryKind {
+    File,
+    Directory,
 }
 
-pub(crate) async fn remove_opfs_file(path: &str) -> Result<(), String> {
+pub(crate) async fn list_opfs_entries(path: &str) -> Result<Vec<(String, OpfsEntryKind)>, String> {
+    let root = opfs_root().await?;
+    let Some(dir) = directory_at(&root, path, false).await? else {
+        return Ok(Vec::new());
+    };
+    let iterator = dir.entries();
+    let mut entries = Vec::new();
+    loop {
+        let next = JsFuture::from(iterator.next().map_err(js_error)?)
+            .await
+            .map_err(js_error)?;
+        if reflect_bool(&next, "done")?.unwrap_or(true) {
+            break;
+        }
+        let value = Reflect::get(&next, &JsValue::from_str("value")).map_err(js_error)?;
+        let pair = Array::from(&value);
+        let Some(name) = pair.get(0).as_string() else {
+            continue;
+        };
+        let handle = pair.get(1);
+        let kind = if handle
+            .clone()
+            .dyn_into::<FileSystemDirectoryHandle>()
+            .is_ok()
+        {
+            OpfsEntryKind::Directory
+        } else if handle.dyn_into::<FileSystemFileHandle>().is_ok() {
+            OpfsEntryKind::File
+        } else {
+            continue;
+        };
+        entries.push((name, kind));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(entries)
+}
+
+pub(crate) async fn read_opfs_directory_files(
+    path: &str,
+) -> Result<Option<BTreeMap<String, Vec<u8>>>, String> {
+    let root = opfs_root().await?;
+    let Some(dir) = directory_at(&root, path, false).await? else {
+        return Ok(None);
+    };
+    read_directory(&dir).await.map(Some)
+}
+
+pub(crate) async fn write_opfs_files(
+    path: &str,
+    files: &BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let root = opfs_root().await?;
+    let Some(dir) = directory_at(&root, path, true).await? else {
+        return Err("could not create the extension directory".into());
+    };
+    for (relative, bytes) in files {
+        write_file(&dir, relative, bytes).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn remove_opfs_path(path: &str) -> Result<(), String> {
     let root = opfs_root().await?;
     let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let Some((file_name, dirs)) = parts.split_last() else {
-        return Err("empty file path".into());
+    let Some((name, dirs)) = parts.split_last() else {
+        return Err("empty path".into());
     };
     let mut dir = root;
     for part in dirs {
-        let value = JsFuture::from(dir.get_directory_handle(part))
-            .await
-            .map_err(js_error)?;
-        dir = value.unchecked_into();
+        match JsFuture::from(dir.get_directory_handle(part)).await {
+            Ok(value) => dir = value.unchecked_into(),
+            Err(error) if js_error_name(&error) == "NotFoundError" => return Ok(()),
+            Err(error) => return Err(js_error(error)),
+        }
     }
-    JsFuture::from(dir.remove_entry(file_name))
-        .await
-        .map_err(js_error)?;
-    Ok(())
+    let options = FileSystemRemoveOptions::new();
+    options.set_recursive(true);
+    match JsFuture::from(dir.remove_entry_with_options(name, &options)).await {
+        Ok(_) => Ok(()),
+        Err(error) if js_error_name(&error) == "NotFoundError" => Ok(()),
+        Err(error) => Err(js_error(error)),
+    }
+}
+
+async fn directory_at(
+    root: &FileSystemDirectoryHandle,
+    path: &str,
+    create: bool,
+) -> Result<Option<FileSystemDirectoryHandle>, String> {
+    let mut dir = root.clone();
+    for part in path.split('/').filter(|part| !part.is_empty()) {
+        let value = if create {
+            let options = FileSystemGetDirectoryOptions::new();
+            options.set_create(true);
+            JsFuture::from(dir.get_directory_handle_with_options(part, &options)).await
+        } else {
+            JsFuture::from(dir.get_directory_handle(part)).await
+        };
+        match value {
+            Ok(value) => dir = value.unchecked_into(),
+            Err(error) if !create && js_error_name(&error) == "NotFoundError" => return Ok(None),
+            Err(error) => return Err(js_error(error)),
+        }
+    }
+    Ok(Some(dir))
 }
 
 pub(crate) async fn fetch_bytes(url: &str) -> Result<Option<Vec<u8>>, String> {

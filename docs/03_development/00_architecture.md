@@ -151,7 +151,9 @@ Platform edges are selected by target:
   in-app project picker and `.notwig.zip` download;
 - audio uses CPAL's WebAudio backend and starts after a user gesture;
 - native plugin formats are not compiled;
-- trusted extensions use the browser WebAssembly host instead of wasmtime;
+- trusted extensions use the browser WebAssembly host instead of wasmtime; the
+  same JSON index is fetched with `fetch`, and installed packages are extracted
+  into `notwig-extensions/<id>/` in OPFS and rediscovered on startup;
 - the engine build runs synchronously on the UI thread in the first browser
   milestone.
 

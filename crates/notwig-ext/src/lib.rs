@@ -1,7 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod archive;
 mod error;
 
+pub use archive::{
+    ExtensionArchive, MAX_ARCHIVE_BYTES, read_archive, read_extension_files, validate_extension_id,
+};
 pub use error::ExtensionError;
 
 #[cfg(feature = "native")]

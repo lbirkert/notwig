@@ -131,6 +131,11 @@ Host the index and ZIPs over HTTPS. Add the index URL in **Settings >
 Extensions > Manage Indices**. Users can then install the extension from the
 **Available** list.
 
+The native and browser builds use the same index format. The browser fetches
+the index with `fetch`, installs a selected ZIP by extracting it into
+`notwig-extensions/<id>/` in OPFS, and rediscovers those folders on startup.
+Extension index settings are stored in browser local storage.
+
 ## Release checklist
 
 1. Update the package `version`.

@@ -6,6 +6,8 @@ extension system; extension authors depend on `notwig-ext-api` instead.
 ## Responsibilities
 
 - Discover extensions from a user-provided directory and validate manifests.
+- Validate and extract ZIP packages through a shared archive reader with path,
+  size, and manifest checks used by both native installs and the browser.
 - Compile and cache core wasm modules with `wasmtime` (Cranelift JIT) on
   native, or the browser `WebAssembly` API for trusted browser extensions.
 - Enforce per-extension trust levels on native: `Trusted` (no fuel), `Limited`
@@ -34,11 +36,13 @@ extension system; extension authors depend on `notwig-ext-api` instead.
 | Module | Responsibility |
 |---|---|
 | `abi.rs` | wasmtime engines/stores, host imports, memory helpers, typed exports |
+| `archive.rs` | shared ZIP/file-tree validation and extraction with safety limits |
 | `compiled.rs` | loaded extension records and type-indexed lookup |
 | `device.rs` | `ExtensionDeviceFactory`, WASM `DeviceProcessor`, draw-only silence |
 | `discovery.rs` | user-directory scan, manifest parse/validate, module size checks |
 | `error.rs` | `ExtensionError` |
 | `host.rs` | `ExtensionHost`: discovery + compile + specs + factory + panel host |
+| `install.rs` | filesystem install/replace and uninstall using validated archives |
 | `panel.rs` | UI-side instance cache implementing `DevicePanelHost` |
 | `web/` | Trusted browser WebAssembly host, ZIP package parsing, DSP, and panels |
 
