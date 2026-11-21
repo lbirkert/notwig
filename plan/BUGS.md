@@ -8,28 +8,40 @@
 - Device explorer does not show whether plugin is VST3, AU, or other
 - Some plugin UIs have problems (LALA, Distox crashed, ...)
 - Crash recovery should show unsaved projects when starting the app instead of just when loading a saved project.
-- File/Audio Settings should be renamed to Settings
 - Time selection needs to be extendable horizontally
 - Time selection markers should only extend over the lanes that are actually selected like in Bitwig
 - Analyzing audio notification should have a progress bar (intermediate if no actual progress is available) and close as soon as the analysis is finished.
 - Explore ways of running the audio analysis on the GPU for better MP3/WAV decoding performance.
-- Add a seperate Encoding Audio progress notification after rendering has finished.
-- Zooming in a MIDI clip currently jitters too much.
-- When zooming close to a waveform preview currently the frame rate drops significantly.
-- Draw horizontal lines on the grid between lanes just like in between the notes in MIDI editor.
-- When lane tree is narrow in height, master lane does not sit at the bottom of the arranger like it should.
-- For empty time selection make Delete command split the clip.
-- Fix audio drag and drop for browser demo.
 - Make https://notwig.lbirkert.com/extensions.json the default extension index.
-- Web needs a loading spinner while WASM is loading.
-- Shift clicking the drag handle (currently on the title of a lane) causes multi selection of lanes to fail.
-- Having a plugin window opened should still allow for playback (using space) like Bitwig does.
-- Removing a device needs to close the plugin window.
-- Info panel has weird black area to the right that should be removed.
 - Engine loop end changes bar (keeps timing I think) when tempo is changed while playing.
-- Latency of whole device chain should be displayed in the info panel below the last device as a small text (e.g. 20ms).
-- Shift + Move should allow moving without grid snapping
-- Grid snapping is clamped (I think) to max 16th notes and is still! too small for any given zoom level
-- clip start/end resize handles should not extend up to the playstart so that the playstart is settable to the clip start/end
-- creating a note needs to update the time selection to note min/max
 
+- Add draw loop functionality.
+
+- Add proper tooltip system that displays the current available mouse actions (+ modifiers)
+
+- Add a seperate Encoding Audio progress notification after rendering has finished.
+--> should be a horizontal bar and not a circle spinner.
+- Remove weird black padding for audio and midi editor.
+- When having a plugin window opened and pressing space playback pause/stop works but macos plays a weird bell sound like the key could not have been handled.
+- creating a note needs to update the time selection to note min/max
+- Join does not work for time selection
+- Grid snapping needs major rework
+- We should list the editing operations in a matrix
+- CMD+A select does not work
+- In MIDI-Editor slicing multiple notes does not work (also for other editors)
+- Title 
+
+- Moving/adding audio track causes audio to not play :()
+- Moving/adding midi track causes audio to not play :()
+- Same for saving
+- Same for engaging/disengaging metronome
+
+
+- Instrument tracks should take the name of their instruments if no name is defined
+- When zoom is too small, clips disapear
+- Playing midi clip using clicking should not play so long for long clicks.
+- Add system out device
+- Detect when a device is unplugged/replugged.
+- Add rightclick middle (tempo etc.) context menu that allows Stopping or Restarting audio engine.
+- Fix extensions for browser.
+- Web export does not yield a proper WAV
