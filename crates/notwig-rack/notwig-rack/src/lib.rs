@@ -14,7 +14,9 @@
 //!
 //! # Opt-in features
 //!
+//! - `lv2` — LV2 host (requires the system `lilv-0` library)
 //! - `au` — Audio Unit v2 host (Apple platforms only)
+//! - `au3` — Audio Unit v3 host (Apple platforms only)
 //!
 //! # Layout
 //!
@@ -55,6 +57,15 @@ pub use notwig_rack_vst3 as vst3;
 #[cfg(feature = "vst2")]
 pub use notwig_rack_vst2 as vst2;
 
+/// LV2 host. Enable with the `lv2` feature. Requires the system `lilv-0`
+/// library at link time.
+#[cfg(feature = "lv2")]
+pub use notwig_rack_lv2 as lv2;
+
 /// Audio Unit v2 host (Apple platforms). Enable with the `au` feature.
 #[cfg(all(feature = "au", target_vendor = "apple"))]
 pub use notwig_rack_au as au;
+
+/// Audio Unit v3 host (Apple platforms). Enable with the `au3` feature.
+#[cfg(all(feature = "au3", target_vendor = "apple"))]
+pub use notwig_rack_au3 as au3;

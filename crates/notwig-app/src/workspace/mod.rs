@@ -1181,6 +1181,9 @@ impl Workspace {
             device.type_id.starts_with("vst3.")
                 || device.type_id.starts_with("vst2.")
                 || device.type_id.starts_with("au.")
+                || device.type_id.starts_with("au3.")
+                || device.type_id.starts_with("clap.")
+                || device.type_id.starts_with("lv2.")
         }) {
             self.request_engine_rebuild();
         }
@@ -1229,6 +1232,9 @@ impl Workspace {
                 device.type_id.starts_with("vst3.")
                     || device.type_id.starts_with("vst2.")
                     || device.type_id.starts_with("au.")
+                    || device.type_id.starts_with("au3.")
+                    || device.type_id.starts_with("clap.")
+                    || device.type_id.starts_with("lv2.")
             })
             .map(|device| device.type_id.clone())
             .collect();

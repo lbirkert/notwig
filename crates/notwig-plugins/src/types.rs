@@ -8,6 +8,9 @@ pub enum PluginFormat {
     Vst3,
     Au,
     Vst2,
+    Clap,
+    Lv2,
+    Au3,
 }
 
 impl PluginFormat {
@@ -17,24 +20,32 @@ impl PluginFormat {
             Self::Vst3 => "vst3",
             Self::Au => "au",
             Self::Vst2 => "vst2",
+            Self::Clap => "clap",
+            Self::Lv2 => "lv2",
+            Self::Au3 => "au3",
         }
     }
 
     #[must_use]
     pub fn enabled(self) -> bool {
+        let any_enabled = cfg!(any(
+            feature = "vst3",
+            feature = "au",
+            feature = "au3",
+            feature = "vst2",
+            feature = "clap",
+            feature = "lv2"
+        ));
+        if !any_enabled {
+            return true;
+        }
         match self {
-            Self::Vst3 => {
-                cfg!(feature = "vst3")
-                    || !cfg!(any(feature = "vst3", feature = "au", feature = "vst2"))
-            }
-            Self::Au => {
-                cfg!(feature = "au")
-                    || !cfg!(any(feature = "vst3", feature = "au", feature = "vst2"))
-            }
-            Self::Vst2 => {
-                cfg!(feature = "vst2")
-                    || !cfg!(any(feature = "vst3", feature = "au", feature = "vst2"))
-            }
+            Self::Vst3 => cfg!(feature = "vst3"),
+            Self::Au => cfg!(feature = "au"),
+            Self::Vst2 => cfg!(feature = "vst2"),
+            Self::Clap => cfg!(feature = "clap"),
+            Self::Lv2 => cfg!(feature = "lv2"),
+            Self::Au3 => cfg!(feature = "au3"),
         }
     }
 }

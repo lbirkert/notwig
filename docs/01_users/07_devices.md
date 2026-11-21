@@ -1,7 +1,7 @@
 # Devices
 
 Devices process a track in a chain. Notwig ships three stock devices and can
-host VST3, VST2, AU, and WASM extension devices.
+host VST3, VST2, CLAP, LV2, AU (v2/v3), and WASM extension devices.
 
 ## The device editor
 
@@ -64,21 +64,23 @@ the dry/wet control.
 
 ## Plugins
 
-Notwig scans VST3, VST2, and AU plugins in a separate process and caches the
-result. Scanned plugins appear under **PLUGINS** in the Add Device browser, with
-a **VST3**, **VST**, or **AU** tag so you can tell formats apart.
+Notwig scans VST3, VST2, CLAP, LV2, AU v2, and AU v3 plugins in a separate
+process and caches the result. Scanned plugins appear under **PLUGINS** in the
+Add Device browser, with a **VST3**, **VST**, **CLAP**, **LV2**, **AU**, or
+**AU3** tag so you can tell formats apart.
 
 - Select a plugin to insert it into the current chain.
 - A plugin card with a window button can open its native editor on macOS,
-  including VST2 editors.
+  including VST2 and LV2 editors.
 - Plugin state is saved with the project and restored when instances are
   rebuilt.
 - Device latency reported by the plugin is compensated across the project.
 - The generic parameter view lists plugin parameters. A plugin's own editor is
   the better surface for detailed editing.
 
-Plugin scanning, blacklisting, and editor behavior are macOS-first. Real plugin
-load and process are not covered by the automated test suite yet.
+Plugin scanning, blacklisting, and editor behavior are macOS-first. LV2
+discovery requires the system `lilv` library (for example `brew install lilv`).
+Real plugin load and process are not covered by the automated test suite yet.
 
 ## Extension devices
 

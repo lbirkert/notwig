@@ -4,17 +4,20 @@ Cross-format audio plugin host umbrella crate for the
 [**notwig-rack**](../README.md) framework, forked from
 [truce-rack](https://github.com/truce-audio/truce-rack).
 
-CLAP, VST3, and VST 2.4 are enabled by default. Audio Unit v2 is opt-in and
-Apple-only. Every wrapper forwards host transport from
-`ProcessContext::transport` into its backend, and the VST3 and AU wrappers
-report plugin latency.
+CLAP, VST3, and VST 2.4 are enabled by default. LV2, Audio Unit v2, and Audio
+Unit v3 are opt-in; the Audio Unit formats are Apple-only and LV2 needs the
+system `lilv-0` library. Every wrapper forwards host transport from
+`ProcessContext::transport` into its backend, and the VST3, VST2, and AU
+wrappers report plugin latency.
 
 | Feature | Default | Crate it enables | Platforms |
 | --- | --- | --- | --- |
 | `clap` | yes | `notwig-rack-clap` | all |
 | `vst3` | yes | `notwig-rack-vst3` | all |
 | `vst2` | yes | `notwig-rack-vst2` | all |
+| `lv2` | no | `notwig-rack-lv2` | all (needs `lilv-0`) |
 | `au` | no | `notwig-rack-au` | Apple |
+| `au3` | no | `notwig-rack-au3` | Apple |
 
 ## Usage
 
@@ -34,11 +37,11 @@ let vst3_plugins = Vst3Scanner::new().scan()?;
 let vst2_plugins = Vst2Scanner::new().scan()?;
 ```
 
-To opt into AU as well:
+To opt into LV2 and the Audio Unit formats as well:
 
 ```toml
 [dependencies]
-notwig-rack = { path = ".", features = ["au"] }
+notwig-rack = { path = ".", features = ["lv2", "au", "au3"] }
 ```
 
 ## License

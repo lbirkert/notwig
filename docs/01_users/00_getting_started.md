@@ -8,8 +8,9 @@ existing audio and MIDI, but it cannot record or monitor live input yet.
 There are two ways to run it:
 
 - **Native macOS build.** Install a recent Rust toolchain and the platform
-  audio and plugin SDKs used by CPAL and the VST3/VST2/AU host. From the repository
-  root, run `cargo run -p notwig-app`.
+  audio and plugin SDKs used by CPAL and the VST3/VST2/CLAP/LV2/AU host. LV2
+  also needs the system `lilv` library (`brew install lilv`). From the
+  repository root, run `cargo run -p notwig-app`.
 - **Browser build.** Build `crates/notwig-web` with `wasm-pack` and serve the
   generated static files. Native plugins are unavailable, and only Trusted WASM
   extensions run in the browser.

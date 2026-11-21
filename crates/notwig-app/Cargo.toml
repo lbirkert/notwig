@@ -28,6 +28,7 @@ notwig-ui.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 url.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -43,7 +44,14 @@ wgpu.workspace = true
 mouse_position.workspace = true
 ureq.workspace = true
 tracing-subscriber.workspace = true
-notwig-plugins = { workspace = true, features = ["vst3", "vst2", "au"] }
+notwig-plugins = { workspace = true, features = [
+  "vst3",
+  "vst2",
+  "au",
+  "au3",
+  "clap",
+  "lv2",
+] }
 notwig-ext = { workspace = true, features = ["native"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

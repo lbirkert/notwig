@@ -30,7 +30,7 @@ and test layer before editing.
     notwig-ui/
     notwig-app/
     notwig-web/              wasm-bindgen browser entry point
-    notwig-rack/             vendored VST3/AU/CLAP/VST2 host crates
+    notwig-rack/             vendored VST3/VST2/CLAP/LV2/AU/AU3 host crates
                              (separate Cargo workspace, excluded from lints)
 ```
 
@@ -172,7 +172,7 @@ frame that carries input and returns draw commands plus host actions.
 | Module | Responsibility |
 |---|---|
 | `host.rs` | `PluginHost` and `HostAdapter` boundary |
-| `adapters.rs` | VST3/VST2/AU adapters built on vendored `notwig-rack` |
+| `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 adapters built on vendored `notwig-rack` |
 | `cache.rs` | Persisted plugin scan cache |
 | `types.rs` | Format-agnostic descriptors, states, capabilities, errors |
 | `native_editor.rs` | Native plugin editor window lifecycle |

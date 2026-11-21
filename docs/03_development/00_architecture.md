@@ -176,7 +176,7 @@ under `/app/` beside the mdBook documentation.
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | Canonical state, engine internals, blocking work |
 | `notwig-app` | Composition, workspace policy, audio I/O, thread wiring, dialogs, history | Reusable domain/DSP logic |
 | `notwig-web` | Browser entry point, wasm-bindgen handle, WebRunner startup | UI/domain/DSP behavior |
-| `notwig-rack` | Vendored VST3/AU/CLAP/VST2 wrapper crates outside the workspace | Notwig domain or UI behavior |
+| `notwig-rack` | Vendored VST3/VST2/CLAP/LV2/AU/AU3 wrapper crates outside the workspace | Notwig domain or UI behavior |
 
 ## Threads and processes
 

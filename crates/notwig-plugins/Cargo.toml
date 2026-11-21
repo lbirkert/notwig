@@ -9,6 +9,9 @@ repository.workspace = true
 [features]
 default = []
 au = ["notwig-rack/au"]
+au3 = ["notwig-rack/au3"]
+clap = ["notwig-rack/clap"]
+lv2 = ["notwig-rack/lv2"]
 vst3 = ["notwig-rack/vst3"]
 vst2 = ["notwig-rack/vst2"]
 

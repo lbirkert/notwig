@@ -15,18 +15,22 @@ path = "src/lib.rs"
 [dependencies]
 notwig-rack-clap = { path = "../notwig-rack-clap", optional = true }
 notwig-rack-core = { path = "../notwig-rack-core" }
+notwig-rack-lv2 = { path = "../notwig-rack-lv2", optional = true }
 notwig-rack-vst2 = { path = "../notwig-rack-vst2", optional = true }
 notwig-rack-vst3 = { path = "../notwig-rack-vst3", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 notwig-rack-au = { path = "../notwig-rack-au", optional = true }
+notwig-rack-au3 = { path = "../notwig-rack-au3", optional = true }
 
 [features]
 default = ["clap", "vst3", "vst2"]
 clap = ["dep:notwig-rack-clap"]
 vst3 = ["dep:notwig-rack-vst3"]
 vst2 = ["dep:notwig-rack-vst2"]
+lv2 = ["dep:notwig-rack-lv2"]
 au = ["dep:notwig-rack-au"]
+au3 = ["dep:notwig-rack-au3"]
 
 [lints.clippy.pedantic]
 level = "warn"

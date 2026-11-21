@@ -1,0 +1,31 @@
+[package]
+name = "notwig-rack-au3"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "AU v3 (App Extension) host implementation for the notwig-rack audio-plugin framework"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack_au3"
+path = "src/lib.rs"
+
+[dependencies]
+notwig-rack-core = { path = "../notwig-rack-core" }
+thiserror = "2.0"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+notwig-rack-au = { path = "../notwig-rack-au" }
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-audio-toolbox = { version = "0.3", features = [
+    "AudioComponent",
+    "AUComponent",
+] }
+objc2-core-foundation = { version = "0.3", features = ["CFBase", "CFString"] }
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

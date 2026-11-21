@@ -11,12 +11,12 @@ phase.
 - **Priorities:** extensibility, simplicity, few high-quality features, stable
   and correct real-time DSP.
 - **Stack:** Rust, Cargo workspace, `egui` + `wgpu`, CPAL, `truce-rack` for
-  VST3/AU hosting.
+  VST3/VST2/CLAP/LV2/AU plugin hosting.
 - **Platform:** macOS first; platform-specific code sits behind adapters.
 - **Implemented today:** project bundles, autosave/recovery with a startup
   recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
   event editing, a MIDI editor, device chains with stock EQ/Tool/Chain,
-  VST3/AU hosting, WASM extension devices and panels with per-extension trust
+  VST3/VST2/CLAP/LV2/AU hosting, WASM extension devices and panels with per-extension trust
   levels, an extension explorer with index/ZIP installs and uninstall,
   render mixdown, persisted audio settings, customizable keyboard shortcuts,
   and DSP load analysis.

@@ -592,7 +592,9 @@ fn is_plugin_device(device: &DeviceInstance) -> bool {
     device.type_id.starts_with("vst3.")
         || device.type_id.starts_with("vst2.")
         || device.type_id.starts_with("au.")
+        || device.type_id.starts_with("au3.")
         || device.type_id.starts_with("clap.")
+        || device.type_id.starts_with("lv2.")
 }
 
 fn draw_bracket(ui: &egui::Ui, left: f32, right: f32, y: f32, depth: usize) {

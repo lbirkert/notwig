@@ -523,6 +523,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a76abbdb2907f6fd97fb6bc0b7be96b77d328f2dd9669d1075cc03369ed22154"
+
+[[package]]
 name = "clap_builder"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2013,6 +2019,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lilv-sys"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aee56a6fdb8db62d01819f171d579c65fb0e03bcd077e1ea4509e06b6d58f53c"
+dependencies = [
+ "lv2_raw",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2050,6 +2065,15 @@ name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
+
+[[package]]
+name = "lv2_raw"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "573ce7231f64fe795ad80134913f88f2e7f7f550527f6bd54d690a56cabf6a48"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "mach2"
@@ -2281,6 +2305,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tracing",
  "tracing-subscriber",
@@ -2339,6 +2364,7 @@ name = "notwig-ext"
 version = "0.1.0"
 dependencies = [
  "js-sys",
+ "libloading",
  "notwig-core",
  "notwig-dsp",
  "notwig-ext-api",
@@ -2428,7 +2454,10 @@ name = "notwig-rack"
 version = "1.1.5"
 dependencies = [
  "notwig-rack-au",
+ "notwig-rack-au3",
+ "notwig-rack-clap",
  "notwig-rack-core",
+ "notwig-rack-lv2",
  "notwig-rack-vst2",
  "notwig-rack-vst3",
 ]
@@ -2449,12 +2478,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "notwig-rack-au3"
+version = "1.1.5"
+dependencies = [
+ "notwig-rack-au",
+ "notwig-rack-core",
+ "objc2 0.6.5",
+ "objc2-audio-toolbox",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "notwig-rack-clap"
+version = "1.1.5"
+dependencies = [
+ "clap-sys",
+ "libloading",
+ "notwig-rack-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "notwig-rack-core"
 version = "1.1.5"
 dependencies = [
  "bitflags 2.13.2",
  "crossbeam-queue",
  "smallvec",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "notwig-rack-lv2"
+version = "1.1.5"
+dependencies = [
+ "libc",
+ "libloading",
+ "lilv-sys",
+ "lv2_raw",
+ "notwig-rack-core",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
  "thiserror 2.0.21",
 ]
 

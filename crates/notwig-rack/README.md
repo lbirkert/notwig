@@ -7,11 +7,12 @@ This repository vendors the truce-rack host crates and extends them with
 features that upstream does not support:
 
 - **Plugin latency queries.** `PluginCore::latency_samples` is exposed by the
-  VST3 (`getLatencySamples`) and AU (`kAudioUnitProperty_Latency`) wrappers so
-  hosts can perform delay compensation.
+  VST3 (`getLatencySamples`), VST2 (`AEffect::initial_delay`), and AU
+  (`kAudioUnitProperty_Latency`) wrappers so hosts can perform delay
+  compensation.
 - **VST 2.4 hosting.** The new `notwig-rack-vst2` crate hosts legacy `.vst`
   plugins using a clean-room VST 2 ABI, including scan/load, MIDI, state,
-  latency (`AEffect::initial_delay`), and editors.
+  latency, and editors.
 
 The fork follows the same format-agnostic `Plugin` / `PluginScanner` /
 `PluginEditor` traits as upstream. It is not affiliated with truce-audio.
@@ -25,7 +26,9 @@ The fork follows the same format-agnostic `Plugin` / `PluginScanner` /
 | [`notwig-rack-clap`](notwig-rack-clap) | CLAP host |
 | [`notwig-rack-vst3`](notwig-rack-vst3) | VST3 host |
 | [`notwig-rack-vst2`](notwig-rack-vst2) | VST 2.4 host |
+| [`notwig-rack-lv2`](notwig-rack-lv2) | LV2 host (needs system `lilv-0`) |
 | [`notwig-rack-au`](notwig-rack-au) | Audio Unit v2 host (Apple platforms) |
+| [`notwig-rack-au3`](notwig-rack-au3) | Audio Unit v3 host (Apple platforms) |
 
 ## Usage
 
@@ -45,11 +48,11 @@ let vst3_plugins = Vst3Scanner::new().scan()?;
 let vst2_plugins = Vst2Scanner::new().scan()?;
 ```
 
-Audio Unit is opt-in and Apple-only:
+LV2 and Audio Unit are opt-in; Audio Unit is Apple-only:
 
 ```toml
 [dependencies]
-notwig-rack = { path = "notwig-rack", features = ["au"] }
+notwig-rack = { path = "notwig-rack", features = ["lv2", "au", "au3"] }
 ```
 
 To keep the dependency graph minimal, depend on the per-format crates
@@ -62,7 +65,9 @@ directly instead of the umbrella.
 | `clap` | yes | `notwig-rack-clap` | all |
 | `vst3` | yes | `notwig-rack-vst3` | all |
 | `vst2` | yes | `notwig-rack-vst2` | all |
+| `lv2` | no | `notwig-rack-lv2` | all (needs `lilv-0`) |
 | `au` | no | `notwig-rack-au` | Apple |
+| `au3` | no | `notwig-rack-au3` | Apple |
 
 ## Differences from upstream truce-rack
 

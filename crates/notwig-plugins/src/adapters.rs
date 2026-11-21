@@ -81,8 +81,96 @@ pub(crate) fn load_plugin(
                 .map_err(|err| PluginError::Load(err.to_string()))?;
             Ok(Box::new(plugin))
         }
+        #[cfg(feature = "clap")]
+        PluginFormat::Clap => {
+            use notwig_rack::core::scanner::PluginScanner;
+            let scanner = notwig_rack::clap::ClapScanner::new();
+            let plugin = scanner
+                .load(&info_from_descriptor(descriptor))
+                .map_err(|err| PluginError::Load(err.to_string()))?;
+            Ok(Box::new(plugin))
+        }
+        #[cfg(feature = "lv2")]
+        PluginFormat::Lv2 => {
+            use notwig_rack::core::scanner::PluginScanner;
+            let scanner = notwig_rack::lv2::Lv2Scanner::new();
+            let plugin = scanner
+                .load(&info_from_descriptor(descriptor))
+                .map_err(|err| PluginError::Load(err.to_string()))?;
+            Ok(Box::new(plugin))
+        }
+        #[cfg(all(feature = "au3", target_vendor = "apple"))]
+        PluginFormat::Au3 => {
+            use notwig_rack::core::scanner::PluginScanner;
+            let scanner = notwig_rack::au3::Au3Scanner::new();
+            let plugin = scanner
+                .load(&info_from_descriptor(descriptor))
+                .map_err(|err| PluginError::Load(err.to_string()))?;
+            Ok(Box::new(plugin))
+        }
         _ => Err(PluginError::BackendUnavailable(descriptor.format)),
     }
+}
+
+fn scan_with<S>(
+    scanner: &S,
+    format: PluginFormat,
+    paths: &[PathBuf],
+) -> Result<Vec<PluginDescriptor>, PluginError>
+where
+    S: notwig_rack::core::scanner::PluginScanner,
+{
+    let mut found = Vec::new();
+    if paths.is_empty() {
+        found.extend(
+            scanner
+                .scan()
+                .map_err(|err| PluginError::Scan(err.to_string()))?,
+        );
+    } else {
+        for path in paths {
+            if let Ok(mut plugins) = scanner.scan_path(path) {
+                found.append(&mut plugins);
+            }
+        }
+    }
+    Ok(found
+        .into_iter()
+        .map(|info| descriptor_from_info(format, info))
+        .collect())
+}
+
+/// Formats that discover through a registry rather than a filesystem path
+/// (Audio Unit, LV2) always walk the full registry; the host's scan paths do
+/// not apply.
+fn scan_registry<S>(scanner: &S, format: PluginFormat) -> Result<Vec<PluginDescriptor>, PluginError>
+where
+    S: notwig_rack::core::scanner::PluginScanner,
+{
+    let found = scanner
+        .scan()
+        .map_err(|err| PluginError::Scan(err.to_string()))?;
+    Ok(found
+        .into_iter()
+        .map(|info| descriptor_from_info(format, info))
+        .collect())
+}
+
+fn load_with<S>(
+    scanner: &S,
+    descriptor: &PluginDescriptor,
+) -> Result<Box<dyn PluginInstance>, PluginError>
+where
+    S: notwig_rack::core::scanner::PluginScanner,
+    S::Plugin: notwig_rack::core::Plugin<f32> + 'static,
+{
+    let plugin = scanner
+        .load(&info_from_descriptor(descriptor))
+        .map_err(|err| PluginError::Load(err.to_string()))?;
+    Ok(Box::new(RackPluginInstance::new(
+        Box::new(plugin),
+        descriptor.clone(),
+    )))
 }
 
 #[cfg(feature = "vst3")]
@@ -96,38 +184,11 @@ impl HostAdapter for Vst3Adapter {
     }
 
     fn scan(&self, paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
-        use notwig_rack::core::scanner::PluginScanner;
-        let scanner = notwig_rack::vst3::Vst3Scanner::new();
-        let mut found = Vec::new();
-        if paths.is_empty() {
-            found.extend(
-                scanner
-                    .scan()
-                    .map_err(|err| PluginError::Scan(err.to_string()))?,
-            );
-        } else {
-            for path in paths {
-                if let Ok(mut plugins) = scanner.scan_path(path) {
-                    found.append(&mut plugins);
-                }
-            }
-        }
-        Ok(found
-            .into_iter()
-            .map(|info| descriptor_from_info(PluginFormat::Vst3, info))
-            .collect())
+        scan_with(&notwig_rack::vst3::Vst3Scanner::new(), self.format(), paths)
     }
 
     fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
-        use notwig_rack::core::scanner::PluginScanner;
-        let scanner = notwig_rack::vst3::Vst3Scanner::new();
-        let plugin = scanner
-            .load(&info_from_descriptor(descriptor))
-            .map_err(|err| PluginError::Load(err.to_string()))?;
-        Ok(Box::new(RackPluginInstance::new(
-            Box::new(plugin),
-            descriptor.clone(),
-        )))
+        load_with(&notwig_rack::vst3::Vst3Scanner::new(), descriptor)
     }
 }
 
@@ -142,38 +203,11 @@ impl HostAdapter for Vst2Adapter {
     }
 
     fn scan(&self, paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
-        use notwig_rack::core::scanner::PluginScanner;
-        let scanner = notwig_rack::vst2::Vst2Scanner::new();
-        let mut found = Vec::new();
-        if paths.is_empty() {
-            found.extend(
-                scanner
-                    .scan()
-                    .map_err(|err| PluginError::Scan(err.to_string()))?,
-            );
-        } else {
-            for path in paths {
-                if let Ok(mut plugins) = scanner.scan_path(path) {
-                    found.append(&mut plugins);
-                }
-            }
-        }
-        Ok(found
-            .into_iter()
-            .map(|info| descriptor_from_info(PluginFormat::Vst2, info))
-            .collect())
+        scan_with(&notwig_rack::vst2::Vst2Scanner::new(), self.format(), paths)
     }
 
     fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
-        use notwig_rack::core::scanner::PluginScanner;
-        let scanner = notwig_rack::vst2::Vst2Scanner::new();
-        let plugin = scanner
-            .load(&info_from_descriptor(descriptor))
-            .map_err(|err| PluginError::Load(err.to_string()))?;
-        Ok(Box::new(RackPluginInstance::new(
-            Box::new(plugin),
-            descriptor.clone(),
-        )))
+        load_with(&notwig_rack::vst2::Vst2Scanner::new(), descriptor)
     }
 }
 
@@ -188,26 +222,67 @@ impl HostAdapter for AuAdapter {
     }
 
     fn scan(&self, _paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
-        use notwig_rack::core::scanner::PluginScanner;
-        let scanner = notwig_rack::au::AuScanner::new();
-        let found = scanner
-            .scan()
-            .map_err(|err| PluginError::Scan(err.to_string()))?;
-        Ok(found
-            .into_iter()
-            .map(|info| descriptor_from_info(PluginFormat::Au, info))
-            .collect())
+        scan_registry(&notwig_rack::au::AuScanner::new(), self.format())
     }
 
     fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
-        use notwig_rack::core::scanner::PluginScanner;
-        let scanner = notwig_rack::au::AuScanner::new();
-        let plugin = scanner
-            .load(&info_from_descriptor(descriptor))
-            .map_err(|err| PluginError::Load(err.to_string()))?;
-        Ok(Box::new(RackPluginInstance::new(
-            Box::new(plugin),
-            descriptor.clone(),
-        )))
+        load_with(&notwig_rack::au::AuScanner::new(), descriptor)
+    }
+}
+
+#[cfg(feature = "clap")]
+#[derive(Debug, Default)]
+pub(crate) struct ClapAdapter;
+
+#[cfg(feature = "clap")]
+impl HostAdapter for ClapAdapter {
+    fn format(&self) -> PluginFormat {
+        PluginFormat::Clap
+    }
+
+    fn scan(&self, paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
+        scan_with(&notwig_rack::clap::ClapScanner::new(), self.format(), paths)
+    }
+
+    fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
+        load_with(&notwig_rack::clap::ClapScanner::new(), descriptor)
+    }
+}
+
+#[cfg(feature = "lv2")]
+#[derive(Debug, Default)]
+pub(crate) struct Lv2Adapter;
+
+#[cfg(feature = "lv2")]
+impl HostAdapter for Lv2Adapter {
+    fn format(&self) -> PluginFormat {
+        PluginFormat::Lv2
+    }
+
+    fn scan(&self, _paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
+        scan_registry(&notwig_rack::lv2::Lv2Scanner::new(), self.format())
+    }
+
+    fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
+        load_with(&notwig_rack::lv2::Lv2Scanner::new(), descriptor)
+    }
+}
+
+#[cfg(all(feature = "au3", target_vendor = "apple"))]
+#[derive(Debug, Default)]
+pub(crate) struct Au3Adapter;
+
+#[cfg(all(feature = "au3", target_vendor = "apple"))]
+impl HostAdapter for Au3Adapter {
+    fn format(&self) -> PluginFormat {
+        PluginFormat::Au3
+    }
+
+    fn scan(&self, _paths: &[PathBuf]) -> Result<Vec<PluginDescriptor>, PluginError> {
+        scan_registry(&notwig_rack::au3::Au3Scanner::new(), self.format())
+    }
+
+    fn load(&self, descriptor: &PluginDescriptor) -> Result<Box<dyn PluginInstance>, PluginError> {
+        load_with(&notwig_rack::au3::Au3Scanner::new(), descriptor)
     }
 }

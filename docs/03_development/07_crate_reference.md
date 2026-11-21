@@ -21,8 +21,8 @@ This page is a quick map of the workspace crates. Each crate also has a
 | `notwig-web` | Browser entry point, wasm-bindgen handle, WebRunner startup | `notwig-app` on wasm targets |
 
 `notwig-rack` is a separate Cargo workspace under `crates/notwig-rack/`. It
-vendors the VST3, AU, CLAP, and VST2 wrapper crates used by `notwig-plugins`. It
-is excluded from the main workspace and its lint policy.
+vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
+`notwig-plugins`. It is excluded from the main workspace and its lint policy.
 
 ## Where to make a change
 
@@ -34,7 +34,7 @@ is excluded from the main workspace and its lint policy.
 | Extension API, draw commands, ABI wire types | `notwig-ext-api` |
 | Extension loading, trust levels, WASM device runtime | `notwig-ext` |
 | Playback, scheduling, transport, latency compensation | `notwig-engine` |
-| VST3/VST2/AU discovery and hosting | `notwig-plugins` |
+| VST3/VST2/CLAP/LV2/AU/AU3 discovery and hosting | `notwig-plugins` |
 | View, widget, gesture, editor UI | `notwig-ui` |
 | Intent handling, workspace policy, audio device, dialogs | `notwig-app` |
 | Browser startup, OPFS `Projects` folder storage, WebAudio gate | `notwig-app::web`, `notwig-web` |

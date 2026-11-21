@@ -344,7 +344,10 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | --- | --- | --- | --- |
 | Scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Real VST3 load and process | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| Real AU load and process | 📋 Planned | ⭐⭐⭐⭐⭐ | macOS only. |
+| Real VST2 load and process | 📋 Planned | ⭐⭐ | |
+| Real CLAP load and process | 📋 Planned | ⭐⭐⭐⭐ | |
+| Real LV2 load and process | 📋 Planned | ⭐⭐⭐ | Needs a lilv-backed fixture. |
+| Real AU v2/v3 load and process | 📋 Planned | ⭐⭐⭐⭐⭐ | macOS only. |
 | Parameter enumeration and updates | 📋 Planned | ⭐⭐⭐⭐ | |
 | Native editor open and parameter sync | 📋 Planned | ⭐⭐⭐ | Manual path. |
 | Plugin state save and restore | 📋 Planned | ⭐⭐⭐⭐⭐ | |
@@ -352,7 +355,9 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | |
 | Sidechain and multi-out | 📋 Planned | ⭐⭐⭐⭐ | |
 | Out-of-process crash isolation | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| CLAP hosting | 📋 Planned | ⭐⭐⭐⭐ | |
+| CLAP hosting | 🧪 Partial | ⭐⭐⭐⭐ | The adapter is enabled on native macOS builds; no real-plugin integration test. |
+| LV2 hosting | 🧪 Partial | ⭐⭐⭐ | The adapter is enabled on native macOS builds with system `lilv`; no real-plugin integration test. |
+| AU v3 hosting | 🧪 Partial | ⭐⭐⭐ | Registry scan/load is enabled on macOS; no real-plugin integration test. |
 | VST2 hosting | 🧪 Partial | ⭐ | The adapter is enabled on native macOS builds; no real-plugin integration test. |
 
 ## Persistence and recovery tests
@@ -407,7 +412,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Editing consistency matrix | 📋 Planned | ⭐⭐⭐⭐⭐ | One fixture per operation across the arranger and audio editor. |
 | Boundary and trim regression suite | 📋 Planned | ⭐⭐⭐⭐⭐ | Events outside the container, leftward trim, hit-target precedence, and zoom. |
 | PDC and plugin latency suite | 🧪 Partial | ⭐⭐⭐⭐⭐ | Tracks, nested groups, sends, bypassed devices, and inactive tracks are covered. Hosted plugin latency is queryable through the vendored wrappers. |
-| Real plugin host integration | 📋 Planned | ⭐⭐⭐⭐⭐ | VST3, VST2, and AU fixtures in CI. |
+| Real plugin host integration | 📋 Planned | ⭐⭐⭐⭐⭐ | VST3, VST2, CLAP, LV2, and AU fixtures in CI. |
 | Engine realtime safety checks | 📋 Planned | ⭐⭐⭐⭐⭐ | Allocation and lock behavior; the prepared-data swap replaces a command queue. |
 | DSP numeric stability suite | 📋 Planned | ⭐⭐⭐⭐⭐ | NaN, denormals, extremes, and the sample-rate matrix. |
 | Project recovery and migration suite | 🧪 Partial | ⭐⭐⭐⭐⭐ | Autosave recovery and corrupt autosaves are covered. Corrupt manifests and schema migration are not. |

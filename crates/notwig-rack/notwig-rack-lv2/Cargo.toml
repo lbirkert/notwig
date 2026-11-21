@@ -1,0 +1,35 @@
+[package]
+name = "notwig-rack-lv2"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "LV2 host implementation for the notwig-rack audio-plugin framework"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack_lv2"
+path = "src/lib.rs"
+
+[dependencies]
+notwig-rack-core = { path = "../notwig-rack-core" }
+thiserror = "2.0"
+lilv-sys = "0.2"
+# Layout-compatible LV2 C struct definitions (`LV2UridMap`,
+# `LV2Feature`, atom types). Same major as what lilv-sys pulls in.
+lv2_raw = "0.2"
+libc = "0.2"
+# Used to dlopen each LV2 UI bundle binary and resolve
+# `lv2ui_descriptor`. UIs are toolkit-agnostic ELF/Mach-O/DLL
+# blobs, so libloading is the lowest-friction Rust path.
+libloading = "0.8"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# Reading the embedded LV2 CocoaUI's NSView frame.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

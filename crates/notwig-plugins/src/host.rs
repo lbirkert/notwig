@@ -72,6 +72,12 @@ impl PluginHost {
         host.register_adapter(Box::new(crate::adapters::Vst2Adapter));
         #[cfg(all(feature = "au", target_vendor = "apple"))]
         host.register_adapter(Box::new(crate::adapters::AuAdapter));
+        #[cfg(feature = "clap")]
+        host.register_adapter(Box::new(crate::adapters::ClapAdapter));
+        #[cfg(feature = "lv2")]
+        host.register_adapter(Box::new(crate::adapters::Lv2Adapter));
+        #[cfg(all(feature = "au3", target_vendor = "apple"))]
+        host.register_adapter(Box::new(crate::adapters::Au3Adapter));
         host
     }
 

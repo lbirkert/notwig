@@ -36,7 +36,8 @@ candidate next milestones, and deferred scope live in the
 ## Build and run
 
 Requirements: a recent Rust toolchain, macOS, and the platform audio/plugin SDKs
-needed by `cpal` and the vendored `notwig-rack` host.
+needed by `cpal` and the vendored `notwig-rack` host. LV2 support also needs the
+system `lilv` library (`brew install lilv`).
 
 ```sh
 cargo run -p notwig-app
@@ -59,8 +60,8 @@ The browser build stores projects in a `Projects` folder inside the Origin
 Private File System (OPFS) and uses WebAudio through CPAL. Project open and save
 use an in-app project picker, and **FILE > Download Project** exports the
 project folder as a `.notwig.zip`. Local audio and extension ZIP files are read
-through the browser's standard file input. Native VST3/VST2/AU plugins are
-unavailable. Trusted extensions run through the browser WebAssembly host: the
+through the browser's standard file input. Native VST3/VST2/CLAP/LV2/AU plugins
+are unavailable. Trusted extensions run through the browser WebAssembly host: the
 stock extension is fetched from the same origin, and trusted ZIP packages can be
 installed into browser storage. Untrusted extension modes are not supported in
 the browser. Audio starts after the first user gesture.
@@ -103,7 +104,7 @@ boundaries. Run `mdbook build` from the repository root to build the book.
 
 ## Inspiration
 
-- [truce-audio/truce-rack](https://github.com/truce-audio/truce-rack) — VST3/AU plugin loading.
+- [truce-audio/truce-rack](https://github.com/truce-audio/truce-rack) — CLAP/VST3/LV2/AU plugin loading.
 - [hikarucorporation/hikaru-openlive](https://github.com/hikarucorporation/hikaru-openlive) — Bitwig-inspired UI/workflow ideas.
 
 ## License

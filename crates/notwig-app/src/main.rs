@@ -316,10 +316,12 @@ fn plugin_scan_paths() -> Vec<PathBuf> {
         paths.push(home.join("Library/Audio/Plug-Ins/VST3"));
         paths.push(home.join("Library/Audio/Plug-Ins/VST"));
         paths.push(home.join("Library/Audio/Plug-Ins/Components"));
+        paths.push(home.join("Library/Audio/Plug-Ins/CLAP"));
     }
     paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST3"));
     paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST"));
     paths.push(PathBuf::from("/Library/Audio/Plug-Ins/Components"));
+    paths.push(PathBuf::from("/Library/Audio/Plug-Ins/CLAP"));
     paths
 }
 
@@ -357,6 +359,9 @@ fn render_doc(
         device.type_id.starts_with("vst3.")
             || device.type_id.starts_with("vst2.")
             || device.type_id.starts_with("au.")
+            || device.type_id.starts_with("au3.")
+            || device.type_id.starts_with("clap.")
+            || device.type_id.starts_with("lv2.")
     }) {
         let paths = plugin_scan_paths();
         let _ = plugins.scan(&paths);

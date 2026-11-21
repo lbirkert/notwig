@@ -29,7 +29,7 @@ These stay outside the core and become extensions: the clip launcher and scenes,
 
 ## Where the code stands
 
-The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3, VST2, and AU plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. A WASM extension host adds user-provided devices with DSP and custom panels.
+The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3, VST2, CLAP, LV2, and AU (v2/v3) plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. A WASM extension host adds user-provided devices with DSP and custom panels.
 
 The largest gaps are automation, recording, and warping.
 
@@ -242,9 +242,11 @@ Dependencies worth planning around:
 | Feature | Status | Importance | Notes |
 | --- | --- | --- | --- |
 | VST3 hosting | 🧪 Partial | ⭐⭐⭐⭐⭐ | In-process load and process. No real-plugin integration tests; latency is queried through the vendored wrapper. |
-| AU hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process on macOS. No real-plugin integration tests. |
-| CLAP hosting | 📋 Planned | ⭐⭐⭐⭐ |  |
 | VST2 hosting | 🧪 Partial | ⭐ | Enabled on native macOS builds through the vendored wrapper. No real-plugin integration tests. |
+| CLAP hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process scan/load/process/state/GUI through the vendored wrapper. No real-plugin integration tests. |
+| LV2 hosting | 🧪 Partial | ⭐⭐⭐ | In-process through lilv; requires the system `lilv-0` library. Native-class UIs only. No real-plugin integration tests. |
+| AU v2 hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process on macOS. No real-plugin integration tests. |
+| AU v3 hosting | 🧪 Partial | ⭐⭐⭐ | Registry scan and load on macOS through the vendored AU wrapper. Async-only v3 instantiation is not yet exercised. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐⭐ | Scan runs in a child process. Cache is JSON with failure counts. |
 | Native plugin editor | 🧪 Partial | ⭐⭐⭐⭐ | macOS only, uses a separate plugin instance, and polls parameters. |
 | Plugin parameter UI | 🧪 Partial | ⭐⭐⭐⭐ | Generic parameter list. UUID to `u32` conversion truncates plugin parameter IDs. |
