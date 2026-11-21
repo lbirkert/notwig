@@ -798,6 +798,9 @@ impl NotwigUi {
                     egui::vec2(ui.available_width(), TOP_BAR_HEIGHT),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
+                        let brand = crate::widgets::brand::icon(ui.ctx(), ui.visuals().dark_mode);
+                        ui.add(egui::Image::new(&brand).max_height(TOP_BAR_ICON - 8.0));
+                        ui.add_space(2.0);
                         self.file_menu(ui, doc, runtime);
                         ui.add_space(4.0);
                         let play_icon = if runtime.playing {

@@ -193,7 +193,7 @@ frame that carries input and returns draw commands plus host actions.
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
-| `widgets/` | Knobs, faders, draggable numbers, form helpers, icons, theme |
+| `widgets/` | Knobs, faders, draggable numbers, form helpers, brand assets, icons, theme |
 | `widgets/timeline/` | Shared beat strip, clip visuals, grid, selection, drop preview, interaction math |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |

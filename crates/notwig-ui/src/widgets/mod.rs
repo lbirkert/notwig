@@ -2,6 +2,7 @@ mod draggable_number;
 mod fader;
 mod knob;
 
+pub(crate) mod brand;
 pub(crate) mod drop_target;
 pub(crate) mod form;
 pub(crate) mod icons;
@@ -311,5 +312,6 @@ pub fn format_param(unit: Unit, value: f64) -> String {
 
 #[doc(hidden)]
 pub mod test_api {
+    pub use super::brand::test_api as brand;
     pub use super::draggable_number::test_api as draggable_number;
 }

@@ -44,7 +44,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
-| `widgets/` | Knobs, faders, draggable numbers, form helpers, icons, theme |
+| `widgets/` | Knobs, faders, draggable numbers, form helpers, brand assets, icons, theme |
 | `widgets/timeline/` | Beat strip, clip visuals, grid, selection, drop preview, interaction math |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, and sample-level drawing |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |

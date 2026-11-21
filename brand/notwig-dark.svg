@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 904 970"
+     width="256"
+     height="256">
+  <path
+    fill="#ffffff"
+    d="
+      M903 0
+      H463
+      V295
+      L562 385
+      V99
+      H805
+      V741
+      L0 16
+      V969
+      H435
+      V679
+      L337 591
+      V870
+      H98
+      V239
+      L903 964
+      Z
+    "
+  />
+</svg>

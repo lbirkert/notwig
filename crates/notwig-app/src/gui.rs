@@ -22,11 +22,15 @@ use crate::workspace::{RenderSession, Workspace};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
+    let icon =
+        eframe::icon_data::from_png_bytes(include_bytes!("../../../brand/notwig-app-icon.png"))
+            .expect("embedded app icon should be a valid PNG");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Notwig")
             .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([900.0, 600.0]),
+            .with_min_inner_size([900.0, 600.0])
+            .with_icon(icon),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };

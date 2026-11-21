@@ -5,7 +5,7 @@ bottom editor, and a status bar.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ FILE  transport  tempo  time signature  position  meter       │
+│ mark FILE  transport  tempo  time signature  position  meter   │
 ├───────────────┬──────────────────────────────────────────────┤
 │ info panel    │ arranger                                     │
 │ (optional)    │  track headers | timeline and clip lanes      │
@@ -22,6 +22,7 @@ The top bar is always visible.
 
 | Area | What it does |
 | --- | --- |
+| **Brand mark** | The Notwig mark sits left of the FILE button. |
 | **FILE** | New, open, save, save as, import audio, audio settings, and render. |
 | **Play / pause** | Starts playback or pauses at the current position. |
 | **Stop** | Stops playback and returns to the play start. |
