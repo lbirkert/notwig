@@ -1,7 +1,7 @@
 # Devices
 
 Devices process a track in a chain. Notwig ships three stock devices and can
-host VST3, VST2, CLAP, LV2, AU (v2/v3), and WASM extension devices.
+host VST3, VST2, CLAP, LV2, AU (v2/v3), and WASM or native extension devices.
 
 ## The device editor
 
@@ -84,16 +84,18 @@ Real plugin load and process are not covered by the automated test suite yet.
 
 ## Extension devices
 
-WASM extension devices are installed from **Settings > Extensions**. Once
-installed and loaded, they appear under **EXTENSIONS** in the Add Device browser.
+Extension devices are installed from **Settings > Extensions**. Once installed
+and loaded, they appear under **EXTENSIONS** in the Add Device browser.
 
 - Extension devices provide their own DSP and can provide a custom panel.
 - If an extension cannot draw a custom panel, Notwig uses the generic
   parameter view as a fallback.
-- In the browser build, only `Trusted` extensions are supported. The native
-  build additionally supports `Limited` and `DrawOnly` trust levels.
-- Extension trust level controls whether the device may process audio and how
-  much memory and execution time it gets.
+- On desktop, the app uses the first package target it can run, preferring a
+  native shared library over WASM when the manifest lists one first.
+- The browser build loads `wasm` entrypoints only.
+- WASM devices run with a memory limit and per-call execution limits. Native
+  shared libraries are not sandboxed and run with the app's privileges, so only
+  install them from sources you trust.
 
 ### Browser extensions
 

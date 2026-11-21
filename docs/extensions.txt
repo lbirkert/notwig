@@ -1,4 +1,0 @@
-# One extension ZIP URL or path per line.
-# Local paths must live under docs/ so the published index can reference them.
-# Example:
-# https://example.com/extensions/my-extension.zip

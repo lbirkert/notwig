@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::Path;
 
-use notwig_ext_api::ExtensionIndexEntry;
+use notwig_ext_api::{ExtensionIndexEntry, ExtensionIndexUrl};
+use sha2::{Digest, Sha256};
 
 pub(crate) const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
 
@@ -22,7 +24,7 @@ pub(crate) fn merge_indexes(documents: Vec<(String, Vec<u8>)>) -> IndexFetchResu
             }
         };
         for mut entry in list {
-            if let Err(error) = resolve_entry_url(&mut entry, &source) {
+            if let Err(error) = resolve_entry_urls(&mut entry, &source) {
                 errors.push(format!("{source}: {}: {error}", entry.id));
                 continue;
             }
@@ -30,9 +32,9 @@ pub(crate) fn merge_indexes(documents: Vec<(String, Vec<u8>)>) -> IndexFetchResu
                 errors.push(format!("{source}: {}: {error}", entry.id));
                 continue;
             }
-            match entries.get(&entry.id) {
-                Some(existing) if !version_is_newer(&entry.version, &existing.version) => {}
-                _ => {
+            match entries.get_mut(&entry.id) {
+                Some(existing) => merge_entry(existing, entry),
+                None => {
                     entries.insert(entry.id.clone(), entry);
                 }
             }
@@ -42,6 +44,31 @@ pub(crate) fn merge_indexes(documents: Vec<(String, Vec<u8>)>) -> IndexFetchResu
         entries: entries.into_values().collect(),
         errors,
     }
+}
+
+pub(crate) fn select_download(entry: &ExtensionIndexEntry) -> Option<&ExtensionIndexUrl> {
+    entry.download_for_host()
+}
+
+pub(crate) fn verify_sha256(bytes: &[u8], expected: &str) -> Result<(), String> {
+    let actual = sha256_hex(bytes);
+    if actual.eq_ignore_ascii_case(expected.trim()) {
+        Ok(())
+    } else {
+        Err(format!(
+            "downloaded extension hash mismatch (expected {}, got {actual})",
+            expected.trim()
+        ))
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 pub(crate) fn normalize_indexes(indexes: Vec<String>) -> Vec<String> {
@@ -54,30 +81,109 @@ pub(crate) fn normalize_indexes(indexes: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn resolve_entry_url(entry: &mut ExtensionIndexEntry, index_source: &str) -> Result<(), String> {
-    if let Ok(url) = url::Url::parse(&entry.url) {
+fn merge_entry(existing: &mut ExtensionIndexEntry, candidate: ExtensionIndexEntry) {
+    use std::cmp::Ordering;
+
+    match version_cmp(&candidate.version, &existing.version) {
+        Ordering::Greater => *existing = candidate,
+        Ordering::Equal => {
+            for download in candidate.urls {
+                if !existing
+                    .urls
+                    .iter()
+                    .any(|current| current.url == download.url && current.hash == download.hash)
+                {
+                    existing.urls.push(download);
+                }
+            }
+        }
+        Ordering::Less => {}
+    }
+}
+
+fn version_cmp(candidate: &str, existing: &str) -> std::cmp::Ordering {
+    match (
+        semver::Version::parse(candidate),
+        semver::Version::parse(existing),
+    ) {
+        (Ok(candidate), Ok(existing)) => candidate.cmp(&existing),
+        _ => std::cmp::Ordering::Greater,
+    }
+}
+
+fn resolve_entry_urls(entry: &mut ExtensionIndexEntry, index_source: &str) -> Result<(), String> {
+    for download in &mut entry.urls {
+        resolve_url(&mut download.url, index_source)?;
+    }
+    Ok(())
+}
+
+fn resolve_url(value: &mut String, index_source: &str) -> Result<(), String> {
+    if let Ok(url) = url::Url::parse(value) {
         if url.has_host() || url.scheme() == "file" {
             return Ok(());
         }
     }
     if let Ok(base) = url::Url::parse(index_source) {
-        entry.url = base
-            .join(&entry.url)
+        *value = base
+            .join(value)
             .map_err(|error| format!("resolve url: {error}"))?
             .to_string();
         return Ok(());
     }
     let base = Path::new(index_source).parent().unwrap_or(Path::new("."));
-    entry.url = base.join(&entry.url).to_string_lossy().into_owned();
+    *value = base.join(&value).to_string_lossy().into_owned();
     Ok(())
 }
 
-fn version_is_newer(candidate: &str, existing: &str) -> bool {
-    match (
-        semver::Version::parse(candidate),
-        semver::Version::parse(existing),
-    ) {
-        (Ok(candidate), Ok(existing)) => candidate > existing,
-        _ => true,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn entry(url: &str, target: &str) -> String {
+        format!(
+            r#"[{{
+                "id": "com.test.gain",
+                "name": "Test Gain",
+                "vendor": "Test",
+                "version": "0.1.0",
+                "api_version": 2,
+                "urls": [{{ "url": "{url}", "hash": "{HASH}", "targets": ["{target}"] }}],
+                "devices": [{{ "name": "Gain", "type_id": "com.test.gain.fx" }}]
+            }}]"#
+        )
+    }
+
+    #[test]
+    fn merges_target_entries_with_the_same_id() {
+        let result = merge_indexes(vec![
+            (
+                "https://example.com/extensions.json".into(),
+                entry("macos.zip", "macos-aarch64").into_bytes(),
+            ),
+            (
+                "https://example.com/extensions.json".into(),
+                entry("wasm.zip", "wasm").into_bytes(),
+            ),
+        ]);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].urls.len(), 2);
+        assert_eq!(
+            result.entries[0]
+                .download_for(|target| target == "wasm")
+                .map(|download| download.url.as_str()),
+            Some("https://example.com/wasm.zip")
+        );
+    }
+
+    #[test]
+    fn verifies_sha256_case_insensitively() {
+        let hash = sha256_hex(b"notwig");
+        verify_sha256(b"notwig", &hash).unwrap();
+        verify_sha256(b"notwig", &hash.to_ascii_uppercase()).unwrap();
+        assert!(verify_sha256(b"other", &hash).is_err());
     }
 }

@@ -32,7 +32,7 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 | Bundle format, asset import/export, autosave | `notwig-project` |
 | Device contract, stock device, DSP graph | `notwig-dsp` |
 | Extension API, draw commands, ABI wire types | `notwig-ext-api` |
-| Extension loading, trust levels, WASM device runtime | `notwig-ext` |
+| Extension loading, target selection, WASM/native device runtime | `notwig-ext` |
 | Playback, scheduling, transport, latency compensation | `notwig-engine` |
 | VST3/VST2/CLAP/LV2/AU/AU3 discovery and hosting | `notwig-plugins` |
 | View, widget, gesture, editor UI | `notwig-ui` |

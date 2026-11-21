@@ -151,9 +151,10 @@ Platform edges are selected by target:
   in-app project picker and `.notwig.zip` download;
 - audio uses CPAL's WebAudio backend and starts after a user gesture;
 - native plugin formats are not compiled;
-- trusted extensions use the browser WebAssembly host instead of wasmtime; the
-  same JSON index is fetched with `fetch`, and installed packages are extracted
-  into `notwig-extensions/<id>/` in OPFS and rediscovered on startup;
+- extensions use the browser WebAssembly host instead of wasmtime or native
+  loading; only `wasm` entrypoints are eligible, the same JSON index is fetched
+  with `fetch`, and installed packages are extracted into
+  `notwig-extensions/<id>/` in OPFS and rediscovered on startup;
 - the engine build runs synchronously on the UI thread in the first browser
   milestone.
 
@@ -167,9 +168,9 @@ under `/app/` beside the mdBook documentation.
 | `notwig-core` | Domain types, IDs, time, tracks, sequencer, command protocol, edit algebra | I/O, UI, real-time processing, ID allocation |
 | `notwig-project` | Bundle read/write, autosave/recovery, audio probe/import/decode/resample/export | UI, real-time processing |
 | `notwig-dsp` | Device/parameter contracts, registry, factories, graph compilation, stock devices, editor monitoring | Audio callback, persisted instance state |
-| `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, note-event wire types, manifests, ABI helpers | `egui`, `wasmtime`, I/O, canonical state |
-| `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Runtime host behavior |
-| `notwig-ext` | Extension discovery, native wasmtime and trusted browser WebAssembly hosts, WASM device DSP, panel host | UI layout, canonical state, audio-callback compilation |
+| `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, note-event wire types, manifests, targets, ABI helpers | `egui`, `wasmtime`, `libloading`, I/O, canonical state |
+| `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Runtime host behavior |
+| `notwig-ext` | Extension discovery, target selection, native wasmtime/WASM and shared-library hosts, device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-ext-devices` | Example and stock extension devices built against the SDK | Host behavior or UI code |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
@@ -210,7 +211,7 @@ under `/app/` beside the mdBook documentation.
   format-specific types inside that crate.
 - **Extensions**: add host behavior in `notwig-ext` and shared ABI/draw types in
   `notwig-ext-api`. Device specs/panels/DSP come from the extension; Notwig owns
-  validation, trust levels, and rendering. General clip/track drawing hooks are
+  validation, resource limits, and rendering. General clip/track drawing hooks are
   planned on the same command IR.
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted

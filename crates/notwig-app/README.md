@@ -17,7 +17,7 @@ domain or DSP logic belongs in lower crates, not here.
 - Browser entry composition, OPFS `Projects` folder storage, async file
   pickers, ZIP download, and user-gesture-gated WebAudio startup.
 - Browser extension index fetching, OPFS extraction/discovery, uninstall, and
-  trusted extension loading.
+  WASM extension loading.
 - `Workspace`: document mutation, command application, undo/redo, tracks,
   devices, transport, and project lifecycle policy.
 - Asset import/relink/preparation for the engine.
@@ -26,8 +26,8 @@ domain or DSP logic belongs in lower crates, not here.
 - CPAL audio stream, device options, snapshots, DSP timing, and xruns.
 - Per-user persistence of audio driver, device, and block size.
 - Plugin catalog: scan subprocess, cache loading, and workspace descriptors.
-- Extension manager: config/index sources, ZIP install/uninstall, trust levels,
-  host lifecycle, and app synchronization.
+- Extension manager: config/index sources, target selection, hash-verified ZIP
+  install/uninstall, host lifecycle, and app synchronization.
 - Edit-plan lowering into commands.
 - Native plugin editor windows.
 - Dialog and drag-drop coordination.

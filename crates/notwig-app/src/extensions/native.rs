@@ -7,12 +7,13 @@ use notwig_dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{
     ExtensionHost, InstalledExtension, install_zip_bytes, install_zip_file, uninstall,
 };
-use notwig_ext_api::{
-    DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, TrustLevel,
-};
+use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
 
 use super::ExtensionEvent;
-use super::index::{IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes};
+use super::index::{
+    IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes, select_download,
+    verify_sha256,
+};
 
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -213,12 +214,16 @@ impl ExtensionManager {
             .find(|entry| entry.id == id)
             .cloned()
             .ok_or_else(|| format!("Extension {id} is not in the current index."))?;
+        let download = select_download(&entry)
+            .cloned()
+            .ok_or_else(|| format!("Extension {id} has no package for this platform."))?;
         let Some(root) = extensions_dir() else {
             return Err("Could not locate the extensions directory.".into());
         };
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = read_source_bytes(&entry.url).and_then(|bytes| {
+            let result = read_source_bytes(&download.url).and_then(|bytes| {
+                verify_sha256(&bytes, &download.hash)?;
                 install_zip_bytes(&root, &bytes, Some(&entry.id)).map_err(|error| error.to_string())
             });
             let _ = sender.send(result);
@@ -257,13 +262,6 @@ impl ExtensionManager {
     pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
         let entry = self.config.settings.entry(id.to_owned()).or_default();
         entry.enabled = enabled;
-        self.persist();
-        self.reload();
-    }
-
-    pub(crate) fn set_trust(&mut self, id: &str, trust: TrustLevel) {
-        let entry = self.config.settings.entry(id.to_owned()).or_default();
-        entry.trust = trust;
         self.persist();
         self.reload();
     }

@@ -12,8 +12,8 @@ There are two ways to run it:
   also needs the system `lilv` library (`brew install lilv`). From the
   repository root, run `cargo run -p notwig-app`.
 - **Browser build.** Build `crates/notwig-web` with `wasm-pack` and serve the
-  generated static files. Native plugins are unavailable, and only Trusted WASM
-  extensions run in the browser.
+  generated static files. Native plugins and native extension libraries are
+  unavailable; only `wasm` extension targets run in the browser.
 
 The repository `README.md` contains the exact build commands. The rest of this
 page assumes the application is already running.

@@ -18,7 +18,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  extensions:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: wasm
+            rust_targets: wasm32-unknown-unknown
+          - os: macos-14
+            target: macos-aarch64
+            rust_targets: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Package stock extension
+        run: ./scripts/package-extension.sh "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.target }}
+          path: docs/extensions/*.zip
+          if-no-files-found: error
+
   build:
+    needs: extensions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,21 +60,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/cache@v4
-        id: extension-cache
+      - uses: actions/download-artifact@v4
         with:
-          path: docs/extensions/notwig.ext.devices.zip
-          key: notwig-ext-devices-${{ hashFiles('crates/notwig-ext-devices/**', 'crates/notwig-ext-api/**', 'crates/notwig-ext-macros/**', 'Cargo.lock') }}
-
-      - name: Package stock extension
-        if: steps.extension-cache.outputs.cache-hit != 'true'
-        run: ./scripts/package-extension.sh
+          pattern: extension-*
+          path: docs/extensions
+          merge-multiple: true
 
       - name: Build extension index
-        run: |
-          cp docs/extensions.txt /tmp/extensions.txt
-          echo "docs/extensions/notwig.ext.devices.zip" >> /tmp/extensions.txt
-          EXTENSIONS_LIST=/tmp/extensions.txt ./scripts/build-extensions.sh
+        run: ./scripts/build-extensions.sh
 
       - uses: taiki-e/install-action@v2
         with:

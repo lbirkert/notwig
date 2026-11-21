@@ -263,10 +263,6 @@ pub enum UiIntent {
         id: String,
         enabled: bool,
     },
-    SetExtensionTrust {
-        id: String,
-        trust: notwig_ext_api::TrustLevel,
-    },
     ReloadExtensions,
     SetExtensionIndexes {
         indexes: Vec<String>,

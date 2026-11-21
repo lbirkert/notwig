@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use notwig_ext_api::ExtensionManifest;
+use notwig_ext_api::{ExtensionManifest, target};
 
 use crate::archive::{ExtensionArchive, read_archive, read_extension_files};
 use crate::error::ExtensionError;
@@ -21,23 +21,30 @@ impl WebExtensionPackage {
     }
 
     pub fn from_archive(archive: ExtensionArchive) -> Result<Self, ExtensionError> {
-        let entry = &archive.manifest.entry;
-        if entry.starts_with('/')
-            || entry.contains('\\')
-            || entry.split('/').any(|part| part == ".." || part == ".")
+        let entry = archive.manifest.entry_for(target::is_wasm).ok_or_else(|| {
+            ExtensionError::Manifest(
+                "extension has no wasm entrypoint for the browser build".into(),
+            )
+        })?;
+        let entrypoint = entry.entrypoint.as_str();
+        if entrypoint.starts_with('/')
+            || entrypoint.contains('\\')
+            || entrypoint
+                .split('/')
+                .any(|part| part == ".." || part == ".")
         {
             return Err(ExtensionError::Manifest(
-                "extension entry must stay inside the package".into(),
+                "extension entrypoint must stay inside the package".into(),
             ));
         }
         let wasm = archive
             .files
-            .get(Path::new(entry))
+            .get(Path::new(entrypoint))
             .cloned()
-            .ok_or_else(|| ExtensionError::MissingExport(entry.clone()))?;
+            .ok_or_else(|| ExtensionError::MissingExport(entrypoint.to_owned()))?;
         if !wasm.starts_with(b"\0asm") {
             return Err(ExtensionError::Manifest(
-                "entry is not a wasm module".into(),
+                "entrypoint is not a wasm module".into(),
             ));
         }
         Ok(Self {

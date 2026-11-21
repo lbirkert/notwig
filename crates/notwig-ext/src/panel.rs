@@ -3,20 +3,20 @@ use std::sync::Arc;
 
 use notwig_ext_api::{DeviceDrawContext, DevicePanelHost, PanelDraw};
 
-use crate::abi::ExtensionInstance;
 use crate::compiled::LoadedExtensions;
+use crate::instance::ExtensionInstance;
 
 struct UiInstance {
     instance: ExtensionInstance,
     handle: i32,
 }
 
-/// Host-side panel drawer for wasm extension devices.
+/// Host-side panel drawer for extension devices.
 ///
 /// Retained UI instances are keyed by [`DeviceDrawContext::device_id`], so two
 /// devices of the same type keep independent hover, focus, and drag state. The
 /// device type still selects the loaded extension and creates the underlying
-/// wasm instance.
+/// WASM or native instance.
 pub struct ExtensionPanelHost {
     loaded: Arc<LoadedExtensions>,
     instances: BTreeMap<String, UiInstance>,
@@ -38,15 +38,13 @@ impl DevicePanelHost for ExtensionPanelHost {
         context: &DeviceDrawContext,
     ) -> Option<PanelDraw> {
         let extension = self.loaded.find_type(type_id)?;
-        let module = extension.module.as_ref()?;
+        let runtime = extension.runtime.as_ref()?;
         let device_key = context.device_id.as_str();
         if !self.instances.contains_key(device_key) {
-            let engine = self.loaded.engines.engine(extension.trust);
             let mut instance = ExtensionInstance::instantiate(
-                engine,
-                module,
+                runtime,
+                &self.loaded.engines,
                 &extension.manifest.id,
-                extension.trust,
             )
             .map_err(|error| {
                 tracing::warn!(

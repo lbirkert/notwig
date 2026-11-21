@@ -356,24 +356,6 @@ impl NotwigUi {
                     });
                     ui.close();
                 }
-                ui.menu_button("Trust", |ui| {
-                    for level in [
-                        notwig_ext_api::TrustLevel::Trusted,
-                        notwig_ext_api::TrustLevel::Limited,
-                        notwig_ext_api::TrustLevel::DrawOnly,
-                    ] {
-                        if ui
-                            .selectable_label(info.trust == level, level.label())
-                            .clicked()
-                        {
-                            self.emit(UiIntent::SetExtensionTrust {
-                                id: info.id.clone(),
-                                trust: level,
-                            });
-                            ui.close();
-                        }
-                    }
-                });
                 if card.index_entry.is_some() && ui.button("Reinstall").clicked() {
                     self.pending_extension_replace = Some(info.id.clone());
                     ui.close();

@@ -156,8 +156,9 @@ impl DeviceExtension for GainDevice {
 }
 ```
 
-`#[notwig_extension]` generates the wasm exports around the entrypoint. The
-device implements only the Rust surface.
+`#[notwig_extension]` generates the ABI exports around the entrypoint: WASM
+exports when compiling for `wasm32-unknown-unknown` and a native shared-library
+ABI on desktop targets. The device implements only the Rust surface.
 
 ## 3. Add the manifest
 
@@ -170,7 +171,12 @@ device implements only the Rust surface.
   "vendor": "Example",
   "version": "0.1.0",
   "api_version": 2,
-  "entry": "my_gain.wasm",
+  "entrypoints": [
+    {
+      "entrypoint": "my_gain.wasm",
+      "target": "wasm"
+    }
+  ],
   "capabilities": ["device", "ui.draw"],
   "devices": [
     {
@@ -187,6 +193,8 @@ The manifest `id`, the device `type_id`, and the renderer string in
 
 ## 4. Build
 
+For a portable WASM build:
+
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown --release
@@ -199,7 +207,33 @@ target/wasm32-unknown-unknown/release/my_gain.wasm
 ```
 
 Cargo converts dashes in the crate name to underscores in the output filename.
-Copy or rename it to match the manifest `entry` field.
+Copy or rename it to match the manifest `entrypoint` field.
+
+For a native build on macOS Apple Silicon:
+
+```sh
+cargo build --target aarch64-apple-darwin --release
+```
+
+The shared library is written to:
+
+```text
+target/aarch64-apple-darwin/release/libmy_gain.dylib
+```
+
+Add a native entrypoint before the WASM entry so desktop users load the shared
+library and the browser still has a portable fallback:
+
+```json
+"entrypoints": [
+  { "entrypoint": "my_gain.dylib", "target": "macos-aarch64" },
+  { "entrypoint": "my_gain.wasm", "target": "wasm" }
+]
+```
+
+Native libraries are not sandboxed. See
+[Package and Manifest](02_package_and_manifest.md) for target names and the
+trust implications.
 
 ## 5. Install and load
 
@@ -212,6 +246,7 @@ You can also copy the directory into the user extension directory:
 ```text
 ~/Library/Application Support/notwig/extensions/com.example.gain/
   extension.json
+  my_gain.dylib       # native target, optional
   my_gain.wasm
   icon.png            # optional
 ```
@@ -227,8 +262,8 @@ Restart Notwig after a manual copy. The device then appears under
 4. Drag the knob. The parameter should move and the sound should change.
 5. Save and reopen the project. The parameter value should be restored.
 
-If the device does not appear, check the manifest `api_version`, the `entry`
-filename, the device `type_id`, and the extension error shown in
-**Settings > Extensions**.
+If the device does not appear, check the manifest `api_version`, the
+`entrypoints` filenames and targets, the device `type_id`, and the extension
+error shown in **Settings > Extensions**.
 
 Next: [Package and Manifest](02_package_and_manifest.md).

@@ -116,36 +116,39 @@ frame that carries input and returns draw commands plus host actions.
 | `ui/drawer.rs` | `Drawer` primitive painter, `Font`, `Align` |
 | `ui/record.rs` | `RecordDrawer` command buffering for the WASM boundary |
 | `ui/widgets.rs` | Shared `button`/`knob`/`toggle`/`dropdown`/`label`/`section`/`divider`/meter widgets and `paint_*` helpers |
-| `manifest.rs` | extension manifest/capability/device declaration types |
-| `status.rs` | `TrustLevel`, `ExtensionStatus`, `ExtensionInfo`, settings |
+| `manifest.rs` | extension manifest, ordered entrypoints, capability/device declarations |
+| `target.rs` | canonical target names, aliases, and host support checks |
+| `status.rs` | `ExtensionStatus`, `ExtensionInfo`, settings |
 | `config.rs` | Versioned user config, default index URL, legacy migration |
-| `index.rs` | Extension index entry/device types and validation |
+| `index.rs` | Extension index entry/device/url types and validation |
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
 | `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device draw dispatch |
 | `abi.rs` | ABI version (`2`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
-| `abi/store.rs` | Handle-keyed `DeviceStore<T>` with const construction |
-| `abi/pointers.rs` | Safe wrappers for reading strings, param IDs, and audio slices |
+| `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
+| `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
 
 ### `notwig-ext-macros` — extension ABI generation
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | `#[notwig_extension]` attribute macro; generates wasm exports around the entrypoint |
+| `lib.rs` | `#[notwig_extension]` attribute macro; generates WASM exports or the native shared-library ABI around the entrypoint |
 
-### `notwig-ext` — WASM extension host
+### `notwig-ext` — extension host
 
 | Module | Responsibility |
 |---|---|
-| `discovery.rs` | user-directory scan, manifest parse/validate, module size checks |
+| `discovery.rs` | user-directory scan, manifest parse/validate, first supported entrypoint |
 | `archive.rs` | shared ZIP/file-tree validation, safe relative paths, manifest and size limits |
 | `abi.rs` | wasmtime engines/stores, host imports, typed exports, memory checks |
-| `compiled.rs` | loaded extension records and device-type lookup |
-| `host.rs` | `ExtensionHost`: compile, specs, factory, panel host, infos |
-| `device.rs` | `ExtensionDeviceFactory`, WASM `DeviceProcessor`, draw-only silence |
+| `native.rs` | `libloading` shared-library loader and native instance ABI |
+| `instance.rs` | WASM/native instance enum with common device calls |
+| `compiled.rs` | loaded extension records, runtime kind, and device-type lookup |
+| `host.rs` | `ExtensionHost`: load/compile, specs, factory, panel host, infos |
+| `device.rs` | `ExtensionDeviceFactory`, WASM and native `DeviceProcessor`s |
 | `install.rs` | filesystem install/replace and uninstall using validated archives |
 | `panel.rs` | cached UI instance implementing `DevicePanelHost` |
-| `web/` | trusted browser host, package loading, DSP, and panels |
+| `web/` | browser host, package loading, WASM DSP, and panels |
 | `error.rs` | `ExtensionError` |
 
 ### `notwig-ext-devices` — example extension devices
@@ -344,9 +347,9 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    with `ui.id("...")`, and emit parameter changes through
    `set_param_normalized`/`set_param_value`. The host validates the resulting
    `PanelAction`s against the device spec.
-4. Ship `extension.json` with `api_version: 2`, a relative `entry` wasm module,
-   and the `device`/`ui.draw` capabilities. Set `DeviceUiSpec::custom` to route
-   the panel to the extension renderer.
+4. Ship `extension.json` with `api_version: 2`, an ordered `entrypoints` list
+   (native and/or `wasm` targets), and the `device`/`ui.draw` capabilities. Set
+   `DeviceUiSpec::custom` to route the panel to the extension renderer.
 5. Add interaction tests in `crates/notwig-ext-api/tests/`, a device test in
    `crates/notwig-ext-devices/tests/`, and a headless panel test in
    `crates/notwig-ui/tests/`. See [Extension Overview](../02_extensions/00_overview.md) for the full

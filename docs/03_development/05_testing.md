@@ -110,7 +110,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Tool gain and polarity | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Graph compilation order | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Unknown plugin resolution | ✅ Implemented | ⭐⭐⭐ | |
-| Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/abi.rs` covers describe, panel output, DSP, latency, and draw-only silence with inline WAT modules. |
+| Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/abi.rs` covers describe, panel output, DSP, and latency with inline WAT modules; `limiter_extension.rs` covers the built WASM and native targets. |
 | Extension draw validation | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/draw_validation.rs` covers finite geometry, rects, path limits, text limits, and command caps. |
 | Extension ABI helpers | ✅ Implemented | ⭐⭐⭐ | `notwig-ext-api/tests/abi_helpers.rs` covers the const `DeviceStore` and handle lifecycle. |
 | Extension index and config | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/index_config.rs` covers index parsing/validation and legacy config migration. |

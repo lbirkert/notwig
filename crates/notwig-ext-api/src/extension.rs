@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use notwig_core::ParamId;
 use notwig_dsp::DeviceSpec;
 
-use crate::abi::{AbiStatus, DeviceStore, packed_pointer, with_audio_frames};
+use crate::abi::{
+    AbiStatus, DeviceStore, pack_ptr_len, packed_pointer, with_audio_frames, with_audio_frames_ptr,
+};
 use crate::context::DeviceDrawContext;
 use crate::geometry::{Point, Rect, Size};
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
@@ -142,9 +144,15 @@ impl Extension {
     /// Returns a packed pointer to the serialized spec for `type_id`.
     #[must_use]
     pub fn describe_pointer(&self, type_id: &str) -> i64 {
+        self.describe_bytes(type_id).map_or(0, packed_pointer)
+    }
+
+    /// Returns the serialized spec bytes for `type_id`.
+    #[must_use]
+    pub fn describe_bytes(&self, type_id: &str) -> Option<&[u8]> {
         self.devices
             .get(type_id)
-            .map_or(0, |device| packed_pointer(&device.spec_json))
+            .map(|device| device.spec_json.as_slice())
     }
 
     /// Creates a device instance and returns its handle.
@@ -189,13 +197,30 @@ impl Extension {
         events: &[u8],
     ) -> Result<(), AbiStatus> {
         let processed = self.instances.with(handle, |slot| {
-            for bytes in events.chunks_exact(NOTE_EVENT_BYTES) {
-                if let Some(event) = decode_note_event(bytes) {
-                    slot.instance.note_event(event);
-                }
-            }
+            deliver_events(slot, events);
             let channels = slot.channels.max(1);
             with_audio_frames(audio_ptr, frames, channels, |samples| {
+                slot.instance.process(samples);
+            })
+        })?;
+        processed.ok_or(AbiStatus::InvalidArgument)
+    }
+
+    /// Processes one block from a native host pointer.
+    ///
+    /// The native shared-library ABI passes ordinary process pointers, so the
+    /// host can process its audio buffer in place without copying.
+    pub fn process_ptr(
+        &self,
+        handle: i32,
+        audio_ptr: *mut f32,
+        frames: usize,
+        events: &[u8],
+    ) -> Result<(), AbiStatus> {
+        let processed = self.instances.with(handle, |slot| {
+            deliver_events(slot, events);
+            let channels = slot.channels.max(1);
+            with_audio_frames_ptr(audio_ptr, frames, channels, |samples| {
                 slot.instance.process(samples);
             })
         })?;
@@ -217,9 +242,25 @@ impl Extension {
     /// panel output.
     #[must_use]
     pub fn draw_pointer(&self, handle: i32, context_json: &[u8]) -> i64 {
-        let Ok(context) = serde_json::from_slice::<DeviceDrawContext>(context_json) else {
+        let Some((ptr, len)) = self.draw_json(handle, context_json) else {
             return 0;
         };
+        let Ok(ptr) = u32::try_from(ptr as usize) else {
+            return 0;
+        };
+        let Ok(len) = u32::try_from(len) else {
+            return 0;
+        };
+        i64::try_from(pack_ptr_len(ptr, len)).unwrap_or(0)
+    }
+
+    /// Draws a device panel and returns a pointer/length pair to the serialized
+    /// [`crate::panel::PanelDraw`].
+    ///
+    /// The pointer stays valid until the next draw on the same handle.
+    #[must_use]
+    pub fn draw_json(&self, handle: i32, context_json: &[u8]) -> Option<(*const u8, usize)> {
+        let context = serde_json::from_slice::<DeviceDrawContext>(context_json).ok()?;
         self.instances
             .with(handle, |slot| {
                 let target = Rect::from_min_size(
@@ -235,12 +276,21 @@ impl Extension {
                 }
                 let panel = record.into_panel();
                 if panel.validate().is_err() {
-                    return 0;
+                    return None;
                 }
                 slot.last_panel_json = serde_json::to_vec(&panel).unwrap_or_default();
-                packed_pointer(&slot.last_panel_json)
+                Some((slot.last_panel_json.as_ptr(), slot.last_panel_json.len()))
             })
-            .unwrap_or(0)
+            .ok()
+            .flatten()
+    }
+}
+
+fn deliver_events(slot: &mut DeviceSlot, events: &[u8]) {
+    for bytes in events.chunks_exact(NOTE_EVENT_BYTES) {
+        if let Some(event) = decode_note_event(bytes) {
+            slot.instance.note_event(event);
+        }
     }
 }
 

@@ -4,16 +4,16 @@ use std::sync::Arc;
 
 use notwig_dsp::DeviceFactory;
 use notwig_dsp::{DeviceSpec, DeviceUiSpec};
-use notwig_ext_api::{
-    DevicePanelHost, ExtensionInfo, ExtensionSettings, ExtensionStatus, TrustLevel,
-};
+use notwig_ext_api::{DevicePanelHost, ExtensionInfo, ExtensionSettings, ExtensionStatus, target};
 use wasmtime::Module;
 
-use crate::abi::{ExtensionEngines, ExtensionInstance};
-use crate::compiled::{LoadedExtension, LoadedExtensions};
+use crate::abi::ExtensionEngines;
+use crate::compiled::{ExtensionRuntime, LoadedExtension, LoadedExtensions};
 use crate::device::ExtensionDeviceFactory;
 use crate::discovery::{self, DiscoveryFailure};
 use crate::error::ExtensionError;
+use crate::instance::ExtensionInstance;
+use crate::native::NativeLibrary;
 use crate::panel::ExtensionPanelHost;
 
 pub struct ExtensionHost {
@@ -38,14 +38,13 @@ impl ExtensionHost {
             let id = discovered.manifest.id.clone();
             let settings = settings.get(&id).copied().unwrap_or_default();
             let extension = if settings.enabled {
-                load_enabled(&engines, discovered, settings.trust)
+                load_enabled(&engines, discovered)
             } else {
                 LoadedExtension {
                     dir: discovered.dir,
                     manifest: discovered.manifest,
-                    trust: settings.trust,
                     enabled: false,
-                    module: None,
+                    runtime: None,
                     specs: Vec::new(),
                     status: ExtensionStatus::Disabled,
                     error: None,
@@ -106,37 +105,32 @@ impl ExtensionHost {
 fn load_enabled(
     engines: &Arc<ExtensionEngines>,
     discovered: discovery::DiscoveredExtension,
-    trust: TrustLevel,
 ) -> LoadedExtension {
-    let dir = discovered.dir;
-    let manifest = discovered.manifest;
-    let engine = engines.engine(trust);
-    let module = match Module::from_binary(engine, &discovered.wasm) {
-        Ok(module) => module,
-        Err(error) => {
-            return failed(manifest, dir, trust, format!("compile wasm: {error}"));
-        }
+    let discovery::DiscoveredExtension {
+        manifest,
+        dir,
+        entry_path,
+        target,
+    } = discovered;
+    let runtime = match load_runtime(engines, &entry_path, &target) {
+        Ok(runtime) => runtime,
+        Err(error) => return failed(manifest, dir, error),
     };
-    let mut instance = match ExtensionInstance::instantiate(engine, &module, &manifest.id, trust) {
+    let mut instance = match ExtensionInstance::instantiate(&runtime, engines, &manifest.id) {
         Ok(instance) => instance,
-        Err(error) => {
-            return failed(manifest, dir, trust, error.to_string());
-        }
+        Err(error) => return failed(manifest, dir, error.to_string()),
     };
     let mut specs = Vec::new();
     let declarations = manifest.devices.clone();
     for declaration in &declarations {
         let mut spec = match instance.describe(&declaration.type_id) {
             Ok(spec) => spec,
-            Err(error) => {
-                return failed(manifest, dir, trust, error.to_string());
-            }
+            Err(error) => return failed(manifest, dir, error.to_string()),
         };
         if spec.type_id != declaration.type_id {
             return failed(
                 manifest,
                 dir,
-                trust,
                 format!(
                     "device type mismatch: declared {}, described {}",
                     declaration.type_id, spec.type_id
@@ -151,30 +145,50 @@ fn load_enabled(
     LoadedExtension {
         dir,
         manifest,
-        trust,
         enabled: true,
-        module: Some(module),
+        runtime: Some(runtime),
         specs,
         status: ExtensionStatus::Loaded,
         error: None,
     }
 }
 
+fn load_runtime(
+    engines: &ExtensionEngines,
+    entry_path: &Path,
+    target: &str,
+) -> Result<ExtensionRuntime, ExtensionError> {
+    if target::is_wasm(target) {
+        let wasm = std::fs::read(entry_path).map_err(|error| {
+            ExtensionError::Io(format!("read {}: {error}", entry_path.display()))
+        })?;
+        if !wasm.starts_with(b"\0asm") {
+            return Err(ExtensionError::Manifest(
+                "entrypoint is not a wasm module".into(),
+            ));
+        }
+        let engine = engines.engine();
+        let module = Module::from_binary(engine, &wasm)
+            .map_err(|error| ExtensionError::Wasm(format!("compile wasm: {error}")))?;
+        Ok(ExtensionRuntime::Wasm(module))
+    } else {
+        NativeLibrary::load(entry_path).map(ExtensionRuntime::Native)
+    }
+}
+
 fn failed(
     manifest: notwig_ext_api::ExtensionManifest,
     dir: std::path::PathBuf,
-    trust: TrustLevel,
-    error: String,
+    error: impl ToString,
 ) -> LoadedExtension {
     LoadedExtension {
         dir,
         manifest,
-        trust,
         enabled: true,
-        module: None,
+        runtime: None,
         specs: Vec::new(),
         status: ExtensionStatus::Failed,
-        error: Some(error),
+        error: Some(error.to_string()),
     }
 }
 
@@ -193,7 +207,6 @@ fn info_from(extension: &LoadedExtension) -> ExtensionInfo {
         capabilities: extension.manifest.capabilities.clone(),
         status: extension.status,
         enabled: extension.enabled,
-        trust: extension.trust,
         device_count: if extension.specs.is_empty() {
             extension.manifest.devices.len()
         } else {
@@ -214,7 +227,6 @@ fn failure_info(failure: DiscoveryFailure) -> ExtensionInfo {
         capabilities: Vec::new(),
         status: ExtensionStatus::Failed,
         enabled: true,
-        trust: TrustLevel::Trusted,
         device_count: 0,
         error: Some(failure.error),
     }

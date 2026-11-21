@@ -9,13 +9,14 @@ use notwig_dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{
     ExtensionArchive, WebExtensionHost, WebExtensionPackage, read_archive, validate_extension_id,
 };
-use notwig_ext_api::{
-    DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, TrustLevel,
-};
+use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
 use wasm_bindgen_futures::spawn_local;
 
 use super::ExtensionEvent;
-use super::index::{IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes};
+use super::index::{
+    IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes, select_download,
+    verify_sha256,
+};
 use crate::web::storage::OpfsEntryKind;
 
 const EXTENSIONS_DIR: &str = "notwig-extensions";
@@ -257,13 +258,17 @@ impl ExtensionManager {
             .find(|entry| entry.id == id)
             .cloned()
             .ok_or_else(|| format!("Extension {id} is not in the current index."))?;
+        let download = select_download(&entry)
+            .cloned()
+            .ok_or_else(|| format!("Extension {id} has no WASM package."))?;
         let (sender, receiver) = mpsc::channel();
         self.admin_rx = Some(receiver);
         spawn_local(async move {
             let result = async {
-                let bytes = crate::web::storage::fetch_bytes(&entry.url)
+                let bytes = crate::web::storage::fetch_bytes(&download.url)
                     .await?
-                    .ok_or_else(|| format!("{}: not found", entry.url))?;
+                    .ok_or_else(|| format!("{}: not found", download.url))?;
+                verify_sha256(&bytes, &download.hash)?;
                 let archive = read_archive(&bytes, Some(entry.id.as_str()))
                     .map_err(|error| error.to_string())?;
                 let package = WebExtensionPackage::from_archive(archive.clone())
@@ -280,7 +285,7 @@ impl ExtensionManager {
     }
 
     pub(crate) fn install_zip(&mut self, _path: PathBuf) -> Result<(), String> {
-        Err("Use the browser ZIP picker to install a trusted extension.".into())
+        Err("Use the browser ZIP picker to install a WASM extension.".into())
     }
 
     pub(crate) fn install_zip_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {
@@ -324,11 +329,7 @@ impl ExtensionManager {
     }
 
     pub(crate) fn set_enabled(&mut self, _id: &str, _enabled: bool) {
-        // Browser extensions are always trusted and enabled.
-    }
-
-    pub(crate) fn set_trust(&mut self, _id: &str, _trust: TrustLevel) {
-        // Only trusted extensions are supported.
+        // Browser extensions are always enabled.
     }
 
     fn persist(&self) {

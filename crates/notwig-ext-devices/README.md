@@ -1,7 +1,8 @@
 # notwig-ext-devices
 
-Example extension devices for Notwig, built as a core wasm module against the
-`notwig-ext-api` contract.
+Example extension devices for Notwig, built against the `notwig-ext-api`
+contract. The same crate produces a portable WASM module and a native shared
+library.
 
 ## Devices
 
@@ -80,6 +81,8 @@ heap/store/pointer plumbing come from `notwig-ext-api`.
 
 ## Build
 
+For WASM:
+
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo build -p notwig-ext-devices --target wasm32-unknown-unknown --release
@@ -91,29 +94,51 @@ The module is written to:
 target/wasm32-unknown-unknown/release/notwig_ext_devices.wasm
 ```
 
+For macOS Apple Silicon:
+
+```sh
+cargo build -p notwig-ext-devices --target aarch64-apple-darwin --release
+```
+
+The shared library is written to:
+
+```text
+target/aarch64-apple-darwin/release/libnotwig_ext_devices.dylib
+```
+
+The repository packaging script substitutes the manifest placeholders and writes
+target-specific ZIPs:
+
+```sh
+./scripts/package-extension.sh wasm
+./scripts/package-extension.sh macos-aarch64
+```
+
 ## Install
 
-Copy the manifest and module into a directory under the user extensions
-directory:
+Install the generated ZIP from **Settings > Extensions > Add .ZIP**, or copy the
+manifest and target binary into a directory under the user extensions directory:
 
 ```text
 ~/Library/Application Support/notwig/extensions/notwig.ext.devices/
   extension.json
+  notwig_ext_devices.dylib   # native target, optional
   notwig_ext_devices.wasm
 ```
 
 Then open **Settings > Extensions** and press **Reload extensions**. The
 Limiter, Gate, and Synth appear under **Extensions** in the Add Device browser.
 
-The manifest uses `"api_version": 2` to match the current extension ABI.
+The manifest template uses `"api_version": 2` and `$$TARGET` / `$$ENTRYPOINT`
+placeholders that the packaging script replaces for each target.
 
 ## Notes
 
-- Heap, device-store, pointer/audio helpers, and the wasm exports are generated
+- Heap, device-store, pointer/audio helpers, and the ABI exports are generated
   by the SDK and `#[notwig_extension]`. This crate contains only the device
   implementations and their spec/panel code.
-- `notwig_alloc` uses the SDK's fixed bump heap so pointers stay stable for the
-  lifetime of the module instance.
+- WASM uses the SDK's fixed bump heap so pointers stay stable for the lifetime
+  of the module instance. Native builds pass process pointers directly.
 - The extension crate does not enable `unsafe`; generated code keeps its
   `no_mangle` attributes inside an SDK-generated module.
 - The synth receives note events through the extension note-event ABI. None of
@@ -127,4 +152,5 @@ threshold limiting, release recovery, and parameter rejection. `tests/gate.rs`
 covers the gate spec, panel draw list, opening/closing behavior, and parameter
 rejection. `tests/synth.rs` covers the synth spec, panel, oscillator modes,
 note on/off, ADSR release, and parameter rejection. `notwig-ext/tests` also
-loads the built wasm and checks that the synth plays notes through the real ABI.
+loads the built WASM module and native shared library and checks the devices
+through the real ABIs.

@@ -3,7 +3,10 @@ pub mod pointers;
 pub mod store;
 
 pub use heap::{alloc, free, packed_pointer};
-pub use pointers::{read_param_id, with_audio_buffer, with_audio_frames, with_bytes, with_str};
+pub use pointers::{
+    read_param_id, read_param_id_ptr, with_audio_buffer, with_audio_frames, with_audio_frames_ptr,
+    with_bytes, with_bytes_ptr, with_str, with_str_ptr,
+};
 pub use store::DeviceStore;
 
 pub const ABI_VERSION: u32 = 2;

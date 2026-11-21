@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LIST="${EXTENSIONS_LIST:-$ROOT/docs/extensions.txt}"
+LIST="${EXTENSIONS_LIST:-$ROOT/docs/extensions.csv}"
 OUT="${EXTENSIONS_OUTPUT:-$ROOT/docs/extensions.json}"
 
 python3 - "$ROOT" "$LIST" "$OUT" <<'PY'
+import csv
+import hashlib
 import io
 import json
 import sys
@@ -23,11 +25,19 @@ out_path = Path(sys.argv[3])
 if not list_path.exists():
     raise SystemExit(f"build-extensions: list not found: {list_path}")
 
-sources = [
-    line.strip()
+logical_lines = [
+    line
     for line in list_path.read_text().splitlines()
     if line.strip() and not line.strip().startswith("#")
 ]
+rows = list(csv.reader(logical_lines))
+if not rows:
+    raise SystemExit("build-extensions: list is empty")
+header = [cell.strip().lower() for cell in rows[0]]
+if header != ["source", "hash"]:
+    raise SystemExit(
+        "build-extensions: expected a CSV header with exactly: source,hash"
+    )
 
 def read_source(source: str) -> bytes:
     if source.startswith(("http://", "https://")):
@@ -74,41 +84,99 @@ def find_manifest(archive: zipfile.ZipFile) -> bytes:
     with archive.open(name) as file:
         return file.read()
 
+def manifest_targets(manifest: dict, source: str) -> list[str]:
+    entrypoints = manifest.get("entrypoints")
+    if not isinstance(entrypoints, list) or not entrypoints:
+        raise SystemExit(
+            f"build-extensions: {source}: manifest must declare a non-empty entrypoints list"
+        )
+    targets = []
+    for entry in entrypoints:
+        if not isinstance(entry, dict):
+            raise SystemExit(f"build-extensions: {source}: invalid entrypoint")
+        entrypoint = entry.get("entrypoint") or entry.get("file")
+        target = entry.get("target")
+        if not entrypoint or not target:
+            raise SystemExit(
+                f"build-extensions: {source}: entrypoint and target are required"
+            )
+        targets.append(target)
+    return targets
+
 entries = {}
-for source in sources:
+for row in rows[1:]:
+    if not row:
+        continue
+    if len(row) != 2:
+        raise SystemExit(
+            f"build-extensions: expected source,hash columns, got {len(row)}: {row}"
+        )
+    source = row[0].strip()
+    expected_hash = row[1].strip().lower()
+    if not source:
+        raise SystemExit("build-extensions: source must not be empty")
+
     resolved = None
     if source.startswith("file://"):
         parsed = urllib.parse.urlparse(source)
         resolved = Path(urllib.request.url2pathname(parsed.path)).resolve()
     elif not source.startswith(("http://", "https://")):
         resolved = (root / source).resolve()
+
     data = read_source(source)
+    actual_hash = hashlib.sha256(data).hexdigest()
+    if expected_hash and expected_hash != actual_hash:
+        raise SystemExit(
+            f"build-extensions: {source}: hash mismatch "
+            f"(expected {expected_hash}, got {actual_hash})"
+        )
+
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         manifest = json.loads(find_manifest(archive))
+
     required = ("id", "name", "version", "api_version")
     missing = [field for field in required if not manifest.get(field)]
     if missing:
         raise SystemExit(f"build-extensions: {source}: missing {', '.join(missing)}")
+
+    targets = manifest_targets(manifest, source)
     devices = []
     for device in manifest.get("devices", []):
         type_id = device.get("type_id")
         if not type_id:
             raise SystemExit(f"build-extensions: {source}: device is missing type_id")
         devices.append({"name": device.get("name") or type_id, "type_id": type_id})
-    entry = {
-        "id": manifest["id"],
-        "name": manifest["name"],
-        "vendor": manifest.get("vendor", ""),
-        "version": manifest["version"],
-        "api_version": manifest["api_version"],
-        "entrypoint": manifest.get("entrypoint") or manifest.get("entry") or "extension.wasm",
-        "capabilities": manifest.get("capabilities", []),
-        "devices": devices,
-        "description": manifest.get("description"),
-        "image": manifest.get("image"),
-        "url": published_url(source, resolved),
-    }
-    entries[entry["id"]] = entry
+
+    url = published_url(source, resolved)
+    entry = entries.get(manifest["id"])
+    if entry is None:
+        entry = {
+            "id": manifest["id"],
+            "name": manifest["name"],
+            "vendor": manifest.get("vendor", ""),
+            "version": manifest["version"],
+            "api_version": manifest["api_version"],
+            "capabilities": manifest.get("capabilities", []),
+            "devices": devices,
+            "description": manifest.get("description"),
+            "image": manifest.get("image"),
+            "urls": [],
+        }
+        entries[manifest["id"]] = entry
+    elif entry["version"] != manifest["version"]:
+        raise SystemExit(
+            f"build-extensions: {manifest['id']}: mixed versions "
+            f"{entry['version']} and {manifest['version']}"
+        )
+
+    if not any(item["url"] == url for item in entry["urls"]):
+        entry["urls"].append(
+            {
+                "url": url,
+                "hash": actual_hash,
+                "targets": targets,
+            }
+        )
 
 out_path.parent.mkdir(parents=True, exist_ok=True)
 out_path.write_text(json.dumps(list(entries.values()), indent=2, sort_keys=True) + "\n")

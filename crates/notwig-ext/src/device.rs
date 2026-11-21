@@ -7,8 +7,10 @@ use notwig_dsp::{
 };
 use notwig_ext_api::{NOTE_EVENT_BYTES, NoteEvent as ExtensionNoteEvent, encode_note_event};
 
-use crate::abi::ExtensionInstance;
+use crate::abi::ExtensionInstance as WasmInstance;
 use crate::compiled::LoadedExtensions;
+use crate::instance::ExtensionInstance;
+use crate::native::NativeInstance;
 
 pub struct ExtensionDeviceFactory {
     loaded: Arc<LoadedExtensions>,
@@ -27,15 +29,9 @@ impl DeviceFactory for ExtensionDeviceFactory {
         device: &PlanDevice,
     ) -> Option<Box<dyn DeviceProcessor>> {
         let extension = self.loaded.find_type(&device.type_id)?;
-        if !extension.trust.allows_dsp() {
-            return Some(Box::new(SilentDeviceProcessor {
-                latency_samples: device.spec.latency_samples,
-            }));
-        }
-        let module = extension.module.as_ref()?;
-        let engine = self.loaded.engines.engine(extension.trust);
+        let runtime = extension.runtime.as_ref()?;
         let mut instance =
-            ExtensionInstance::instantiate(engine, module, &extension.manifest.id, extension.trust)
+            ExtensionInstance::instantiate(runtime, &self.loaded.engines, &extension.manifest.id)
                 .map_err(|error| {
                     tracing::warn!(
                         extension = %extension.manifest.id,
@@ -57,22 +53,33 @@ impl DeviceFactory for ExtensionDeviceFactory {
                 );
             }
         }
-        Some(Box::new(WasmDeviceProcessor {
-            instance,
-            handle,
-            audio_ptr: 0,
-            events_ptr: 0,
-            scratch: Vec::new(),
-            event_scratch: Vec::new(),
-            channels: 2,
-            latency_samples: device.spec.latency_samples,
-            reported: false,
-        }))
+        let latency_samples = device.spec.latency_samples;
+        match instance {
+            ExtensionInstance::Wasm(instance) => Some(Box::new(WasmDeviceProcessor {
+                instance,
+                handle,
+                audio_ptr: 0,
+                events_ptr: 0,
+                scratch: Vec::new(),
+                event_scratch: Vec::new(),
+                channels: 2,
+                latency_samples,
+                reported: false,
+            })),
+            ExtensionInstance::Native(instance) => Some(Box::new(NativeDeviceProcessor {
+                instance,
+                handle,
+                event_scratch: Vec::new(),
+                channels: 2,
+                latency_samples,
+                reported: false,
+            })),
+        }
     }
 }
 
 struct WasmDeviceProcessor {
-    instance: ExtensionInstance,
+    instance: WasmInstance,
     handle: i32,
     audio_ptr: i32,
     events_ptr: i32,
@@ -240,29 +247,102 @@ impl DeviceProcessor for WasmDeviceProcessor {
     }
 }
 
-struct SilentDeviceProcessor {
+struct NativeDeviceProcessor {
+    instance: NativeInstance,
+    handle: i32,
+    event_scratch: Vec<u8>,
+    channels: usize,
     latency_samples: u32,
+    reported: bool,
 }
 
-impl DeviceProcessor for SilentDeviceProcessor {
-    fn prepare(&mut self, _config: RenderConfig) -> Result<(), GraphError> {
+impl NativeDeviceProcessor {
+    fn report(&mut self, error: impl std::fmt::Display) {
+        if !self.reported {
+            self.reported = true;
+            tracing::warn!(error = %error, "extension device processing failed");
+        }
+    }
+}
+
+impl DeviceProcessor for NativeDeviceProcessor {
+    fn prepare(&mut self, config: RenderConfig) -> Result<(), GraphError> {
+        self.channels = usize::from(config.channels.max(1));
+        self.instance
+            .prepare_device(
+                self.handle,
+                config.sample_rate,
+                config.max_block_size,
+                config.channels,
+            )
+            .map_err(|error| GraphError::DeviceError {
+                reason: error.to_string(),
+            })?;
+        let event_bytes = config.max_block_size.max(1) * NOTE_EVENT_BYTES;
+        self.event_scratch.resize(event_bytes, 0);
+        self.latency_samples = self.latency_samples.max(self.instance.latency(self.handle));
         Ok(())
     }
 
-    fn reset(&mut self) {}
+    fn reset(&mut self) {
+        self.reported = false;
+    }
 
-    fn set_param(&mut self, _param_id: ParamId, _value: &ParamValue) {}
+    fn set_param(&mut self, param_id: ParamId, value: &ParamValue) {
+        if let Err(error) = self.instance.set_param(self.handle, param_id, value) {
+            self.report(error);
+        }
+    }
 
     fn process(
         &mut self,
-        _ctx: &ProcessContext<'_>,
+        ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        _events: &[NoteEvent],
+        events: &[NoteEvent],
     ) -> ProcessStatus {
-        audio.fill(0.0);
-        ProcessStatus {
-            overloaded: false,
-            produced_silence: true,
+        if audio.is_empty() {
+            return ProcessStatus::default();
+        }
+        if audio.len() % self.channels != 0 {
+            self.report("extension audio buffer is not channel-aligned");
+            return ProcessStatus {
+                overloaded: true,
+                produced_silence: false,
+            };
+        }
+        let max_events = self.event_scratch.len() / NOTE_EVENT_BYTES;
+        let event_count = events.len().min(max_events);
+        for (index, event) in events[..event_count].iter().enumerate() {
+            let encoded = encode_note_event(&ExtensionNoteEvent::from(*event));
+            let start = index * NOTE_EVENT_BYTES;
+            self.event_scratch[start..start + NOTE_EVENT_BYTES].copy_from_slice(&encoded);
+        }
+        let events_ptr = if event_count == 0 {
+            std::ptr::null()
+        } else {
+            self.event_scratch.as_ptr()
+        };
+        let frames = audio.len() / self.channels;
+        match self.instance.process(
+            self.handle,
+            audio.as_mut_ptr(),
+            frames,
+            events_ptr,
+            event_count,
+            ctx.sample_position,
+            ctx.playing,
+        ) {
+            Ok(status) => ProcessStatus {
+                overloaded: status != 0,
+                produced_silence: false,
+            },
+            Err(error) => {
+                self.report(error);
+                ProcessStatus {
+                    overloaded: true,
+                    produced_silence: false,
+                }
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod archive;
 mod error;
@@ -20,6 +20,10 @@ mod discovery;
 mod host;
 #[cfg(feature = "native")]
 mod install;
+#[cfg(feature = "native")]
+mod instance;
+#[cfg(feature = "native")]
+mod native;
 #[cfg(feature = "native")]
 mod panel;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]

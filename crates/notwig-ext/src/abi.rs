@@ -1,7 +1,5 @@
 use notwig_core::ParamValue;
-use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, PanelDraw, TrustLevel, unpack_ptr_len,
-};
+use notwig_ext_api::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, PanelDraw, unpack_ptr_len};
 use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Memory, Module, OptLevel, Store, StoreLimits,
     StoreLimitsBuilder, TypedFunc,
@@ -11,35 +9,30 @@ use crate::error::{ExtensionError, wasm_err};
 
 const FUEL_PER_CALL: u64 = 20_000_000;
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
+const WASM_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 
 type ProcessFn = TypedFunc<(i32, i32, i32, i32, i32, i64, i32), i32>;
 
 #[derive(Debug)]
 pub(crate) struct ExtensionEngines {
-    fast: Engine,
-    limited: Engine,
+    engine: Engine,
 }
 
 impl ExtensionEngines {
     pub(crate) fn new() -> Result<Self, ExtensionError> {
         Ok(Self {
-            fast: make_engine(false)?,
-            limited: make_engine(true)?,
+            engine: make_engine()?,
         })
     }
 
-    pub(crate) fn engine(&self, trust: TrustLevel) -> &Engine {
-        if trust == TrustLevel::Trusted {
-            &self.fast
-        } else {
-            &self.limited
-        }
+    pub(crate) fn engine(&self) -> &Engine {
+        &self.engine
     }
 }
 
-fn make_engine(consume_fuel: bool) -> Result<Engine, ExtensionError> {
+fn make_engine() -> Result<Engine, ExtensionError> {
     let mut config = Config::new();
-    config.consume_fuel(consume_fuel);
+    config.consume_fuel(true);
     config.cranelift_opt_level(OptLevel::Speed);
     Engine::new(&config).map_err(wasm_err)
 }
@@ -62,7 +55,6 @@ pub(crate) struct ExtensionInstance {
     process: ProcessFn,
     latency: TypedFunc<i32, i32>,
     draw: TypedFunc<(i32, i32, i32), i64>,
-    trust: TrustLevel,
 }
 
 impl ExtensionInstance {
@@ -70,14 +62,10 @@ impl ExtensionInstance {
         engine: &Engine,
         module: &Module,
         extension_id: &str,
-        trust: TrustLevel,
     ) -> Result<Self, ExtensionError> {
-        let memory_limit = match trust {
-            TrustLevel::Trusted => 64 * 1024 * 1024,
-            TrustLevel::Limited => 32 * 1024 * 1024,
-            TrustLevel::DrawOnly => 16 * 1024 * 1024,
-        };
-        let limits = StoreLimitsBuilder::new().memory_size(memory_limit).build();
+        let limits = StoreLimitsBuilder::new()
+            .memory_size(WASM_MEMORY_LIMIT)
+            .build();
         let mut store = Store::new(
             engine,
             HostState {
@@ -86,9 +74,7 @@ impl ExtensionInstance {
             },
         );
         store.limiter(|state| &mut state.limits);
-        if trust != TrustLevel::Trusted {
-            store.set_fuel(FUEL_PER_CALL).map_err(wasm_err)?;
-        }
+        store.set_fuel(FUEL_PER_CALL).map_err(wasm_err)?;
 
         let mut linker = Linker::new(engine);
         linker
@@ -161,14 +147,10 @@ impl ExtensionInstance {
             process,
             latency,
             draw,
-            trust,
         })
     }
 
     fn reset_fuel(&mut self) -> Result<(), ExtensionError> {
-        if self.trust == TrustLevel::Trusted {
-            return Ok(());
-        }
         self.store.set_fuel(FUEL_PER_CALL).map_err(wasm_err)
     }
 

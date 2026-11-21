@@ -5,11 +5,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::abi::ABI_VERSION;
 use crate::manifest::{ExtensionCapability, ManifestError};
+use crate::target;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionIndexDevice {
     pub name: String,
     pub type_id: String,
+}
+
+/// One downloadable package in an extension index entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionIndexUrl {
+    pub url: String,
+    /// SHA-256 of the ZIP, as lowercase hex.
+    pub hash: String,
+    /// Targets in the same order as the package's `extension.json`
+    /// `entrypoints` list.
+    pub targets: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,7 +31,8 @@ pub struct ExtensionIndexEntry {
     pub vendor: String,
     pub version: String,
     pub api_version: u32,
-    pub entrypoint: String,
+    #[serde(default)]
+    pub urls: Vec<ExtensionIndexUrl>,
     #[serde(default)]
     pub capabilities: Vec<ExtensionCapability>,
     #[serde(default)]
@@ -28,7 +41,6 @@ pub struct ExtensionIndexEntry {
     pub description: Option<String>,
     #[serde(default)]
     pub image: Option<String>,
-    pub url: String,
 }
 
 impl ExtensionIndexEntry {
@@ -48,15 +60,43 @@ impl ExtensionIndexEntry {
                 "extension index version must not be empty".into(),
             ));
         }
-        if self.entrypoint.trim().is_empty() {
+        if self.urls.is_empty() {
             return Err(ManifestError::Invalid(
-                "extension index entrypoint must not be empty".into(),
+                "extension index entry must list at least one url".into(),
             ));
         }
-        if self.url.trim().is_empty() {
-            return Err(ManifestError::Invalid(
-                "extension index url must not be empty".into(),
-            ));
+        let mut seen_urls = BTreeSet::new();
+        for download in &self.urls {
+            if download.url.trim().is_empty() {
+                return Err(ManifestError::Invalid(
+                    "extension index url must not be empty".into(),
+                ));
+            }
+            if !seen_urls.insert(download.url.as_str()) {
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate extension index url: {}",
+                    download.url
+                )));
+            }
+            if !valid_sha256(&download.hash) {
+                return Err(ManifestError::Invalid(format!(
+                    "extension index hash is not a SHA-256 hex digest: {}",
+                    download.hash
+                )));
+            }
+            if download.targets.is_empty() {
+                return Err(ManifestError::Invalid(format!(
+                    "extension index url has no targets: {}",
+                    download.url
+                )));
+            }
+            for target_id in &download.targets {
+                if target_id.trim().is_empty() {
+                    return Err(ManifestError::Invalid(
+                        "extension index target must not be empty".into(),
+                    ));
+                }
+            }
         }
         if let Some(image) = &self.image {
             let path = Path::new(image);
@@ -96,4 +136,24 @@ impl ExtensionIndexEntry {
         }
         Ok(())
     }
+
+    /// Returns the first download whose target list contains a supported
+    /// target.
+    #[must_use]
+    pub fn download_for(&self, supports: impl Fn(&str) -> bool) -> Option<&ExtensionIndexUrl> {
+        self.urls
+            .iter()
+            .find(|download| download.targets.iter().any(|target_id| supports(target_id)))
+    }
+
+    /// Returns the first download that supports this host.
+    #[must_use]
+    pub fn download_for_host(&self) -> Option<&ExtensionIndexUrl> {
+        self.download_for(target::is_supported)
+    }
+}
+
+fn valid_sha256(hash: &str) -> bool {
+    let hash = hash.trim();
+    hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

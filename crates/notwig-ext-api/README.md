@@ -13,9 +13,10 @@ extensions and the UI:
 - device panel draw context and theme tokens (`DeviceDrawContext` includes the
   per-frame `UiInput` and engine-measured device peaks);
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
-- extension manifest types and ABI constants;
-- reusable wasm ABI helpers: a stable bump heap, handle-keyed `DeviceStore`,
-  and safe pointer/audio slice wrappers;
+- extension manifest types, ordered entrypoints, target matching, and ABI
+  constants;
+- reusable ABI helpers: a stable bump heap, handle-keyed `DeviceStore` with
+  per-instance locks, and safe WASM-offset and native-pointer wrappers;
 - `DeviceExtension` and `Extension` for registering device implementations and
   delivering note events before each processed block;
 - the `#[notwig_extension]` attribute macro, re-exported from
@@ -38,10 +39,11 @@ pub fn extension(extension: &mut Extension) {
 }
 ```
 
-The macro generates the wasm ABI exports around that entrypoint. Cargo requires
-the proc macro to live in a separate crate, so `notwig-ext-macros` is an
-implementation detail re-exported here; authors only depend on
-`notwig-ext-api`.
+The macro generates the WASM ABI exports when compiling for
+`wasm32-unknown-unknown` and a native shared-library ABI on desktop targets.
+Cargo requires the proc macro to live in a separate crate, so
+`notwig-ext-macros` is an implementation detail re-exported here; authors only
+depend on `notwig-ext-api`.
 
 Panels are dynamic: the host calls `DeviceExtension::draw` once per frame with a
 `UiContext`. Use shared widgets or `UiContext::interact`, keep IDs stable across
@@ -111,7 +113,8 @@ The `abi` module provides the boilerplate every extension needs:
 
 For `wasm32-unknown-unknown` extensions, depend on `notwig-core` and
 `notwig-dsp` with `default-features = false`. This keeps the UUID `v4` feature
-(and its JS/getrandom requirements) out of the wasm module. See
+(and its JS/getrandom requirements) out of the wasm module. Native builds use
+the same crate and do not need a special feature. See
 `notwig-ext-devices` for a working example, and
 [`docs/02_extensions/`](../../docs/02_extensions/) for the package, build, and
 install workflow.

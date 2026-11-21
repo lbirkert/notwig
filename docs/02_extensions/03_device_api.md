@@ -135,7 +135,8 @@ fn gain_id() -> ParamId {
 
 ## DSP
 
-`process` receives interleaved `f32` samples in extension linear memory:
+`process` receives interleaved `f32` samples in place. The same signature is
+used by WASM and native builds:
 
 ```rust
 fn process(&mut self, samples: &mut [f32]) {
@@ -149,7 +150,8 @@ fn process(&mut self, samples: &mut [f32]) {
 - Do not allocate, lock, block, or perform I/O in `process`.
 - Keep all per-instance DSP state in the device struct.
 - Do not assume a fixed block size. The host may split large blocks.
-- Return promptly. Fuel limits apply to Limited and DrawOnly trust levels.
+- Return promptly. WASM builds run under per-call fuel metering and a memory
+  limit; native builds run unmonitored.
 
 `prepare` is the place to compute coefficients that depend on sample rate or
 channel count:

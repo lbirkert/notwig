@@ -73,7 +73,7 @@ Editor, and Toggle Clip Editor.
 
 ## Extensions
 
-The Extensions page installs and manages WASM extensions.
+The Extensions page installs and manages WASM and native extensions.
 
 - **All**, **Available**, and **Installed** filter the list.
 - **Add .ZIP** installs a packaged extension from disk.
@@ -81,8 +81,8 @@ The Extensions page installs and manages WASM extensions.
 - **Manage Indices** adds or removes JSON index sources used for **Available**
   extensions.
 - An available extension has **Install**.
-- An installed extension can be **Disabled**, **Enabled**, **Reinstalled**,
-  **Uninstalled**, or assigned a trust level.
+- An installed extension can be **Disabled**, **Enabled**, **Reinstalled**, or
+  **Uninstalled**.
 
 Removing an extension removes its files and settings. Extension devices already
 placed in a project are unavailable until the extension is installed again.

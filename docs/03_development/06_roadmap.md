@@ -29,7 +29,7 @@ These stay outside the core and become extensions: the clip launcher and scenes,
 
 ## Where the code stands
 
-The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3, VST2, CLAP, LV2, and AU (v2/v3) plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. A WASM extension host adds user-provided devices with DSP and custom panels.
+The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3, VST2, CLAP, LV2, and AU (v2/v3) plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. An extension host adds user-provided WASM or native devices with DSP and custom panels.
 
 The largest gaps are automation, recording, and warping.
 
@@ -235,7 +235,7 @@ Dependencies worth planning around:
 | Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | Insert points exist, drag does not. |
 | Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |
-| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM devices provide metadata, DSP, custom panels, and note events; `notwig-ext-devices` ships a limiter, gate, and a simple polyphonic synth. Device state blobs are still deferred. |
+| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM and native devices provide metadata, DSP, custom panels, and note events; `notwig-ext-devices` ships a limiter, gate, and a simple polyphonic synth. Device state blobs are still deferred. |
 
 ## Plugins
 
@@ -262,14 +262,14 @@ Dependencies worth planning around:
 
 | Feature | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| WASM extension host | ✅ Implemented | ⭐⭐⭐⭐ | `wasmtime` host, core wasm ABI, user-directory discovery, compiled module cache. |
+| Extension host | ✅ Implemented | ⭐⭐⭐⭐ | Native shared-library host plus `wasmtime`/browser WebAssembly host, ordered target selection, user-directory discovery. |
 | Extension device DSP | 🧪 Partial | ⭐⭐⭐⭐ | Block `f32` processing, parameters, dynamic latency, and note events are forwarded. Persistent device state blobs are not. |
 | Extension device panels | ✅ Implemented | ⭐⭐⭐⭐ | Render-neutral draw commands plus native knob/toggle/dropdown commands, with generic fallback. |
-| Extension trust levels | ✅ Implemented | ⭐⭐⭐⭐ | Trusted, Limited (fuel), and DrawOnly. Persisted per extension. |
+| Extension sandboxing | ✅ Implemented | ⭐⭐⭐⭐ | WASM always runs with memory and fuel limits. Native shared libraries run trusted with no sandbox, as documented. |
 | Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |
 | General drawing hooks | 📋 Planned | ⭐⭐⭐ | Arranger clips, track headers, lanes, and editors on the shared draw IR. |
-| Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.txt` builds `docs/extensions.json`; CI packages the stock extension and publishes via GitHub Pages. |
+| Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.csv` builds `docs/extensions.json` with per-target URLs and SHA-256 hashes; CI packages macOS Apple Silicon and WASM builds and publishes via GitHub Pages. |
 
 ## UI and workflow
 

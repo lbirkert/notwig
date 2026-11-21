@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use notwig_core::{DeviceId, DeviceKind, SchemaVersion, TrackId};
 use notwig_dsp::{CompiledPlan, PlanDevice, ProcessContext, RenderConfig, TransportInfo};
 use notwig_ext::ExtensionHost;
-use notwig_ext_api::{
-    DeviceDrawContext, ExtensionSettings, PanelCommand, ThemeSnapshot, TrustLevel,
-};
+use notwig_ext_api::{DeviceDrawContext, PanelCommand, ThemeSnapshot};
 
 const DESCRIBE: &str = r#"{"type_id":"com.test.gain","version":{"major":0,"minor":1},"kind":"AudioFx","ports":[],"params":[],"latency_samples":0,"name":"Gain","vendor":"Test"}"#;
 
@@ -107,6 +105,7 @@ fn write_extension_with(draw_json: &str) -> PathBuf {
         "vendor": "Test",
         "version": "0.1.0",
         "api_version": 2,
+        "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
         "capabilities": ["device", "ui.draw"],
         "devices": [{
             "type_id": "com.test.gain",
@@ -251,43 +250,5 @@ fn wasm_device_processes_audio() {
     assert!(!status.overloaded);
     assert!(audio.iter().all(|sample| (*sample - 0.5).abs() < 1e-6));
     assert_eq!(processor.latency().samples, 7);
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn draw_only_trust_produces_silence() {
-    let dir = write_extension();
-    let mut settings = BTreeMap::new();
-    settings.insert(
-        "com.test.gain".to_owned(),
-        ExtensionSettings {
-            enabled: true,
-            trust: TrustLevel::DrawOnly,
-        },
-    );
-    let host = ExtensionHost::load(&dir, &settings).unwrap();
-    let spec = host.specs().into_iter().next().unwrap();
-    let (plan, device) = plan_for(spec);
-    let factory = host.factory();
-    let mut processor = factory.create(&plan, &device).expect("create processor");
-    let config = RenderConfig {
-        sample_rate: 48_000,
-        max_block_size: 64,
-        channels: 2,
-        tempo_bpm: 120.0,
-    };
-    processor.prepare(config).unwrap();
-    let transport = TransportInfo::default();
-    let context = ProcessContext {
-        config,
-        sample_position: 0,
-        playing: true,
-        tempo_bpm: 120.0,
-        transport: &transport,
-    };
-    let mut audio = vec![1.0_f32; 128];
-    let status = processor.process(&context, &mut audio, &[]);
-    assert!(status.produced_silence);
-    assert!(audio.iter().all(|sample| *sample == 0.0));
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -1,17 +1,17 @@
 use std::path::{Component, Path, PathBuf};
 
-use notwig_ext_api::ExtensionManifest;
+use notwig_ext_api::{ExtensionManifest, target};
 
 use crate::error::ExtensionError;
 
-const MAX_MODULE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredExtension {
     pub manifest: ExtensionManifest,
     pub dir: PathBuf,
-    pub wasm_path: PathBuf,
-    pub wasm: Vec<u8>,
+    pub entry_path: PathBuf,
+    pub target: String,
 }
 
 #[derive(Debug, Clone)]
@@ -79,38 +79,52 @@ fn load_one(dir: &Path) -> Result<DiscoveredExtension, (Option<String>, String)>
         .validate()
         .map_err(|error| (id.clone(), error.to_string()))?;
 
-    let entry = Path::new(&manifest.entry);
-    if entry.is_absolute()
-        || entry
+    let Some(entry) = manifest.entry_for(target::is_supported) else {
+        let declared = manifest
+            .entrypoints
+            .iter()
+            .map(|entry| entry.target.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err((
+            id,
+            format!("no supported entrypoint for this host (declared: {declared})"),
+        ));
+    };
+    let entrypoint = entry.entrypoint.clone();
+    let target = entry.target.clone();
+
+    let relative = Path::new(&entrypoint);
+    if relative.is_absolute()
+        || relative
             .components()
             .any(|component| matches!(component, Component::ParentDir))
     {
         return Err((
             id,
-            "extension entry must stay inside the extension directory".into(),
+            "extension entrypoint must stay inside the extension directory".into(),
         ));
     }
-    let wasm_path = dir.join(entry);
-    let metadata = std::fs::metadata(&wasm_path)
-        .map_err(|error| (id.clone(), format!("read {}: {error}", wasm_path.display())))?;
-    if metadata.len() > MAX_MODULE_BYTES {
+    let entry_path = dir.join(relative);
+    let metadata = std::fs::metadata(&entry_path).map_err(|error| {
+        (
+            id.clone(),
+            format!("read {}: {error}", entry_path.display()),
+        )
+    })?;
+    if metadata.len() > MAX_ENTRY_BYTES {
         return Err((
             id,
             format!(
-                "wasm module is {} bytes (limit {MAX_MODULE_BYTES})",
+                "extension entrypoint is {} bytes (limit {MAX_ENTRY_BYTES})",
                 metadata.len()
             ),
         ));
     }
-    let wasm = std::fs::read(&wasm_path)
-        .map_err(|error| (id.clone(), format!("read {}: {error}", wasm_path.display())))?;
-    if !wasm.starts_with(b"\0asm") {
-        return Err((id, "entry is not a wasm module".into()));
-    }
     Ok(DiscoveredExtension {
         manifest,
         dir: dir.to_path_buf(),
-        wasm_path,
-        wasm,
+        entry_path,
+        target,
     })
 }

@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod note;
 pub mod panel;
 pub mod status;
+pub mod target;
 pub mod ui;
 
 pub use abi::{ABI_VERSION, AbiStatus, pack_ptr_len, unpack_ptr_len};
@@ -22,12 +23,14 @@ pub use draw::{
 };
 pub use extension::{DeviceExtension, Extension};
 pub use geometry::{Color, Point, Rect, Size, Stroke, TextAlign};
-pub use index::{ExtensionIndexDevice, ExtensionIndexEntry};
-pub use manifest::{ExtensionCapability, ExtensionDeviceDecl, ExtensionManifest, ManifestError};
+pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
+pub use manifest::{
+    ExtensionCapability, ExtensionDeviceDecl, ExtensionEntryPoint, ExtensionManifest, ManifestError,
+};
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
 pub use notwig_ext_macros::notwig_extension;
 pub use panel::{DevicePanelHost, PanelAction, PanelCommand, PanelDraw};
-pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus, TrustLevel};
+pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};
 pub use ui::{
     Align, CursorIcon, Drawer, Font, Modifiers, PointerState, RecordDrawer, RecordUi, Response,
     Sense, Style, UiBackend, UiContext, UiEvent, UiId, UiInput, UiMemory,

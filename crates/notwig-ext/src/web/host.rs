@@ -8,15 +8,15 @@ use crate::web::instance::WebExtensionInstance;
 use crate::web::package::WebExtensionPackage;
 use crate::web::panel::WebExtensionPanelHost;
 use notwig_dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
-use notwig_ext_api::{DevicePanelHost, ExtensionInfo, ExtensionStatus, TrustLevel};
+use notwig_ext_api::{DevicePanelHost, ExtensionInfo, ExtensionStatus};
 
 pub struct WebExtensionHost {
     loaded: Arc<WebLoadedExtensions>,
 }
 
 impl WebExtensionHost {
-    /// Loads trusted extension packages. Untrusted extension modes are not
-    /// available in the browser build.
+    /// Loads browser extension packages. The browser build supports WASM
+    /// entrypoints only.
     #[must_use]
     pub fn load(packages: Vec<WebExtensionPackage>) -> Self {
         let mut by_type = BTreeMap::new();
@@ -100,7 +100,6 @@ fn load_package(package: &WebExtensionPackage) -> Result<WebLoadedExtension, Ext
         capabilities: package.manifest.capabilities.clone(),
         status: ExtensionStatus::Loaded,
         enabled: true,
-        trust: TrustLevel::Trusted,
         device_count: specs.len(),
         error: None,
     };
@@ -123,7 +122,6 @@ fn failed_info(package: &WebExtensionPackage, error: ExtensionError) -> Extensio
         capabilities: package.manifest.capabilities.clone(),
         status: ExtensionStatus::Failed,
         enabled: true,
-        trust: TrustLevel::Trusted,
         device_count: package.manifest.devices.len(),
         error: Some(error.to_string()),
     }

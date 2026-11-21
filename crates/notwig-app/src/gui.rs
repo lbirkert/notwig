@@ -1831,10 +1831,6 @@ impl NotwigApp {
                 self.extensions.set_enabled(&id, enabled);
                 self.sync_extensions();
             }
-            UiIntent::SetExtensionTrust { id, trust } => {
-                self.extensions.set_trust(&id, trust);
-                self.sync_extensions();
-            }
             UiIntent::ReloadExtensions => {
                 self.extensions.reload();
                 self.sync_extensions();

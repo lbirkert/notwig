@@ -2,6 +2,8 @@
 pub enum ExtensionError {
     #[error("wasm error: {0}")]
     Wasm(String),
+    #[error("native extension error: {0}")]
+    Native(String),
     #[error("io error: {0}")]
     Io(String),
     #[error("manifest error: {0}")]

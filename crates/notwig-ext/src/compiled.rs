@@ -3,17 +3,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use notwig_dsp::DeviceSpec;
-use notwig_ext_api::{ExtensionInfo, ExtensionManifest, ExtensionStatus, TrustLevel};
+use notwig_ext_api::{ExtensionInfo, ExtensionManifest, ExtensionStatus};
 use wasmtime::Module;
 
 use crate::abi::ExtensionEngines;
+use crate::native::NativeLibrary;
+
+pub(crate) enum ExtensionRuntime {
+    Wasm(Module),
+    Native(Arc<NativeLibrary>),
+}
 
 pub(crate) struct LoadedExtension {
     pub(crate) dir: PathBuf,
     pub(crate) manifest: ExtensionManifest,
-    pub(crate) trust: TrustLevel,
     pub(crate) enabled: bool,
-    pub(crate) module: Option<Module>,
+    pub(crate) runtime: Option<ExtensionRuntime>,
     pub(crate) specs: Vec<DeviceSpec>,
     pub(crate) status: ExtensionStatus,
     pub(crate) error: Option<String>,

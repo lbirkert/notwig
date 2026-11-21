@@ -183,8 +183,8 @@ painter.line(
 - `push_clip` / `pop_clip`
 
 Each call records a `DrawCommand`. `RecordDrawer` buffers commands on the
-extension side for the wasm boundary. `notwig-ui` replays them through
-`EguiDrawer` on the host.
+extension side. `notwig-ui` replays them through `EguiDrawer` on the host.
+Native builds use the same command stream.
 
 Coordinates are panel-local pixels. Use `ui.theme()` for colors,
 `ui.font()`/`ui.mono_font()` for font requests, and `ui.center_align()` or
@@ -192,14 +192,13 @@ Coordinates are panel-local pixels. Use `ui.theme()` for colors,
 
 ## Limits
 
-Host limits are enforced on the wasm boundary:
+Host limits are enforced on the WASM boundary:
 
 | Limit | Value |
 | --- | --- |
-| wasm module size | 8 MiB |
-| linear memory, Trusted | 64 MiB |
-| linear memory, Limited | 32 MiB |
-| linear memory, DrawOnly | 16 MiB |
+| entrypoint file size | 64 MiB |
+| WASM linear memory | 64 MiB |
+| WASM fuel | 20,000,000 per call |
 | panel commands per frame | 4096 |
 | path points per command | 1024 |
 | text bytes per item | 8 KiB |
@@ -209,16 +208,12 @@ Host limits are enforced on the wasm boundary:
 `PanelDraw::validate()` enforces finite geometry, command/action counts, path
 limits, text limits, and action shape. The host calls it before rendering.
 
-## Trust levels
+## Native builds
 
-| Level | DSP | UI | Limits |
-| --- | --- | --- | --- |
-| `Trusted` | yes | yes | 64 MiB, no fuel metering |
-| `Limited` | yes | yes | 32 MiB, per-call fuel |
-| `DrawOnly` | no | yes | 16 MiB, per-call fuel |
-
-`DrawOnly` devices still appear in the device chain but process silence. Choose
-the least permissive level that the device needs.
+Native entrypoints are not sandboxed; they run in the Notwig process and can use
+the same panel API with lower overhead. The host still validates the returned
+`PanelDraw` before rendering. Only install native extensions from sources you
+trust.
 
 ## Why not egui
 

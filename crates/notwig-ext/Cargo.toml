@@ -8,7 +8,7 @@ repository.workspace = true
 
 [features]
 default = ["native"]
-native = ["dep:wasmtime"]
+native = ["dep:wasmtime", "dep:libloading"]
 web = ["dep:js-sys", "dep:wasm-bindgen", "dep:web-sys"]
 
 [dependencies]
@@ -25,6 +25,7 @@ wasmtime = { version = "34", default-features = false, features = [
   "runtime",
   "std",
 ], optional = true }
+libloading = { version = "0.8", optional = true }
 js-sys = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true }

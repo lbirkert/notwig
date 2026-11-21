@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::status::ExtensionSettings;
 
 pub const DEFAULT_INDEX_URL: &str = "https://notwig.lbirkert.com/extensions.json";
-pub const CONFIG_VERSION: u32 = 2;
+pub const CONFIG_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

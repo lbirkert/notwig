@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use notwig_core::ids::{DeviceChain, Track};
 use notwig_core::*;
 use notwig_ext_api::{
-    ExtensionCapability, ExtensionIndexDevice, ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
-    TrustLevel,
+    ExtensionCapability, ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl,
+    ExtensionInfo, ExtensionStatus,
 };
 use notwig_ui::{NotwigUi, RuntimeView, SettingsCategory, UiIntent};
 use uuid::Uuid;
@@ -38,7 +38,11 @@ fn runtime() -> RuntimeView {
         vendor: "Notwig".into(),
         version: "0.1.0".into(),
         api_version: 2,
-        entrypoint: "notwig_ext_devices.wasm".into(),
+        urls: vec![ExtensionIndexUrl {
+            url: "https://example.com/notwig.ext.devices.zip".into(),
+            hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            targets: vec!["wasm".into()],
+        }],
         capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiDraw],
         devices: vec![ExtensionIndexDevice {
             name: "Notwig Stock Limiter".into(),
@@ -46,7 +50,6 @@ fn runtime() -> RuntimeView {
         }],
         description: Some("A simple peak limiter.".into()),
         image: Some("icon.png".into()),
-        url: "https://example.com/notwig.ext.devices.zip".into(),
     }];
     runtime.extensions = vec![ExtensionInfo {
         id: "notwig.ext.devices".into(),
@@ -60,7 +63,6 @@ fn runtime() -> RuntimeView {
         capabilities: vec![ExtensionCapability::Device],
         status: ExtensionStatus::Loaded,
         enabled: true,
-        trust: TrustLevel::Trusted,
         device_count: 1,
         error: None,
     }];

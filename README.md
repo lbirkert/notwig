@@ -61,10 +61,10 @@ Private File System (OPFS) and uses WebAudio through CPAL. Project open and save
 use an in-app project picker, and **FILE > Download Project** exports the
 project folder as a `.notwig.zip`. Local audio and extension ZIP files are read
 through the browser's standard file input. Native VST3/VST2/CLAP/LV2/AU plugins
-are unavailable. Trusted extensions run through the browser WebAssembly host: the
-stock extension is fetched from the same origin, and trusted ZIP packages can be
-installed into browser storage. Untrusted extension modes are not supported in
-the browser. Audio starts after the first user gesture.
+are unavailable. Browser extensions run through the browser WebAssembly host:
+only `wasm` entrypoints are eligible, the stock extension is fetched from the
+same origin, and ZIP packages can be installed into browser storage. Audio starts
+after the first user gesture.
 
 CI publishes the docs at `https://notwig.lbirkert.com/` and the app at
 `https://notwig.lbirkert.com/app/`.
