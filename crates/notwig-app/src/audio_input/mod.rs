@@ -8,7 +8,7 @@ mod web;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use native::{InputHub, available_input_options};
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web::{InputHub, available_input_options};
+pub(crate) use web::{InputHub, available_input_options, prepare_input_options};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InputRequest {

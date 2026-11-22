@@ -866,20 +866,6 @@ impl Workspace {
         self.engine_control.flush();
     }
 
-    pub fn start_recording(&mut self) -> Result<(), String> {
-        if !self.doc.transport.playing {
-            self.play_start = Some(self.doc.transport.playhead);
-        }
-        self.apply(CommandPayload::SetTransport {
-            playing: Some(true),
-            playhead: Some(self.doc.transport.playhead),
-            loop_enabled: None,
-            loop_range: None,
-            metronome: None,
-        })?;
-        self.apply(CommandPayload::SetRecording { recording: true })
-    }
-
     pub fn finish_recording(
         &mut self,
         track_id: TrackId,

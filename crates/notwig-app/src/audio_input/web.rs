@@ -247,6 +247,37 @@ async fn open_stream(
     })
 }
 
+pub(crate) fn prepare_input_options() {
+    spawn_local(async move {
+        let _ = request_permission().await;
+        refresh_input_options();
+    });
+}
+
+async fn request_permission() -> Result<(), String> {
+    let window = web_sys::window().ok_or_else(|| "no browser window".to_string())?;
+    let media = window
+        .navigator()
+        .media_devices()
+        .map_err(|_| "microphone access is not available in this browser".to_string())?;
+    let constraints = MediaStreamConstraints::new();
+    constraints.set_audio_bool(true);
+    let promise = media
+        .get_user_media_with_constraints(&constraints)
+        .map_err(|error| format!("microphone request failed: {error:?}"))?;
+    let stream: MediaStream = JsFuture::from(promise)
+        .await
+        .map_err(|_| "microphone permission was denied".to_string())?
+        .dyn_into()
+        .map_err(|_| "browser returned an invalid microphone stream".to_string())?;
+    for track in stream.get_audio_tracks().iter() {
+        if let Ok(track) = track.dyn_into::<MediaStreamTrack>() {
+            track.stop();
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn available_input_options() -> Vec<notwig_ui::AudioInputView> {
     refresh_input_options();
     INPUT_OPTIONS.with(|options| {
@@ -308,6 +339,10 @@ async fn enumerate_inputs() -> Result<Vec<notwig_ui::AudioInputView>, String> {
         if device.kind() != MediaDeviceKind::Audioinput {
             continue;
         }
+        let device_id = device.device_id();
+        if device_id.is_empty() {
+            continue;
+        }
         let label = device.label();
         let label = if label.is_empty() {
             format!("Microphone {}", index + 1)
@@ -316,7 +351,7 @@ async fn enumerate_inputs() -> Result<Vec<notwig_ui::AudioInputView>, String> {
         };
         inputs.push(notwig_ui::AudioInputView {
             driver: WEB_INPUT_DRIVER.into(),
-            device: device.device_id(),
+            device: device_id,
             label,
             channels: 2,
         });

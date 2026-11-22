@@ -55,10 +55,10 @@ The info panel exposes the same controls and adds:
 - pan and volume with a peak hold readout;
 - the track's device list.
 
-Audio tracks record one selected mono or stereo input. Per-track input selection
-uses a driver, device, and channel (or channel pair), so an interface's inputs
-can be assigned to different tracks. Named inputs configured in
-**Settings > Audio** are listed before the raw hardware channels.
+Audio tracks record one selected mono or stereo input. Named inputs configured
+in **Settings > Audio** are listed before the raw hardware channels and use the
+currently selected audio device. Arm tracks before enabling record mode; clips
+grow in place while playback runs.
 
 Click a peak readout to reset its held value.
 

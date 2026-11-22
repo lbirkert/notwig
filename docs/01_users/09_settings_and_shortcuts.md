@@ -24,8 +24,8 @@ default rate. If the saved driver or device is unavailable, Notwig falls back
 to an available option and reports the problem on the page.
 
 On the browser build the driver list includes **Web Audio**. It plays through
-the browser's default output and records from the browser's microphones after
-permission is granted.
+the browser's default output. Enabling audio also asks for microphone
+permission so the input picker can show the browser's available input devices.
 
 All audio settings are applied through the apply action. Changing the device
 while a project is open can interrupt playback.
@@ -36,8 +36,9 @@ The **Inputs & Outputs** section names the interface channels used by tracks:
 
 - **Add mono input**, **Add stereo input**, **Add mono output**, and
   **Add stereo output** create a named channel.
-- Each row names the channel, selects its driver and device, and selects the
-  physical channel or channel pair.
+- Each row names the channel and selects the physical channel or channel pair.
+  Named channels use the single device selected in **Audio System**; there is no
+  per-channel device selector.
 - **Remove** deletes a named channel. Tracks keep their physical channel
   selection, so remove a channel only when its tracks have been reassigned.
 - **Master output** chooses which named output carries the stereo mix. The

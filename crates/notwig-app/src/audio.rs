@@ -303,6 +303,11 @@ impl AudioService {
         available_input_options()
     }
 
+    pub fn prepare_input_options() {
+        #[cfg(target_arch = "wasm32")]
+        crate::audio_input::prepare_input_options();
+    }
+
     pub fn available_options() -> Vec<notwig_ui::AudioDriverView> {
         let mut drivers = Vec::new();
         for host_id in cpal::available_hosts() {

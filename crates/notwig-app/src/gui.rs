@@ -129,10 +129,43 @@ fn available_audio_options() -> Vec<notwig_ui::AudioDriverView> {
     }
 }
 
+struct LiveRecordingTake {
+    samples: Vec<f32>,
+    waveform: Arc<notwig_ui::AudioWaveform>,
+    waveform_dirty: bool,
+    last_waveform_build: Instant,
+}
+
 struct ActiveRecording {
     started_at: TimeMus,
+    sample_rate: u32,
+    takes: std::collections::BTreeMap<TrackId, LiveRecordingTake>,
+    end: Option<TimeMus>,
     #[cfg(target_arch = "wasm32")]
-    session: crate::recording::RecordingSession,
+    session: Option<crate::recording::RecordingSession>,
+}
+
+fn new_live_take(sample_rate: u32) -> LiveRecordingTake {
+    LiveRecordingTake {
+        samples: Vec::new(),
+        waveform: Arc::new(notwig_ui::AudioWaveform::new(Arc::new(AudioAssetBuffer {
+            sample_rate,
+            channels: 2,
+            samples: Vec::new(),
+        }))),
+        waveform_dirty: false,
+        last_waveform_build: Instant::now(),
+    }
+}
+
+fn append_take_samples(active: &mut ActiveRecording, track_id: TrackId, samples: &[f32]) {
+    let sample_rate = active.sample_rate;
+    let take = active
+        .takes
+        .entry(track_id)
+        .or_insert_with(|| new_live_take(sample_rate));
+    take.samples.extend_from_slice(samples);
+    take.waveform_dirty = true;
 }
 
 pub struct NotwigApp {
@@ -147,7 +180,6 @@ pub struct NotwigApp {
     audio_options: Vec<notwig_ui::AudioDriverView>,
     audio_inputs: Vec<notwig_ui::AudioInputView>,
     recording: Option<ActiveRecording>,
-    pending_recording_start: Option<TimeMus>,
     fallback_playhead: f64,
     last_tick: Instant,
     dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
@@ -270,7 +302,6 @@ impl NotwigApp {
             audio_options,
             audio_inputs,
             recording: None,
-            pending_recording_start: None,
             fallback_playhead,
             last_tick: Instant::now(),
             dialog_rx: None,
@@ -329,7 +360,6 @@ impl NotwigApp {
             audio_options: available_audio_options(),
             audio_inputs: AudioService::available_input_options(),
             recording: None,
-            pending_recording_start: None,
             fallback_playhead,
             last_tick: Instant::now(),
             dialog_rx: None,
@@ -369,6 +399,7 @@ impl NotwigApp {
 
     pub fn enable_audio(&mut self) {
         self.audio_options = available_audio_options();
+        AudioService::prepare_input_options();
         self.audio_inputs = AudioService::available_input_options();
         self.restart_audio();
     }
@@ -795,10 +826,7 @@ impl NotwigApp {
             self.next_audio_device_scan = Instant::now();
             self.audio_restart_backoff = AUDIO_RESTART_INITIAL_DELAY;
             self.audio_restart_at = Some(Instant::now() + AUDIO_RESTART_INITIAL_DELAY);
-            if self.workspace.doc.transport.playing
-                || self.recording.is_some()
-                || self.pending_recording_start.is_some()
-            {
+            if self.workspace.doc.transport.playing || self.recording.is_some() {
                 self.handle_intent(UiIntent::Pause);
             }
             self.rescan_audio_devices();
@@ -896,10 +924,17 @@ impl NotwigApp {
     }
 
     fn sync_recording_inputs(&mut self) {
-        if self.recording.is_some() || self.pending_recording_start.is_some() {
+        if self.recording.is_some() {
             return;
         }
         let requests = self.armed_input_requests();
+        if self.workspace.doc.transport.recording
+            && self.workspace.doc.transport.playing
+            && !requests.is_empty()
+        {
+            self.begin_recording_capture();
+            return;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             let Some(audio) = &self.audio else {
@@ -922,112 +957,221 @@ impl NotwigApp {
     }
 
     fn toggle_record(&mut self) {
-        if self.workspace.doc.transport.recording || self.recording.is_some() {
-            self.stop_recording();
+        if self.workspace.doc.transport.recording {
+            let result = self
+                .workspace
+                .apply(CommandPayload::SetRecording { recording: false });
+            self.stop_recording_capture();
+            if self.report(result).is_some() {
+                self.notify_info("Record mode off.".into());
+            }
+        } else {
+            let result = self
+                .workspace
+                .apply(CommandPayload::SetRecording { recording: true });
+            if let Some(()) = self.report(result) {
+                if self.workspace.doc.transport.playing {
+                    self.begin_recording_capture();
+                }
+                self.notify_info("Record mode on.".into());
+            }
+        }
+    }
+
+    fn begin_recording_capture(&mut self) {
+        if self.recording.is_some() {
             return;
         }
         let requests = self.armed_input_requests();
         if requests.is_empty() {
-            self.notify_error("Arm an audio track with an input before recording.".into());
             return;
         }
-        let Some(audio) = &self.audio else {
-            self.notify_error("The audio engine is not running.".into());
-            return;
-        };
+        let snapshot = self.audio_snapshot();
+        let started_at = self.current_playhead(&snapshot);
+        let sample_rate = self.workspace.doc.meta.sample_rate.value();
+        let mut takes = std::collections::BTreeMap::new();
+        for (track_id, _) in &requests {
+            takes.insert(*track_id, new_live_take(sample_rate));
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let Some(audio) = &self.audio else {
+                self.notify_error("The audio engine is not running.".into());
+                return;
+            };
             if let Err(error) = audio.handle().configure_inputs(requests) {
                 self.notify_error(error);
                 return;
             }
-        }
-        #[cfg(target_arch = "wasm32")]
-        let routes = match audio.configure_inputs(&requests) {
-            Ok(routes) => {
-                self.workspace.set_input_routes(routes.clone());
-                routes
-            }
-            Err(error) => {
+            if let Err(error) = audio.handle().start_recording() {
                 self.notify_error(error);
                 return;
             }
-        };
-        let started_at = self.workspace.doc.transport.playhead;
-        if let Err(error) = self.workspace.start_recording() {
-            self.notify_error(error);
-            return;
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if let Some(audio) = &self.audio
-                && let Err(error) = audio.handle().start_recording()
-            {
-                let _ = self.workspace.stop();
-                self.notify_error(error);
-                return;
-            }
-            self.recording = Some(ActiveRecording { started_at });
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let session =
-                audio.begin_recording(routes, self.workspace.doc.meta.sample_rate.value());
             self.recording = Some(ActiveRecording {
                 started_at,
-                session,
+                sample_rate,
+                takes,
+                end: None,
             });
         }
-        self.notify_info("Recording.".into());
-    }
-
-    fn stop_recording(&mut self) {
-        let Some(active) = self.recording.take() else {
-            let _ = self.workspace.stop();
-            return;
-        };
-        let _ = self.workspace.stop();
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(target_arch = "wasm32")]
         {
-            self.pending_recording_start = Some(active.started_at);
             let Some(audio) = &self.audio else {
-                self.pending_recording_start = None;
                 self.notify_error("The audio engine is not running.".into());
                 return;
             };
+            let routes = match audio.configure_inputs(&requests) {
+                Ok(routes) => {
+                    self.workspace.set_input_routes(routes.clone());
+                    routes
+                }
+                Err(error) => {
+                    self.notify_error(error);
+                    return;
+                }
+            };
+            let session = audio.begin_recording(routes, sample_rate);
+            self.recording = Some(ActiveRecording {
+                started_at,
+                sample_rate,
+                takes,
+                end: None,
+                session: Some(session),
+            });
+        }
+    }
+
+    fn stop_recording_capture(&mut self) {
+        let snapshot = self.audio_snapshot();
+        let end = self.current_playhead(&snapshot);
+        let Some(active) = self.recording.as_mut() else {
+            return;
+        };
+        active.end = Some(end);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(audio) = &self.audio else {
+                let active = self.recording.take().expect("recording was just checked");
+                self.finalize_live_recording(active, end);
+                return;
+            };
             if let Err(error) = audio.handle().stop_recording() {
-                self.pending_recording_start = None;
+                let active = self.recording.take().expect("recording was just checked");
+                self.finalize_live_recording(active, end);
                 self.notify_error(error);
             }
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let captures = active.session.finish();
-            self.finalize_captures(active.started_at, captures);
+            let Some(mut active) = self.recording.take() else {
+                return;
+            };
+            if let Some(session) = active.session.take() {
+                match session.finish() {
+                    Ok(captures) => {
+                        for (track_id, buffer) in captures {
+                            append_take_samples(&mut active, track_id, &buffer.samples);
+                        }
+                    }
+                    Err(error) => self.notify_error(error),
+                }
+            }
+            self.finalize_live_recording(active, end);
         }
     }
 
-    fn finalize_captures(
-        &mut self,
-        started_at: TimeMus,
-        captures: Result<std::collections::BTreeMap<TrackId, AudioAssetBuffer>, String>,
-    ) {
-        let captures = match captures {
-            Ok(captures) => captures,
-            Err(error) => {
-                self.notify_error(error);
-                return;
-            }
+    fn append_recording_chunk(&mut self, sample_rate: u32, captures: Vec<(TrackId, Vec<f32>)>) {
+        let Some(active) = self.recording.as_mut() else {
+            return;
         };
+        active.sample_rate = sample_rate;
+        for (track_id, samples) in captures {
+            append_take_samples(active, track_id, &samples);
+        }
+    }
+
+    fn refresh_recording_waveforms(&mut self) {
+        let Some(active) = self.recording.as_mut() else {
+            return;
+        };
+        let now = Instant::now();
+        for take in active.takes.values_mut() {
+            let first_build = take.waveform.frame_count() == 0;
+            if !take.waveform_dirty
+                || (!first_build
+                    && now.duration_since(take.last_waveform_build) < Duration::from_millis(100))
+            {
+                continue;
+            }
+            take.last_waveform_build = now;
+            take.waveform_dirty = false;
+            take.waveform = Arc::new(notwig_ui::AudioWaveform::new(Arc::new(AudioAssetBuffer {
+                sample_rate: active.sample_rate,
+                channels: 2,
+                samples: take.samples.clone(),
+            })));
+        }
+    }
+
+    fn recording_take_views(&self, playhead: TimeMus) -> Vec<notwig_ui::RecordingTakeView> {
+        let Some(active) = &self.recording else {
+            return Vec::new();
+        };
+        let map = self.workspace.doc.tempo_map();
+        active
+            .takes
+            .iter()
+            .filter_map(|(track_id, take)| {
+                let sample_end =
+                    active.started_at + map.samples_to_mus(take.waveform.frame_count());
+                let end = if playhead > active.started_at {
+                    playhead.max(sample_end)
+                } else {
+                    sample_end
+                };
+                if end <= active.started_at {
+                    return None;
+                }
+                Some(notwig_ui::RecordingTakeView {
+                    track_id: *track_id,
+                    start: active.started_at,
+                    end,
+                    waveform: Arc::clone(&take.waveform),
+                })
+            })
+            .collect()
+    }
+
+    fn finalize_live_recording(&mut self, active: ActiveRecording, end: TimeMus) {
+        self.recording = None;
+        if end <= active.started_at {
+            return;
+        }
+        let frames = usize::try_from(
+            self.workspace
+                .doc
+                .tempo_map()
+                .mus_to_samples(end - active.started_at),
+        )
+        .unwrap_or(0);
+        let target_samples = frames.saturating_mul(2);
         let mut last_clip = None;
-        for (track_id, buffer) in captures {
+        for (track_id, mut take) in active.takes {
+            if take.samples.is_empty() || target_samples == 0 {
+                continue;
+            }
+            take.samples.resize(target_samples, 0.0);
+            take.samples.truncate(target_samples);
+            let buffer = AudioAssetBuffer {
+                sample_rate: active.sample_rate,
+                channels: 2,
+                samples: take.samples,
+            };
             match self
                 .workspace
-                .finish_recording(track_id, started_at, buffer)
+                .finish_recording(track_id, active.started_at, buffer)
             {
-                Ok(clip_id) => {
-                    last_clip = Some((track_id, clip_id));
-                }
+                Ok(clip_id) => last_clip = Some((track_id, clip_id)),
                 Err(error) => self.notify_error(error),
             }
         }
@@ -1040,6 +1184,23 @@ impl NotwigApp {
             self.notify_info("Recording finished.".into());
         }
         self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn poll_web_recording(&mut self) {
+        let Some(active) = &self.recording else {
+            return;
+        };
+        let Some(session) = &active.session else {
+            return;
+        };
+        session.poll();
+        let sample_rate = active.sample_rate;
+        let captures = session.take_captured();
+        if captures.is_empty() {
+            return;
+        }
+        self.append_recording_chunk(sample_rate, captures.into_iter().collect());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1274,6 +1435,7 @@ impl NotwigApp {
         let meters = snapshot.meters_for_display(self.workspace.doc.transport.playing);
         let device_meters =
             snapshot.device_meters_for_display(self.workspace.doc.transport.playing);
+        let recording_takes = self.recording_take_views(playhead);
         let status = snapshot
             .error
             .clone()
@@ -1330,6 +1492,7 @@ impl NotwigApp {
             saving: false,
             audio_settings,
             audio_inputs: self.audio_inputs.clone(),
+            recording_takes,
             dsp: snapshot.dsp.clone(),
             clipboard: self.workspace.clipboard().clone(),
             extensions: self.extensions.infos(),
@@ -1656,24 +1819,27 @@ impl NotwigApp {
         match intent {
             UiIntent::Play => {
                 let result = self.workspace.play();
-                let _ = self.report(result);
+                if self.report(result).is_some()
+                    && self.workspace.doc.transport.recording
+                    && self.recording.is_none()
+                {
+                    self.begin_recording_capture();
+                }
             }
             UiIntent::Pause => {
                 if self.recording.is_some() {
-                    self.stop_recording();
-                } else {
-                    self.sync_playhead();
-                    let result = self.workspace.pause();
-                    let _ = self.report(result);
+                    self.stop_recording_capture();
                 }
+                self.sync_playhead();
+                let result = self.workspace.pause();
+                let _ = self.report(result);
             }
             UiIntent::Stop => {
                 if self.recording.is_some() {
-                    self.stop_recording();
-                } else {
-                    let result = self.workspace.stop();
-                    let _ = self.report(result);
+                    self.stop_recording_capture();
                 }
+                let result = self.workspace.stop();
+                let _ = self.report(result);
                 self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
             }
             UiIntent::ToggleRecord => self.toggle_record(),
@@ -2654,9 +2820,7 @@ impl eframe::App for NotwigApp {
         self.poll_web_encode();
         self.advance_render();
         #[cfg(target_arch = "wasm32")]
-        if let Some(recording) = &self.recording {
-            recording.session.poll();
-        }
+        self.poll_web_recording();
         #[cfg(target_arch = "wasm32")]
         if let Some(error) = self.audio.as_ref().and_then(AudioService::take_input_error) {
             self.notify_error(error);
@@ -2720,16 +2884,35 @@ impl eframe::App for NotwigApp {
                     EngineEvent::InputError(error) | EngineEvent::Error(error) => {
                         self.notify_error(error);
                     }
+                    EngineEvent::RecordingChunk {
+                        sample_rate,
+                        captures,
+                    } => self.append_recording_chunk(sample_rate, captures),
                     EngineEvent::RecordingFinished(captures) => {
-                        if let Some(started_at) = self.pending_recording_start.take() {
-                            self.finalize_captures(started_at, Ok(captures.into_iter().collect()));
+                        let end = self
+                            .recording
+                            .as_ref()
+                            .and_then(|active| active.end)
+                            .unwrap_or_else(|| {
+                                let snapshot = self.audio_snapshot();
+                                self.current_playhead(&snapshot)
+                            });
+                        let Some(mut active) = self.recording.take() else {
+                            continue;
+                        };
+                        for (track_id, buffer) in captures {
+                            append_take_samples(&mut active, track_id, &buffer.samples);
+                        }
+                        self.finalize_live_recording(active, end);
+                        if self.workspace.doc.transport.recording
+                            && self.workspace.doc.transport.playing
+                            && self.recording.is_none()
+                        {
+                            self.begin_recording_capture();
                         }
                     }
                     EngineEvent::RecordingFailed(error) => {
-                        self.pending_recording_start = None;
-                        if self.recording.take().is_some() {
-                            let _ = self.workspace.stop();
-                        }
+                        self.recording = None;
                         self.notify_error(error);
                     }
                 }
@@ -2799,6 +2982,7 @@ impl eframe::App for NotwigApp {
                 self.workspace.status = Some(error.clone());
             }
         }
+        self.refresh_recording_waveforms();
         let runtime = self.runtime_view(&snapshot);
         #[cfg(not(target_arch = "wasm32"))]
         self.ui.set_platform_pointer(platform_pointer(ctx));

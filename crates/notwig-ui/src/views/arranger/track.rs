@@ -568,6 +568,13 @@ impl NotwigUi {
                 ui, doc, track_id, clip_id, lane_rect, start, ppb, runtime, grid,
             );
         }
+        for take in runtime
+            .recording_takes
+            .iter()
+            .filter(|take| take.track_id == track_id)
+        {
+            self.draw_recording_take(ui, doc, take, lane_rect, start, ppb);
+        }
         if let Some((preview_clip, preview_range, preview_track)) = self.clip_preview {
             if preview_track == track_id
                 && doc

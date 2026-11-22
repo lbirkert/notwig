@@ -192,7 +192,7 @@ Dependencies worth planning around:
 | Warp markers and transient detection | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Pitch shift | 📋 Planned | ⭐⭐⭐ |  |
 | Audio quantize and groove | 📋 Planned | ⭐⭐⭐ |  |
-| Audio recording | 🧪 Partial | ⭐⭐⭐⭐⭐ | Linear mono or stereo input recording with destination replacement and browser microphone capture. Loop/punch recording and takes are planned. |
+| Audio recording | 🧪 Partial | ⭐⭐⭐⭐⭐ | Toggleable linear record mode with live growing clips and waveforms, mono or stereo input capture, destination replacement, and browser microphone capture. Loop/punch recording and takes are planned. |
 | Loop and punch recording | 📋 Planned | ⭐⭐⭐⭐ | Linear recording is implemented first. |
 | Take lanes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |

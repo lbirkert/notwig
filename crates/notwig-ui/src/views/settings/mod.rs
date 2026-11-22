@@ -733,7 +733,7 @@ impl NotwigUi {
         form::section_heading(ui, "Inputs & Outputs");
         ui.label(
             RichText::new(
-                "Name the interface channels you use. Named inputs appear in the track input picker for recording.",
+                "Name channels on the selected audio device. Named inputs appear in the track input picker for recording.",
             )
             .small()
             .color(theme::TEXT_MUTED),
@@ -768,6 +768,20 @@ impl NotwigUi {
         ui.add_space(8.0);
 
         let mut channels = self.audio_draft.channels.clone();
+        for channel in &mut channels {
+            let options = match channel.direction {
+                AudioChannelDirection::Input => &inputs,
+                AudioChannelDirection::Output => &outputs,
+            };
+            if let Some(option) = preferred_device(options, &self.audio_draft) {
+                channel.driver.clone_from(&option.driver);
+                channel.device.clone_from(&option.device);
+                let available = option.channels.max(1);
+                channel.first_channel = channel
+                    .first_channel
+                    .min(available.saturating_sub(channel.channel_count()));
+            }
+        }
         if channels.is_empty() {
             ui.label(
                 RichText::new("No named channels yet.")
@@ -781,7 +795,11 @@ impl NotwigUi {
                     AudioChannelDirection::Input => &inputs,
                     AudioChannelDirection::Output => &outputs,
                 };
-                let key = channel_device_key(&channel.driver, &channel.device);
+                let available = preferred_device(options, &self.audio_draft)
+                    .map_or(2, |option| option.channels)
+                    .max(1);
+                let max_first = available.saturating_sub(channel.channel_count());
+                channel.first_channel = channel.first_channel.min(max_first);
                 egui::Frame::new()
                     .fill(theme::PANEL_LIGHT)
                     .stroke(egui::Stroke::new(1.0_f32, theme::GRID))
@@ -799,39 +817,6 @@ impl NotwigUi {
                                     .small()
                                     .color(theme::TEXT_MUTED),
                             );
-                            let selected =
-                                options.iter().find(|option| option.key == key).map_or_else(
-                                    || {
-                                        if channel.device.is_empty() {
-                                            "Select device".to_string()
-                                        } else {
-                                            format!("{} · {}", channel.driver, channel.device)
-                                        }
-                                    },
-                                    |option| option.label.clone(),
-                                );
-                            egui::ComboBox::from_id_salt(("audio-channel-device", &channel.id))
-                                .selected_text(selected)
-                                .width(210.0)
-                                .show_ui(ui, |ui| {
-                                    for option in options {
-                                        if ui
-                                            .selectable_label(option.key == key, &option.label)
-                                            .clicked()
-                                        {
-                                            channel.driver.clone_from(&option.driver);
-                                            channel.device.clone_from(&option.device);
-                                            channel.first_channel = 0;
-                                        }
-                                    }
-                                });
-                            let available = options
-                                .iter()
-                                .find(|option| option.key == key)
-                                .map_or(2, |option| option.channels)
-                                .max(1);
-                            let max_first = available.saturating_sub(channel.channel_count());
-                            channel.first_channel = channel.first_channel.min(max_first);
                             let channel_label = channel_range_label(channel);
                             egui::ComboBox::from_id_salt(("audio-channel-first", &channel.id))
                                 .selected_text(channel_label)
@@ -986,7 +971,6 @@ impl NotwigUi {
 #[derive(Debug, Clone)]
 struct ChannelDeviceOption {
     key: String,
-    label: String,
     driver: String,
     device: String,
     channels: u16,
@@ -1013,7 +997,6 @@ fn channel_device_options(
                 }
                 options.push(ChannelDeviceOption {
                     key,
-                    label: format!("{} · {}", input.driver, input.label),
                     driver: input.driver.clone(),
                     device: input.device.clone(),
                     channels: input.channels.max(1),
@@ -1032,7 +1015,6 @@ fn channel_device_options(
                     }
                     options.push(ChannelDeviceOption {
                         key,
-                        label: format!("{} · {}", driver.label, device.label),
                         driver: driver.id.clone(),
                         device: device.id.clone(),
                         channels: device.channels.max(1),
@@ -1044,13 +1026,24 @@ fn channel_device_options(
     options
 }
 
+fn preferred_device<'a>(
+    options: &'a [ChannelDeviceOption],
+    draft: &crate::runtime::AudioSettingsValue,
+) -> Option<&'a ChannelDeviceOption> {
+    let key = channel_device_key(&draft.driver, &draft.device);
+    options
+        .iter()
+        .find(|option| option.key == key)
+        .or_else(|| options.first())
+}
+
 fn add_audio_channel(
     draft: &mut crate::runtime::AudioSettingsValue,
     direction: AudioChannelDirection,
     format: AudioChannelFormat,
     options: &[ChannelDeviceOption],
 ) {
-    let Some(option) = options.first() else {
+    let Some(option) = preferred_device(options, draft) else {
         return;
     };
     let used = draft

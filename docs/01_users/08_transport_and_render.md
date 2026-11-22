@@ -10,7 +10,7 @@
 | Stop button | Top bar | Same as the Stop shortcut. |
 | Loop | Top bar or **Cmd+L** | Enables or disables looping. |
 | Metronome | Top bar | Enables the click. |
-| Record | Top bar or **Cmd+R** | Starts or stops linear recording on armed audio tracks. |
+| Record | Top bar or **Cmd+R** | Toggles record mode. While playback runs, armed audio tracks record into clips that grow with the playhead. |
 
 The playhead moves during playback. Stop returns to the loop start when looping
 is enabled, otherwise to beat zero or the last play start. Stop also sends
@@ -27,16 +27,25 @@ Recording is linear and audio-only in the current implementation.
    inputs appear first in the track input picker.
 2. Select an audio track and choose an input in the info panel. Mono and stereo
    inputs are supported.
-3. Arm the track with **R** in the track header or info panel.
-4. Press **Record** in the top bar or **Cmd+R**.
+3. Arm zero or more audio tracks with **R** in the track header or info panel.
+4. Enable record mode with **Record** in the top bar or **Cmd+R**. Record mode
+   can be enabled before playback or while the transport is already playing.
 
-While a track is armed, its input is monitored through the track's device chain,
-mixer, pan, and routing. The transport starts playing when recording begins.
-Press **Stop**, **Shift+Space**, or **Record** again to finish the take.
+While record mode is on and the transport plays, each armed track records from
+its input. The clip starts at the playhead where capture began: at the play
+start if record mode was enabled before playback, or at the current playhead if
+it was enabled during playback. The clip grows with the playhead and shows its
+waveform while recording. An armed track's input is monitored through the
+track's device chain, mixer, pan, and routing.
+
+Turning record mode off finalizes the clips at the current playhead and leaves
+playback running. Pause and Stop also finalize the current clips; record mode
+stays enabled, so starting playback again begins new clips. With no armed
+tracks, record mode still toggles but no clips are created.
 
 Finishing a take:
 
-- writes the captured channel into the project as a stereo float WAV asset;
+- writes the captured channels into the project as a stereo float WAV asset;
 - replaces existing clips in the recorded range on the armed track;
 - inserts a clip named **Recording**;
 - selects the new clip;

@@ -27,6 +27,10 @@ pub(crate) enum EngineEvent {
     },
     EditorTransportToggle,
     InputError(String),
+    RecordingChunk {
+        sample_rate: u32,
+        captures: Vec<(TrackId, Vec<f32>)>,
+    },
     RecordingFinished(Vec<(TrackId, AudioAssetBuffer)>),
     RecordingFailed(String),
     Error(String),
@@ -244,6 +248,15 @@ impl EngineClient {
                         }
                         EngineReply::InputError(error) => {
                             let _ = reader_events.send(EngineEvent::InputError(error));
+                        }
+                        EngineReply::RecordingChunk {
+                            sample_rate,
+                            captures,
+                        } => {
+                            let _ = reader_events.send(EngineEvent::RecordingChunk {
+                                sample_rate,
+                                captures,
+                            });
                         }
                         EngineReply::RecordingFinished(captures) => {
                             let _ = reader_events.send(EngineEvent::RecordingFinished(captures));

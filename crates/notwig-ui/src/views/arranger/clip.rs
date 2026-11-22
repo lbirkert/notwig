@@ -1,18 +1,77 @@
 use egui::{Color32, CornerRadius, Id, Rect, Sense, Stroke, StrokeKind, Vec2};
 use notwig_core::edit::Edge;
-use notwig_core::{ClipId, ClipKind, ProjectDoc, RangeMus, TimeMus, TrackId, TrackKind};
+use notwig_core::sequencer::{AudioClipData, ClipPayload};
+use notwig_core::{
+    AssetId, ClipEntity, ClipId, ClipKind, Db, ProjectDoc, RangeMus, TimeMus, TrackId, TrackKind,
+};
 
 use crate::intent::UiIntent;
-use crate::runtime::RuntimeView;
+use crate::runtime::{RecordingTakeView, RuntimeView};
 use crate::shell::NotwigUi;
 use crate::timeline::TimelineGrid;
 use crate::timeline::interaction::{drag_current_pos, drag_start_pos, snapped_start, trim_range};
+use crate::waveform::WaveformCache;
 
 use super::edit::clamp_node_shift;
 use super::{ClipDrag, ClipDragMode, GroupDrag};
 
 impl NotwigUi {
     #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw_recording_take(
+        &self,
+        ui: &mut egui::Ui,
+        doc: &ProjectDoc,
+        take: &RecordingTakeView,
+        lane_rect: Rect,
+        start: TimeMus,
+        ppb: f32,
+    ) {
+        let Ok(range) = RangeMus::new(take.start, take.end) else {
+            return;
+        };
+        let asset_id = AssetId::from_uuid(*take.track_id.as_uuid());
+        let source_end = doc.tempo_map().mus_to_samples(range.length());
+        let mut waveforms = WaveformCache::new();
+        waveforms.insert(asset_id, (*take.waveform).clone());
+        let clip = ClipEntity {
+            id: ClipId::from_uuid(*take.track_id.as_uuid()),
+            track_id: take.track_id,
+            kind: ClipKind::Audio,
+            range,
+            name: Some("Recording".into()),
+            color: None,
+            muted: false,
+            payload: ClipPayload::Audio(AudioClipData {
+                asset_id,
+                source_start_sample: 0,
+                source_end_sample: source_end,
+                gain_db: Db(0.0),
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: notwig_core::FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
+            }),
+        };
+        let _ = crate::timeline::draw_clip_visual(
+            ui.painter(),
+            doc,
+            &clip,
+            range,
+            lane_rect,
+            TimelineGrid::new(
+                start,
+                ppb,
+                doc.meta.bar_length(),
+                doc.meta.beat_length(),
+                self.state.snap,
+            ),
+            &waveforms,
+            false,
+            true,
+        );
+    }
+
     pub(super) fn draw_clip(
         &mut self,
         ui: &mut egui::Ui,

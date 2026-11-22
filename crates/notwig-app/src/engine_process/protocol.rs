@@ -95,6 +95,10 @@ pub(crate) enum EngineReply {
     },
     EditorTransportToggle,
     InputError(String),
+    RecordingChunk {
+        sample_rate: u32,
+        captures: Vec<(TrackId, Vec<f32>)>,
+    },
     RecordingFinished(Vec<(TrackId, AudioAssetBuffer)>),
     RecordingFailed(String),
     Error(String),

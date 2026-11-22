@@ -137,6 +137,14 @@ pub struct AudioSettingsView {
     pub warning: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordingTakeView {
+    pub track_id: TrackId,
+    pub start: TimeMus,
+    pub end: TimeMus,
+    pub waveform: Arc<AudioWaveform>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DspAnalysisView {
     pub history: Vec<f32>,
@@ -213,6 +221,7 @@ pub struct RuntimeView {
     pub saving: bool,
     pub audio_settings: AudioSettingsView,
     pub audio_inputs: Vec<AudioInputView>,
+    pub recording_takes: Vec<RecordingTakeView>,
     pub dsp: DspAnalysisView,
     pub clipboard: Clipboard,
     pub extensions: Vec<ExtensionInfo>,
@@ -252,6 +261,7 @@ impl Default for RuntimeView {
             saving: false,
             audio_settings: AudioSettingsView::default(),
             audio_inputs: Vec::new(),
+            recording_takes: Vec::new(),
             dsp: DspAnalysisView::default(),
             clipboard: Clipboard::default(),
             extensions: Vec::new(),

@@ -227,8 +227,9 @@ preallocated slot in `notwig-engine::InputBus`:
 - queue overflow marks the take invalid instead of silently truncating it.
 
 Native recording runs in the engine process. The UI process sends input
-configuration, start, and stop requests over IPC, and the engine process returns
-the captured buffers for finalization. Browser recording keeps the input hub and
+configuration, start, and stop requests over IPC. The engine process forwards
+captured chunks to the UI process while recording so the app can grow the live
+clip and waveform; the final chunk and stop reply finish the take. Browser recording keeps the input hub and
 engine in the same process and drains capture queues from the UI event loop.
 The browser has no CPAL input backend, so `audio_input::web` opens a
 `getUserMedia` microphone stream, routes it through a `ScriptProcessorNode`, and

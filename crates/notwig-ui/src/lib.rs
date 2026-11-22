@@ -41,7 +41,7 @@ pub use runtime::{
     AudioChannelConfig, AudioChannelDirection, AudioChannelFormat, AudioDeviceView,
     AudioDriverView, AudioInputView, AudioSettingsValue, AudioSettingsView, DspAnalysisView,
     MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView, RecentProjectView,
-    RuntimeView,
+    RecordingTakeView, RuntimeView,
 };
 #[cfg(feature = "app")]
 pub use shell::NotwigUi;

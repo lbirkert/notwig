@@ -64,6 +64,24 @@ impl RecordingSession {
         drain(&self.bus, &self.slots, &self.buffers, &self.overflow);
     }
 
+    /// Drain samples captured since the last call. The native engine process
+    /// forwards these chunks to the UI process for live waveform rendering.
+    pub(crate) fn take_captured(&self) -> BTreeMap<TrackId, Vec<f32>> {
+        let Ok(mut buffers) = self.buffers.lock() else {
+            return BTreeMap::new();
+        };
+        buffers
+            .iter_mut()
+            .filter_map(|(track_id, samples)| {
+                if samples.is_empty() {
+                    None
+                } else {
+                    Some((*track_id, std::mem::take(samples)))
+                }
+            })
+            .collect()
+    }
+
     #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
     pub(crate) fn finish(mut self) -> Result<BTreeMap<TrackId, AudioAssetBuffer>, String> {
         self.running.store(false, Ordering::Relaxed);
@@ -96,9 +114,6 @@ impl RecordingSession {
                     samples,
                 },
             );
-        }
-        if captures.is_empty() {
-            return Err("recording produced no audio".into());
         }
         Ok(captures)
     }

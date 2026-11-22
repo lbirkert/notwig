@@ -246,6 +246,15 @@ impl EngineWorker {
             }
             if let Some(service) = &self.service {
                 let mut snapshot = service.snapshot();
+                if let Some(recording) = &self.recording {
+                    let captures = recording.take_captured();
+                    if !captures.is_empty() {
+                        let _ = self.replies.send(EngineReply::RecordingChunk {
+                            sample_rate: snapshot.sample_rate,
+                            captures: captures.into_iter().collect(),
+                        });
+                    }
+                }
                 if let Some(updated) = snapshot.playhead_updated {
                     snapshot.playhead_age_nanos =
                         u64::try_from(updated.elapsed().as_nanos()).unwrap_or(u64::MAX);
@@ -353,18 +362,15 @@ impl EngineWorker {
         if self.recording.is_some() {
             return;
         }
-        if self.input_routes.is_empty() {
-            let _ = self.replies.send(EngineReply::RecordingFailed(
-                "arm an audio track with an input first".into(),
-            ));
-            return;
-        }
         let sample_rate = service.snapshot().sample_rate;
         self.recording = Some(service.begin_recording(self.input_routes.clone(), sample_rate));
     }
 
     fn stop_recording(&mut self) {
         let Some(session) = self.recording.take() else {
+            let _ = self
+                .replies
+                .send(EngineReply::RecordingFinished(Vec::new()));
             return;
         };
         match session.finish() {

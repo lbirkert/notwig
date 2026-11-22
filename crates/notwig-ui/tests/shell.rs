@@ -1373,6 +1373,33 @@ fn settings_page_renders_audio_options() {
 }
 
 #[test]
+fn recording_take_renders_on_the_armed_lane() {
+    use notwig_ui::RecordingTakeView;
+    let doc = audio_doc();
+    let runtime = RuntimeView {
+        recording_takes: vec![RecordingTakeView {
+            track_id: id::<Track>(3),
+            start: Rational::zero(),
+            end: Rational::new(2, 1),
+            waveform: std::sync::Arc::new(AudioWaveform::from_samples(vec![0.5; 256])),
+        }],
+        ..RuntimeView::default()
+    };
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let screen = clip_editor_screen();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+}
+
+#[test]
 fn dsp_analysis_window_renders_history_and_stats() {
     use notwig_ui::{DspAnalysisView, RuntimeView};
     let runtime = RuntimeView {

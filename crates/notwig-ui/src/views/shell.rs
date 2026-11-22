@@ -1973,9 +1973,9 @@ fn record_button(ui: &mut egui::Ui, recording: bool) -> bool {
     crate::icons::paint(painter, rect, Icon::Record, Color32::from_rgb(231, 91, 82));
     response
         .on_hover_text(if recording {
-            "Stop recording"
+            "Turn record mode off"
         } else {
-            "Record armed tracks"
+            "Turn record mode on"
         })
         .clicked()
 }
