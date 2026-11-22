@@ -53,8 +53,9 @@ start when you stop.
 
 ## A quick tour
 
-- The **top bar** contains the file menu, transport controls, tempo and time
-  signature, playhead position, CPU load, and master meter.
+- The **app bar** shows the project name card and the centered Notwig title.
+- The **top bar** below it contains the file menu, transport controls, tempo and
+  time signature, playhead position, CPU load, and master meter.
 - The **arranger** is the main timeline. Track headers are on the left, clip
   lanes and the timeline are on the right.
 - The **info panel** on the left shows the current selection: a track, clip,

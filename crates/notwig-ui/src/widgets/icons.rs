@@ -1,7 +1,4 @@
-use egui::{
-    Color32, CornerRadius, FontFamily, FontId, Painter, Rect, Response, Sense, Stroke, StrokeKind,
-    Vec2,
-};
+use egui::{Color32, CornerRadius, Painter, Rect, Response, Sense, Stroke, StrokeKind, Vec2};
 
 use crate::theme;
 
@@ -115,7 +112,7 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
         rect.center(),
         egui::Align2::CENTER_CENTER,
         icon.glyph(),
-        FontId::new(size, FontFamily::Proportional),
+        theme::icon_font(painter.ctx(), size),
         color,
     );
 }

@@ -21,6 +21,11 @@ pub use runtime::{
     RuntimeView,
 };
 pub use shell::NotwigUi;
+
+/// Installs the shared theme and fonts before the first frame is painted.
+pub fn configure(ctx: &egui::Context) {
+    theme::apply(ctx);
+}
 pub use state::{
     EditFocus, Notification, NotificationKind, OpenedEditor, Selection, UiState, Viewport,
 };

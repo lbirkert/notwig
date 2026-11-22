@@ -30,14 +30,22 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
             .with_title("Notwig")
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([900.0, 600.0])
-            .with_icon(icon),
+            .with_icon(icon)
+            // Let the egui app bar own the title area while keeping the
+            // native macOS traffic lights available for window control.
+            .with_title_shown(false)
+            .with_titlebar_shown(false)
+            .with_fullsize_content_view(true),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
     eframe::run_native(
         "Notwig",
         options,
-        Box::new(move |_cc| Ok(Box::new(NotwigApp::new(initial)))),
+        Box::new(move |cc| {
+            notwig_ui::configure(&cc.egui_ctx);
+            Ok(Box::new(NotwigApp::new(initial)))
+        }),
     )
     .map_err(|err| err.to_string())
 }
@@ -287,7 +295,9 @@ impl NotwigApp {
         app
     }
 
-    pub fn configure(&mut self, _ctx: &egui::Context) {}
+    pub fn configure(&mut self, ctx: &egui::Context) {
+        notwig_ui::configure(ctx);
+    }
 
     pub fn enable_audio(&mut self) {
         self.restart_audio();

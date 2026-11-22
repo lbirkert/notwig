@@ -88,12 +88,7 @@ impl NotwigUi {
 
     fn eq_info(&mut self, ui: &mut egui::Ui, device: &DeviceInstance) {
         let values = self.device_values(device);
-        ui.label(
-            RichText::new("BANDS")
-                .small()
-                .strong()
-                .color(theme::TEXT_MUTED),
-        );
+        ui.label(theme::heading(ui.ctx(), "BANDS"));
         for band in 0..4 {
             let enabled = matches!(
                 values.get(&notwig_dsp::stock::band_param(band, 0)),

@@ -185,7 +185,7 @@ frame that carries input and returns draw commands plus host actions.
 
 | Module | Responsibility |
 |---|---|
-| `views/shell.rs` | Top bar, transport, status bar, layout, shortcuts, notifications |
+| `views/shell.rs` | App bar, transport toolbar, status bar, layout, shortcuts, notifications |
 | `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
@@ -372,7 +372,7 @@ changing them; do not add unrelated responsibilities.
   clip-specific state are all in one module.
 - `crates/notwig-ui/src/views/arranger/mod.rs` — track lanes, clip interaction, and
   timeline gestures are still coupled.
-- `crates/notwig-ui/src/views/shell.rs` — top bar, status bar, shortcuts, and windows.
+- `crates/notwig-ui/src/views/shell.rs` — app bar, transport toolbar, status bar, shortcuts, and windows.
 - `crates/notwig-app/src/workspace/mod.rs` — still owns several command groups;
   asset, engine, and plugin concerns have already been extracted.
 

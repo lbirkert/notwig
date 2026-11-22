@@ -10,7 +10,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 
 ## Owns
 
-- The `egui` shell: top bar, transport strip, status bar, shortcuts, and windows.
+- The `egui` shell: app bar, transport toolbar, status bar, shortcuts, and windows.
 - Arranger view and timeline interactions.
 - Audio clip editor, MIDI editor, and device editor bottom panels.
 - Info panel for tracks, devices, clips, files, and time selections.
@@ -32,7 +32,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 
 | Module | Contents |
 |---|---|
-| `views/shell.rs` | App shell, top/status bars, layout, shortcuts |
+| `views/shell.rs` | App shell, app bar, transport/status bars, layout, shortcuts |
 | `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/info/` | Left info panel sections |

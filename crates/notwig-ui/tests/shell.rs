@@ -1403,3 +1403,42 @@ fn render_progress_and_notification_overlays_render() {
     assert_eq!(ui.render_progress, Some(0.42));
     assert_eq!(ui.state.notifications.len(), 1);
 }
+
+#[test]
+fn app_bar_renders_brand_title_and_saved_project_name() {
+    let doc = doc();
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let mut runtime = RuntimeView {
+        bundle_path: Some(std::path::PathBuf::from("/tmp/Night Drive.notwig")),
+        dirty: true,
+        ..RuntimeView::default()
+    };
+    let mut output = None;
+    for _ in 0..2 {
+        let frame = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(clip_editor_screen()),
+                ..Default::default()
+            },
+            |ctx| {
+                ui.show(ctx, &doc, &runtime);
+            },
+        );
+        output = Some(frame);
+    }
+    let output = output.expect("at least one frame rendered");
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut texts);
+    }
+    assert!(
+        texts.iter().any(|text| text == "NOTWIG"),
+        "the centered app title should render"
+    );
+    assert!(
+        texts.iter().any(|text| text == "Night Drive*"),
+        "the project card should use the saved bundle name and dirty marker"
+    );
+    runtime.dirty = false;
+}

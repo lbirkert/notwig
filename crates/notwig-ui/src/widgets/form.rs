@@ -3,12 +3,7 @@ use egui::RichText;
 use crate::theme;
 
 pub(crate) fn section_heading(ui: &mut egui::Ui, text: &str) {
-    ui.label(
-        RichText::new(text)
-            .strong()
-            .size(13.0)
-            .color(theme::TEXT_MUTED),
-    );
+    ui.label(theme::heading(ui.ctx(), text));
     ui.add_space(6.0);
 }
 

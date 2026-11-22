@@ -1,11 +1,13 @@
 # Workspace Overview
 
-The window is split into a fixed top bar, a central arranger, an optional
-bottom editor, and a status bar.
+The window is split into a fixed app bar, a transport toolbar, a central
+arranger, an optional bottom editor, and a status bar.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ mark FILE  transport  tempo  time signature  position  meter   │
+│ project card             NOTWIG              native controls  │
+├──────────────────────────────────────────────────────────────┤
+│ FILE  transport  tempo  time signature  position  meter        │
 ├───────────────┬──────────────────────────────────────────────┤
 │ info panel    │ arranger                                     │
 │ (optional)    │  track headers | timeline and clip lanes      │
@@ -16,13 +18,18 @@ bottom editor, and a status bar.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## Top bar
+## App bar and top bar
 
-The top bar is always visible.
+The app bar is always visible. It shows the project card on the left, derived
+from the saved bundle file name and marked with `*` while the project is dirty,
+and the Notwig mark and `NOTWIG` title centered. On macOS the native window
+buttons remain visible next to the project card; on other platforms they stay
+in the system title bar.
+
+The transport toolbar sits directly below the app bar:
 
 | Area | What it does |
 | --- | --- |
-| **Brand mark** | The Notwig mark sits left of the FILE button. |
 | **FILE** | New, open, save, save as, import audio, audio settings, and render. |
 | **Play / pause** | Starts playback or pauses at the current position. |
 | **Stop** | Stops playback and returns to the play start. |

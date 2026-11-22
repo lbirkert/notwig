@@ -1,17 +1,10 @@
-use egui::RichText;
 use notwig_core::{DeviceChainId, ProjectDoc};
 use notwig_dsp::DeviceRegistry;
 
 use crate::theme;
 
 pub(super) fn section_header(ui: &mut egui::Ui, label: &str) {
-    ui.label(
-        RichText::new(label)
-            .small()
-            .monospace()
-            .strong()
-            .color(theme::TEXT_MUTED),
-    );
+    ui.label(theme::heading(ui.ctx(), label));
 }
 
 /// Total processing latency of a device chain, including nested child chains.

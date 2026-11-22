@@ -1,4 +1,4 @@
-use egui::{Align, Align2, Color32, FontId, Key, RichText, Sense, Vec2};
+use egui::{Align, Align2, Color32, FontId, Key, Sense, Vec2};
 use notwig_core::{DeviceChainId, DeviceKind, ProjectDoc, SchemaVersion, TrackId};
 
 use crate::intent::UiIntent;
@@ -179,12 +179,7 @@ impl NotwigUi {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if !stock.is_empty() {
-                            ui.label(
-                                RichText::new("STOCK")
-                                    .small()
-                                    .strong()
-                                    .color(theme::TEXT_MUTED),
-                            );
+                            ui.label(theme::heading(ui.ctx(), "STOCK"));
                             for entry in &stock {
                                 if device_row(
                                     ui,
@@ -202,12 +197,7 @@ impl NotwigUi {
                             if !stock.is_empty() {
                                 ui.add_space(6.0);
                             }
-                            ui.label(
-                                RichText::new("EXTENSIONS")
-                                    .small()
-                                    .strong()
-                                    .color(theme::TEXT_MUTED),
-                            );
+                            ui.label(theme::heading(ui.ctx(), "EXTENSIONS"));
                             for entry in &extension_specs {
                                 if device_row(
                                     ui,
@@ -225,12 +215,7 @@ impl NotwigUi {
                             if !stock.is_empty() || !extension_specs.is_empty() {
                                 ui.add_space(6.0);
                             }
-                            ui.label(
-                                RichText::new("PLUGINS")
-                                    .small()
-                                    .strong()
-                                    .color(theme::TEXT_MUTED),
-                            );
+                            ui.label(theme::heading(ui.ctx(), "PLUGINS"));
                             for entry in &plugins {
                                 if device_row(
                                     ui,

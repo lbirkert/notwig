@@ -111,15 +111,11 @@ impl NotwigUi {
         }
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(track_kind_title(track.kind))
-                    .small()
-                    .strong()
-                    .monospace()
-                    .color(if track.active {
-                        theme::TEXT_MUTED
-                    } else {
-                        Color32::from_rgb(104, 108, 120)
-                    }),
+                theme::heading(ui.ctx(), track_kind_title(track.kind)).color(if track.active {
+                    theme::HEADING
+                } else {
+                    Color32::from_rgb(104, 108, 120)
+                }),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::icons::icon_button_sized(
@@ -167,12 +163,7 @@ impl NotwigUi {
             Vec2::new(ui.available_width(), device_height),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                ui.label(
-                    RichText::new("DEVICES")
-                        .small()
-                        .strong()
-                        .color(theme::TEXT_MUTED),
-                );
+                ui.label(theme::heading(ui.ctx(), "DEVICES"));
                 egui::ScrollArea::vertical()
                     .id_salt(("track-devices", track_id))
                     .auto_shrink([false, false])

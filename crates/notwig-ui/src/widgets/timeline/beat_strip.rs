@@ -61,8 +61,8 @@ impl BeatStrip<'_> {
                     egui::pos2(rect.left() + 10.0, rect.center().y),
                     Align2::LEFT_CENTER,
                     label,
-                    FontId::proportional(11.0),
-                    theme::TEXT_MUTED,
+                    theme::heading_font(ui.ctx()),
+                    theme::HEADING,
                 );
             }
         }

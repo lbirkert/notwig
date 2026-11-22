@@ -48,7 +48,7 @@ impl NotwigUi {
     }
 
     pub(crate) fn shortcut_settings_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Shortcuts");
+        ui.label(theme::page_heading(ui.ctx(), "Shortcuts"));
         ui.add_space(4.0);
         ui.label(
             RichText::new(
@@ -93,48 +93,51 @@ impl NotwigUi {
                         continue;
                     }
                     any = true;
-                    egui::CollapsingHeader::new(category.label())
-                        .id_salt(("shortcut-category", category.label()))
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            let width = ui.available_width();
-                            egui::Grid::new(("shortcut-grid", category.label()))
-                                .num_columns(2)
-                                .min_col_width(width * 0.38)
-                                .spacing([18.0, 6.0])
-                                .show(ui, |ui| {
-                                    for spec in commands {
-                                        ui.label(spec.label);
-                                        ui.horizontal_wrapped(|ui| {
-                                            ui.spacing_mut().item_spacing.x = 4.0;
-                                            let chords =
-                                                self.shortcuts.bindings(spec.command).to_vec();
-                                            for chord in chords {
-                                                if shortcut_chip(ui, chord) {
-                                                    self.shortcuts.remove(spec.command, chord);
-                                                }
+                    egui::CollapsingHeader::new(
+                        RichText::new(category.label())
+                            .font(theme::custom_font(ui.ctx(), "Inter SemiBold", 13.0))
+                            .color(theme::TEXT_PRIMARY),
+                    )
+                    .id_salt(("shortcut-category", category.label()))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        let width = ui.available_width();
+                        egui::Grid::new(("shortcut-grid", category.label()))
+                            .num_columns(2)
+                            .min_col_width(width * 0.38)
+                            .spacing([18.0, 6.0])
+                            .show(ui, |ui| {
+                                for spec in commands {
+                                    ui.label(spec.label);
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        let chords = self.shortcuts.bindings(spec.command).to_vec();
+                                        for chord in chords {
+                                            if shortcut_chip(ui, chord) {
+                                                self.shortcuts.remove(spec.command, chord);
                                             }
-                                            if self.shortcut_editor.capture == Some(spec.command) {
-                                                ui.label(
-                                                    RichText::new("Press keys…")
-                                                        .size(12.0)
-                                                        .color(theme::ACCENT),
-                                                );
-                                                if ui.small_button("Cancel").clicked() {
-                                                    self.shortcut_editor.capture = None;
-                                                }
-                                            } else if ui
-                                                .small_button("+")
-                                                .on_hover_text("Add shortcut")
-                                                .clicked()
-                                            {
-                                                self.shortcut_editor.capture = Some(spec.command);
+                                        }
+                                        if self.shortcut_editor.capture == Some(spec.command) {
+                                            ui.label(
+                                                RichText::new("Press keys…")
+                                                    .size(12.0)
+                                                    .color(theme::ACCENT),
+                                            );
+                                            if ui.small_button("Cancel").clicked() {
+                                                self.shortcut_editor.capture = None;
                                             }
-                                        });
-                                        ui.end_row();
-                                    }
-                                });
-                        });
+                                        } else if ui
+                                            .small_button("+")
+                                            .on_hover_text("Add shortcut")
+                                            .clicked()
+                                        {
+                                            self.shortcut_editor.capture = Some(spec.command);
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
+                            });
+                    });
                 }
                 if !any {
                     ui.label(

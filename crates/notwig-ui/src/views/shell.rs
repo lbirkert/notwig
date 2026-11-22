@@ -21,6 +21,7 @@ use crate::views::device_editor::{DeviceBrowserState, EqDrag};
 use crate::views::midi_editor::MidiEditorState;
 use notwig_core::edit::SelectionMode;
 
+const APP_BAR_HEIGHT: f32 = 38.0;
 const TOP_BAR_HEIGHT: f32 = 34.0;
 const TOP_BAR_ICON: f32 = 30.0;
 const TOP_BAR_FONT: f32 = 12.0;
@@ -209,6 +210,7 @@ impl NotwigUi {
         self.update_drag_preview(ctx, doc, runtime);
         self.track_rows.clear();
         self.handle_shortcuts(ctx, doc, runtime);
+        Self::app_bar(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
         self.info_panel(ctx, doc, runtime);
@@ -786,6 +788,123 @@ impl NotwigUi {
         }
     }
 
+    fn app_bar(ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
+        egui::TopBottomPanel::top("notwig_app_bar")
+            .exact_height(APP_BAR_HEIGHT)
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::APP_BAR)
+                    .inner_margin(egui::Margin::ZERO),
+            )
+            .show(ctx, |ui| {
+                let rect = ui.max_rect();
+                let painter = ui.painter_at(rect);
+                painter.line_segment(
+                    [
+                        egui::pos2(rect.left(), rect.bottom() - 0.5),
+                        egui::pos2(rect.right(), rect.bottom() - 0.5),
+                    ],
+                    egui::Stroke::new(1.0_f32, theme::GRID_STRONG),
+                );
+                let drag = ui.interact(
+                    rect,
+                    egui::Id::new("notwig-app-bar-drag"),
+                    egui::Sense::click_and_drag(),
+                );
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if drag.drag_started() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                    if drag.double_clicked() {
+                        let maximized =
+                            ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = &drag;
+
+                let dirty = if runtime.dirty { "*" } else { "" };
+                let project_name = project_display_name(doc, runtime);
+                let project_label = format!("{project_name}{dirty}");
+                let card_font = theme::custom_font(ctx, "Inter Medium", 11.5);
+                let card_galley =
+                    painter.layout_no_wrap(project_label, card_font, theme::TEXT_PRIMARY);
+                let card_height = 22.0;
+                let card_width = (card_galley.size().x + 18.0).clamp(80.0, 240.0);
+                let card_left = if cfg!(all(target_os = "macos", not(target_arch = "wasm32"))) {
+                    78.0
+                } else {
+                    10.0
+                };
+                let card_rect = Rect::from_min_size(
+                    egui::pos2(rect.left() + card_left, rect.center().y - card_height * 0.5),
+                    egui::vec2(card_width, card_height),
+                );
+                let card = ui.interact(
+                    card_rect,
+                    egui::Id::new("notwig-project-card"),
+                    egui::Sense::hover(),
+                );
+                painter.rect(
+                    card_rect,
+                    egui::CornerRadius::same(7),
+                    if card.hovered() {
+                        Color32::from_rgb(47, 51, 62)
+                    } else {
+                        theme::APP_BAR_CARD
+                    },
+                    egui::Stroke::new(1.0_f32, theme::GRID_STRONG),
+                    egui::StrokeKind::Inside,
+                );
+                painter
+                    .with_clip_rect(card_rect.shrink2(egui::vec2(8.0, 0.0)))
+                    .galley(
+                        egui::pos2(
+                            card_rect.left() + 9.0,
+                            card_rect.center().y - card_galley.size().y * 0.5,
+                        ),
+                        card_galley,
+                        theme::TEXT_PRIMARY,
+                    );
+                if let Some(path) = &runtime.bundle_path {
+                    card.on_hover_text(path.display().to_string());
+                }
+
+                let brand = crate::widgets::brand::icon(ctx, true);
+                let icon_height = 18.0;
+                let brand_size = brand.size_vec2();
+                let icon_width = icon_height * (brand_size.x / brand_size.y.max(1.0));
+                let title = painter.layout_no_wrap(
+                    "NOTWIG".to_owned(),
+                    theme::app_title_font(ctx, theme::APP_TITLE_SIZE),
+                    theme::TEXT_PRIMARY,
+                );
+                let gap = 8.0;
+                let content_width = icon_width + gap + title.size().x;
+                let start_x = rect.center().x - content_width * 0.5;
+                let icon_rect = Rect::from_center_size(
+                    egui::pos2(start_x + icon_width * 0.5, rect.center().y),
+                    egui::vec2(icon_width, icon_height),
+                );
+                painter.image(
+                    brand.id(),
+                    icon_rect,
+                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+                painter.galley(
+                    egui::pos2(
+                        start_x + icon_width + gap,
+                        rect.center().y - title.size().y * 0.5,
+                    ),
+                    title,
+                    theme::TEXT_PRIMARY,
+                );
+            });
+    }
+
     fn top_bar(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
         egui::TopBottomPanel::top("notwig_top")
             .frame(
@@ -798,65 +917,65 @@ impl NotwigUi {
                     egui::vec2(ui.available_width(), TOP_BAR_HEIGHT),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
-                        let brand = crate::widgets::brand::icon(ui.ctx(), ui.visuals().dark_mode);
-                        ui.add(egui::Image::new(&brand).max_height(TOP_BAR_ICON - 8.0));
-                        ui.add_space(2.0);
                         self.file_menu(ui, doc, runtime);
-                        ui.add_space(4.0);
-                        let play_icon = if runtime.playing {
-                            Icon::Pause
-                        } else {
-                            Icon::Play
-                        };
-                        if icon_button_sized(
-                            ui,
-                            play_icon,
-                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
-                            runtime.playing,
-                            if runtime.playing { "Pause" } else { "Play" },
-                        )
-                        .clicked()
-                        {
-                            if runtime.playing {
-                                self.emit(UiIntent::Pause);
+                        ui.add_space(8.0);
+                        ui.scope(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            let play_icon = if runtime.playing {
+                                Icon::Pause
                             } else {
-                                self.emit(UiIntent::Play);
+                                Icon::Play
+                            };
+                            if icon_button_sized(
+                                ui,
+                                play_icon,
+                                egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
+                                runtime.playing,
+                                if runtime.playing { "Pause" } else { "Play" },
+                            )
+                            .clicked()
+                            {
+                                if runtime.playing {
+                                    self.emit(UiIntent::Pause);
+                                } else {
+                                    self.emit(UiIntent::Play);
+                                }
                             }
-                        }
-                        if icon_button_sized(
-                            ui,
-                            Icon::Stop,
-                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
-                            false,
-                            "Stop",
-                        )
-                        .clicked()
-                        {
-                            self.emit(UiIntent::Stop);
-                        }
-                        record_button(ui);
-                        if icon_button_sized(
-                            ui,
-                            Icon::Loop,
-                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
-                            doc.transport.loop_enabled,
-                            "Toggle loop",
-                        )
-                        .clicked()
-                        {
-                            self.emit(UiIntent::ToggleLoop);
-                        }
-                        if icon_button_sized(
-                            ui,
-                            Icon::Metronome,
-                            egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
-                            doc.transport.metronome_enabled,
-                            "Toggle metronome",
-                        )
-                        .clicked()
-                        {
-                            self.emit(UiIntent::ToggleMetronome);
-                        }
+                            if icon_button_sized(
+                                ui,
+                                Icon::Stop,
+                                egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
+                                false,
+                                "Stop",
+                            )
+                            .clicked()
+                            {
+                                self.emit(UiIntent::Stop);
+                            }
+                            record_button(ui);
+                            if icon_button_sized(
+                                ui,
+                                Icon::Loop,
+                                egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
+                                doc.transport.loop_enabled,
+                                "Toggle loop",
+                            )
+                            .clicked()
+                            {
+                                self.emit(UiIntent::ToggleLoop);
+                            }
+                            if icon_button_sized(
+                                ui,
+                                Icon::Metronome,
+                                egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON),
+                                doc.transport.metronome_enabled,
+                                "Toggle metronome",
+                            )
+                            .clicked()
+                            {
+                                self.emit(UiIntent::ToggleMetronome);
+                            }
+                        });
                         let engine_width = 400.0;
                         let total_width = ui.max_rect().width();
                         let left_used = ui.cursor().left() - ui.max_rect().left();
@@ -1772,6 +1891,16 @@ pub mod test_api {
     pub fn capture_shortcut(ui: &mut NotwigUi, ctx: &egui::Context) {
         ui.capture_shortcut(ctx);
     }
+}
+
+fn project_display_name(doc: &ProjectDoc, runtime: &RuntimeView) -> String {
+    runtime
+        .bundle_path
+        .as_ref()
+        .and_then(|path| path.file_stem())
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .map_or_else(|| doc.meta.name.clone(), str::to_owned)
 }
 
 fn file_drop_target(

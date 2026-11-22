@@ -1,7 +1,5 @@
 use egui::Align2;
-use egui::{
-    Align, Color32, FontFamily, FontId, Id, Layout, Rect, Response, RichText, Sense, Ui, Vec2,
-};
+use egui::{Align, Color32, FontId, Id, Layout, Rect, Response, RichText, Sense, Ui, Vec2};
 
 use crate::icons::Icon;
 use crate::theme;
@@ -74,12 +72,7 @@ fn grid_popup(
     ui.set_min_width(176.0);
     ui.spacing_mut().item_spacing = Vec2::new(4.0, 5.0);
     ui.with_layout(Layout::top_down(Align::Center), |ui| {
-        ui.label(
-            RichText::new("GRID")
-                .monospace()
-                .size(11.0)
-                .color(theme::TEXT_MUTED),
-        );
+        ui.label(theme::heading(ui.ctx(), "GRID"));
         if ui
             .add_sized(
                 [ui.available_width(), 24.0],
@@ -151,7 +144,7 @@ fn icon_text_control(
         rect.center(),
         Align2::CENTER_CENTER,
         icon.glyph(),
-        FontId::new(13.0, FontFamily::Proportional),
+        theme::icon_font(ui.ctx(), 13.0),
         color,
     );
     response

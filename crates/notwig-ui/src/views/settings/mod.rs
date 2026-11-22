@@ -139,7 +139,7 @@ impl NotwigUi {
         }
 
         ui.horizontal(|ui| {
-            ui.heading("Extensions");
+            ui.label(theme::page_heading(ui.ctx(), "Extensions"));
             ui.add_space(8.0);
             if ui.button("Add .ZIP").clicked() {
                 self.emit(UiIntent::ImportExtensionZip);
@@ -258,7 +258,15 @@ impl NotwigUi {
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new(&card.name).strong().size(17.0));
+                                    ui.label(
+                                        RichText::new(&card.name)
+                                            .font(theme::custom_font(
+                                                ui.ctx(),
+                                                "Inter SemiBold",
+                                                17.0,
+                                            ))
+                                            .color(theme::TEXT_PRIMARY),
+                                    );
                                     ui.label(
                                         RichText::new(format!("by {}", card.vendor))
                                             .size(14.0)
@@ -493,7 +501,7 @@ impl NotwigUi {
 
     fn audio_settings_page(&mut self, ui: &mut egui::Ui, runtime: &RuntimeView) {
         let view = &runtime.audio_settings;
-        ui.heading("Audio");
+        ui.label(theme::page_heading(ui.ctx(), "Audio"));
         ui.add_space(4.0);
         form::section_heading(ui, "Audio System");
         ui.add_space(4.0);
