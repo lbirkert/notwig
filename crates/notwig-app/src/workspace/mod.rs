@@ -1931,62 +1931,93 @@ impl Workspace {
         end: notwig_core::TimeMus,
         options: notwig_project::ExportOptions,
     ) -> Result<Vec<(PathBuf, usize)>, String> {
-        std::fs::create_dir_all(directory).map_err(|err| err.to_string())?;
-        let map = self.doc.tempo_map();
-        let start_sample = map.mus_to_samples(start.max(notwig_core::TimeMus::zero()));
-        let end_sample = map
-            .mus_to_samples(end.max(start + notwig_core::TimeMus::new(1, 16)))
-            .max(start_sample + 1);
-        let master = self.doc.master_track();
-        let mut written = Vec::new();
-        for track in self
-            .doc
-            .tracks
-            .values()
-            .filter(|track| track.kind != notwig_core::TrackKind::Master)
-        {
-            let mut engine = self.build_offline_engine()?;
+        render_stems(&self.doc, directory, start, end, options, || {
+            self.build_offline_engine()
+        })
+    }
+
+    /// Captures the immutable engine inputs needed to render stems on another
+    /// thread. Call [`StemsRenderJob::render`] off the UI thread.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn stems_render_job(
+        &self,
+        directory: &Path,
+        start: notwig_core::TimeMus,
+        end: notwig_core::TimeMus,
+        options: notwig_project::ExportOptions,
+    ) -> StemsRenderJob {
+        StemsRenderJob {
+            template: self.engine_build_request(OFFLINE_BLOCK_SIZE),
+            directory: directory.to_path_buf(),
+            start,
+            end,
+            options,
+        }
+    }
+}
+
+fn render_stems(
+    doc: &ProjectDoc,
+    directory: &Path,
+    start: notwig_core::TimeMus,
+    end: notwig_core::TimeMus,
+    options: notwig_project::ExportOptions,
+    mut build_engine: impl FnMut() -> Result<Engine, String>,
+) -> Result<Vec<(PathBuf, usize)>, String> {
+    std::fs::create_dir_all(directory).map_err(|err| err.to_string())?;
+    let map = doc.tempo_map();
+    let start_sample = map.mus_to_samples(start.max(notwig_core::TimeMus::zero()));
+    let end_sample = map
+        .mus_to_samples(end.max(start + notwig_core::TimeMus::new(1, 16)))
+        .max(start_sample + 1);
+    let master = doc.master_track();
+    let mut written = Vec::new();
+    for track in doc
+        .tracks
+        .values()
+        .filter(|track| track.kind != notwig_core::TrackKind::Master)
+    {
+        let mut engine = build_engine()?;
+        engine
+            .apply(EngineMsg::SetTransport {
+                playing: true,
+                playhead_samples: start_sample,
+                loop_enabled: false,
+                loop_start_samples: None,
+                loop_end_samples: None,
+                stop: false,
+                metronome: None,
+            })
+            .map_err(|err| err.to_string())?;
+        for state in doc.tracks.values() {
+            let ancestor = is_ancestor(doc, state.id, track.id);
+            let audible = state.id == track.id || ancestor || Some(state.id) == master;
             engine
-                .apply(EngineMsg::SetTransport {
-                    playing: true,
-                    playhead_samples: start_sample,
-                    loop_enabled: false,
-                    loop_start_samples: None,
-                    loop_end_samples: None,
-                    stop: false,
-                    metronome: None,
+                .apply(EngineMsg::SetTrackState {
+                    track_id: state.id,
+                    mute: state.mixer.mute,
+                    solo_effective: audible,
+                    gain_db: state.mixer.volume_db,
+                    pan: state.mixer.pan,
                 })
                 .map_err(|err| err.to_string())?;
-            for state in self.doc.tracks.values() {
-                let ancestor = is_ancestor(&self.doc, state.id, track.id);
-                let audible = state.id == track.id || ancestor || Some(state.id) == master;
-                engine
-                    .apply(EngineMsg::SetTrackState {
-                        track_id: state.id,
-                        mute: state.mixer.mute,
-                        solo_effective: audible,
-                        gain_db: state.mixer.volume_db,
-                        pan: state.mixer.pan,
-                    })
-                    .map_err(|err| err.to_string())?;
-            }
-            let output = engine
-                .render_offline(start_sample, end_sample)
-                .map_err(|err| err.to_string())?;
-            let name = sanitize_file_name(&track.name);
-            let path = directory.join(format!("{name}.{}", options.format.extension()));
-            notwig_project::write_audio_export(
-                &path,
-                self.doc.meta.sample_rate.value(),
-                2,
-                &output,
-                options,
-            )
-            .map_err(|err| err.to_string())?;
-            written.push((path, output.len() / 2));
         }
-        Ok(written)
+        let output = engine
+            .render_offline(start_sample, end_sample)
+            .map_err(|err| err.to_string())?;
+        let name = sanitize_file_name(&track.name);
+        let path = directory.join(format!("{name}.{}", options.format.extension()));
+        notwig_project::write_audio_export(
+            &path,
+            doc.meta.sample_rate.value(),
+            2,
+            &output,
+            options,
+        )
+        .map_err(|err| err.to_string())?;
+        written.push((path, output.len() / 2));
     }
+    Ok(written)
 }
 
 fn is_ancestor(
@@ -2087,5 +2118,31 @@ impl RenderSession {
         self.engine
             .render_offline_block(frames)
             .map_err(|err| err.to_string())
+    }
+}
+
+/// Owned snapshot of the inputs needed to render stems off the UI thread.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct StemsRenderJob {
+    template: EngineBuildRequest,
+    directory: PathBuf,
+    start: notwig_core::TimeMus,
+    end: notwig_core::TimeMus,
+    options: notwig_project::ExportOptions,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl StemsRenderJob {
+    pub fn render(self) -> Result<Vec<(PathBuf, usize)>, String> {
+        let Self {
+            template,
+            directory,
+            start,
+            end,
+            options,
+        } = self;
+        render_stems(&template.doc, &directory, start, end, options, || {
+            template.clone().build()
+        })
     }
 }

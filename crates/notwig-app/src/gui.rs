@@ -102,6 +102,11 @@ struct RenderEncodeResult {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+struct StemsRenderResult {
+    directory: PathBuf,
+    result: Result<Vec<(PathBuf, usize)>, String>,
+}
+
 const RENDER_ENCODING_NOTIFICATION_TAG: &str = "render-encoding";
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -154,8 +159,12 @@ pub struct NotwigApp {
     #[cfg(not(target_arch = "wasm32"))]
     recovery_selection: Option<PathBuf>,
     render_job: Option<RenderJob>,
+    #[cfg(target_arch = "wasm32")]
+    pending_web_encode: Option<RenderJob>,
     #[cfg(not(target_arch = "wasm32"))]
     render_encode_rx: Option<mpsc::Receiver<RenderEncodeResult>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    stems_render_rx: Option<mpsc::Receiver<StemsRenderResult>>,
     render_playhead: Option<TimeMus>,
     audio_durations: std::collections::BTreeMap<PathBuf, Option<f64>>,
     audio_analysis_pending: std::collections::BTreeSet<PathBuf>,
@@ -274,6 +283,8 @@ impl NotwigApp {
             render_job: None,
             #[cfg(not(target_arch = "wasm32"))]
             render_encode_rx: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            stems_render_rx: None,
             render_playhead: None,
             audio_durations: std::collections::BTreeMap::new(),
             audio_analysis_pending: std::collections::BTreeSet::new(),
@@ -325,6 +336,8 @@ impl NotwigApp {
             pending_drops: Vec::new(),
             recovery_error: None,
             render_job: None,
+            #[cfg(target_arch = "wasm32")]
+            pending_web_encode: None,
             render_playhead: None,
             audio_durations: std::collections::BTreeMap::new(),
             audio_analysis_pending: std::collections::BTreeSet::new(),
@@ -1121,29 +1134,20 @@ impl NotwigApp {
                     });
                 });
                 self.render_encode_rx = Some(rx);
-                self.ui.state.notify_persistent_progress(
+                self.ui.state.notify_persistent_indeterminate(
                     NotificationKind::Info,
                     "Encoding audio…",
-                    0.0,
                     RENDER_ENCODING_NOTIFICATION_TAG,
                 );
             }
             #[cfg(target_arch = "wasm32")]
             {
-                match notwig_project::write_wav_f32_bytes(job.session.sample_rate, 2, &job.output) {
-                    Ok(bytes) => {
-                        let name = job
-                            .path
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or("mixdown.wav");
-                        match crate::web::storage::download_bytes(name, "audio/wav", &bytes) {
-                            Ok(()) => self.notify_info(format!("Rendered {total} frames.")),
-                            Err(error) => self.notify_error(error),
-                        }
-                    }
-                    Err(error) => self.notify_error(error.to_string()),
-                }
+                self.pending_web_encode = Some(job);
+                self.ui.state.notify_persistent_indeterminate(
+                    NotificationKind::Info,
+                    "Encoding audio…",
+                    RENDER_ENCODING_NOTIFICATION_TAG,
+                );
             }
             self.ui.render_progress = None;
             self.render_playhead = None;
@@ -1155,11 +1159,13 @@ impl NotwigApp {
     fn render_busy(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.render_job.is_some() || self.render_encode_rx.is_some()
+            self.render_job.is_some()
+                || self.render_encode_rx.is_some()
+                || self.stems_render_rx.is_some()
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.render_job.is_some()
+            self.render_job.is_some() || self.pending_web_encode.is_some()
         }
     }
 
@@ -1192,6 +1198,63 @@ impl NotwigApp {
                     .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
                 self.notify_error("Audio encoding stopped unexpectedly.".into());
             }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_stems_render(&mut self) {
+        let received = match self.stems_render_rx.as_ref() {
+            Some(rx) => rx.try_recv(),
+            None => return,
+        };
+        match received {
+            Ok(completed) => {
+                self.stems_render_rx = None;
+                self.ui
+                    .state
+                    .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
+                match completed.result {
+                    Ok(stems) => self.notify_info(format!(
+                        "Rendered {} stems to {}",
+                        stems.len(),
+                        completed.directory.display()
+                    )),
+                    Err(err) => self.notify_error(err),
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.stems_render_rx = None;
+                self.ui
+                    .state
+                    .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
+                self.notify_error("Stem rendering stopped unexpectedly.".into());
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn poll_web_encode(&mut self) {
+        let Some(job) = self.pending_web_encode.take() else {
+            return;
+        };
+        let total = job.session.total_frames();
+        self.ui
+            .state
+            .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
+        match notwig_project::write_wav_f32_bytes(job.session.sample_rate, 2, &job.output) {
+            Ok(bytes) => {
+                let name = job
+                    .path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("mixdown.wav");
+                match crate::web::storage::download_bytes(name, "audio/wav", &bytes) {
+                    Ok(()) => self.notify_info(format!("Rendered {total} frames.")),
+                    Err(error) => self.notify_error(error),
+                }
+            }
+            Err(error) => self.notify_error(error.to_string()),
         }
     }
 
@@ -2415,14 +2478,19 @@ impl NotwigApp {
                 };
                 let export = export_options(options);
                 if options.stems {
-                    match self.workspace.render_stems_to(&path, start, end, export) {
-                        Ok(stems) => self.notify_info(format!(
-                            "Rendered {} stems to {}",
-                            stems.len(),
-                            path.display()
-                        )),
-                        Err(err) => self.notify_error(err),
-                    }
+                    let job = self.workspace.stems_render_job(&path, start, end, export);
+                    let directory = path;
+                    let (tx, rx) = mpsc::channel();
+                    std::thread::spawn(move || {
+                        let result = job.render();
+                        let _ = tx.send(StemsRenderResult { directory, result });
+                    });
+                    self.stems_render_rx = Some(rx);
+                    self.ui.state.notify_persistent_indeterminate(
+                        NotificationKind::Info,
+                        "Encoding audio…",
+                        RENDER_ENCODING_NOTIFICATION_TAG,
+                    );
                 } else {
                     if path.extension().is_none() {
                         path.set_extension(options.format.extension());
@@ -2513,10 +2581,9 @@ impl NotwigApp {
             target,
             project_rate,
         });
-        self.ui.state.notify_persistent_progress(
+        self.ui.state.notify_persistent_indeterminate(
             NotificationKind::Info,
             "Analyzing audio…",
-            0.0,
             audio_import_notification_tag(asset_id),
         );
         self.workspace.status = Some("Analyzing audio…".into());
@@ -2575,6 +2642,8 @@ impl eframe::App for NotwigApp {
             self.poll_audio_analysis();
             self.poll_audio_imports();
         }
+        #[cfg(target_arch = "wasm32")]
+        self.poll_web_encode();
         self.advance_render();
         #[cfg(target_arch = "wasm32")]
         if let Some(recording) = &self.recording {
@@ -2586,6 +2655,8 @@ impl eframe::App for NotwigApp {
         }
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_render_encode();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_stems_render();
         #[cfg(target_arch = "wasm32")]
         self.poll_web_storage();
         self.workspace.poll_plugin_catalog();

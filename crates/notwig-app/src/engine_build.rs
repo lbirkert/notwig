@@ -24,6 +24,7 @@ pub(crate) struct EngineExtensionRuntime {
     pub(crate) settings: BTreeMap<String, ExtensionSettings>,
 }
 
+#[derive(Clone)]
 pub(crate) struct EngineBuildRequest {
     pub(crate) doc: ProjectDoc,
     pub(crate) caps: EngineCaps,

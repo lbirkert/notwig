@@ -1,2 +1,1 @@
-- Add a separate "Encoding Audio" progress notification after rendering finishes: use a horizontal indeterminate loader, not a circle spinner. Cover mixdown, stems, web mixdown, and the existing "Analyzing audio…" notification.
 - Metronome ignores the time-signature denominator: clicks are quarter notes and accents every numerator quarter notes. Make click pulse and accent use `beat_length`/`bar_length` so 6/8, 7/8, 3/2, and 12/8 are correct.

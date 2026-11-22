@@ -180,6 +180,25 @@ impl Default for NotwigUi {
     }
 }
 
+fn horizontal_indeterminate_bar(ui: &mut egui::Ui) {
+    let width = ui.available_width().max(1.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 4.0), egui::Sense::hover());
+    let painter = ui.painter();
+    let radius = egui::CornerRadius::same(2);
+    painter.rect_filled(rect, radius, theme::GRID);
+    let segment = (width * 0.35).max(24.0).min(width);
+    let travel = width + segment;
+    let time = ui.ctx().input(|input| input.time) as f32;
+    let phase = (time * 0.85).rem_euclid(1.0);
+    let left = rect.left() - segment + travel * phase;
+    let fill = egui::Rect::from_min_size(
+        egui::pos2(left, rect.top()),
+        egui::vec2(segment, rect.height()),
+    );
+    painter.rect_filled(fill.intersect(rect), radius, theme::ACCENT);
+    ui.ctx().request_repaint();
+}
+
 impl NotwigUi {
     pub fn set_device_panel_host(
         &mut self,
@@ -1354,7 +1373,9 @@ impl NotwigUi {
                                     dismiss = Some(index);
                                 }
                             });
-                            if let Some(progress) = note.progress {
+                            if note.indeterminate {
+                                horizontal_indeterminate_bar(ui);
+                            } else if let Some(progress) = note.progress {
                                 ui.add(
                                     egui::ProgressBar::new(progress.clamp(0.0, 1.0)).animate(true),
                                 );

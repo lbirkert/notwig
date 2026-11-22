@@ -372,6 +372,9 @@ pub struct Notification {
     pub created_at: f64,
     /// Optional progress in `0.0..=1.0` for long-running operations.
     pub progress: Option<f32>,
+    /// When `true`, render a horizontal indeterminate loader instead of a
+    /// determinate progress bar.
+    pub indeterminate: bool,
     /// Optional stable identity for long-running operations.
     ///
     /// Tags are not rendered. They let callers remove the notification for a
@@ -387,6 +390,7 @@ impl Notification {
             persistent: false,
             created_at,
             progress: None,
+            indeterminate: false,
             tag: None,
         }
     }
@@ -398,6 +402,7 @@ impl Notification {
             persistent: true,
             created_at,
             progress: None,
+            indeterminate: false,
             tag: None,
         }
     }
@@ -448,10 +453,28 @@ impl UiState {
         self.notify_with(kind, message, true);
     }
 
+    /// Pushes a persistent notification with a horizontal indeterminate loader.
+    ///
+    /// Remove the notification with [`UiState::remove_notification_by_tag`]
+    /// when the operation finishes.
+    pub fn notify_persistent_indeterminate(
+        &mut self,
+        kind: NotificationKind,
+        message: impl Into<String>,
+        tag: impl Into<String>,
+    ) {
+        let message = message.into();
+        let mut note = Notification::persistent(kind, message, self.clock);
+        note.indeterminate = true;
+        note.tag = Some(tag.into());
+        self.notifications.push(note);
+        self.enforce_notification_cap();
+    }
+
     /// Pushes a persistent progress notification with a stable tag.
     ///
-    /// Use an indeterminate progress value (`0.0`) when the operation cannot
-    /// report real progress. Remove the notification with
+    /// Use [`UiState::notify_persistent_indeterminate`] when the operation
+    /// cannot report real progress. Remove the notification with
     /// [`UiState::remove_notification_by_tag`] when the operation finishes.
     pub fn notify_persistent_progress(
         &mut self,
