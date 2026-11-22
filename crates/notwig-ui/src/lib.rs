@@ -40,8 +40,8 @@ pub use intent::{DropAudioTarget, ExportBitDepth, ExportFormat, ExportOptions, U
 pub use runtime::{
     AudioChannelConfig, AudioChannelDirection, AudioChannelFormat, AudioDeviceView,
     AudioDriverView, AudioInputView, AudioSettingsValue, AudioSettingsView, DspAnalysisView,
-    MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView, RecentProjectView,
-    RecordingTakeView, RuntimeView,
+    MAX_AUDIO_BLOCK_SIZE, MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY, MeterValues, PluginEntry,
+    ProjectPickerAction, ProjectPickerView, RecentProjectView, RecordingTakeView, RuntimeView,
 };
 #[cfg(feature = "app")]
 pub use shell::NotwigUi;

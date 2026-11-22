@@ -245,6 +245,12 @@ pub fn validated(
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
     }
+    let max_block_size = if settings.low_latency_monitoring {
+        notwig_ui::MAX_AUDIO_BLOCK_SIZE
+    } else {
+        notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
+    };
+    settings.block_size = settings.block_size.clamp(16, max_block_size);
     settings.low_latency_block_size = settings
         .low_latency_block_size
         .clamp(1, settings.block_size)

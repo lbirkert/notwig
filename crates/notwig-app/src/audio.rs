@@ -272,6 +272,11 @@ impl AudioService {
         }));
         let input_hub = InputHub::new(config.sample_rate, device_block);
         let output_route = output_route(settings, config.channels);
+        let high_latency_frames = if settings.low_latency_monitoring {
+            project_frames
+        } else {
+            0
+        };
         let mut engine = Engine::new(EngineConfig::new(config.sample_rate, project_frames));
         engine.attach_control(control);
         engine.attach_input_bus(input_hub.bus());
@@ -283,6 +288,7 @@ impl AudioService {
                 Arc::clone(&snapshot),
                 output_route,
                 project_frames,
+                high_latency_frames,
             ),
             SampleFormat::I16 => build::<i16>(
                 &device,
@@ -291,6 +297,7 @@ impl AudioService {
                 Arc::clone(&snapshot),
                 output_route,
                 project_frames,
+                high_latency_frames,
             ),
             SampleFormat::U16 => build::<u16>(
                 &device,
@@ -299,6 +306,7 @@ impl AudioService {
                 Arc::clone(&snapshot),
                 output_route,
                 project_frames,
+                high_latency_frames,
             ),
             SampleFormat::I32 => build::<i32>(
                 &device,
@@ -307,6 +315,7 @@ impl AudioService {
                 Arc::clone(&snapshot),
                 output_route,
                 project_frames,
+                high_latency_frames,
             ),
             other => Err(format!("unsupported sample format {other}")),
         }?;
@@ -624,6 +633,7 @@ fn build<T>(
     snapshot: Arc<Mutex<AudioSnapshot>>,
     output_route: (usize, Option<usize>),
     project_frames: usize,
+    high_latency_frames: usize,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
@@ -637,9 +647,10 @@ where
     let project_frames = project_frames.max(initial_frames.max(1));
     let mut low_scratch: Vec<f32> = vec![0.0; initial_frames.max(1) * 2];
     let mut project_scratch: Vec<f32> = vec![0.0; project_frames * 2];
-    let mut project_ring = std::collections::VecDeque::with_capacity(
-        project_frames.saturating_mul(4) + initial_frames.saturating_mul(2),
-    );
+    // Worst case is the fill target plus one full project chunk of overshoot.
+    // Since device_frames <= project_frames, 6 * project_frames covers it.
+    let mut project_ring =
+        std::collections::VecDeque::with_capacity(project_frames.saturating_mul(6));
     let mut project_generation = engine.transport_generation();
     let mut events = Vec::with_capacity(4096);
     let mut last_callback: Option<Instant> = None;
@@ -662,7 +673,8 @@ where
                 let crashed = snapshot.try_lock().is_ok_and(|snapshot| snapshot.crashed);
                 if !crashed {
                     let mut crashed_now = false;
-                    while project_ring.len() < frames * 2 {
+                    let target_len = frames.saturating_add(high_latency_frames) * 2;
+                    while project_ring.len() < target_len {
                         let outcome = catch_unwind(AssertUnwindSafe(|| {
                             engine
                                 .process(&mut project_scratch[..project_frames * 2], project_frames)

@@ -14,7 +14,9 @@ The Audio page selects the output system:
   the default changes. On first launch, the default driver and **System Out** are
   selected automatically.
 - **Sample rate**: automatic or a rate reported by the device.
-- **Block size**: the project render block, 16 to 8192 samples in steps of 16.
+- **Block size**: the project render block, 16 to 8192 samples in steps of 16
+  when low latency monitoring is enabled. With low latency monitoring disabled
+  the maximum is 2048 samples.
 - **Enable low latency monitoring**: enables the separate low-latency monitor
   path and makes the Low Latency track monitoring mode available.
 - **Low latency buffer**: the output device callback block used for Low Latency

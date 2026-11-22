@@ -894,14 +894,14 @@ fn runtime_chunks_blocks_larger_than_its_prepared_buffer() {
     )
     .unwrap();
     let mut engine = Engine::from_prepared(
-        EngineConfig::new(48_000, 2048),
+        EngineConfig::new(48_000, 8192),
         factory,
         prepared,
         notwig_engine::TransportRuntime::default(),
         false,
     );
-    let mut output = vec![0.0_f32; 2048 * 2];
-    engine.process(&mut output, 2048).unwrap();
+    let mut output = vec![0.0_f32; 8192 * 2];
+    engine.process(&mut output, 8192).unwrap();
 }
 
 #[test]

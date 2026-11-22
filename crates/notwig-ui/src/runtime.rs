@@ -8,6 +8,9 @@ use notwig_ext_api::{DeviceMeterSnapshot, ExtensionIndexEntry, ExtensionInfo};
 use crate::clipboard::Clipboard;
 use crate::waveform::{AudioWaveform, WaveformCache};
 
+pub const MAX_AUDIO_BLOCK_SIZE: u32 = 8192;
+pub const MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY: u32 = 2048;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MeterValues {
     pub peak_l: f32,

@@ -260,8 +260,10 @@ the device callback use the project block and treats Low Latency track modes as
 Enabled. A preallocated ring buffer carries
 project output into the device callback and is consumed in device-sized slices.
 
-Low-latency monitor tracks do not write into the project ring. They drain their
-input queues in the device callback, run through a second set of their track's
+With low-latency monitoring enabled, the project ring keeps one project block of
+headroom so the regular high-latency monitor path really is delayed by the
+project block size. Low-latency monitor tracks do not write into the project
+ring. They drain their input queues in the device callback, run through a second set of their track's
 device-chain processors prepared at the project block size, apply track
 gain/pan/mute/solo, and are mixed directly into the device slice. Their monitor
 path skips groups, sends, and the master chain. The second processor set is

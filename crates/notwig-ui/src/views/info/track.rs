@@ -127,13 +127,6 @@ impl NotwigUi {
                     ui.close();
                 }
             });
-        if track.record_armed {
-            ui.label(
-                RichText::new("Monitoring while armed")
-                    .small()
-                    .color(theme::ACCENT),
-            );
-        }
     }
 
     fn track_monitor_editor(&mut self, ui: &mut egui::Ui, track: &Track, runtime: &RuntimeView) {
