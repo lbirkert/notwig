@@ -4,12 +4,6 @@
   "vendor": "Notwig",
   "version": "0.1.0",
   "api_version": 3,
-  "entrypoints": [
-    {
-      "entrypoint": "$$ENTRYPOINT",
-      "target": "$$TARGET"
-    }
-  ],
   "capabilities": [
     "device",
     "ui.egui"

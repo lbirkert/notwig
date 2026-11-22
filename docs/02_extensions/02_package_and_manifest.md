@@ -2,6 +2,17 @@
 
 ## Directory layout
 
+An extension source project is a Cargo package with a manifest and an icon:
+
+```text
+my-gain/
+  Cargo.toml
+  extension.json       # source manifest: no entrypoints
+  icon.png             # packaged by default
+  src/lib.rs
+  assets/...           # optional; listed in includes
+```
+
 An installed extension is a directory under the per-user extension root:
 
 ```text
@@ -21,7 +32,9 @@ order that the host can run is used.
 
 ## Manifest
 
-`extension.json` declares the package and its devices:
+The source `extension.json` declares the package and its devices. It omits
+`entrypoints`; `notwig-ext-cli` adds the selected target entrypoint when it
+builds a ZIP:
 
 ```json
 {
@@ -30,16 +43,6 @@ order that the host can run is used.
   "vendor": "Example",
   "version": "0.1.0",
   "api_version": 3,
-  "entrypoints": [
-    {
-      "entrypoint": "my_gain.dylib",
-      "target": "macos-aarch64"
-    },
-    {
-      "entrypoint": "my_gain.wasm",
-      "target": "wasm"
-    }
-  ],
   "capabilities": ["device", "ui.egui"],
   "devices": [
     {
@@ -48,9 +51,17 @@ order that the host can run is used.
     }
   ],
   "description": "A minimal gain device.",
-  "image": "icon.png"
+  "image": "icon.png",
+  "includes": [
+    { "path": "assets/impulse.wav" },
+    { "path": "assets/desktop-only.bin", "target": "macos-aarch64" }
+  ]
 }
 ```
+
+The packaged manifest has `includes` removed and an `entrypoints` list added. A
+ZIP may contain multiple target binaries only when the manifest is assembled
+manually; the CLI builds one target per ZIP.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -59,7 +70,8 @@ order that the host can run is used.
 | `vendor` | no | Author or vendor shown in the explorer. |
 | `version` | yes | Package version string. |
 | `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `3`. |
-| `entrypoints` | yes | Ordered target builds. The first supported entry wins. |
+| `entrypoints` | installed only | Ordered target builds; the CLI adds it. The first supported entry wins. |
+| `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
 | `devices` | yes | Devices registered by the package. |
 | `description` | no | Short text shown in the explorer. |
@@ -87,10 +99,36 @@ An extension without `ui.egui` still appears in the device browser and uses the
 generic parameter view. See the
 [development design page](../03_development/12_egui_extension_panels.md).
 
+### Includes
+
+`includes` lists extra files to copy into the ZIP:
+
+```json
+"includes": [
+  { "path": "assets/impulse.wav" },
+  { "path": "assets/wasm-only.bin", "target": "wasm" }
+]
+```
+
+- `path` is relative to the extension source root and must stay inside it.
+- `target` is optional. When present, the file is included only for that build
+  target. Target aliases such as `macos-arm64` are accepted.
+- `extension.json` and `icon.png` are always included when present.
+- The `image` path is included as well when it differs from `icon.png`.
+- The CLI removes `includes` from the packaged manifest.
+
 ### Entrypoints and targets
 
-Each entrypoint names a file relative to the package directory and the target it
-was built for:
+`notwig-ext-cli` automatically adds an entrypoint for the built target:
+
+```json
+"entrypoints": [
+  { "entrypoint": "my_gain.wasm", "target": "wasm" }
+]
+```
+
+If you assemble a fat package manually, each entrypoint names a file relative to
+the package directory and the target it was built for:
 
 ```json
 "entrypoints": [
@@ -121,7 +159,8 @@ triples such as `aarch64-apple-darwin` and `wasm32-unknown-unknown`.
 `entrypoint` is a path relative to the package directory. It must stay inside
 the package. The host does not follow absolute paths or paths that escape the
 extension directory. The older singular `entry` and `entrypoint` string fields
-are rejected; every manifest must declare an `entrypoints` list.
+are rejected. Installed manifests must declare an `entrypoints` list; source
+manifests omit it and `notwig-ext-cli` adds it.
 
 ### Native and WASM
 
@@ -179,22 +218,28 @@ the extension's settings, including enabled state. Projects that use the device
 keep the device entry, but the device is unavailable until the extension is
 installed again.
 
-## Packaging from a workspace
+## Packaging with the CLI
 
-The repository includes `scripts/package-extension.sh`. It builds
-`notwig-ext-devices` for one target, substitutes the `$$TARGET` and
-`$$ENTRYPOINT` placeholders in the manifest template, and writes a ZIP containing
-`extension.json`, the target binary, and the icon:
+The `notwig-ext-cli` crate builds one target, transforms the manifest, and
+writes the ZIP:
+
+```sh
+notwig-ext-cli build wasm
+notwig-ext-cli build macos-aarch64 --out-dir docs/extensions --name my-gain-macos
+```
+
+Without `--name`, the ZIP is named `<extension-id>-<target>.zip`. Supported
+targets are `wasm`, `macos-aarch64`, `macos-x86_64`, `linux-x86_64`,
+`linux-aarch64`, `windows-x86_64`, and `windows-aarch64`.
+
+The repository keeps a thin `scripts/package-extension.sh` wrapper for the stock
+`notwig-ext-devices` package:
 
 ```sh
 ./scripts/package-extension.sh wasm
 ./scripts/package-extension.sh macos-aarch64
 ```
 
-Supported targets are `wasm`, `macos-aarch64`, `macos-x86_64`, `linux-x86_64`,
-`linux-aarch64`, `windows-x86_64`, and `windows-aarch64`. Adding a target is a
-case in the script. With no argument the script builds WASM, plus the macOS
-Apple Silicon build when running on an Apple Silicon Mac.
-
-Use the script as a template for your own release script; see
+The CLI also provides `new` and `init` to scaffold a working extension with
+`Cargo.toml`, `src/lib.rs`, `extension.json`, and a default `icon.png`. See
 [Testing and Distribution](05_testing_and_distribution.md).

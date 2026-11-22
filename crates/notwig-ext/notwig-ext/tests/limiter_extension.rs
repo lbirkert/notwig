@@ -21,7 +21,7 @@ fn manifest_template() -> Option<String> {
 
 fn load_host() -> Option<(ExtensionHost, PathBuf)> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest_dir.parent()?.parent()?;
+    let workspace = manifest_dir.parent()?.parent()?.parent()?;
     let wasm = std::fs::read(
         workspace.join("target/wasm32-unknown-unknown/release/notwig_ext_devices.wasm"),
     )
@@ -43,7 +43,7 @@ fn load_native_host() -> Option<(ExtensionHost, PathBuf)> {
         return None;
     }
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace = manifest_dir.parent()?.parent()?;
+    let workspace = manifest_dir.parent()?.parent()?.parent()?;
     let candidates = [
         workspace.join("target/aarch64-apple-darwin/release/libnotwig_ext_devices.dylib"),
         workspace.join("target/release/libnotwig_ext_devices.dylib"),

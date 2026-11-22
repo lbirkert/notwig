@@ -67,7 +67,7 @@ def published_url(source: str, resolved: Path | None) -> str:
             f"build-extensions: local source must live under docs/: {source}"
         ) from error
 
-def find_manifest(archive: zipfile.ZipFile) -> bytes:
+def find_manifest(archive: zipfile.ZipFile) -> tuple[bytes, str]:
     candidates = []
     for name in archive.namelist():
         normalized = name.replace("\\", "/")
@@ -80,9 +80,38 @@ def find_manifest(archive: zipfile.ZipFile) -> bytes:
             "build-extensions: expected exactly one extension.json at the ZIP root "
             "or inside a single top-level directory"
         )
-    name, _ = candidates[0]
+    name, base = candidates[0]
     with archive.open(name) as file:
-        return file.read()
+        return file.read(), base
+
+
+def read_icon(archive: zipfile.ZipFile, manifest: dict, base: str, source: str) -> bytes | None:
+    image = manifest.get("image") or "icon.png"
+    if not isinstance(image, str):
+        raise SystemExit(f"build-extensions: {source}: image must be a string")
+    normalized = image.replace("\\", "/").lstrip("/")
+    if not normalized or normalized.startswith("../") or "/../" in normalized:
+        raise SystemExit(f"build-extensions: {source}: image must stay inside the package")
+    name = f"{base}{normalized}"
+    try:
+        with archive.open(name) as file:
+            return file.read()
+    except KeyError:
+        return None
+
+
+def icon_file_name(extension_id: str, source: str) -> str:
+    if (
+        not extension_id
+        or extension_id in (".", "..")
+        or "/" in extension_id
+        or "\\" in extension_id
+        or "\0" in extension_id
+    ):
+        raise SystemExit(
+            f"build-extensions: {source}: extension id is not safe as a file name"
+        )
+    return f"{extension_id}.png"
 
 def manifest_targets(manifest: dict, source: str) -> list[str]:
     entrypoints = manifest.get("entrypoints")
@@ -132,7 +161,9 @@ for row in rows[1:]:
         )
 
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        manifest = json.loads(find_manifest(archive))
+        manifest_bytes, manifest_base = find_manifest(archive)
+        manifest = json.loads(manifest_bytes)
+        icon_bytes = read_icon(archive, manifest, manifest_base, source)
 
     required = ("id", "name", "version", "api_version")
     missing = [field for field in required if not manifest.get(field)]
@@ -148,6 +179,12 @@ for row in rows[1:]:
         devices.append({"name": device.get("name") or type_id, "type_id": type_id})
 
     url = published_url(source, resolved)
+    image_name = icon_file_name(manifest["id"], source)
+    if icon_bytes is not None:
+        icons_dir = root / "docs" / "extensions"
+        icons_dir.mkdir(parents=True, exist_ok=True)
+        (icons_dir / image_name).write_bytes(icon_bytes)
+    image_url = f"extensions/{image_name}" if icon_bytes is not None else None
     entry = entries.get(manifest["id"])
     if entry is None:
         entry = {
@@ -159,7 +196,7 @@ for row in rows[1:]:
             "capabilities": manifest.get("capabilities", []),
             "devices": devices,
             "description": manifest.get("description"),
-            "image": manifest.get("image"),
+            "image": image_url,
             "urls": [],
         }
         entries[manifest["id"]] = entry
@@ -167,6 +204,10 @@ for row in rows[1:]:
         raise SystemExit(
             f"build-extensions: {manifest['id']}: mixed versions "
             f"{entry['version']} and {manifest['version']}"
+        )
+    elif entry.get("image") != image_url:
+        raise SystemExit(
+            f"build-extensions: {manifest['id']}: mixed icon images"
         )
 
     if not any(item["url"] == url for item in entry["urls"]):

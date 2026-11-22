@@ -13,19 +13,19 @@ Most extension behavior can be tested without the wasm host:
 
 The `notwig-ext-devices` limiter and gate are the reference projects:
 
-- `crates/notwig-ext-api/tests/egui_bridge.rs` covers guest frame generation and
+- `crates/notwig-ext/notwig-ext-api/tests/egui_bridge.rs` covers guest frame generation and
   action output.
-- `crates/notwig-ext-api/tests/egui_wire.rs` covers frame validation and limits.
-- `crates/notwig-ext-api/tests/note_events.rs` covers the note-event wire format.
-- `crates/notwig-ext-devices/tests/limiter.rs` exercises the limiter spec, egui
+- `crates/notwig-ext/notwig-ext-api/tests/egui_wire.rs` covers frame validation and limits.
+- `crates/notwig-ext/notwig-ext-api/tests/note_events.rs` covers the note-event wire format.
+- `crates/notwig-ext/notwig-ext-devices/tests/limiter.rs` exercises the limiter spec, egui
   frame output, threshold limiting, release recovery, and parameter rejection.
-- `crates/notwig-ext-devices/tests/gate.rs` exercises the gate spec, egui frame
+- `crates/notwig-ext/notwig-ext-devices/tests/gate.rs` exercises the gate spec, egui frame
   output, open/close behavior, and parameter rejection.
-- `crates/notwig-ext-devices/tests/synth.rs` exercises the synth spec, egui
+- `crates/notwig-ext/notwig-ext-devices/tests/synth.rs` exercises the synth spec, egui
   frame output, oscillator modes, note on/off, ADSR release, and parameter
   rejection.
-- `crates/notwig-ext-devices/tests/egui_device.rs` exercises the gain device.
-- `crates/notwig-ext/tests/limiter_extension.rs` loads the built extension
+- `crates/notwig-ext/notwig-ext-devices/tests/egui_device.rs` exercises the gain device.
+- `crates/notwig-ext/notwig-ext/tests/limiter_extension.rs` loads the built extension
   through the real wasm host when the module is present, including synth note
   playback.
 - `crates/notwig-ui/tests/extension_panel.rs` covers host-side compositing,
@@ -84,7 +84,7 @@ The repository script builds one target and writes a ZIP:
 ./scripts/package-extension.sh macos-aarch64
 ```
 
-It reads the `crates/notwig-ext-devices/extension.json` template, builds the
+It reads the `crates/notwig-ext/notwig-ext-devices/extension.json` template, builds the
 crate for the requested target, substitutes `$$TARGET` and `$$ENTRYPOINT` in the
 manifest, and writes `docs/extensions/ext-devices-<target>.zip`. Each ZIP
 contains:

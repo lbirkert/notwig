@@ -42,10 +42,10 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 
 - `crates/notwig-core/README.md`
 - `crates/notwig-project/README.md`
-- `crates/notwig-ext-api/README.md`
-- `crates/notwig-ext-macros/README.md`
-- `crates/notwig-ext/README.md`
-- `crates/notwig-ext-devices/README.md`
+- `crates/notwig-ext/notwig-ext-api/README.md`
+- `crates/notwig-ext/notwig-ext-macros/README.md`
+- `crates/notwig-ext/notwig-ext/README.md`
+- `crates/notwig-ext/notwig-ext-devices/README.md`
 - `crates/notwig-engine/README.md`
 - `crates/notwig-plugins/README.md`
 - `crates/notwig-ui/README.md`

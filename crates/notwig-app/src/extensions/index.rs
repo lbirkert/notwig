@@ -10,6 +10,7 @@ pub(crate) const MAX_INDEX_BYTES: usize = 4 * 1024 * 1024;
 pub(crate) struct IndexFetchResult {
     pub entries: Vec<ExtensionIndexEntry>,
     pub errors: Vec<String>,
+    pub images: BTreeMap<String, Vec<u8>>,
 }
 
 pub(crate) fn merge_indexes(documents: Vec<(String, Vec<u8>)>) -> IndexFetchResult {
@@ -28,6 +29,10 @@ pub(crate) fn merge_indexes(documents: Vec<(String, Vec<u8>)>) -> IndexFetchResu
                 errors.push(format!("{source}: {}: {error}", entry.id));
                 continue;
             }
+            if let Err(error) = resolve_entry_image(&mut entry, &source) {
+                errors.push(format!("{source}: {}: {error}", entry.id));
+                entry.image = None;
+            }
             if let Err(error) = entry.validate() {
                 errors.push(format!("{source}: {}: {error}", entry.id));
                 continue;
@@ -43,6 +48,7 @@ pub(crate) fn merge_indexes(documents: Vec<(String, Vec<u8>)>) -> IndexFetchResu
     IndexFetchResult {
         entries: entries.into_values().collect(),
         errors,
+        images: BTreeMap::new(),
     }
 }
 
@@ -118,6 +124,13 @@ fn resolve_entry_urls(entry: &mut ExtensionIndexEntry, index_source: &str) -> Re
     Ok(())
 }
 
+fn resolve_entry_image(entry: &mut ExtensionIndexEntry, index_source: &str) -> Result<(), String> {
+    if let Some(image) = &mut entry.image {
+        resolve_url(image, index_source)?;
+    }
+    Ok(())
+}
+
 fn resolve_url(value: &mut String, index_source: &str) -> Result<(), String> {
     if let Ok(url) = url::Url::parse(value) {
         if url.has_host() || url.scheme() == "file" {
@@ -176,6 +189,31 @@ mod tests {
                 .download_for(|target| target == "wasm")
                 .map(|download| download.url.as_str()),
             Some("https://example.com/wasm.zip")
+        );
+    }
+
+    #[test]
+    fn resolves_index_images_relative_to_the_index() {
+        let document = format!(
+            r#"[{{
+                "id": "com.test.gain",
+                "name": "Test Gain",
+                "vendor": "Test",
+                "version": "0.1.0",
+                "api_version": 3,
+                "urls": [{{ "url": "gain.zip", "hash": "{HASH}", "targets": ["wasm"] }}],
+                "devices": [],
+                "image": "extensions/com.test.gain.png"
+            }}]"#
+        );
+        let result = merge_indexes(vec![(
+            "https://example.com/extensions.json".into(),
+            document.into_bytes(),
+        )]);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            result.entries[0].image.as_deref(),
+            Some("https://example.com/extensions/com.test.gain.png")
         );
     }
 

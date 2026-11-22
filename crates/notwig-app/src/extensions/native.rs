@@ -17,6 +17,7 @@ use super::index::{
 };
 
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_ICON_BYTES: usize = 4 * 1024 * 1024;
 
 type InstallResult = Result<InstalledExtension, String>;
 
@@ -25,6 +26,7 @@ pub(crate) struct ExtensionManager {
     host: Option<ExtensionHost>,
     infos: Vec<ExtensionInfo>,
     index_entries: Vec<ExtensionIndexEntry>,
+    index_icons: BTreeMap<String, Arc<Vec<u8>>>,
     index_errors: Vec<String>,
     index_loading: bool,
     index_loaded: bool,
@@ -41,6 +43,7 @@ impl ExtensionManager {
             host: None,
             infos: Vec::new(),
             index_entries: Vec::new(),
+            index_icons: BTreeMap::new(),
             index_errors: Vec::new(),
             index_loading: false,
             index_loaded: false,
@@ -113,11 +116,17 @@ impl ExtensionManager {
                 Err(mpsc::TryRecvError::Disconnected) => Some(IndexFetchResult {
                     entries: Vec::new(),
                     errors: vec!["Extension index worker stopped.".into()],
+                    images: BTreeMap::new(),
                 }),
             });
         if let Some(result) = result {
             self.index_rx = None;
             self.index_entries = result.entries;
+            self.index_icons = result
+                .images
+                .into_iter()
+                .map(|(id, bytes)| (id, Arc::new(bytes)))
+                .collect();
             self.index_errors = result.errors;
             self.index_loading = false;
             self.index_loaded = true;
@@ -159,9 +168,8 @@ impl ExtensionManager {
         self.error.iter().cloned().collect()
     }
 
-    #[allow(clippy::unused_self)]
     pub(crate) fn icons(&self) -> BTreeMap<String, Arc<Vec<u8>>> {
-        BTreeMap::new()
+        self.index_icons.clone()
     }
 
     pub(crate) fn indexes(&self) -> Vec<String> {
@@ -305,7 +313,29 @@ fn fetch_indexes(indexes: Vec<String>) -> IndexFetchResult {
     }
     let mut result = merge_indexes(documents);
     result.errors.splice(0..0, errors);
+    result.images = fetch_index_images(&result.entries);
     result
+}
+
+fn fetch_index_images(entries: &[ExtensionIndexEntry]) -> BTreeMap<String, Vec<u8>> {
+    let mut images = BTreeMap::new();
+    for entry in entries {
+        let Some(image) = &entry.image else {
+            continue;
+        };
+        match read_source_bytes(image) {
+            Ok(bytes) if bytes.len() <= MAX_ICON_BYTES => {
+                images.insert(entry.id.clone(), bytes);
+            }
+            Ok(_) => {
+                tracing::warn!(extension = %entry.id, image, "extension index icon is too large");
+            }
+            Err(error) => {
+                tracing::warn!(extension = %entry.id, image, error = %error, "could not load extension index icon");
+            }
+        }
+    }
+    images
 }
 
 fn read_source_bytes(source: &str) -> Result<Vec<u8>, String> {

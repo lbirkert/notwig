@@ -262,16 +262,16 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Audio probing, export, hashing, resampling | `crates/notwig-project/tests/probe.rs`, `export.rs`, `import_hash.rs`, `resample.rs` |
 | Browser bundle/files and byte audio I/O | `crates/notwig-project/tests/browser_io.rs` |
 | DSP plans and stock devices | `crates/notwig-core/tests/dsp_graph.rs`, `dsp_stock.rs` |
-| Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/abi.rs` |
-| Egui panel wire validation | `crates/notwig-ext-api/tests/egui_wire.rs` |
-| Guest egui bridge | `crates/notwig-ext-api/tests/egui_bridge.rs` |
-| Extension ABI helpers | `crates/notwig-ext-api/tests/abi_helpers.rs` |
-| Limiter, gate, synth, and gain example devices | `crates/notwig-ext-devices/tests/` |
-| Extension index and config | `crates/notwig-ext-api/tests/index_config.rs` |
-| Extension ZIP install | `crates/notwig-ext/tests/install.rs` |
+| Extension ABI, WASM devices, panels | `crates/notwig-ext/notwig-ext/tests/abi.rs` |
+| Egui panel wire validation | `crates/notwig-ext/notwig-ext-api/tests/egui_wire.rs` |
+| Guest egui bridge | `crates/notwig-ext/notwig-ext-api/tests/egui_bridge.rs` |
+| Extension ABI helpers | `crates/notwig-ext/notwig-ext-api/tests/abi_helpers.rs` |
+| Limiter, gate, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
+| Extension index and config | `crates/notwig-ext/notwig-ext-api/tests/index_config.rs` |
+| Extension ZIP install | `crates/notwig-ext/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |
-| Built limiter/synth load through the host | `crates/notwig-ext/tests/limiter_extension.rs` |
-| Extension panel transport | `crates/notwig-ext/tests/abi.rs` |
+| Built limiter/synth load through the host | `crates/notwig-ext/notwig-ext/tests/limiter_extension.rs` |
+| Extension panel transport | `crates/notwig-ext/notwig-ext/tests/abi.rs` |
 | Engine playback/rendering | `crates/notwig-engine/tests/render.rs` |
 | Control exchange and prepared runtimes | `crates/notwig-engine/tests/control.rs` |
 | MIDI preview note-offs | `crates/notwig-engine/tests/preview.rs` |
@@ -356,7 +356,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 4. Ship `extension.json` with `api_version: 3`, an ordered `entrypoints` list
    (native and/or `wasm` targets), and the `device`/`ui.egui` capabilities. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer.
-5. Add frame tests in `crates/notwig-ext-devices/tests/` and a host compositing
+5. Add frame tests in `crates/notwig-ext/notwig-ext-devices/tests/` and a host compositing
    test in `crates/notwig-ui/tests/`. See
    [Extension Overview](../02_extensions/00_overview.md) for the full package
    and panel guide.

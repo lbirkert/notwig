@@ -58,7 +58,8 @@ fn runtime() -> RuntimeView {
         version: "0.1.0".into(),
         description: Some("A simple peak limiter.".into()),
         image_path: Some(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../notwig-ext-devices/icon.png"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../notwig-ext/notwig-ext-devices/icon.png"),
         ),
         capabilities: vec![ExtensionCapability::Device],
         status: ExtensionStatus::Loaded,

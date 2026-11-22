@@ -10,7 +10,9 @@ use notwig_ext::{
     ExtensionArchive, WebExtensionHost, WebExtensionPackage, read_archive, read_extension_files,
     validate_extension_id,
 };
-use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
+use notwig_ext_api::{
+    DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
+};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 
@@ -26,6 +28,7 @@ const EXTENSIONS_DIR: &str = "notwig-extensions";
 const CONFIG_KEY: &str = "notwig.extension-config";
 const UNINSTALLED_KEY: &str = "notwig.uninstalled-extensions";
 const STOCK_PACKAGE: &str = "extensions/ext-devices-wasm.zip";
+const MAX_ICON_BYTES: usize = 4 * 1024 * 1024;
 
 pub(crate) struct ExtensionManager {
     config: ExtensionConfig,
@@ -33,9 +36,11 @@ pub(crate) struct ExtensionManager {
     host: Option<WebExtensionHost>,
     infos: Vec<ExtensionInfo>,
     errors: Vec<String>,
+    failed_paths: BTreeMap<String, Option<String>>,
     icons: BTreeMap<String, Arc<Vec<u8>>>,
     loading: bool,
     index_entries: Vec<ExtensionIndexEntry>,
+    index_icons: BTreeMap<String, Arc<Vec<u8>>>,
     index_errors: Vec<String>,
     index_loading: bool,
     index_loaded: bool,
@@ -48,6 +53,8 @@ struct LoadOutcome {
     host: WebExtensionHost,
     errors: Vec<String>,
     icons: BTreeMap<String, Arc<Vec<u8>>>,
+    failed_infos: Vec<ExtensionInfo>,
+    failed_paths: BTreeMap<String, Option<String>>,
 }
 
 enum AdminEvent {
@@ -70,9 +77,11 @@ impl ExtensionManager {
             host: None,
             infos: Vec::new(),
             errors: Vec::new(),
+            failed_paths: BTreeMap::new(),
             icons: BTreeMap::new(),
             loading: false,
             index_entries: Vec::new(),
+            index_icons: BTreeMap::new(),
             index_errors: Vec::new(),
             index_loading: false,
             index_loaded: false,
@@ -92,12 +101,15 @@ impl ExtensionManager {
         let config = self.config.clone();
         let uninstalled = self.uninstalled.clone();
         spawn_local(async move {
-            let (packages, errors, icons) = load_packages(&uninstalled).await;
+            let (packages, errors, icons, failed_infos, failed_paths) =
+                load_packages(&uninstalled).await;
             let host = WebExtensionHost::load(packages, &config);
             let _ = sender.send(LoadOutcome {
                 host,
                 errors,
                 icons,
+                failed_infos,
+                failed_paths,
             });
         });
     }
@@ -139,9 +151,11 @@ impl ExtensionManager {
             "loaded browser extensions"
         );
         self.infos = outcome.host.infos().to_vec();
+        self.infos.extend(outcome.failed_infos);
         self.host = Some(outcome.host);
         self.errors = outcome.errors;
         self.icons = outcome.icons;
+        self.failed_paths = outcome.failed_paths;
         true
     }
 
@@ -151,6 +165,7 @@ impl ExtensionManager {
             Some(Err(mpsc::TryRecvError::Disconnected)) => IndexFetchResult {
                 entries: Vec::new(),
                 errors: vec!["Extension index request stopped.".into()],
+                images: BTreeMap::new(),
             },
             Some(Err(mpsc::TryRecvError::Empty)) | None => return,
         };
@@ -158,6 +173,11 @@ impl ExtensionManager {
         self.index_loading = false;
         self.index_loaded = true;
         self.index_entries = result.entries;
+        self.index_icons = result
+            .images
+            .into_iter()
+            .map(|(id, bytes)| (id, Arc::new(bytes)))
+            .collect();
         self.index_errors = result.errors;
     }
 
@@ -220,7 +240,11 @@ impl ExtensionManager {
     }
 
     pub(crate) fn icons(&self) -> BTreeMap<String, Arc<Vec<u8>>> {
-        self.icons.clone()
+        let mut icons = self.icons.clone();
+        for (id, bytes) in &self.index_icons {
+            icons.entry(id.clone()).or_insert_with(|| Arc::clone(bytes));
+        }
+        icons
     }
 
     pub(crate) fn indexes(&self) -> Vec<String> {
@@ -353,6 +377,22 @@ impl ExtensionManager {
         if self.admin_rx.is_some() {
             return Err("An extension operation is already running.".into());
         }
+        if let Some(path) = self.failed_paths.get(id).cloned() {
+            self.uninstalled.mark(id);
+            self.persist_uninstalled()?;
+            let id = id.to_owned();
+            let (sender, receiver) = mpsc::channel();
+            self.admin_rx = Some(receiver);
+            spawn_local(async move {
+                let result = match path {
+                    Some(path) => crate::web::storage::remove_opfs_path(&path).await,
+                    None => Ok(()),
+                }
+                .map(|()| AdminEvent::Removed { id });
+                let _ = sender.send(result);
+            });
+            return Ok(());
+        }
         validate_extension_id(id).map_err(|error| error.to_string())?;
         self.config.settings.remove(id);
         self.persist_result()?;
@@ -406,10 +446,18 @@ type ExtensionIcons = BTreeMap<String, Arc<Vec<u8>>>;
 
 async fn load_packages(
     uninstalled: &UninstalledExtensions,
-) -> (Vec<WebExtensionPackage>, Vec<String>, ExtensionIcons) {
+) -> (
+    Vec<WebExtensionPackage>,
+    Vec<String>,
+    ExtensionIcons,
+    Vec<ExtensionInfo>,
+    BTreeMap<String, Option<String>>,
+) {
     let mut packages = BTreeMap::new();
     let mut errors = Vec::new();
     let mut icons = ExtensionIcons::new();
+    let mut failed_infos = Vec::new();
+    let mut failed_paths = BTreeMap::new();
     let entries = crate::web::storage::list_opfs_entries(EXTENSIONS_DIR)
         .await
         .unwrap_or_else(|error| {
@@ -424,7 +472,16 @@ async fn load_packages(
                     Ok((package, image)) => {
                         insert_package(&mut packages, &mut icons, package, image);
                     }
-                    Err(error) => errors.push(format!("{path}: {error}")),
+                    Err(error) => {
+                        let message = format!("{path}: {error}");
+                        failed_infos.push(failed_extension_info(
+                            path.clone(),
+                            name.clone(),
+                            message.clone(),
+                        ));
+                        failed_paths.insert(path.clone(), Some(path.clone()));
+                        errors.push(message);
+                    }
                 }
             }
             OpfsEntryKind::File if is_zip_name(&name) => {
@@ -434,24 +491,44 @@ async fn load_packages(
                         insert_package(&mut packages, &mut icons, package, image);
                     }
                     Ok(None) => {}
-                    Err(error) => errors.push(format!("{path}: {error}")),
+                    Err(error) => {
+                        let message = format!("{path}: {error}");
+                        failed_infos.push(failed_extension_info(
+                            path.clone(),
+                            name.clone(),
+                            message.clone(),
+                        ));
+                        failed_paths.insert(path.clone(), Some(path.clone()));
+                        errors.push(message);
+                    }
                 }
             }
             OpfsEntryKind::File => {}
         }
     }
-    match load_stock_package().await {
+    let stock_id = "stock:ext-devices-wasm.zip";
+    match load_stock_package(uninstalled).await {
         Ok(Some((package, image))) => insert_package(&mut packages, &mut icons, package, image),
         Ok(None) => {}
-        Err(error) => errors.push(error),
+        Err(error) => {
+            failed_infos.push(failed_extension_info(
+                stock_id.to_string(),
+                stock_package_file_name(),
+                error.clone(),
+            ));
+            failed_paths.insert(stock_id.to_string(), None);
+            errors.push(error);
+        }
     }
+    failed_infos.retain(|info| !uninstalled.contains(&info.id));
+    failed_paths.retain(|id, _| !uninstalled.contains(id));
     let packages = packages
         .into_iter()
         .filter(|(id, _)| !uninstalled.contains(id))
         .map(|(_, package)| package)
         .collect();
     icons.retain(|id, _| !uninstalled.contains(id));
-    (packages, errors, icons)
+    (packages, errors, icons, failed_infos, failed_paths)
 }
 
 fn insert_package(
@@ -467,7 +544,36 @@ fn insert_package(
     packages.entry(id).or_insert(package);
 }
 
-async fn load_stock_package() -> Result<Option<(WebExtensionPackage, Option<Vec<u8>>)>, String> {
+fn failed_extension_info(id: String, name: String, error: String) -> ExtensionInfo {
+    ExtensionInfo {
+        id,
+        name,
+        vendor: "Unknown".into(),
+        version: String::new(),
+        description: Some("Failed to parse extension manifest.".into()),
+        image_path: None,
+        capabilities: Vec::new(),
+        status: ExtensionStatus::Failed,
+        enabled: true,
+        device_count: 0,
+        error: Some(error),
+    }
+}
+
+fn stock_package_file_name() -> String {
+    Path::new(STOCK_PACKAGE).file_name().map_or_else(
+        || STOCK_PACKAGE.to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+async fn load_stock_package(
+    uninstalled: &UninstalledExtensions,
+) -> Result<Option<(WebExtensionPackage, Option<Vec<u8>>)>, String> {
+    let stock_id = "stock:ext-devices-wasm.zip";
+    if uninstalled.contains(stock_id) {
+        return Ok(None);
+    }
     let Some(base) = site_base_url() else {
         return Ok(None);
     };
@@ -551,7 +657,30 @@ async fn fetch_indexes(indexes: Vec<String>) -> IndexFetchResult {
     }
     let mut result = merge_indexes(documents);
     result.errors.splice(0..0, errors);
+    result.images = fetch_index_images(&result.entries).await;
     result
+}
+
+async fn fetch_index_images(entries: &[ExtensionIndexEntry]) -> BTreeMap<String, Vec<u8>> {
+    let mut images = BTreeMap::new();
+    for entry in entries {
+        let Some(image) = &entry.image else {
+            continue;
+        };
+        match crate::web::storage::fetch_bytes(image).await {
+            Ok(Some(bytes)) if bytes.len() <= MAX_ICON_BYTES => {
+                images.insert(entry.id.clone(), bytes);
+            }
+            Ok(Some(_)) => {
+                tracing::warn!(extension = %entry.id, image, "extension index icon is too large");
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(extension = %entry.id, image, error = %error, "could not load extension index icon");
+            }
+        }
+    }
+    images
 }
 
 fn extension_dir(id: &str) -> String {

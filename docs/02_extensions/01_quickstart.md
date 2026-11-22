@@ -2,6 +2,19 @@
 
 This page builds a minimal gain extension, packages it, and loads it in Notwig.
 
+The quickest path is the CLI:
+
+```sh
+cargo install --path crates/notwig-ext/notwig-ext-cli
+notwig-ext-cli new my-gain
+cd my-gain
+notwig-ext-cli build wasm
+```
+
+`new` generates a working gain device, `Cargo.toml`, `extension.json`, and a
+default `icon.png`. The rest of this page shows the generated files and how to
+build them manually.
+
 ## 1. Create the crate
 
 Create a library crate outside the Notwig workspace:
@@ -27,7 +40,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 notwig-core = { path = "/path/to/notwig/crates/notwig-core", default-features = false }
 notwig-ui = { path = "/path/to/notwig/crates/notwig-ui", default-features = false }
-notwig-ext-api = { path = "/path/to/notwig/crates/notwig-ext-api" }
+notwig-ext-api = { path = "/path/to/notwig/crates/notwig-ext/notwig-ext-api" }
 uuid = "1"
 ```
 
@@ -176,13 +189,8 @@ ABI on desktop targets. The device implements only the Rust surface.
   "vendor": "Example",
   "version": "0.1.0",
   "api_version": 3,
-  "entrypoints": [
-    {
-      "entrypoint": "my_gain.wasm",
-      "target": "wasm"
-    }
-  ],
   "capabilities": ["device", "ui.egui"],
+  "image": "icon.png",
   "devices": [
     {
       "name": "My Gain",
@@ -191,6 +199,19 @@ ABI on desktop targets. The device implements only the Rust surface.
   ]
 }
 ```
+
+The source manifest omits `entrypoints`; the CLI adds the selected target
+entrypoint when packaging. Add extra runtime assets with `includes`:
+
+```json
+"includes": [
+  { "path": "assets/impulse.wav" },
+  { "path": "assets/desktop-only.bin", "target": "macos-aarch64" }
+]
+```
+
+`extension.json` and `icon.png` are included automatically. The `includes` field
+is removed from the packaged manifest.
 
 The manifest `id`, the device `type_id`, and the renderer string in
 `DeviceUiSpec::custom` should agree. See
@@ -202,38 +223,26 @@ For a portable WASM build:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo build --target wasm32-unknown-unknown --release
+notwig-ext-cli build wasm
 ```
 
-The module is written to:
+The CLI runs `cargo build --release`, derives the artifact filename from the
+Cargo library target, adds the `entrypoints` field, and writes:
 
 ```text
-target/wasm32-unknown-unknown/release/my_gain.wasm
+dist/com.example.gain-wasm.zip
 ```
-
-Cargo converts dashes in the crate name to underscores in the output filename.
-Copy or rename it to match the manifest `entrypoint` field.
 
 For a native build on macOS Apple Silicon:
 
 ```sh
-cargo build --target aarch64-apple-darwin --release
+notwig-ext-cli build macos-aarch64
 ```
 
-The shared library is written to:
+Use `--out-dir` and `--name` to choose the output location or filename:
 
-```text
-target/aarch64-apple-darwin/release/libmy_gain.dylib
-```
-
-Add a native entrypoint before the WASM entry so desktop users load the shared
-library and the browser still has a portable fallback:
-
-```json
-"entrypoints": [
-  { "entrypoint": "my_gain.dylib", "target": "macos-aarch64" },
-  { "entrypoint": "my_gain.wasm", "target": "wasm" }
-]
+```sh
+notwig-ext-cli build macos-aarch64 --out-dir docs/extensions --name my-gain-macos
 ```
 
 Native libraries are not sandboxed. See
@@ -242,22 +251,13 @@ trust implications.
 
 ## 5. Install and load
 
-The easiest path is to package the manifest and module into a ZIP whose root
-contains `extension.json`, then use **Settings > Extensions > Add .ZIP**.
+Use **Settings > Extensions > Add .ZIP** and select the generated ZIP.
 Installing reloads the extension host automatically.
 
-You can also copy the directory into the user extension directory:
-
-```text
-~/Library/Application Support/notwig/extensions/com.example.gain/
-  extension.json
-  my_gain.dylib       # native target, optional
-  my_gain.wasm
-  icon.png            # optional
-```
-
-Restart Notwig after a manual copy. The device then appears under
-**EXTENSIONS** in the Add Device browser.
+You can also copy an installed package directory into the user extension
+directory, but the ZIP path is preferred because it includes the transformed
+manifest and entrypoint. Restart Notwig after a manual copy. The device then
+appears under **EXTENSIONS** in the Add Device browser.
 
 ## 6. Verify
 
@@ -267,8 +267,8 @@ Restart Notwig after a manual copy. The device then appears under
 4. Drag the knob. The parameter should move and the sound should change.
 5. Save and reopen the project. The parameter value should be restored.
 
-If the device does not appear, check the manifest `api_version`, the
-`entrypoints` filenames and targets, the device `type_id`, and the extension
-error shown in **Settings > Extensions**.
+If the device does not appear, check the manifest `api_version`, the build
+target, the device `type_id`, and the extension error shown in
+**Settings > Extensions**.
 
 Next: [Package and Manifest](02_package_and_manifest.md).

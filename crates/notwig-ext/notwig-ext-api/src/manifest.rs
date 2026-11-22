@@ -34,6 +34,20 @@ pub struct ExtensionEntryPoint {
     pub target: String,
 }
 
+/// Extra file included in a package build.
+///
+/// Source manifests may list assets to bundle. An optional `target` limits the
+/// include to one build target. `notwig-ext-cli` removes this list from the
+/// packaged manifest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionInclude {
+    /// Relative path inside the extension source directory.
+    pub path: String,
+    /// Optional build target that gates this include.
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionManifest {
@@ -43,7 +57,10 @@ pub struct ExtensionManifest {
     pub vendor: String,
     pub version: String,
     pub api_version: u32,
+    #[serde(default)]
     pub entrypoints: Vec<ExtensionEntryPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub includes: Vec<ExtensionInclude>,
     #[serde(default)]
     pub capabilities: Vec<ExtensionCapability>,
     #[serde(default)]
@@ -55,7 +72,22 @@ pub struct ExtensionManifest {
 }
 
 impl ExtensionManifest {
+    /// Validates an installed package manifest.
+    ///
+    /// Installed packages must declare at least one entrypoint.
     pub fn validate(&self) -> Result<(), ManifestError> {
+        self.validate_with_entrypoints(true)
+    }
+
+    /// Validates a source manifest used by `notwig-ext-cli`.
+    ///
+    /// Source manifests omit `entrypoints`; the CLI adds the selected target
+    /// entrypoint before packaging.
+    pub fn validate_source(&self) -> Result<(), ManifestError> {
+        self.validate_with_entrypoints(false)
+    }
+
+    fn validate_with_entrypoints(&self, require_entrypoints: bool) -> Result<(), ManifestError> {
         if self.id.trim().is_empty() {
             return Err(ManifestError::Invalid(
                 "extension id must not be empty".into(),
@@ -71,7 +103,7 @@ impl ExtensionManifest {
                 "extension version must not be empty".into(),
             ));
         }
-        if self.entrypoints.is_empty() {
+        if require_entrypoints && self.entrypoints.is_empty() {
             return Err(ManifestError::Invalid(
                 "extension must declare at least one entrypoint".into(),
             ));
@@ -97,6 +129,16 @@ impl ExtensionManifest {
         }
         if let Some(image) = &self.image {
             validate_relative_image(image)?;
+        }
+        for include in &self.includes {
+            validate_relative_path(&include.path, "extension include")?;
+            if let Some(target) = &include.target {
+                if target::canonical(target).is_none() {
+                    return Err(ManifestError::Invalid(format!(
+                        "unknown include target: {target}"
+                    )));
+                }
+            }
         }
         let mut seen = std::collections::BTreeSet::new();
         for device in &self.devices {

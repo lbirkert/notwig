@@ -4,12 +4,13 @@ exclude = ["crates/notwig-rack"]
 members = [
   "crates/notwig-core",
   "crates/notwig-project",
-  "crates/notwig-ext-api",
-  "crates/notwig-ext-devices",
-  "crates/notwig-ext-macros",
+  "crates/notwig-ext/notwig-ext-api",
+  "crates/notwig-ext/notwig-ext-cli",
+  "crates/notwig-ext/notwig-ext-devices",
+  "crates/notwig-ext/notwig-ext-macros",
   "crates/notwig-engine",
   "crates/notwig-plugins",
-  "crates/notwig-ext",
+  "crates/notwig-ext/notwig-ext",
   "crates/notwig-ui",
   "crates/notwig-app",
   "crates/notwig-web",
@@ -25,12 +26,13 @@ repository = "https://github.com/lbirkert/notwig"
 [workspace.dependencies]
 notwig-core = { path = "crates/notwig-core" }
 notwig-project = { path = "crates/notwig-project" }
-notwig-ext-api = { path = "crates/notwig-ext-api" }
-notwig-ext-devices = { path = "crates/notwig-ext-devices" }
-notwig-ext-macros = { path = "crates/notwig-ext-macros" }
+notwig-ext-api = { path = "crates/notwig-ext/notwig-ext-api" }
+notwig-ext-devices = { path = "crates/notwig-ext/notwig-ext-devices" }
+notwig-ext-macros = { path = "crates/notwig-ext/notwig-ext-macros" }
 notwig-engine = { path = "crates/notwig-engine" }
 notwig-plugins = { path = "crates/notwig-plugins" }
-notwig-ext = { path = "crates/notwig-ext" }
+notwig-ext = { path = "crates/notwig-ext/notwig-ext" }
+notwig-ext-cli = { path = "crates/notwig-ext/notwig-ext-cli" }
 notwig-ui = { path = "crates/notwig-ui" }
 notwig-app = { path = "crates/notwig-app" }
 notwig-web = { path = "crates/notwig-web" }
