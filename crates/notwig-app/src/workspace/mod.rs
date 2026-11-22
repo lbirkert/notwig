@@ -190,7 +190,7 @@ impl Workspace {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) fn set_engine_playhead_samples(&mut self, samples: u64) {
         if samples > 0 {
             self.engine_playhead_samples = samples;
@@ -266,6 +266,7 @@ impl Workspace {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(dead_code)]
     pub(crate) fn set_engine_process(&mut self, handle: Option<EngineClientHandle>) {
         self.engine_process.clone_from(&handle);
         let sink = handle.map(|handle| {
@@ -276,6 +277,7 @@ impl Workspace {
         self.engine_control.set_remote_sink(sink);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_extension_engine_runtime(
         &mut self,
         runtime: Option<crate::engine_build::EngineExtensionRuntime>,
@@ -284,6 +286,7 @@ impl Workspace {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(dead_code)]
     pub(crate) fn engine_process_build_finished(&mut self, result: Result<(), String>) {
         match result {
             Ok(()) => {

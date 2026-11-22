@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 #[cfg(not(target_os = "macos"))]
-use crate::types::{PluginDescriptor, PluginError, PluginFormat};
+use crate::types::{PluginDescriptor, PluginError, PluginState};
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -621,5 +621,17 @@ impl NativePluginWindow {
 
     pub fn poll_changes(&mut self) -> Vec<(u32, f64)> {
         Vec::new()
+    }
+
+    pub fn save_state(&mut self) -> Result<PluginState, PluginError> {
+        Err(PluginError::Load(
+            "native plugin editors are unavailable on this platform".into(),
+        ))
+    }
+
+    pub fn load_state(&mut self, _state: &PluginState) -> Result<(), PluginError> {
+        Err(PluginError::Load(
+            "native plugin editors are unavailable on this platform".into(),
+        ))
     }
 }

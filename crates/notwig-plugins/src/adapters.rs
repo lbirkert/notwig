@@ -49,6 +49,7 @@ pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> notwig_rack
     }
 }
 
+#[cfg(target_os = "macos")]
 #[allow(unreachable_patterns)]
 pub(crate) fn load_plugin(
     descriptor: &PluginDescriptor,
@@ -64,6 +65,7 @@ pub(crate) fn load_plugin(
     }
 }
 
+#[cfg(target_os = "macos")]
 #[allow(unreachable_patterns)]
 fn load_plugin_inner(
     descriptor: &PluginDescriptor,

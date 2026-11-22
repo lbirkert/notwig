@@ -139,10 +139,9 @@ fn high_frequency_material_has_no_startup_transient() {
 
     let output = resample(&input, target_rate, ResampleQuality::High).unwrap();
 
-    for frame in 64..1_024 {
+    for (frame, &actual) in output.samples.iter().enumerate().take(1_024).skip(64) {
         let t = frame as f64 / f64::from(target_rate);
         let expected = 0.5 * (std::f64::consts::TAU * frequency * t + phase).sin() as f32;
-        let actual = output.samples[frame];
         assert!(
             (actual - expected).abs() < 0.02,
             "startup transient at frame {frame}: expected {expected}, got {actual}"

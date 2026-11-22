@@ -138,6 +138,7 @@ impl ExtensionManager {
         self.host.as_ref().map(ExtensionHost::panel_host)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn engine_runtime(&self) -> Option<crate::engine_build::EngineExtensionRuntime> {
         Some(crate::engine_build::EngineExtensionRuntime {
             root: extensions_dir()?,

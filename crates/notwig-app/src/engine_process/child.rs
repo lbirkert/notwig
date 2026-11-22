@@ -358,12 +358,20 @@ enum EditorCommand {
     Shutdown,
 }
 
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(clippy::zero_sized_map_values, clippy::drop_non_drop)
+)]
 struct EditorHost {
     monitors: Arc<MonitorRegistry>,
     windows: BTreeMap<DeviceId, NativePluginWindow>,
     replies: mpsc::Sender<EngineReply>,
 }
 
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(clippy::zero_sized_map_values, clippy::drop_non_drop)
+)]
 impl EditorHost {
     fn new(replies: mpsc::Sender<EngineReply>, monitors: Arc<MonitorRegistry>) -> Self {
         Self {
