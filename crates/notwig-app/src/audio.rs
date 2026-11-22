@@ -423,10 +423,12 @@ impl AudioService {
     }
 
     pub fn snapshot(&self) -> AudioSnapshot {
-        self.snapshot.lock().map_or_else(
+        let mut snapshot = self.snapshot.lock().map_or_else(
             |poisoned| poisoned.into_inner().clone(),
             |snapshot| snapshot.clone(),
-        )
+        );
+        snapshot.dsp.input_latency_samples = self.input_hub.bus().input_latency_samples();
+        snapshot
     }
 
     pub(crate) fn configure_inputs(
@@ -641,7 +643,17 @@ fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String>
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn resolve_input_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
-    if name.is_empty() || name == SYSTEM_OUT_DEVICE_ID {
+    if name.is_empty() {
+        return host
+            .default_input_device()
+            .ok_or_else(|| "no default input device".to_string());
+    }
+    if name == SYSTEM_OUT_DEVICE_ID {
+        if let Some(device) = host.default_output_device()
+            && device_has_input(&device)
+        {
+            return Ok(device);
+        }
         return host
             .default_input_device()
             .ok_or_else(|| "no default input device".to_string());
@@ -657,6 +669,13 @@ pub(crate) fn resolve_input_device(host: &cpal::Host, name: &str) -> Result<cpal
                 == Some(name)
         })
         .ok_or_else(|| format!("input device not found: {name}"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn device_has_input(device: &cpal::Device) -> bool {
+    device
+        .supported_input_configs()
+        .is_ok_and(|mut configs| configs.next().is_some())
 }
 
 fn choose_config(device: &cpal::Device, project_rate: u32) -> Option<StreamConfig> {
@@ -973,16 +992,27 @@ where
         .map_err(|err| format!("build audio stream: {err}"))
 }
 
+#[cfg(target_arch = "wasm32")]
 pub(crate) fn update_snapshot(
     snapshot: &Arc<Mutex<AudioSnapshot>>,
     engine: &Engine,
     events: &[RtEvent],
     dsp: DspSample,
 ) {
+    update_snapshot_at(snapshot, engine, events, engine.playhead_samples(), dsp);
+}
+
+pub(crate) fn update_snapshot_at(
+    snapshot: &Arc<Mutex<AudioSnapshot>>,
+    engine: &Engine,
+    events: &[RtEvent],
+    playhead_samples: u64,
+    dsp: DspSample,
+) {
     let Ok(mut snapshot) = snapshot.try_lock() else {
         return;
     };
-    snapshot.playhead_samples = engine.playhead_samples();
+    snapshot.playhead_samples = playhead_samples;
     snapshot.playhead_updated = Some(Instant::now());
     snapshot.playing = engine.transport().playing;
     if !snapshot.playing {

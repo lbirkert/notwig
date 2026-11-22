@@ -159,10 +159,17 @@ where
     device
         .build_input_stream(
             config,
-            move |data: &[T], _: &cpal::InputCallbackInfo| {
+            move |data: &[T], info: &cpal::InputCallbackInfo| {
                 if targets.is_empty() {
                     return;
                 }
+                let timestamp = info.timestamp();
+                let latency = timestamp
+                    .callback
+                    .saturating_duration_since(timestamp.capture);
+                let latency_samples =
+                    (latency.as_secs_f64() * f64::from(config.sample_rate)).round() as u64;
+                bus.set_input_latency_samples(latency_samples);
                 let frames = data.len() / channels;
                 for frame in 0..frames {
                     for (slot, left_channel, right_channel) in &targets {

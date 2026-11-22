@@ -257,6 +257,11 @@ impl Workspace {
     }
 
     pub fn request_engine_rebuild(&mut self) {
+        tracing::info!(
+            sample_rate = self.doc.meta.sample_rate.value(),
+            block_size = self.live_block_size(),
+            "Rebuilding engine"
+        );
         self.status = Some("Loading instruments and effects…".into());
         let request = self.engine_build_request(self.live_block_size());
         #[cfg(not(target_arch = "wasm32"))]
@@ -363,6 +368,7 @@ impl Workspace {
     }
 
     fn install_prepared_runtime(&mut self, runtime: Box<PreparedRuntime>) {
+        tracing::info!("Engine runtime ready; publishing swap");
         // Always republish transport when a runtime is installed. Tempo and
         // sample-rate changes rebuild the runtime and must also refresh the
         // sample positions of a musical loop range. The exchange keeps a pending

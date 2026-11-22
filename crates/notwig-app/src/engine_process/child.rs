@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use notwig_core::dsp::{
     CompositeDeviceFactory, DeviceFactory, MonitorRegistry, StockDeviceFactory,
@@ -208,6 +208,14 @@ enum WorkerCommand {
     Shutdown,
 }
 
+type BuildReceiver = mpsc::Receiver<Result<Box<notwig_engine::PreparedRuntime>, String>>;
+
+struct PendingBuild {
+    generation: u64,
+    started: Instant,
+    receiver: BuildReceiver,
+}
+
 struct EngineWorker {
     control: EngineControl,
     service: Option<AudioService>,
@@ -215,6 +223,9 @@ struct EngineWorker {
     replies: mpsc::Sender<EngineReply>,
     input_routes: Vec<(notwig_core::TrackId, u16)>,
     recording: Option<RecordingSession>,
+    build_receiver: Option<PendingBuild>,
+    queued_build: Option<WireBuild>,
+    build_generation: u64,
 }
 
 impl EngineWorker {
@@ -226,6 +237,9 @@ impl EngineWorker {
             replies,
             input_routes: Vec::new(),
             recording: None,
+            build_receiver: None,
+            queued_build: None,
+            build_generation: 0,
         }
     }
 
@@ -247,6 +261,7 @@ impl EngineWorker {
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
+            self.poll_build();
             if let Some(service) = &self.service {
                 let mut snapshot = service.snapshot();
                 if let Some(recording) = &self.recording {
@@ -270,6 +285,9 @@ impl EngineWorker {
     }
 
     fn open_device(&mut self, project_rate: u32, settings: &AudioSettings) {
+        self.build_generation = self.build_generation.wrapping_add(1);
+        self.build_receiver = None;
+        self.queued_build = None;
         self.stop_recording_silent();
         self.service = None;
         self.input_routes.clear();
@@ -306,18 +324,99 @@ impl EngineWorker {
             )));
             return;
         }
+        if self.build_receiver.is_some() {
+            self.queued_build = Some(build);
+            return;
+        }
+        self.start_build(build);
+    }
+
+    fn start_build(&mut self, build: WireBuild) {
+        self.build_generation = self.build_generation.wrapping_add(1);
+        let generation = self.build_generation;
         tracing::info!("audio engine host building runtime");
-        let result = build_runtime(build, Arc::clone(&self.monitors));
-        match result {
-            Ok(runtime) => {
-                self.control.data_mut().set_prepared_runtime(runtime);
-                self.control.flush();
-                tracing::info!("audio engine host runtime installed");
-                let _ = self.replies.send(EngineReply::BuildFinished(Ok(())));
+        let (sender, receiver) = mpsc::channel();
+        let monitors = Arc::clone(&self.monitors);
+        let spawned = std::thread::Builder::new()
+            .name("notwig-engine-loader".into())
+            .spawn(move || {
+                let result = build_runtime(build, monitors);
+                let _ = sender.send(result);
+            });
+        if let Err(error) = spawned {
+            let _ = self.replies.send(EngineReply::BuildFinished(Err(format!(
+                "start engine loader: {error}"
+            ))));
+            return;
+        }
+        self.build_receiver = Some(PendingBuild {
+            generation,
+            started: Instant::now(),
+            receiver,
+        });
+    }
+
+    fn poll_build(&mut self) {
+        let Some(pending) = &self.build_receiver else {
+            if let Some(build) = self.queued_build.take() {
+                self.start_build(build);
             }
-            Err(error) => {
-                tracing::warn!(error = %error, "audio engine host build failed");
-                let _ = self.replies.send(EngineReply::BuildFinished(Err(error)));
+            return;
+        };
+        match pending.receiver.try_recv() {
+            Ok(result) => {
+                let pending = self.build_receiver.take().expect("build was just checked");
+                let elapsed_ms = pending.started.elapsed().as_millis();
+                let current =
+                    pending.generation == self.build_generation && self.queued_build.is_none();
+                if current {
+                    match result {
+                        Ok(runtime) => {
+                            if self.service.is_some() {
+                                self.control.data_mut().set_prepared_runtime(runtime);
+                                self.control.flush();
+                                tracing::info!(
+                                    generation = pending.generation,
+                                    elapsed_ms,
+                                    "Engine runtime installed"
+                                );
+                                let _ = self.replies.send(EngineReply::BuildFinished(Ok(())));
+                            } else {
+                                let _ = self.replies.send(EngineReply::BuildFinished(Err(
+                                    "audio device is not open".into(),
+                                )));
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                generation = pending.generation,
+                                elapsed_ms,
+                                error = %error,
+                                "Engine build failed"
+                            );
+                            let _ = self.replies.send(EngineReply::BuildFinished(Err(error)));
+                        }
+                    }
+                } else {
+                    tracing::debug!(
+                        generation = pending.generation,
+                        elapsed_ms,
+                        "Discarding superseded engine build"
+                    );
+                }
+                if let Some(build) = self.queued_build.take() {
+                    self.start_build(build);
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.build_receiver = None;
+                let _ = self.replies.send(EngineReply::BuildFinished(Err(
+                    "engine loader stopped unexpectedly".into(),
+                )));
+                if let Some(build) = self.queued_build.take() {
+                    self.start_build(build);
+                }
             }
         }
     }

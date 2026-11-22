@@ -7,7 +7,7 @@ use std::time::Duration;
 use crossbeam_queue::ArrayQueue;
 use notwig_engine::Engine;
 
-use crate::audio::{AudioSnapshot, DspSample, update_snapshot};
+use crate::audio::{AudioSnapshot, DspSample, update_snapshot_at};
 use crate::clock::Instant;
 
 const WORKER_IDLE_SLEEP: Duration = Duration::from_micros(250);
@@ -188,14 +188,17 @@ fn render_loop(
                     let elapsed = started.elapsed();
                     events.clear();
                     engine.drain_events(&mut events);
+                    let output_latency = output_latency_samples.load(Ordering::Relaxed);
+                    let queued_frames = u64::try_from(high.len() / 2).unwrap_or(u64::MAX);
+                    let audible_playhead = engine.playhead_samples().saturating_sub(queued_frames);
                     let dsp = DspSample {
                         usage_percent: (elapsed.as_secs_f64() / high_block_seconds * 100.0) as f32,
                         load_ms: elapsed.as_secs_f64() as f32 * 1000.0,
                         jitter_percent: 0.0,
                         frames: project_frames as u32,
-                        output_latency_samples: output_latency_samples.load(Ordering::Relaxed),
+                        output_latency_samples: output_latency,
                     };
-                    update_snapshot(&snapshot, &engine, &events, dsp);
+                    update_snapshot_at(&snapshot, &engine, &events, audible_playhead, dsp);
                     did_work = true;
                 }
                 Ok(Err(error)) => {

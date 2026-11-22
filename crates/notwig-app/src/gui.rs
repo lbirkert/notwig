@@ -180,6 +180,56 @@ fn append_captures(active: &mut ActiveRecording, captures: Vec<(TrackId, Vec<f32
     active.compensation_samples = active.compensation_samples.saturating_sub(skipped);
 }
 
+#[derive(Default)]
+struct MeterSmoother {
+    values: std::collections::BTreeMap<TrackId, notwig_ui::MeterValues>,
+    last: Option<Instant>,
+}
+
+impl MeterSmoother {
+    fn update(
+        &mut self,
+        target: &std::collections::BTreeMap<TrackId, notwig_ui::MeterValues>,
+        now: Instant,
+    ) {
+        let dt = self
+            .last
+            .map_or(0.0, |last| now.duration_since(last).as_secs_f32().min(0.25));
+        self.last = Some(now);
+        if target.is_empty() {
+            self.values.clear();
+            return;
+        }
+        let release = (-dt.max(0.0) / 0.12).exp();
+        let mut next = std::collections::BTreeMap::new();
+        for (track_id, target) in target {
+            let current = self.values.get(track_id).copied().unwrap_or_default();
+            next.insert(
+                *track_id,
+                notwig_ui::MeterValues {
+                    peak_l: smooth_meter(current.peak_l, target.peak_l, release),
+                    peak_r: smooth_meter(current.peak_r, target.peak_r, release),
+                    rms_l: smooth_meter(current.rms_l, target.rms_l, release),
+                    rms_r: smooth_meter(current.rms_r, target.rms_r, release),
+                },
+            );
+        }
+        self.values = next;
+    }
+
+    fn values(&self) -> &std::collections::BTreeMap<TrackId, notwig_ui::MeterValues> {
+        &self.values
+    }
+}
+
+fn smooth_meter(current: f32, target: f32, release: f32) -> f32 {
+    if target >= current {
+        target
+    } else {
+        target + (current - target) * release
+    }
+}
+
 pub struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
@@ -192,6 +242,7 @@ pub struct NotwigApp {
     audio_options: Vec<notwig_ui::AudioDriverView>,
     recording: Option<ActiveRecording>,
     fallback_playhead: f64,
+    meter_smoother: MeterSmoother,
     last_tick: Instant,
     dialog_rx: Option<mpsc::Receiver<(DialogAction, Option<PathBuf>)>>,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -317,6 +368,7 @@ impl NotwigApp {
             audio_options,
             recording: None,
             fallback_playhead,
+            meter_smoother: MeterSmoother::default(),
             last_tick: Instant::now(),
             dialog_rx: None,
             pending_drops: Vec::new(),
@@ -374,6 +426,7 @@ impl NotwigApp {
             audio_options: available_audio_options(),
             recording: None,
             fallback_playhead,
+            meter_smoother: MeterSmoother::default(),
             last_tick: Instant::now(),
             dialog_rx: None,
             pending_drops: Vec::new(),
@@ -983,13 +1036,34 @@ impl NotwigApp {
                 .apply(CommandPayload::SetRecording { recording: false });
             self.stop_recording_capture();
             let _ = self.report(result);
-        } else {
+            return;
+        }
+
+        let was_playing = self.workspace.doc.transport.playing;
+        let play_start = self.workspace.doc.transport.playhead;
+        if !was_playing {
+            let result = self.workspace.play();
+            if self.report(result).is_none() {
+                return;
+            }
+        }
+        let result = self
+            .workspace
+            .apply(CommandPayload::SetRecording { recording: true });
+        if self.report(result).is_some() {
+            self.begin_recording_capture((!was_playing).then_some(play_start));
+        }
+    }
+
+    fn disengage_recording(&mut self) {
+        if self.recording.is_some() {
+            self.stop_recording_capture();
+        }
+        if self.workspace.doc.transport.recording {
             let result = self
                 .workspace
-                .apply(CommandPayload::SetRecording { recording: true });
-            if self.report(result).is_some() && self.workspace.doc.transport.playing {
-                self.begin_recording_capture(None);
-            }
+                .apply(CommandPayload::SetRecording { recording: false });
+            let _ = self.report(result);
         }
     }
 
@@ -1004,12 +1078,20 @@ impl NotwigApp {
         let snapshot = self.audio_snapshot();
         let started_at = started_at.unwrap_or_else(|| self.current_playhead(&snapshot));
         let sample_rate = self.workspace.doc.meta.sample_rate.value();
-        let block_size = if snapshot.block_size > 0 {
-            snapshot.block_size
+        let device_block = if snapshot.block_size > 0 {
+            u64::from(snapshot.block_size)
         } else {
-            self.audio_settings.block_size
+            u64::from(self.audio_settings.block_size)
         };
-        let compensation_samples = usize::try_from(block_size.max(1))
+        let measured_latency = snapshot
+            .dsp
+            .input_latency_samples
+            .saturating_add(snapshot.dsp.output_latency_samples);
+        let compensation_frames = measured_latency
+            .max(device_block)
+            .min(u64::from(sample_rate))
+            .max(1);
+        let compensation_samples = usize::try_from(compensation_frames)
             .unwrap_or(1)
             .saturating_mul(2);
         let mut takes = std::collections::BTreeMap::new();
@@ -1456,7 +1538,7 @@ impl NotwigApp {
         } else {
             fallback_time
         };
-        let meters = snapshot.meters_for_display(self.workspace.doc.transport.playing);
+        let meters = self.meter_smoother.values().clone();
         let device_meters =
             snapshot.device_meters_for_display(self.workspace.doc.transport.playing);
         let recording_takes = self.recording_take_views(playhead);
@@ -1557,7 +1639,7 @@ impl NotwigApp {
     }
 
     fn interpolated_playhead(&self, snapshot: &crate::audio::AudioSnapshot) -> TimeMus {
-        if !(snapshot.running && self.workspace.doc.transport.playing) {
+        if !(snapshot.running && snapshot.playing && self.workspace.doc.transport.playing) {
             return self.workspace.doc.transport.playhead;
         }
         let map = self.workspace.doc.tempo_map();
@@ -1852,17 +1934,13 @@ impl NotwigApp {
                 }
             }
             UiIntent::Pause => {
-                if self.recording.is_some() {
-                    self.stop_recording_capture();
-                }
+                self.disengage_recording();
                 self.sync_playhead();
                 let result = self.workspace.pause();
                 let _ = self.report(result);
             }
             UiIntent::Stop => {
-                if self.recording.is_some() {
-                    self.stop_recording_capture();
-                }
+                self.disengage_recording();
                 let result = self.workspace.stop();
                 let _ = self.report(result);
                 self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
@@ -3022,6 +3100,10 @@ impl eframe::App for NotwigApp {
             }
         }
         self.refresh_recording_waveforms();
+        self.meter_smoother.update(
+            &snapshot.meters_for_display(self.workspace.doc.transport.playing),
+            Instant::now(),
+        );
         let runtime = self.runtime_view(&snapshot);
         #[cfg(not(target_arch = "wasm32"))]
         self.ui.set_platform_pointer(platform_pointer(ctx));

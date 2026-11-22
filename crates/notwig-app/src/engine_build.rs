@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use notwig_core::dsp::{
     CompiledPlan, CompositeDeviceFactory, DeviceFactory, EngineCaps, StockDeviceFactory,
@@ -155,7 +157,14 @@ pub(crate) struct EngineProcessBuild {
 impl EngineProcessBuild {
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
+        tracing::info!(
+            generation = self.requests,
+            sample_rate = request.sample_rate,
+            block_size = request.max_block_size,
+            "Engine plan rebuild requested"
+        );
         if self.receiver.is_some() {
+            tracing::debug!(generation = self.requests, "Queueing engine plan rebuild");
             self.queued_request = Some(request);
             return Ok(());
         }
@@ -195,7 +204,15 @@ impl EngineProcessBuild {
         std::thread::Builder::new()
             .name("notwig-engine-build".into())
             .spawn(move || {
-                let _ = sender.send((generation, request.prepare_wire()));
+                let started = Instant::now();
+                let outcome = request.prepare_wire();
+                tracing::info!(
+                    generation,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    success = outcome.is_ok(),
+                    "Engine plan build finished"
+                );
+                let _ = sender.send((generation, outcome));
             })
             .map_err(|error| format!("Could not start engine build: {error}"))?;
         self.receiver = Some(receiver);
@@ -226,7 +243,14 @@ impl EngineBuild {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
+        tracing::info!(
+            generation = self.requests,
+            sample_rate = request.sample_rate,
+            block_size = request.max_block_size,
+            "Engine rebuild requested"
+        );
         if self.receiver.is_some() {
+            tracing::debug!(generation = self.requests, "Queueing engine rebuild");
             self.queued_request = Some(request);
             return Ok(());
         }
@@ -237,7 +261,21 @@ impl EngineBuild {
     #[allow(clippy::unnecessary_wraps)]
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
-        self.pending = Some(request.prepare());
+        tracing::info!(
+            generation = self.requests,
+            sample_rate = request.sample_rate,
+            block_size = request.max_block_size,
+            "Rebuilding engine"
+        );
+        let started = std::time::Instant::now();
+        let prepared = request.prepare();
+        tracing::info!(
+            generation = self.requests,
+            elapsed_ms = started.elapsed().as_millis(),
+            success = prepared.is_ok(),
+            "Engine build finished"
+        );
+        self.pending = Some(prepared);
         Ok(())
     }
 
@@ -291,7 +329,15 @@ impl EngineBuild {
         std::thread::Builder::new()
             .name("notwig-engine-build".into())
             .spawn(move || {
-                let _ = sender.send((generation, request.prepare()));
+                let started = Instant::now();
+                let outcome = request.prepare();
+                tracing::info!(
+                    generation,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    success = outcome.is_ok(),
+                    "Engine build finished"
+                );
+                let _ = sender.send((generation, outcome));
             })
             .map_err(|err| format!("Could not start engine build: {err}"))?;
         self.receiver = Some(receiver);

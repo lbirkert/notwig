@@ -174,7 +174,12 @@ only moves it into place. The previous runtime goes back through the exchange to
 the app thread for disposal.
 
 This separation also means a slow plugin load delays a rebuild, but never blocks
-the audio callback.
+the audio callback. In the native engine process, `EngineWorker` also keeps the
+current runtime active while a dedicated loader thread builds the replacement.
+Transport, control, recording, and snapshot messages continue to be handled
+during the build. Superseded builds are queued and their results discarded, so
+the last requested plan is the only one installed. The actual swap remains a
+prepared-runtime publish and is applied at the next audio-thread sync point.
 
 ## 7. Ownership summary
 
@@ -223,11 +228,16 @@ preallocated slot in `notwig-engine::InputBus`:
 - each armed track's monitoring mode decides whether its queued monitor signal is
   injected into the track chain, discarded, or rendered through a dedicated
   low-latency chain instance;
-- the app trims one audio block from the start of each new take to compensate
-  for block-level capture latency;
+- the native input callback measures capture latency from CPAL's input
+  timestamps and publishes it through `InputBus`;
+- new takes are trimmed by the measured input plus output latency (with the
+  device block as a floor) instead of only one block;
 - monitor queues discard stale backlog beyond two output blocks or 50 ms, so
   clock drift or a stalled drain cannot turn into permanent multi-second
   monitoring latency;
+- `System Out` input resolution prefers the default output device when that
+  device also exposes input channels, keeping input and output on one clock
+  domain;
 - the audio thread drains the monitoring queue into the armed track's input
   buffer before the track's device chain runs, so monitoring follows devices,
   mixer, pan, mute/solo, and routing;

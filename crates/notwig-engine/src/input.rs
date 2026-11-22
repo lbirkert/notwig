@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crossbeam_queue::ArrayQueue;
 
@@ -57,6 +57,7 @@ fn push_frame(
 /// Shared input tap between an audio input callback and the engine or recorder.
 pub struct InputBus {
     sample_rate: u32,
+    input_latency_samples: AtomicU64,
     slots: Vec<InputSlot>,
 }
 
@@ -69,6 +70,7 @@ impl InputBus {
             .max(1024);
         Self {
             sample_rate: sample_rate.max(1),
+            input_latency_samples: AtomicU64::new(0),
             slots: (0..MAX_INPUT_TRACKS)
                 .map(|_| InputSlot::new(capacity))
                 .collect(),
@@ -78,6 +80,15 @@ impl InputBus {
     #[must_use]
     pub fn slot_count(&self) -> usize {
         self.slots.len()
+    }
+
+    pub fn set_input_latency_samples(&self, samples: u64) {
+        self.input_latency_samples.store(samples, Ordering::Relaxed);
+    }
+
+    #[must_use]
+    pub fn input_latency_samples(&self) -> u64 {
+        self.input_latency_samples.load(Ordering::Relaxed)
     }
 
     /// Push one mono input sample for a slot. The sample is mirrored to both
@@ -190,6 +201,7 @@ impl std::fmt::Debug for InputBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InputBus")
             .field("sample_rate", &self.sample_rate)
+            .field("input_latency_samples", &self.input_latency_samples())
             .field("slots", &self.slots.len())
             .finish()
     }
@@ -198,6 +210,14 @@ impl std::fmt::Debug for InputBus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_latency_is_published() {
+        let bus = InputBus::new(48_000);
+        assert_eq!(bus.input_latency_samples(), 0);
+        bus.set_input_latency_samples(384);
+        assert_eq!(bus.input_latency_samples(), 384);
+    }
 
     #[test]
     fn monitor_drain_drops_stale_backlog_to_bound_latency() {

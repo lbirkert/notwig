@@ -10,7 +10,7 @@
 | Stop button | Top bar | Same as the Stop shortcut. |
 | Loop | Top bar or **Cmd+L** | Enables or disables looping. |
 | Metronome | Top bar | Enables the click. |
-| Record | Top bar or **Cmd+R** | Toggles record mode. While playback runs, armed audio tracks record into clips that grow with the playhead. |
+| Record | Top bar or **Cmd+R** | Starts playback and recording when stopped. If already playing, engages recording without restarting playback. Pressing it again while recording disengages recording but keeps playing. |
 
 The playhead moves during playback. Stop returns to the loop start when looping
 is enabled, otherwise to beat zero or the last play start. Stop also sends
@@ -28,22 +28,22 @@ Recording is linear and audio-only in the current implementation.
 2. Select an audio track and choose an input in the info panel. Mono and stereo
    inputs are supported.
 3. Arm zero or more audio tracks with **R** in the track header or info panel.
-4. Enable record mode with **Record** in the top bar or **Cmd+R**. Record mode
-   can be enabled before playback or while the transport is already playing.
+4. Press **Record** in the top bar or **Cmd+R**. If playback is stopped, it
+   starts from the play start and begins recording. If playback is already
+   running, it engages recording at the current playhead without restarting
+   playback.
 
-While record mode is on and the transport plays, each armed track records from
-its input. The clip starts at the playhead where capture began: at the play
-start if record mode was already enabled when playback begins, or at the current
-playhead if record mode is enabled during playback. Notwig compensates for one audio block of
-capture latency. The clip grows with the playhead and shows its waveform while
-recording. An armed track's monitoring mode controls whether its input is
+While recording, each armed track records from its input. The clip starts at
+the playhead where capture began and grows with the playhead, showing its
+waveform while recording. Notwig compensates takes using the measured input and
+output latency. An armed track's monitoring mode controls whether its input is
 monitored through the track chain, monitored directly with low latency, or not
 monitored at all.
 
-Turning record mode off finalizes the clips at the current playhead and leaves
-playback running. Pause and Stop also finalize the current clips; record mode
-stays enabled, so starting playback again begins new clips. With no armed
-tracks, record mode still toggles but no clips are created.
+Pressing Record again finalizes the current clips at the current playhead and
+leaves playback running. Pause and Stop also finalize the clips and disengage
+recording, so the next playback does not record until Record is pressed again.
+With no armed tracks, recording can still be engaged but no clips are created.
 
 Finishing a take:
 
@@ -54,10 +54,11 @@ Finishing a take:
 - is undone as one document edit.
 
 If the project has not been saved yet, the take is staged in a temporary
-directory until the project is saved. Input devices must support the project
-sample rate. Browser recording uses the **Web Audio** driver, asks for
-microphone permission when an armed track first opens its input, and needs a
-user gesture to start the audio engine.
+directory until the project is saved. Notwig compensates new takes using the
+measured input and output latency reported by the audio callback timestamps.
+Input devices must support the project sample rate. Browser recording uses the
+**Web Audio** driver, asks for microphone permission when an armed track first
+opens its input, and needs a user gesture to start the audio engine.
 
 ## Play start versus playhead
 
