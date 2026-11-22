@@ -1,5 +1,7 @@
 # notwig
 
+[![OctoCounts](https://api.octocounts.com/badge/lbirkert/notwig/branch/main)](https://octocounts.com/github/lbirkert/notwig/tree/main)
+
 Notwig is an open-source, lightweight digital audio workstation for macOS. It
 focuses on a deliberately small set of well-designed, extensible features
 instead of feature parity with a large commercial DAW.
