@@ -8,8 +8,8 @@ extensions and the UI:
   `section`, `divider`, and stereo-meter widgets;
 - render-neutral painting: the `Drawer` primitive trait, `RecordDrawer`,
   `DrawCommand`/`DrawList`, and `paint_*` widget helpers;
-- device panel frames (`PanelDraw`, `PanelCommand`, `PanelAction`) and
-  `DevicePanelHost`;
+- device panel frames (`PanelDraw`, `PanelCommand`, `PanelAction`,
+  `DevicePanelFrame`) and `DevicePanelHost`;
 - device panel draw context and theme tokens (`DeviceDrawContext` includes the
   per-frame `UiInput` and engine-measured device peaks);
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
@@ -22,10 +22,11 @@ extensions and the UI:
 - the `#[notwig_extension]` attribute macro, re-exported from
   `notwig-ext-macros`.
 
-This crate has no `egui`, no `wasmtime`, and no I/O. `notwig-ui` adapts the
-shared UI through `EguiUi`/`EguiDrawer`; extension code records the same API
-through `RecordUi`/`RecordDrawer`. Keep wire-format changes versioned through
-`notwig_ext_api::ABI_VERSION` (currently `2`).
+This crate has no `wasmtime` and no I/O. Its default build has no `egui`; the
+optional `egui` feature adds the guest-owned panel runner and re-exports `egui`.
+`notwig-ui` adapts the shared UI through `EguiUi`/`EguiDrawer`; extension code
+records the same API through `RecordUi`/`RecordDrawer`. Keep wire-format changes
+versioned through `notwig_ext_api::ABI_VERSION` (currently `2`).
 
 Device authors implement `DeviceExtension` for their device type and register it
 from the entrypoint:
@@ -80,6 +81,13 @@ impl DeviceExtension for MyDevice {
     fn process(&mut self, _samples: &mut [f32]) {}
 }
 ```
+
+For guest-owned egui panels, enable the `egui` feature, use
+`#[notwig_extension(egui)]`, set `DeviceExtension::SUPPORTS_EGUI = true`, and
+implement `draw_egui`. Parameter changes go through
+`egui_panel::set_param_normalized` and `egui_panel::set_param_value`. The wire
+types live in `egui_panel` and stay independent of egui's private serialization
+format.
 
 Interaction uses `Sense` (`hover`, `click`, `drag`, `click_and_drag`) and a
 `Response` (`hovered`, `clicked`, `double_clicked`, `dragged`, `drag_started`,

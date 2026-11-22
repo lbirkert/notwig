@@ -215,11 +215,24 @@ the same panel API with lower overhead. The host still validates the returned
 `PanelDraw` before rendering. Only install native extensions from sources you
 trust.
 
-## Why not egui
+## Why not egui directly
 
 `egui::Context` and `egui::Ui` carry lifetimes and host-bound state, have no
-stable FFI layout, and would let an extension mutate host UI state directly. The
-typed `UiContext`/`Drawer`/`PanelAction` surface keeps output themed, validated,
-and bounded.
+stable FFI layout, and cannot be passed across the WASM boundary. The typed
+`UiContext`/`Drawer`/`PanelAction` surface keeps output themed, validated, and
+bounded.
+
+## Opt-in guest egui panels
+
+Extensions that need the real egui API can declare `ui.egui`, enable the SDK
+`egui` feature, and implement `DeviceExtension::draw_egui`. The extension runs a
+private `egui::Context`, tessellates its frame, and returns meshes, texture
+deltas, and validated actions. The host remaps textures, composites the meshes
+inside the device card, and routes input, focus, and repaint back to the guest.
+The host never passes its `egui::Context` or `Ui` into the extension.
+
+See [egui extension panels](../03_development/12_egui_extension_panels.md) for
+the protocol, limits, and current non-goals (floating windows, IME, and guest
+accessibility trees).
 
 Next: [Testing and Distribution](05_testing_and_distribution.md).

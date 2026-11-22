@@ -35,6 +35,21 @@ pub trait DeviceExtension: Send + Sized + 'static {
     /// [`UiContext::set_param_value`] so the host can validate them.
     fn draw(&mut self, ui: &mut UiContext<'_>);
 
+    /// Whether this device draws its panel with the guest egui path.
+    ///
+    /// Only used when the extension is compiled with the `egui` SDK feature and
+    /// the manifest declares `ui.egui`. Implementations that set this to `true`
+    /// must also implement [`draw_egui`](Self::draw_egui).
+    const SUPPORTS_EGUI: bool = false;
+
+    /// Draws the device panel with the real egui API inside the guest.
+    ///
+    /// Parameter changes must go through
+    /// [`crate::egui_panel::set_param_normalized`] or
+    /// [`crate::egui_panel::set_param_value`].
+    #[cfg(feature = "egui")]
+    fn draw_egui(&mut self, _ui: &mut egui::Ui) {}
+
     /// Prepares the processor for a sample rate and channel count.
     fn prepare(&mut self, _sample_rate: u32, _channels: u16) {}
 
@@ -62,6 +77,8 @@ pub trait DeviceExtension: Send + Sized + 'static {
 
 trait DeviceInstance: Send {
     fn draw(&mut self, ui: &mut UiContext<'_>);
+    #[cfg(feature = "egui")]
+    fn draw_egui(&mut self, ui: &mut egui::Ui);
     fn prepare(&mut self, sample_rate: u32, channels: u16);
     fn set_param(&mut self, param_id: ParamId, value: f64) -> bool;
     fn note_event(&mut self, event: NoteEvent);
@@ -72,6 +89,11 @@ trait DeviceInstance: Send {
 impl<T: DeviceExtension> DeviceInstance for T {
     fn draw(&mut self, ui: &mut UiContext<'_>) {
         DeviceExtension::draw(self, ui);
+    }
+
+    #[cfg(feature = "egui")]
+    fn draw_egui(&mut self, ui: &mut egui::Ui) {
+        DeviceExtension::draw_egui(self, ui);
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {
@@ -97,6 +119,7 @@ impl<T: DeviceExtension> DeviceInstance for T {
 
 struct RegisteredDevice {
     spec_json: Vec<u8>,
+    supports_egui: bool,
     create: fn() -> Box<dyn DeviceInstance>,
 }
 
@@ -105,6 +128,10 @@ struct DeviceSlot {
     instance: Box<dyn DeviceInstance>,
     ui_memory: UiMemory,
     last_panel_json: Vec<u8>,
+    #[cfg(feature = "egui")]
+    egui_context: Option<egui::Context>,
+    #[cfg(feature = "egui")]
+    last_egui_bytes: Vec<u8>,
 }
 
 fn create_instance<D: DeviceExtension>() -> Box<dyn DeviceInstance> {
@@ -132,10 +159,21 @@ impl Extension {
         let spec = D::spec();
         let type_id = spec.type_id.clone();
         let spec_json = serde_json::to_vec(&spec).unwrap_or_default();
+        let supports_egui = {
+            #[cfg(feature = "egui")]
+            {
+                D::SUPPORTS_EGUI
+            }
+            #[cfg(not(feature = "egui"))]
+            {
+                false
+            }
+        };
         self.devices.insert(
             type_id,
             RegisteredDevice {
                 spec_json,
+                supports_egui,
                 create: create_instance::<D>,
             },
         );
@@ -166,7 +204,19 @@ impl Extension {
             instance,
             ui_memory: UiMemory::new(),
             last_panel_json: Vec::new(),
+            #[cfg(feature = "egui")]
+            egui_context: None,
+            #[cfg(feature = "egui")]
+            last_egui_bytes: Vec::new(),
         })
+    }
+
+    /// Returns whether a device type opted into the guest egui panel path.
+    #[must_use]
+    pub fn supports_egui(&self, type_id: &str) -> bool {
+        self.devices
+            .get(type_id)
+            .is_some_and(|device| device.supports_egui)
     }
 
     /// Destroys a device instance.
@@ -280,6 +330,57 @@ impl Extension {
                 }
                 slot.last_panel_json = serde_json::to_vec(&panel).unwrap_or_default();
                 Some((slot.last_panel_json.as_ptr(), slot.last_panel_json.len()))
+            })
+            .ok()
+            .flatten()
+    }
+
+    /// Draws an egui panel and returns a packed pointer to the serialized
+    /// [`crate::egui_panel::EguiFrame`].
+    #[cfg(feature = "egui")]
+    #[must_use]
+    pub fn draw_egui_pointer(&self, handle: i32, context_bytes: &[u8]) -> i64 {
+        let Some((ptr, len)) = self.draw_egui_bytes(handle, context_bytes) else {
+            return 0;
+        };
+        let Ok(ptr) = u32::try_from(ptr as usize) else {
+            return 0;
+        };
+        let Ok(len) = u32::try_from(len) else {
+            return 0;
+        };
+        i64::try_from(pack_ptr_len(ptr, len)).unwrap_or(0)
+    }
+
+    /// Draws an egui panel and returns a pointer/length pair to the serialized
+    /// [`crate::egui_panel::EguiFrame`].
+    ///
+    /// The pointer stays valid until the next draw on the same handle.
+    #[cfg(feature = "egui")]
+    #[must_use]
+    pub fn draw_egui_bytes(&self, handle: i32, context_bytes: &[u8]) -> Option<(*const u8, usize)> {
+        let context = postcard::from_bytes::<DeviceDrawContext>(context_bytes).ok()?;
+        context.egui.validate().ok()?;
+        let DeviceDrawContext {
+            egui: input, theme, ..
+        } = context;
+        self.instances
+            .with(handle, move |slot| {
+                let DeviceSlot {
+                    instance,
+                    egui_context,
+                    last_egui_bytes,
+                    ..
+                } = slot;
+                let context = egui_context.get_or_insert_with(egui::Context::default);
+                let frame = crate::egui_panel::run_frame(context, input, &theme, |ui| {
+                    instance.draw_egui(ui);
+                });
+                if frame.validate().is_err() {
+                    return None;
+                }
+                *last_egui_bytes = postcard::to_allocvec(&frame).ok()?;
+                Some((last_egui_bytes.as_ptr(), last_egui_bytes.len()))
             })
             .ok()
             .flatten()

@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use notwig_core::{DeviceId, DeviceKind, SchemaVersion, TrackId};
 use notwig_dsp::{CompiledPlan, PlanDevice, ProcessContext, RenderConfig, TransportInfo};
 use notwig_ext::ExtensionHost;
-use notwig_ext_api::{DeviceDrawContext, PanelCommand, ThemeSnapshot};
+use notwig_ext_api::{
+    DeviceDrawContext, DevicePanelFrame, EguiFrame, EguiImage, EguiMesh, EguiPrimitive,
+    EguiTextureDelta, EguiTextureOptions, EguiVertex, PanelAction, PanelCommand, ThemeSnapshot,
+};
 
 const DESCRIBE: &str = r#"{"type_id":"com.test.gain","version":{"major":0,"minor":1},"kind":"AudioFx","ports":[],"params":[],"latency_samples":0,"name":"Gain","vendor":"Test"}"#;
 
@@ -122,6 +126,102 @@ fn write_extension_with(draw_json: &str) -> PathBuf {
     dir
 }
 
+fn write_egui_extension(frame: &EguiFrame) -> PathBuf {
+    let frame_bytes = postcard::to_allocvec(frame).unwrap();
+    let mut wat = module_wat(DRAW);
+    let mut data = String::with_capacity(frame_bytes.len() * 4);
+    for byte in &frame_bytes {
+        write!(&mut data, "\\{byte:02x}").unwrap();
+    }
+    let packed = (8192u64 << 32) | frame_bytes.len() as u64;
+    let extra = format!(
+        r#"
+  (data (i32.const 8192) "{data}")
+  (func (export "notwig_device_supports_egui") (param i32 i32) (result i32)
+    i32.const 1)
+  (func (export "notwig_device_draw_egui") (param i32 i32 i32) (result i64)
+    i64.const {packed})"#
+    );
+    let end = wat.rfind(')').unwrap();
+    wat.insert_str(end, &extra);
+    let dir = std::env::temp_dir().join(format!("notwig-ext-egui-test-{}", uuid::Uuid::new_v4()));
+    let extension = dir.join("com.test.egui");
+    std::fs::create_dir_all(&extension).unwrap();
+    let manifest = serde_json::json!({
+        "id": "com.test.egui",
+        "name": "Test Egui",
+        "vendor": "Test",
+        "version": "0.1.0",
+        "api_version": 2,
+        "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
+        "capabilities": ["device", "ui.draw", "ui.egui"],
+        "devices": [{
+            "type_id": "com.test.gain",
+            "version": { "major": 0, "minor": 1 }
+        }]
+    });
+    std::fs::write(
+        extension.join("extension.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        extension.join("extension.wasm"),
+        wat::parse_str(&wat).unwrap(),
+    )
+    .unwrap();
+    dir
+}
+
+fn egui_frame() -> EguiFrame {
+    EguiFrame {
+        primitives: vec![EguiPrimitive {
+            clip_rect: [0.0, 0.0, 100.0, 100.0],
+            mesh: EguiMesh {
+                indices: vec![0, 1, 2],
+                vertices: vec![
+                    EguiVertex {
+                        pos: [0.0, 0.0],
+                        uv: [0.0, 0.0],
+                        color: [255; 4],
+                    },
+                    EguiVertex {
+                        pos: [10.0, 0.0],
+                        uv: [1.0, 0.0],
+                        color: [255; 4],
+                    },
+                    EguiVertex {
+                        pos: [0.0, 10.0],
+                        uv: [0.0, 1.0],
+                        color: [255; 4],
+                    },
+                ],
+                texture_id: 0,
+            },
+        }],
+        textures: vec![EguiTextureDelta {
+            id: 0,
+            pos: None,
+            options: EguiTextureOptions {
+                linear: true,
+                repeat: false,
+            },
+            image: EguiImage {
+                width: 1,
+                height: 1,
+                pixels: vec![u32::MAX],
+            },
+        }],
+        free_textures: Vec::new(),
+        actions: vec![PanelAction::RequestRepaint],
+        cursor: None,
+        wants_keyboard: false,
+        wants_pointer: false,
+        copy_text: None,
+        repaint_after_ms: Some(16),
+    }
+}
+
 fn assert_for_panel(panel: &notwig_ext_api::PanelDraw) {
     assert_eq!(panel.commands.len(), 1);
     panel.validate().unwrap();
@@ -182,11 +282,15 @@ fn loads_device_spec_and_draws_panel() {
         params: BTreeMap::new(),
         theme: ThemeSnapshot::default(),
         input: notwig_ext_api::UiInput::default(),
+        egui: notwig_ext_api::EguiInput::default(),
         meter: notwig_ext_api::DeviceMeterSnapshot::default(),
     };
     let draw = panel
         .draw_device_panel("com.test.gain", &context)
         .expect("panel draw");
+    let notwig_ext_api::DevicePanelFrame::Commands(draw) = draw else {
+        panic!("expected command panel");
+    };
     assert_eq!(draw.commands.len(), 1);
     assert!(matches!(draw.commands[0], PanelCommand::Draw(_)));
     let _ = std::fs::remove_dir_all(dir);
@@ -209,16 +313,52 @@ fn extension_panel_actions_survive_host_draw() {
         params: BTreeMap::new(),
         theme: ThemeSnapshot::default(),
         input: notwig_ext_api::UiInput::default(),
+        egui: notwig_ext_api::EguiInput::default(),
         meter: notwig_ext_api::DeviceMeterSnapshot::default(),
     };
     let draw = panel
         .draw_device_panel("com.test.gain", &context)
         .expect("panel draw");
+    let notwig_ext_api::DevicePanelFrame::Commands(draw) = draw else {
+        panic!("expected command panel");
+    };
     assert_eq!(draw.actions.len(), 1);
     assert!(matches!(
         draw.actions[0],
         notwig_ext_api::PanelAction::RequestRepaint
     ));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn egui_extension_frame_crosses_the_wasm_boundary() {
+    let dir = write_egui_extension(&egui_frame());
+    let host = ExtensionHost::load(&dir, &BTreeMap::new()).unwrap();
+    let mut panel = host.panel_host();
+    let context = DeviceDrawContext {
+        device_id: DeviceId::nil().to_string(),
+        type_id: "com.test.gain".into(),
+        name: "Gain".into(),
+        sample_rate: 48_000,
+        width: 100.0,
+        height: 100.0,
+        selected: false,
+        bypassed: false,
+        params: BTreeMap::new(),
+        theme: ThemeSnapshot::default(),
+        input: notwig_ext_api::UiInput::default(),
+        egui: notwig_ext_api::EguiInput::default(),
+        meter: notwig_ext_api::DeviceMeterSnapshot::default(),
+    };
+    let frame = panel
+        .draw_device_panel("com.test.gain", &context)
+        .expect("panel draw");
+    let DevicePanelFrame::Egui(frame) = frame else {
+        panic!("expected egui panel");
+    };
+    assert_eq!(frame.primitives.len(), 1);
+    assert_eq!(frame.textures.len(), 1);
+    assert!(matches!(frame.actions[0], PanelAction::RequestRepaint));
     let _ = std::fs::remove_dir_all(dir);
 }
 

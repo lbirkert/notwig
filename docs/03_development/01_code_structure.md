@@ -122,6 +122,7 @@ frame that carries input and returns draw commands plus host actions.
 | `config.rs` | Versioned user config, default index URL, legacy migration |
 | `index.rs` | Extension index entry/device/url types and validation |
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
+| `egui_panel/` | Guest-owned egui wire types, validation, and optional `egui` bridge |
 | `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device draw dispatch |
 | `abi.rs` | ABI version (`2`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
@@ -191,7 +192,7 @@ frame that carries input and returns draw commands plus host actions.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; extension panel adapter (`EguiUi`/`EguiDrawer`) for `UiContext` interaction and `DrawCommand` replay |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; extension panel adapter (`EguiUi`/`EguiDrawer`) for `UiContext` interaction and `DrawCommand` replay; `egui_render.rs` for guest egui texture/mesh compositing and input bridging |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
@@ -220,11 +221,12 @@ frame that carries input and returns draw commands plus host actions.
 | `web/mod.rs` | Browser app construction |
 | `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
-| `engine_build.rs` | Async engine build request/queue/poll lifecycle |
+| `engine_build.rs` | Async engine build request/queue/poll lifecycle; native wire-build preparation |
+| `engine_process/` | Native engine child process, IPC protocol, parent client, and editor hosting |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
 | `audio_config.rs` | Persisted audio driver/device/block-size config |
 | `plugins/mod.rs` | Target-selected plugin catalog exports |
-| `plugins/native.rs` | Plugin catalog, scan subprocess, and cache glue |
+| `plugins/native.rs` | Plugin catalog, scan subprocess, crash-isolated load probe, and cache glue |
 | `plugins/web.rs` | Empty browser plugin catalog |
 | `extensions/mod.rs` | Target-selected extension manager and events |
 | `extensions/index.rs` | Shared index URL resolution, validation, and version deduplication |
@@ -260,6 +262,8 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | DSP plans and stock devices | `crates/notwig-dsp/tests/graph.rs`, `stock.rs` |
 | Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/abi.rs` |
 | Extension draw/panel validation | `crates/notwig-ext-api/tests/draw_validation.rs` |
+| Egui panel wire validation | `crates/notwig-ext-api/tests/egui_wire.rs` |
+| Guest egui bridge | `crates/notwig-ext-api/tests/egui_bridge.rs` |
 | Extension ABI helpers | `crates/notwig-ext-api/tests/abi_helpers.rs` |
 | Shared UI widgets and context | `crates/notwig-ext-api/tests/ui_context.rs` |
 | Limiter, gate, and synth example devices | `crates/notwig-ext-devices/tests/` |
@@ -267,6 +271,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Extension ZIP install | `crates/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |
 | Built limiter/synth load through the host | `crates/notwig-ext/tests/limiter_extension.rs` |
+| Egui frame transport | `crates/notwig-ext/tests/abi.rs` |
 | Engine playback/rendering | `crates/notwig-engine/tests/render.rs` |
 | Control exchange and prepared runtimes | `crates/notwig-engine/tests/control.rs` |
 | MIDI preview note-offs | `crates/notwig-engine/tests/preview.rs` |
@@ -281,7 +286,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Widget math | `crates/notwig-ui/tests/widgets.rs` |
 | Waveform pyramid | `crates/notwig-ui/tests/waveform.rs` |
 | Device browser | `crates/notwig-ui/tests/device_browser.rs` |
-| Extension device panels | `crates/notwig-ui/tests/extension_panel.rs` |
+| Extension device panels, including guest egui frames | `crates/notwig-ui/tests/extension_panel.rs` |
 | MIDI editor interaction | `crates/notwig-ui/tests/midi_editor.rs` |
 | Peak hold and reset | `crates/notwig-ui/tests/track_info.rs` |
 | Shortcut bindings and settings page | `crates/notwig-ui/tests/shortcuts.rs` |

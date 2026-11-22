@@ -10,7 +10,7 @@ repository.workspace = true
 notwig-core.workspace = true
 notwig-project.workspace = true
 notwig-dsp.workspace = true
-notwig-ext-api.workspace = true
+notwig-ext-api = { workspace = true, features = ["egui"] }
 egui.workspace = true
 image.workspace = true
 serde.workspace = true

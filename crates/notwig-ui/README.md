@@ -20,6 +20,8 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 - `UiIntent` and drag/drop target types.
 - `RuntimeView`, meters, audio settings, and DSP analysis view types.
 - Pure view state: selection, viewport, open editor, notifications.
+- Guest egui panel compositing: per-panel texture namespaces, mesh painting,
+  input/focus bridging, and validated action application.
 
 ## Does not own
 
@@ -39,7 +41,7 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter views, EQ, renderer dispatch, extension panel adapter |
+| `views/device_editor/` | Device panel, browser, parameter views, EQ, renderer dispatch, extension panel adapter, guest egui compositor |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |

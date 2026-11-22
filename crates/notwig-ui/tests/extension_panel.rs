@@ -7,8 +7,9 @@ use notwig_core::tracks::TrackKind;
 use notwig_core::*;
 use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, DeviceMeterSnapshot, DevicePanelHost, DrawCommand, PanelAction,
-    PanelCommand, PanelDraw, Point, Rect,
+    Color, DeviceDrawContext, DeviceMeterSnapshot, DevicePanelFrame, DevicePanelHost, DrawCommand,
+    EguiFrame, EguiImage, EguiMesh, EguiPrimitive, EguiTextureDelta, EguiTextureOptions,
+    EguiVertex, PanelAction, PanelCommand, PanelDraw, Point, Rect,
 };
 use notwig_ui::{NotwigUi, RuntimeView, UiIntent};
 use uuid::Uuid;
@@ -28,14 +29,78 @@ impl DevicePanelHost for FakeHost {
         &mut self,
         _type_id: &str,
         context: &DeviceDrawContext,
-    ) -> Option<PanelDraw> {
+    ) -> Option<DevicePanelFrame> {
         self.called.store(true, Ordering::Relaxed);
         assert!(context.width > 0.0);
         assert!(context.height > 0.0);
         if let Some(expected) = self.expected_meter {
             assert_eq!(context.meter, expected);
         }
-        Some(self.panel.clone())
+        Some(DevicePanelFrame::Commands(self.panel.clone()))
+    }
+}
+
+struct FakeEguiHost {
+    action: Option<PanelAction>,
+}
+
+impl DevicePanelHost for FakeEguiHost {
+    fn draw_device_panel(
+        &mut self,
+        _type_id: &str,
+        _context: &DeviceDrawContext,
+    ) -> Option<DevicePanelFrame> {
+        Some(DevicePanelFrame::Egui(EguiFrame {
+            primitives: vec![EguiPrimitive {
+                clip_rect: [0.0, 0.0, 200.0, 200.0],
+                mesh: EguiMesh {
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    vertices: vec![
+                        EguiVertex {
+                            pos: [0.0, 0.0],
+                            uv: [0.0, 0.0],
+                            color: [255; 4],
+                        },
+                        EguiVertex {
+                            pos: [20.0, 0.0],
+                            uv: [1.0, 0.0],
+                            color: [255; 4],
+                        },
+                        EguiVertex {
+                            pos: [20.0, 20.0],
+                            uv: [1.0, 1.0],
+                            color: [255; 4],
+                        },
+                        EguiVertex {
+                            pos: [0.0, 20.0],
+                            uv: [0.0, 1.0],
+                            color: [255; 4],
+                        },
+                    ],
+                    texture_id: 0,
+                },
+            }],
+            textures: vec![EguiTextureDelta {
+                id: 0,
+                pos: None,
+                options: EguiTextureOptions {
+                    linear: true,
+                    repeat: false,
+                },
+                image: EguiImage {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![u32::MAX],
+                },
+            }],
+            free_textures: Vec::new(),
+            actions: self.action.clone().into_iter().collect(),
+            cursor: None,
+            wants_keyboard: false,
+            wants_pointer: false,
+            copy_text: None,
+            repaint_after_ms: None,
+        }))
     }
 }
 
@@ -143,6 +208,32 @@ fn extension_spec_with_param(param_id: ParamId) -> DeviceSpec {
         0.0,
     ));
     spec
+}
+
+#[test]
+fn egui_frame_composites_and_applies_actions() {
+    let doc = doc();
+    let param_id = id::<Param>(7);
+    let mut ui = NotwigUi::default();
+    ui.registry.register(extension_spec_with_param(param_id));
+    ui.state.selection.select_track(id::<Track>(2), false);
+    ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
+        action: Some(PanelAction::SetParamNormalized {
+            param_id,
+            norm: 0.5,
+        }),
+    })));
+    let intents = render(&mut ui, &doc);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::SetParam {
+            device_id,
+            param_id: param,
+            value,
+        } if *device_id == id::<Device>(50)
+            && *param == param_id
+            && *value == ParamValue::F64(0.0)
+    )));
 }
 
 #[test]

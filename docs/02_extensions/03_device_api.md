@@ -12,6 +12,11 @@ pub fn extension(extension: &mut Extension) {
 }
 ```
 
+To opt into guest-owned egui panels, enable `notwig-ext-api/egui`, use
+`#[notwig_extension(egui)]`, set `SUPPORTS_EGUI = true`, and implement
+`draw_egui(&mut egui::Ui)`. See
+[egui extension panels](../03_development/12_egui_extension_panels.md).
+
 The full trait is:
 
 ```rust
@@ -19,6 +24,9 @@ pub trait DeviceExtension: Send + Sized + 'static {
     fn new() -> Self;
     fn spec() -> notwig_dsp::DeviceSpec;
     fn draw(&mut self, ui: &mut notwig_ext_api::UiContext<'_>);
+    const SUPPORTS_EGUI: bool = false;
+    // feature = "egui"
+    fn draw_egui(&mut self, _ui: &mut egui::Ui) {}
     fn prepare(&mut self, _sample_rate: u32, _channels: u16) {}
     fn set_param(&mut self, _param_id: notwig_core::ParamId, _value: f64) -> bool {
         false
@@ -42,7 +50,9 @@ pub trait DeviceExtension: Send + Sized + 'static {
 5. `note_event(event)` is called for each note event before the block is
    processed. Events are ordered by block sample offset.
 6. `process(samples)` runs in the audio callback.
-7. `draw(ui)` runs once per UI frame while the panel is visible.
+7. `draw(ui)` runs once per UI frame while the panel is visible. With
+   `SUPPORTS_EGUI`, the host calls `draw_egui` instead and composites the
+   returned frame.
 8. `latency()` is queried by the engine for delay compensation.
 
 The host keeps one `UiMemory` per instance. Device state that is not a parameter

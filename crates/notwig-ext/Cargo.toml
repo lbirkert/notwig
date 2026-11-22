@@ -18,6 +18,7 @@ notwig-ext-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+postcard.workspace = true
 tracing.workspace = true
 zip.workspace = true
 wasmtime = { version = "34", default-features = false, features = [

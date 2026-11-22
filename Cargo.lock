@@ -2407,6 +2407,7 @@ dependencies = [
  "notwig-core",
  "notwig-dsp",
  "notwig-ext-api",
+ "postcard",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2423,9 +2424,11 @@ dependencies = [
 name = "notwig-ext-api"
 version = "0.1.0"
 dependencies = [
+ "egui",
  "notwig-core",
  "notwig-dsp",
  "notwig-ext-macros",
+ "postcard",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

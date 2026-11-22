@@ -1,5 +1,8 @@
 use notwig_core::ParamValue;
-use notwig_ext_api::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, PanelDraw, unpack_ptr_len};
+use notwig_ext_api::{
+    ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
+    PanelDraw, unpack_ptr_len,
+};
 use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Memory, Module, OptLevel, Store, StoreLimits,
     StoreLimitsBuilder, TypedFunc,
@@ -55,6 +58,8 @@ pub(crate) struct ExtensionInstance {
     process: ProcessFn,
     latency: TypedFunc<i32, i32>,
     draw: TypedFunc<(i32, i32, i32), i64>,
+    supports_egui: Option<TypedFunc<(i32, i32), i32>>,
+    draw_egui: Option<TypedFunc<(i32, i32, i32), i64>>,
 }
 
 impl ExtensionInstance {
@@ -133,6 +138,12 @@ impl ExtensionInstance {
         let process = get_func(&instance, &mut store, "notwig_device_process")?;
         let latency = get_func(&instance, &mut store, "notwig_device_latency")?;
         let draw = get_func(&instance, &mut store, "notwig_device_draw")?;
+        let supports_egui = instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "notwig_device_supports_egui")
+            .ok();
+        let draw_egui = instance
+            .get_typed_func::<(i32, i32, i32), i64>(&mut store, "notwig_device_draw_egui")
+            .ok();
 
         Ok(Self {
             store,
@@ -147,6 +158,8 @@ impl ExtensionInstance {
             process,
             latency,
             draw,
+            supports_egui,
+            draw_egui,
         })
     }
 
@@ -357,6 +370,10 @@ impl ExtensionInstance {
     }
 
     fn read_packed_json(&mut self, packed: i64) -> Result<Vec<u8>, ExtensionError> {
+        self.read_packed_bytes(packed, MAX_OUTPUT_BYTES)
+    }
+
+    fn read_packed_bytes(&mut self, packed: i64, max: usize) -> Result<Vec<u8>, ExtensionError> {
         let (ptr, len) = unpack_ptr_len(packed as u64);
         let ptr = i32::try_from(ptr)
             .map_err(|_| ExtensionError::Abi("negative result pointer".into()))?;
@@ -365,13 +382,53 @@ impl ExtensionInstance {
         if len == 0 {
             return Err(ExtensionError::Abi("empty result".into()));
         }
-        if usize::try_from(len).is_ok_and(|len| len > MAX_OUTPUT_BYTES) {
+        if usize::try_from(len).is_ok_and(|len| len > max) {
             self.free_input(ptr, len);
             return Err(ExtensionError::Abi("result is too large".into()));
         }
         let bytes = self.read_bytes(ptr, len)?;
         self.free_input(ptr, len);
         Ok(bytes)
+    }
+
+    pub(crate) fn supports_egui(&mut self, type_id: &str) -> Result<bool, ExtensionError> {
+        let Some(function) = self.supports_egui.clone() else {
+            return Ok(false);
+        };
+        let (ptr, len) = self.write_input(type_id.as_bytes())?;
+        self.reset_fuel()?;
+        let supported = function
+            .call(&mut self.store, (ptr, len))
+            .map_err(wasm_err)?;
+        self.free_input(ptr, len);
+        Ok(supported != 0)
+    }
+
+    pub(crate) fn draw_egui_panel(
+        &mut self,
+        handle: i32,
+        context: &DeviceDrawContext,
+    ) -> Result<EguiFrame, ExtensionError> {
+        let Some(function) = self.draw_egui.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_device_draw_egui".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
+        let (ptr, len) = self.write_input(&context)?;
+        self.reset_fuel()?;
+        let packed = function
+            .call(&mut self.store, (handle, ptr, len))
+            .map_err(wasm_err)?;
+        self.free_input(ptr, len);
+        let bytes = self.read_packed_bytes(packed, MAX_EGUI_FRAME_BYTES)?;
+        let frame: EguiFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode egui frame: {error}")))?;
+        frame
+            .validate()
+            .map_err(|error| ExtensionError::Abi(format!("invalid egui frame: {error}")))?;
+        Ok(frame)
     }
 }
 

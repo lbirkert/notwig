@@ -51,7 +51,16 @@ The panel uses the shared `dropdown` widget for the oscillator and four knobs
 for the ADSR. The dropdown list is drawn last so it overlays the rest of the
 panel and closes when clicking outside it.
 
-All panels are drawn dynamically each frame with `DeviceExtension::draw` and
+### Egui Gain (optional)
+
+Enabled with `--features egui`, this device demonstrates the guest-owned egui
+panel path. It implements `draw_egui` with a real `egui::Slider`, sets
+`SUPPORTS_EGUI = true`, and reports parameter changes through
+`egui_panel::set_param_value`. The crate uses `#[notwig_extension(egui)]` only
+when that feature is enabled. An egui-capable package must also declare
+`"ui.egui"` in its manifest capabilities.
+
+All command-API panels are drawn dynamically each frame with `DeviceExtension::draw` and
 request repaint so they animate while visible. Meter and history data come from
 the engine-measured `DeviceMeterSnapshot` exposed through
 `UiContext::device_meter()`, because the panel runs in a separate extension

@@ -81,10 +81,13 @@ order that the host can run is used.
 | Capability | Grants |
 | --- | --- |
 | `device` | Device registration and DSP. |
-| `ui.draw` | Custom panel rendering. |
+| `ui.draw` | Custom panel rendering with the command IR. |
+| `ui.egui` | Guest-owned egui panels (requires the SDK `egui` feature). |
 
-An extension without `ui.draw` still appears in the device browser and uses the
-generic parameter view.
+An extension without `ui.draw` or `ui.egui` still appears in the device browser
+and uses the generic parameter view. `ui.egui` is opt-in per device through
+`DeviceExtension::SUPPORTS_EGUI`; see the
+[development design page](../03_development/12_egui_extension_panels.md).
 
 ### Entrypoints and targets
 

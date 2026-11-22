@@ -4,11 +4,12 @@ use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 use notwig_core::{DeviceInstance, Norm01, ParamValue};
 use notwig_dsp::{DeviceSpec, ParamKind};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, DeviceMeterSnapshot, PanelAction, PanelCommand, PanelDraw,
-    ThemeSnapshot, UiInput,
+    Color, DeviceDrawContext, DeviceMeterSnapshot, DevicePanelFrame, EguiInput, PanelAction,
+    PanelCommand, PanelDraw, ThemeSnapshot, UiInput,
 };
 
 use super::drawer::{EguiDrawer, to_egui_cursor, ui_input};
+use super::egui_render::{egui_input, paint_egui_frame};
 use crate::shell::NotwigUi;
 use crate::theme;
 
@@ -23,22 +24,46 @@ impl NotwigUi {
         size: Vec2,
     ) -> bool {
         let selected = self.state.selection.devices.contains(&device.id);
-        let (target, _) = ui.allocate_exact_size(size, Sense::hover());
+        let (target, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
+        if response.clicked() {
+            response.request_focus();
+        }
+        let focused = response.has_focus();
         let input = ui_input(ui, target);
-        let context = device_context(device, spec, sample_rate, selected, meter, input, size);
-        let panel = {
+        let egui_input = egui_input(ui, target, size, focused);
+        let context = device_context(
+            device,
+            spec,
+            sample_rate,
+            selected,
+            meter,
+            input,
+            egui_input,
+            size,
+        );
+        let frame = {
             let Some(host) = self.device_panel_host.as_mut() else {
                 return false;
             };
             host.draw_device_panel(&device.type_id, &context)
         };
-        let Some(panel) = panel else {
+        let Some(frame) = frame else {
             return false;
         };
-        if panel.validate().is_err() {
-            return false;
+        match frame {
+            DevicePanelFrame::Commands(panel) => {
+                if panel.validate().is_err() {
+                    return false;
+                }
+                self.paint_panel(ui, device, spec, &panel, target);
+            }
+            DevicePanelFrame::Egui(frame) => {
+                paint_egui_frame(self, ui, device, spec, &frame, target);
+                if frame.wants_keyboard && focused {
+                    self.egui_panel_keyboard = true;
+                }
+            }
         }
-        self.paint_panel(ui, device, spec, &panel, target);
         true
     }
 
@@ -167,7 +192,7 @@ impl NotwigUi {
         self.apply_panel_actions(ui, device, spec, &panel.actions);
     }
 
-    fn apply_panel_actions(
+    pub(super) fn apply_panel_actions(
         &mut self,
         ui: &egui::Ui,
         device: &DeviceInstance,
@@ -215,6 +240,7 @@ fn device_context(
     selected: bool,
     meter: DeviceMeterSnapshot,
     input: UiInput,
+    egui: EguiInput,
     size: Vec2,
 ) -> DeviceDrawContext {
     DeviceDrawContext {
@@ -233,6 +259,7 @@ fn device_context(
             .collect::<BTreeMap<_, _>>(),
         theme: theme_snapshot(),
         input,
+        egui,
         meter,
     }
 }

@@ -6,6 +6,7 @@ use crate::draw::{
     DrawCommand, DrawError, MAX_ACTIONS, MAX_COMMANDS, MAX_TEXT_BYTES, validate_command,
     validate_rect,
 };
+use crate::egui_panel::EguiFrame;
 use crate::geometry::Rect;
 use crate::ui::CursorIcon;
 
@@ -131,21 +132,30 @@ impl PanelDraw {
     }
 }
 
+/// One rendered device panel, either command IR or a guest egui frame.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DevicePanelFrame {
+    /// The extension drew through the render-neutral command API.
+    Commands(PanelDraw),
+    /// The extension ran its own egui context and returned tessellated output.
+    Egui(EguiFrame),
+}
+
 /// Host-side sink for extension device panels.
 ///
 /// Implementations should key retained UI state by
-/// [`DeviceDrawContext::device_id`], not by device type. The context carries a
-/// per-frame input snapshot and theme.
+/// [`DeviceDrawContext::device_id`], not by device type. The context carries
+/// per-frame input snapshots and theme.
 pub trait DevicePanelHost {
     /// Draws the panel for one device instance.
     fn draw_device_panel(
         &mut self,
         type_id: &str,
         context: &DeviceDrawContext,
-    ) -> Option<PanelDraw>;
+    ) -> Option<DevicePanelFrame>;
 }
 
-fn validate_action(action: &PanelAction, index: usize) -> Result<(), DrawError> {
+pub(crate) fn validate_action(action: &PanelAction, index: usize) -> Result<(), DrawError> {
     match action {
         PanelAction::SetParamNormalized { norm, .. } => {
             if !norm.is_finite() {

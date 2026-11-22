@@ -4,6 +4,9 @@ pub mod abi;
 pub mod config;
 pub mod context;
 pub mod draw;
+pub mod egui_panel;
+#[cfg(feature = "egui")]
+pub use egui;
 pub mod extension;
 pub mod geometry;
 pub mod index;
@@ -21,6 +24,10 @@ pub use draw::{
     DrawCommand, DrawError, DrawList, FontFamily, MAX_ACTIONS, MAX_COMMANDS, MAX_OUTPUT_BYTES,
     MAX_PATH_POINTS, MAX_TEXT_BYTES, VerticalAlign,
 };
+pub use egui_panel::{
+    EguiEvent, EguiFrame, EguiImage, EguiInput, EguiMesh, EguiModifiers, EguiPointerButton,
+    EguiPrimitive, EguiTextureDelta, EguiTextureOptions, EguiVertex, MAX_EGUI_FRAME_BYTES,
+};
 pub use extension::{DeviceExtension, Extension};
 pub use geometry::{Color, Point, Rect, Size, Stroke, TextAlign};
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
@@ -29,7 +36,7 @@ pub use manifest::{
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
 pub use notwig_ext_macros::notwig_extension;
-pub use panel::{DevicePanelHost, PanelAction, PanelCommand, PanelDraw};
+pub use panel::{DevicePanelFrame, DevicePanelHost, PanelAction, PanelCommand, PanelDraw};
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};
 pub use ui::{
     Align, CursorIcon, Drawer, Font, Modifiers, PointerState, RecordDrawer, RecordUi, Response,

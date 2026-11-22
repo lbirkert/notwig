@@ -17,15 +17,17 @@ system; extension authors depend on `notwig-ext-api` instead.
 - Describe extension devices and register their `DeviceSpec`s.
 - Create WASM- or native-backed `DeviceProcessor`s through
   `ExtensionDeviceFactory`.
-- Host extension device panels through `ExtensionPanelHost`, translating the
-  returned `PanelDraw` into UI commands.
+- Host extension device panels through `ExtensionPanelHost`, returning either
+  command IR (`PanelDraw`) or a validated guest egui frame for the UI to
+  composite.
 - Provide ABI helpers: allocation, JSON snapshots, pointer/length results,
   native pointer validation, and memory-bounds checks.
 
 ## Boundaries
 
 - No `egui` and no UI code. Panel output is render-neutral
-  `notwig_ext_api::PanelDraw`.
+  `notwig_ext_api::PanelDraw` or a validated `EguiFrame`; the UI owns texture
+  upload and painting.
 - No project mutation. Extensions see snapshots and return draw/audio data; the
   app validates and applies state changes.
 - WASM modules get no filesystem, network, threads, or WASI imports. The native
@@ -48,18 +50,20 @@ system; extension authors depend on `notwig-ext-api` instead.
 | `error.rs` | `ExtensionError` |
 | `host.rs` | `ExtensionHost`: discovery + compile + specs + factory + panel host |
 | `install.rs` | filesystem install/replace and uninstall using validated archives |
-| `panel.rs` | UI-side instance cache implementing `DevicePanelHost` |
+| `panel.rs` | UI-side instance cache implementing `DevicePanelHost`; selects egui or command panels |
 | `web/` | Browser WebAssembly host, ZIP package parsing, DSP, and panels |
 
 ## ABI overview
 
 The WASM ABI requires `notwig_abi_version`, `notwig_alloc`, `notwig_free`, and
 the `notwig_device_*` family (`describe`, `create`, `destroy`, `prepare`,
-`set_param`, `process`, `latency`, `draw`). Metadata, parameter values, and
-panel draw output cross the boundary as JSON; audio crosses as interleaved
-`f32` samples and note events cross as fixed-size `NoteEvent` records passed to
-`process` when the device declares a note input. WASM host imports are limited
-to `notwig.host.log` and `notwig.host.notify`.
+`set_param`, `process`, `latency`, `draw`). Egui-capable extensions also export
+`notwig_device_supports_egui` and `notwig_device_draw_egui`; those frames use a
+compact `postcard` envelope and are validated before compositing. Metadata,
+parameter values, and command-panel output cross the boundary as JSON; audio
+crosses as interleaved `f32` samples and note events cross as fixed-size
+`NoteEvent` records passed to `process` when the device declares a note input.
+WASM host imports are limited to `notwig.host.log` and `notwig.host.notify`.
 
 The native ABI exports the same function names with pointer-sized arguments.
 Inputs are ordinary process pointers, stored JSON outputs are returned as a

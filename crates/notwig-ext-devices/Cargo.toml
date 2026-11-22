@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+egui = ["notwig-ext-api/egui"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

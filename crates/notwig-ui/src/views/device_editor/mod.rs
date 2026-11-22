@@ -19,6 +19,7 @@ use crate::widgets::format_param;
 
 mod browser;
 mod drawer;
+mod egui_render;
 mod eq;
 mod extension;
 mod params;

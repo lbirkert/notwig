@@ -12,6 +12,8 @@ pub enum ExtensionCapability {
     Device,
     #[serde(rename = "ui.draw")]
     UiDraw,
+    #[serde(rename = "ui.egui")]
+    UiEgui,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

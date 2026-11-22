@@ -223,8 +223,11 @@ under `/app/` beside the mdBook documentation.
   format-specific types inside that crate.
 - **Extensions**: add host behavior in `notwig-ext` and shared ABI/draw types in
   `notwig-ext-api`. Device specs/panels/DSP come from the extension; Notwig owns
-  validation, resource limits, and rendering. General clip/track drawing hooks are
-  planned on the same command IR.
+  validation, resource limits, and rendering. Command-IR panels (`ui.draw`) are
+  the default. Opt-in `ui.egui` panels run a private guest egui context and send
+  validated meshes/texture deltas for the host to composite, as described in
+  [`egui Extension Panels`](12_egui_extension_panels.md). General clip/track
+  drawing hooks are planned on the same command IR.
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted
   by `notwig-app`.

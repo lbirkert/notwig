@@ -10,10 +10,10 @@ This page is a quick map of the workspace crates. Each crate also has a
 | `notwig-core` | Domain document, IDs, time, tracks, clips, command protocol, editing algebra | No workspace crates |
 | `notwig-project` | Project bundles, manifests, autosave/recovery, audio probe/decode/resample/export | `notwig-core` |
 | `notwig-dsp` | Device and parameter contracts, registry, factories, graph compilation, stock devices, editor monitoring | `notwig-core` |
-| `notwig-ext-api` | Extension SDK, render-neutral draw/panel types, note events, manifests, ABI helpers | `notwig-core`, `notwig-dsp`, `notwig-ext-macros` |
+| `notwig-ext-api` | Extension SDK, render-neutral draw/panel types, optional guest egui runner, note events, manifests, ABI helpers | `notwig-core`, `notwig-dsp`, `notwig-ext-macros` |
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Proc-macro support only |
 | `notwig-ext` | Extension discovery, wasmtime host, WASM DSP, panel host | `notwig-core`, `notwig-dsp`, `notwig-ext-api` |
-| `notwig-ext-devices` | Limiter, gate, and synth example devices and stock WASM extension | `notwig-core`, `notwig-dsp`, `notwig-ext-api` |
+| `notwig-ext-devices` | Limiter, gate, synth, and optional egui-gain example devices | `notwig-core`, `notwig-dsp`, `notwig-ext-api` |
 | `notwig-engine` | Real-time playback, runtime plans, scheduling, transport, meters | `notwig-core`, `notwig-dsp`, `notwig-plugins` |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance and editor lifecycle | `notwig-core`, `notwig-dsp` |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | `notwig-core`, `notwig-project`, `notwig-dsp`, `notwig-ext-api` |
@@ -31,7 +31,7 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 | Document field, command, validation, edit algebra | `notwig-core` |
 | Bundle format, asset import/export, autosave | `notwig-project` |
 | Device contract, stock device, DSP graph | `notwig-dsp` |
-| Extension API, draw commands, ABI wire types | `notwig-ext-api` |
+| Extension API, draw commands, egui frame wire types, ABI wire types | `notwig-ext-api` |
 | Extension loading, target selection, WASM/native device runtime | `notwig-ext` |
 | Playback, scheduling, transport, latency compensation | `notwig-engine` |
 | VST3/VST2/CLAP/LV2/AU/AU3 discovery and hosting | `notwig-plugins` |

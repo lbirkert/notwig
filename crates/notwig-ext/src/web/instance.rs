@@ -2,7 +2,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use js_sys::{BigInt, Function, Object, Reflect, Uint8Array};
 use notwig_core::ParamValue;
-use notwig_ext_api::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, PanelDraw, unpack_ptr_len};
+use notwig_ext_api::{
+    ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
+    PanelDraw, unpack_ptr_len,
+};
 use wasm_bindgen::{JsCast, JsValue};
 
 use crate::error::ExtensionError;
@@ -23,6 +26,8 @@ pub(crate) struct WebExtensionInstance {
     process: Function,
     latency: Function,
     draw: Function,
+    supports_egui: Option<Function>,
+    draw_egui: Option<Function>,
     host_global: String,
 }
 
@@ -108,6 +113,8 @@ impl WebExtensionInstance {
             process: function(&exports, "notwig_device_process")?,
             latency: function(&exports, "notwig_device_latency")?,
             draw: function(&exports, "notwig_device_draw")?,
+            supports_egui: optional_function(&exports, "notwig_device_supports_egui"),
+            draw_egui: optional_function(&exports, "notwig_device_draw_egui"),
             memory,
             host_global: host_name,
         })
@@ -232,7 +239,7 @@ impl WebExtensionInstance {
     pub(crate) fn draw_panel(
         &mut self,
         handle: i32,
-        context: &notwig_ext_api::DeviceDrawContext,
+        context: &DeviceDrawContext,
     ) -> Result<PanelDraw, ExtensionError> {
         let json = serde_json::to_vec(context)
             .map_err(|error| ExtensionError::Abi(format!("encode draw context: {error}")))?;
@@ -253,6 +260,47 @@ impl WebExtensionInstance {
             .validate()
             .map_err(|error| ExtensionError::Abi(error.to_string()))?;
         Ok(panel)
+    }
+
+    pub(crate) fn supports_egui(&mut self, type_id: &str) -> Result<bool, ExtensionError> {
+        let Some(function) = self.supports_egui.clone() else {
+            return Ok(false);
+        };
+        let (ptr, len) = self.write_input(type_id.as_bytes())?;
+        let supported = call_i32(&function, &[JsValue::from(ptr), JsValue::from(len)])?;
+        self.free_input(ptr, len);
+        Ok(supported != 0)
+    }
+
+    pub(crate) fn draw_egui_panel(
+        &mut self,
+        handle: i32,
+        context: &DeviceDrawContext,
+    ) -> Result<EguiFrame, ExtensionError> {
+        let Some(function) = self.draw_egui.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_device_draw_egui".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
+        let (ptr, len) = self.write_input(&context)?;
+        let packed = call_u64(
+            &function,
+            &[
+                JsValue::from(handle),
+                JsValue::from(ptr),
+                JsValue::from(len),
+            ],
+        )?;
+        self.free_input(ptr, len);
+        let bytes = self.read_packed_bytes(packed, MAX_EGUI_FRAME_BYTES)?;
+        let frame: EguiFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode egui frame: {error}")))?;
+        frame
+            .validate()
+            .map_err(|error| ExtensionError::Abi(format!("invalid egui frame: {error}")))?;
+        Ok(frame)
     }
 
     pub(crate) fn alloc_audio(&mut self, bytes: usize) -> Result<i32, ExtensionError> {
@@ -336,6 +384,10 @@ impl WebExtensionInstance {
     }
 
     fn read_packed_json(&mut self, packed: u64) -> Result<Vec<u8>, ExtensionError> {
+        self.read_packed_bytes(packed, MAX_OUTPUT_BYTES)
+    }
+
+    fn read_packed_bytes(&mut self, packed: u64, max: usize) -> Result<Vec<u8>, ExtensionError> {
         let (ptr, len) = unpack_ptr_len(packed);
         let ptr = i32::try_from(ptr)
             .map_err(|_| ExtensionError::Abi("negative result pointer".into()))?;
@@ -344,7 +396,7 @@ impl WebExtensionInstance {
         if len == 0 {
             return Err(ExtensionError::Abi("empty result".into()));
         }
-        if usize::try_from(len).is_ok_and(|len| len > MAX_OUTPUT_BYTES) {
+        if usize::try_from(len).is_ok_and(|len| len > max) {
             self.free_input(ptr, len);
             return Err(ExtensionError::Abi("result is too large".into()));
         }
@@ -359,6 +411,12 @@ fn function(exports: &Object, name: &str) -> Result<Function, ExtensionError> {
         .map_err(|_| ExtensionError::MissingExport(name.to_owned()))?
         .dyn_into()
         .map_err(|_| ExtensionError::MissingExport(name.to_owned()))
+}
+
+fn optional_function(exports: &Object, name: &str) -> Option<Function> {
+    Reflect::get(exports, &JsValue::from_str(name))
+        .ok()
+        .and_then(|value| value.dyn_into().ok())
 }
 
 fn call_i32(function: &Function, args: &[JsValue]) -> Result<i32, ExtensionError> {

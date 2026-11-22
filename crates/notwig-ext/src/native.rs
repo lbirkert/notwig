@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use libloading::Library;
 use notwig_core::ParamValue;
-use notwig_ext_api::{ABI_VERSION, AbiStatus, DeviceDrawContext, MAX_OUTPUT_BYTES, PanelDraw};
+use notwig_ext_api::{
+    ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
+    PanelDraw,
+};
 
 use crate::error::ExtensionError;
 
@@ -26,6 +29,8 @@ type SetParamFn = unsafe extern "C" fn(i32, *const u8, usize, i32, f64) -> i32;
 type ProcessFn = unsafe extern "C" fn(i32, *mut f32, i32, *const u8, i32, i64, i32) -> i32;
 type LatencyFn = unsafe extern "C" fn(i32) -> i32;
 type DrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
+type SupportsEguiFn = unsafe extern "C" fn(*const u8, usize) -> i32;
+type DrawEguiFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
 
 /// A loaded native extension shared library.
 pub(crate) struct NativeLibrary {
@@ -38,6 +43,8 @@ pub(crate) struct NativeLibrary {
     process: ProcessFn,
     latency: LatencyFn,
     draw: DrawFn,
+    supports_egui: Option<SupportsEguiFn>,
+    draw_egui: Option<DrawEguiFn>,
 }
 
 impl NativeLibrary {
@@ -81,6 +88,14 @@ impl NativeLibrary {
                 draw: *library
                     .get(b"notwig_device_draw\0")
                     .map_err(|error| missing_export("notwig_device_draw", error))?,
+                supports_egui: library
+                    .get(b"notwig_device_supports_egui\0")
+                    .ok()
+                    .map(|symbol| *symbol),
+                draw_egui: library
+                    .get(b"notwig_device_draw_egui\0")
+                    .ok()
+                    .map(|symbol| *symbol),
                 _library: library,
             }))
         }
@@ -209,13 +224,47 @@ impl NativeInstance {
             .map_err(|error| ExtensionError::Abi(error.to_string()))?;
         Ok(panel)
     }
+
+    pub(crate) fn supports_egui(&mut self, type_id: &str) -> bool {
+        let Some(function) = self.library.supports_egui else {
+            return false;
+        };
+        let supported = unsafe { function(type_id.as_ptr(), type_id.len()) };
+        supported != 0
+    }
+
+    pub(crate) fn draw_egui_panel(
+        &mut self,
+        handle: i32,
+        context: &DeviceDrawContext,
+    ) -> Result<EguiFrame, ExtensionError> {
+        let Some(function) = self.library.draw_egui else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_device_draw_egui".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
+        let bytes = unsafe { function(handle, context.as_ptr(), context.len()) };
+        let bytes = read_bytes_with_limit(bytes, MAX_EGUI_FRAME_BYTES)?;
+        let frame: EguiFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode egui frame: {error}")))?;
+        frame
+            .validate()
+            .map_err(|error| ExtensionError::Abi(format!("invalid egui frame: {error}")))?;
+        Ok(frame)
+    }
 }
 
 fn read_bytes(bytes: NativeBytes) -> Result<Vec<u8>, ExtensionError> {
+    read_bytes_with_limit(bytes, MAX_OUTPUT_BYTES)
+}
+
+fn read_bytes_with_limit(bytes: NativeBytes, max: usize) -> Result<Vec<u8>, ExtensionError> {
     if bytes.ptr.is_null() || bytes.len == 0 {
         return Err(ExtensionError::Abi("empty result".into()));
     }
-    if bytes.len > MAX_OUTPUT_BYTES {
+    if bytes.len > max {
         return Err(ExtensionError::Abi("result is too large".into()));
     }
     let data = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
