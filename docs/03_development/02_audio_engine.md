@@ -225,6 +225,9 @@ preallocated slot in `notwig-engine::InputBus`:
   low-latency chain instance;
 - the app trims one audio block from the start of each new take to compensate
   for block-level capture latency;
+- monitor queues discard stale backlog beyond two output blocks or 50 ms, so
+  clock drift or a stalled drain cannot turn into permanent multi-second
+  monitoring latency;
 - the audio thread drains the monitoring queue into the armed track's input
   buffer before the track's device chain runs, so monitoring follows devices,
   mixer, pan, mute/solo, and routing;

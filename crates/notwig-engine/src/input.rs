@@ -56,6 +56,7 @@ fn push_frame(
 
 /// Shared input tap between an audio input callback and the engine or recorder.
 pub struct InputBus {
+    sample_rate: u32,
     slots: Vec<InputSlot>,
 }
 
@@ -67,6 +68,7 @@ impl InputBus {
             .saturating_mul(INPUT_QUEUE_SECONDS)
             .max(1024);
         Self {
+            sample_rate: sample_rate.max(1),
             slots: (0..MAX_INPUT_TRACKS)
                 .map(|_| InputSlot::new(capacity))
                 .collect(),
@@ -147,6 +149,19 @@ impl InputBus {
         let Some(slot) = self.slots.get(usize::from(slot)) else {
             return;
         };
+        // Monitoring must not accumulate unbounded latency if input and output
+        // clocks drift or one callback path stalls. Keep at most two requested
+        // blocks or 50 ms, whichever is larger.
+        let max_backlog = frames
+            .saturating_mul(2)
+            .max(usize::try_from(self.sample_rate / 20).unwrap_or(2_400));
+        let queued = slot.monitor_left.len();
+        if queued > max_backlog {
+            for _ in 0..queued - max_backlog {
+                let _ = slot.monitor_left.pop();
+                let _ = slot.monitor_right.pop();
+            }
+        }
         for frame in 0..frames.min(dest.len() / 2) {
             let (Some(left), Some(right)) = (slot.monitor_left.pop(), slot.monitor_right.pop())
             else {
@@ -174,7 +189,25 @@ impl InputBus {
 impl std::fmt::Debug for InputBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InputBus")
+            .field("sample_rate", &self.sample_rate)
             .field("slots", &self.slots.len())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monitor_drain_drops_stale_backlog_to_bound_latency() {
+        let bus = InputBus::new(48_000);
+        for index in 0..5_000 {
+            bus.push(0, index as f32);
+        }
+        let mut output = vec![0.0_f32; 128 * 2];
+        bus.drain_monitor_into(0, 128, &mut output);
+        assert_eq!(output[0], 2_600.0);
+        assert_eq!(output[1], 2_600.0);
     }
 }
