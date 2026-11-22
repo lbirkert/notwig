@@ -95,7 +95,7 @@ impl NotwigUi {
                     any = true;
                     egui::CollapsingHeader::new(
                         RichText::new(category.label())
-                            .font(theme::custom_font(ui.ctx(), "Inter SemiBold", 13.0))
+                            .font(theme::custom_font(ui.ctx(), "Geist SemiBold", 13.0))
                             .color(theme::TEXT_PRIMARY),
                     )
                     .id_salt(("shortcut-category", category.label()))

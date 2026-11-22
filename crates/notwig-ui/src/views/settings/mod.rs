@@ -262,7 +262,7 @@ impl NotwigUi {
                                         RichText::new(&card.name)
                                             .font(theme::custom_font(
                                                 ui.ctx(),
-                                                "Inter SemiBold",
+                                                "Geist SemiBold",
                                                 17.0,
                                             ))
                                             .color(theme::TEXT_PRIMARY),

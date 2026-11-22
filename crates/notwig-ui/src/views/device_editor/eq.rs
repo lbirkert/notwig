@@ -208,7 +208,7 @@ impl NotwigUi {
                 *pos,
                 Align2::CENTER_CENTER,
                 format!("{}", band_index + 1),
-                FontId::proportional(10.0),
+                FontId::monospace(10.0),
                 Color32::from_black_alpha(220),
             );
             if show_handle {

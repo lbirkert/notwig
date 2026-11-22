@@ -859,7 +859,7 @@ impl NotwigUi {
                 let dirty = if runtime.dirty { "*" } else { "" };
                 let project_name = project_display_name(doc, runtime);
                 let project_label = format!("{project_name}{dirty}");
-                let card_font = theme::custom_font(ctx, "Inter Medium", 11.5);
+                let card_font = theme::custom_font(ctx, "Geist Medium", 11.5);
                 let card_galley =
                     painter.layout_no_wrap(project_label, card_font, theme::TEXT_PRIMARY);
                 let card_height = 22.0;

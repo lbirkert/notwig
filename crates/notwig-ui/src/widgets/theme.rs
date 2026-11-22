@@ -25,20 +25,20 @@ pub const SELECTION: Color32 = Color32::from_rgb(255, 210, 120);
 pub const HEADING_SIZE: f32 = 11.0;
 pub const APP_TITLE_SIZE: f32 = 18.0;
 
-const INTER_FAMILIES: [(&str, &str); 5] = [
-    ("inter_regular", "Inter Regular"),
-    ("inter_medium", "Inter Medium"),
-    ("inter_semibold", "Inter SemiBold"),
-    ("inter_bold", "Inter Bold"),
-    ("inter_black", "Inter Black"),
+const GEIST_FAMILIES: [(&str, &str); 5] = [
+    ("geist_regular", "Geist"),
+    ("geist_medium", "Geist Medium"),
+    ("geist_semibold", "Geist SemiBold"),
+    ("geist_bold", "Geist Bold"),
+    ("geist_black", "Geist Black"),
 ];
 
 pub fn app_title_font(ctx: &egui::Context, size: f32) -> FontId {
-    custom_font(ctx, "Inter Black", size)
+    custom_font(ctx, "Geist Black", size)
 }
 
 pub fn heading_font(ctx: &egui::Context) -> FontId {
-    custom_font(ctx, "Inter SemiBold", HEADING_SIZE)
+    custom_font(ctx, "Geist SemiBold", HEADING_SIZE)
 }
 
 /// Standard uppercase section heading used across panels.
@@ -49,12 +49,12 @@ pub fn heading(ctx: &egui::Context, label: impl Into<String>) -> RichText {
 /// Page-level heading used by settings and other full-page views.
 pub fn page_heading(ctx: &egui::Context, label: impl Into<String>) -> RichText {
     RichText::new(label)
-        .font(custom_font(ctx, "Inter Bold", 18.0))
+        .font(custom_font(ctx, "Geist Bold", 18.0))
         .color(TEXT_PRIMARY)
 }
 
-/// Icon glyphs must always resolve to Lucide. Inter has private-use glyphs at
-/// the same code points, so the icon font needs its own family.
+/// Icon glyphs must always resolve to Lucide. The text fonts may map
+/// private-use glyphs at the same code points, so icons need their own family.
 pub fn icon_font(ctx: &egui::Context, size: f32) -> FontId {
     let named = FontFamily::Name("Lucide".into());
     if ctx.fonts(|fonts| fonts.families().contains(&named)) {
@@ -123,24 +123,32 @@ fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     for (key, bytes) in [
         (
-            "inter_regular",
-            include_bytes!("../../assets/fonts/Inter-Regular.ttf").as_slice(),
+            "geist_regular",
+            include_bytes!("../../assets/fonts/Geist-Regular.ttf").as_slice(),
         ),
         (
-            "inter_medium",
-            include_bytes!("../../assets/fonts/Inter-Medium.ttf").as_slice(),
+            "geist_medium",
+            include_bytes!("../../assets/fonts/Geist-Medium.ttf").as_slice(),
         ),
         (
-            "inter_semibold",
-            include_bytes!("../../assets/fonts/Inter-SemiBold.ttf").as_slice(),
+            "geist_semibold",
+            include_bytes!("../../assets/fonts/Geist-SemiBold.ttf").as_slice(),
         ),
         (
-            "inter_bold",
-            include_bytes!("../../assets/fonts/Inter-Bold.ttf").as_slice(),
+            "geist_bold",
+            include_bytes!("../../assets/fonts/Geist-Bold.ttf").as_slice(),
         ),
         (
-            "inter_black",
-            include_bytes!("../../assets/fonts/Inter-Black.ttf").as_slice(),
+            "geist_black",
+            include_bytes!("../../assets/fonts/Geist-Black.ttf").as_slice(),
+        ),
+        (
+            "geist_mono_regular",
+            include_bytes!("../../assets/fonts/GeistMono-Regular.ttf").as_slice(),
+        ),
+        (
+            "geist_mono_medium",
+            include_bytes!("../../assets/fonts/GeistMono-Medium.ttf").as_slice(),
         ),
     ] {
         fonts
@@ -152,13 +160,17 @@ fn install_fonts(ctx: &egui::Context) {
         FontData::from_static(include_bytes!("../../assets/fonts/lucide.ttf")).into(),
     );
 
-    for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        let family_fonts = fonts.families.entry(family).or_default();
-        family_fonts.insert(0, "inter_regular".into());
-        // Keep Lucide available as a fallback for icon glyphs in text.
-        family_fonts.insert(1, "lucide".into());
-    }
-    // Icons use this family directly because Inter also maps private-use
+    let proportional_fonts = fonts.families.entry(FontFamily::Proportional).or_default();
+    proportional_fonts.insert(0, "geist_regular".into());
+    // Keep Lucide available as a fallback for icon glyphs in text.
+    proportional_fonts.insert(1, "lucide".into());
+
+    let monospace_fonts = fonts.families.entry(FontFamily::Monospace).or_default();
+    monospace_fonts.insert(0, "geist_mono_regular".into());
+    monospace_fonts.insert(1, "geist_mono_medium".into());
+    monospace_fonts.insert(2, "lucide".into());
+
+    // Icons use this family directly because text fonts may map private-use
     // code points, which would otherwise render the wrong glyphs.
     fonts
         .families
@@ -169,7 +181,7 @@ fn install_fonts(ctx: &egui::Context) {
         .get(&FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
-    for (key, name) in INTER_FAMILIES {
+    for (key, name) in GEIST_FAMILIES {
         let mut family = vec![key.into()];
         family.extend(fallback.iter().filter(|font| *font != key).cloned());
         fonts.families.insert(FontFamily::Name(name.into()), family);
