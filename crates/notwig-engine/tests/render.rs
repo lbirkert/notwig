@@ -650,6 +650,8 @@ fn metronome_only_update_does_not_cut_a_sustained_note() {
     producer.data_mut().set_metronome(MetronomeState {
         enabled: true,
         beats_per_bar: 4,
+        beat_length: TimeMus::new(1, 1),
+        bar_length: TimeMus::new(4, 1),
     });
     producer.flush();
 
@@ -816,6 +818,8 @@ fn metronome_clicks_on_beats_and_accents_bar_starts() {
             metronome: Some(notwig_core::protocol::MetronomeState {
                 enabled: true,
                 beats_per_bar: 4,
+                beat_length: TimeMus::new(1, 1),
+                bar_length: TimeMus::new(4, 1),
             }),
         })
         .unwrap();
@@ -828,6 +832,42 @@ fn metronome_clicks_on_beats_and_accents_bar_starts() {
     assert!(
         output[24_000 * 2 + 100].abs() > 0.01,
         "second beat click should be audible"
+    );
+}
+
+#[test]
+fn metronome_uses_the_time_signature_denominator() {
+    let doc = base_doc();
+    let mut engine = prepare_engine(
+        &doc,
+        Vec::new(),
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    engine
+        .apply(EngineMsg::SetTransport {
+            playing: true,
+            playhead_samples: 0,
+            loop_enabled: false,
+            loop_start_samples: None,
+            loop_end_samples: None,
+            stop: false,
+            metronome: Some(notwig_core::protocol::MetronomeState {
+                enabled: true,
+                beats_per_bar: 6,
+                beat_length: TimeMus::new(1, 2),
+                bar_length: TimeMus::new(3, 1),
+            }),
+        })
+        .unwrap();
+    let output = engine.render_offline(0, 80_000).unwrap();
+    assert!(
+        output[12_100 * 2].abs() > 0.01,
+        "6/8 should click on the second eighth note"
+    );
+    assert!(
+        output[73_100 * 2].abs() > 0.01,
+        "the next 6/8 bar should be accented"
     );
 }
 

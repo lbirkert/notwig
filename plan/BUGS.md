@@ -1,1 +1,0 @@
-- Metronome ignores the time-signature denominator: clicks are quarter notes and accents every numerator quarter notes. Make click pulse and accent use `beat_length`/`bar_length` so 6/8, 7/8, 3/2, and 12/8 are correct.

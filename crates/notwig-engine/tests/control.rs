@@ -5,7 +5,7 @@ use notwig_core::dsp::EngineCaps;
 use notwig_core::ids::{DeviceChain, Track};
 use notwig_core::protocol::MetronomeState;
 use notwig_core::protocol::PlaybackSchedule;
-use notwig_core::{Id, Meta, ProjectDoc, SampleRate};
+use notwig_core::{Id, Meta, ProjectDoc, SampleRate, TimeMus};
 use notwig_engine::{Engine, EngineConfig, EngineControl, StockDeviceFactory, TransportUpdate};
 use uuid::Uuid;
 
@@ -91,6 +91,8 @@ fn control_transport_updates_enable_the_metronome() {
     update.metronome = Some(MetronomeState {
         enabled: true,
         beats_per_bar: 4,
+        beat_length: TimeMus::new(1, 1),
+        bar_length: TimeMus::new(4, 1),
     });
     producer.data_mut().set_prepared_runtime(prepare(&doc));
     producer.data_mut().set_transport(update);
@@ -170,6 +172,8 @@ fn prepared_runtime_survives_an_intervening_non_prepared_publish() {
     producer.data_mut().set_metronome(MetronomeState {
         enabled: true,
         beats_per_bar: 4,
+        beat_length: TimeMus::new(1, 1),
+        bar_length: TimeMus::new(4, 1),
     });
     producer.flush();
 
@@ -198,6 +202,8 @@ fn metronome_only_update_keeps_the_playhead_target() {
     producer.data_mut().set_metronome(MetronomeState {
         enabled: true,
         beats_per_bar: 4,
+        beat_length: TimeMus::new(1, 1),
+        bar_length: TimeMus::new(4, 1),
     });
     producer.flush();
     engine.process(&mut output, 128).unwrap();

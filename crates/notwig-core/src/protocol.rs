@@ -394,6 +394,10 @@ impl PlaybackSchedule {
 pub struct MetronomeState {
     pub enabled: bool,
     pub beats_per_bar: u8,
+    /// Length of one click pulse in quarter-note beats.
+    pub beat_length: TimeMus,
+    /// Length of one bar in quarter-note beats.
+    pub bar_length: TimeMus,
 }
 
 #[derive(Debug, Clone, PartialEq)]

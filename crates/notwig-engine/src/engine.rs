@@ -97,6 +97,8 @@ pub struct Engine {
     control_frames_until_sync: u64,
     metronome_enabled: bool,
     metronome_beats_per_bar: u8,
+    metronome_beat_length: TimeMus,
+    metronome_bar_length: TimeMus,
     input_bus: Option<Arc<InputBus>>,
     input_routes: [Option<(notwig_core::TrackId, u16)>; MAX_INPUT_TRACKS],
     offline: bool,
@@ -138,6 +140,8 @@ impl Engine {
             control_frames_until_sync: DEFAULT_CONTROL_SYNC_FRAMES,
             metronome_enabled: false,
             metronome_beats_per_bar: 4,
+            metronome_beat_length: TimeMus::new(1, 1),
+            metronome_bar_length: TimeMus::new(4, 1),
             input_bus: None,
             input_routes: [None; MAX_INPUT_TRACKS],
             offline: false,
@@ -266,8 +270,7 @@ impl Engine {
                     self.transport.loop_end_samples = end;
                 }
                 if let Some(metronome) = metronome {
-                    self.metronome_enabled = metronome.enabled;
-                    self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
+                    self.apply_metronome(metronome);
                 }
                 if stop || !playing || jumped {
                     self.all_notes_off = true;
@@ -482,8 +485,7 @@ impl Engine {
                 self.transport.loop_end_samples = end;
             }
             if let Some(metronome) = transport.metronome {
-                self.metronome_enabled = metronome.enabled;
-                self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
+                self.apply_metronome(metronome);
             }
             if transport.stop || !transport.playing || jumped {
                 self.all_notes_off = true;
@@ -494,8 +496,7 @@ impl Engine {
         }
 
         if let Some(metronome) = self.control_data.metronome {
-            self.metronome_enabled = metronome.enabled;
-            self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
+            self.apply_metronome(metronome);
         }
 
         if let Some(runtime) = &mut self.runtime {
@@ -682,6 +683,13 @@ impl Engine {
         Ok(())
     }
 
+    fn apply_metronome(&mut self, metronome: notwig_core::protocol::MetronomeState) {
+        self.metronome_enabled = metronome.enabled;
+        self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
+        self.metronome_beat_length = metronome.beat_length;
+        self.metronome_bar_length = metronome.bar_length.max(metronome.beat_length);
+    }
+
     fn mix_metronome(&self, buffer: &mut [f32], start_sample: u64, frames: usize) {
         if !self.metronome_enabled {
             return;
@@ -690,24 +698,27 @@ impl Engine {
             return;
         };
         let rate = f64::from(self.config.sample_rate.max(1));
-        let samples_per_beat = rate * 60.0 / plan.config.tempo_bpm.max(1e-6);
-        if samples_per_beat <= 0.0 {
+        let samples_per_quarter = rate * 60.0 / plan.config.tempo_bpm.max(1e-6);
+        let beat_length = self.metronome_beat_length.as_f64().max(1e-9);
+        let bar_length = self.metronome_bar_length.as_f64().max(beat_length);
+        let samples_per_pulse = samples_per_quarter * beat_length;
+        let samples_per_bar = samples_per_quarter * bar_length;
+        if samples_per_pulse <= 0.0 || samples_per_bar <= 0.0 {
             return;
         }
-        let click_len = (0.03 * rate).max(1.0).min(samples_per_beat);
-        let beats_per_bar = f64::from(self.metronome_beats_per_bar.max(1));
+        let click_len = (0.03 * rate).max(1.0).min(samples_per_pulse);
         for index in 0..frames {
             let absolute = start_sample as f64 + index as f64;
-            let beat_position = absolute % samples_per_beat;
-            if beat_position >= click_len {
+            let pulse_position = absolute % samples_per_pulse;
+            if pulse_position >= click_len {
                 continue;
             }
-            let beat_index = (absolute / samples_per_beat).floor();
-            let accent = (beat_index % beats_per_bar).abs() < 1e-9;
+            let bar_position = absolute % samples_per_bar;
+            let accent = bar_position < click_len;
             let frequency = if accent { 1760.0 } else { 880.0 };
-            let envelope = (1.0 - beat_position / click_len).powi(2);
+            let envelope = (1.0 - pulse_position / click_len).powi(2);
             let amplitude = if accent { 0.35 } else { 0.22 };
-            let seconds = beat_position / rate;
+            let seconds = pulse_position / rate;
             let sample = (seconds * frequency * std::f64::consts::TAU).sin() as f32
                 * envelope as f32
                 * amplitude;

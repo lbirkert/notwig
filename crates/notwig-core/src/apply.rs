@@ -602,6 +602,8 @@ fn transport_msg(doc: &ProjectDoc) -> EngineMsg {
         metronome: Some(crate::protocol::MetronomeState {
             enabled: doc.transport.metronome_enabled,
             beats_per_bar: doc.meta.time_sig_num,
+            beat_length: doc.meta.beat_length(),
+            bar_length: doc.meta.bar_length(),
         }),
     }
 }
