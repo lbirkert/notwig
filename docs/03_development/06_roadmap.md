@@ -197,7 +197,7 @@ Dependencies worth planning around:
 | Take lanes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Input monitoring | 🧪 Partial | ⭐⭐⭐⭐⭐ | Armed tracks monitor through the track chain. Monitoring modes are planned. |
-| Input routing | 🧪 Partial | ⭐⭐⭐⭐⭐ | Named mono and stereo inputs, per-track driver, device, and mono/stereo channel selection, plus named output and master-output selection. Multi-channel input is planned. |
+| Input routing | 🧪 Partial | ⭐⭐⭐⭐⭐ | Single selected device with named mono and stereo inputs using independent left/right channels, plus named output and master-output selection. Multi-device recording is intentionally unsupported. |
 | Mono and stereo track formats | 📋 Planned | ⭐⭐⭐⭐ | Engine and assets are stereo today. |
 | Surround and multi-channel | 🚫 Not Planned | ⭐ |  |
 | Sample-rate conversion on rate change | 📋 Planned | ⭐⭐⭐ | The app warns that existing assets are not resampled. |

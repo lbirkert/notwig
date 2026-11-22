@@ -24,8 +24,8 @@ thread_local! {
     static INPUT_REFRESHING: Cell<bool> = const { Cell::new(false) };
 }
 
-type DeviceTargets = BTreeMap<(String, String), Vec<(u16, u16, u16)>>;
-type StreamSignature = Vec<((String, String), Vec<(u16, u16, u16)>)>;
+type DeviceTargets = BTreeMap<(String, String), Vec<(u16, u16, Option<u16>)>>;
+type StreamSignature = Vec<((String, String), Vec<(u16, u16, Option<u16>)>)>;
 
 struct WebInput {
     stream: MediaStream,
@@ -93,7 +93,11 @@ impl InputHub {
             by_device
                 .entry((input.driver.clone(), input.device.clone()))
                 .or_default()
-                .push((slot, input.channel, input.channels.max(1)));
+                .push((
+                    slot,
+                    input.channel,
+                    (input.channels >= 2).then(|| input.right()),
+                ));
         }
 
         let signature: StreamSignature = by_device
@@ -139,7 +143,7 @@ impl InputHub {
 async fn open_stream(
     driver: &str,
     device: &str,
-    targets: &[(u16, u16, u16)],
+    targets: &[(u16, u16, Option<u16>)],
     bus: Arc<InputBus>,
     sample_rate: u32,
 ) -> Result<WebInput, String> {
@@ -154,7 +158,11 @@ async fn open_stream(
         .media_devices()
         .map_err(|_| "microphone access is not available in this browser".to_string())?;
     let constraints = MediaStreamConstraints::new();
-    if !device.is_empty() && device != WEB_INPUT_DEVICE {
+    if !device.is_empty()
+        && device != WEB_INPUT_DEVICE
+        && device != crate::audio::SYSTEM_OUT_DEVICE_ID
+        && device != "Default Device"
+    {
         let audio = MediaTrackConstraints::new();
         audio.set_device_id_str(device);
         constraints.set_audio_media_track_constraints(&audio);
@@ -217,15 +225,21 @@ async fn open_stream(
                 scratch_right[..frames].copy_from_slice(&scratch_left[..frames]);
             }
             for frame in 0..frames {
-                for (slot, channel, channels) in &targets {
-                    let left_channel = usize::from(*channel).min((source_channels - 1) as usize);
-                    let (left, right) = if left_channel == 0 {
-                        (scratch_left[frame], scratch_right[frame])
-                    } else {
-                        (scratch_right[frame], scratch_right[frame])
+                for (slot, left_channel, right_channel) in &targets {
+                    let source_left =
+                        usize::from(*left_channel).min((source_channels - 1) as usize);
+                    let sample_for = |channel: usize| {
+                        if channel == 0 {
+                            scratch_left[frame]
+                        } else {
+                            scratch_right[frame]
+                        }
                     };
-                    if *channels >= 2 {
-                        bus.push_stereo(*slot, left, right);
+                    let left = sample_for(source_left);
+                    if let Some(right_channel) = right_channel {
+                        let source_right =
+                            usize::from(*right_channel).min((source_channels - 1) as usize);
+                        bus.push_stereo(*slot, left, sample_for(source_right));
                     } else {
                         bus.push(*slot, left);
                     }

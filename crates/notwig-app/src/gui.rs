@@ -190,7 +190,6 @@ pub struct NotwigApp {
     audio: Option<AudioService>,
     audio_settings: crate::audio::AudioSettings,
     audio_options: Vec<notwig_ui::AudioDriverView>,
-    audio_inputs: Vec<notwig_ui::AudioInputView>,
     recording: Option<ActiveRecording>,
     fallback_playhead: f64,
     last_tick: Instant,
@@ -257,7 +256,6 @@ impl NotwigApp {
         }
         let fallback_playhead = workspace.doc.transport.playhead.as_f64();
         let audio_options = available_audio_options();
-        let audio_inputs = AudioService::available_input_options();
         let mut audio_settings =
             crate::audio_config::validated(crate::audio_config::load(), &audio_options);
         if audio_settings.block_size == 0 {
@@ -312,7 +310,6 @@ impl NotwigApp {
             audio: None,
             audio_settings,
             audio_options,
-            audio_inputs,
             recording: None,
             fallback_playhead,
             last_tick: Instant::now(),
@@ -370,7 +367,6 @@ impl NotwigApp {
                 ..crate::audio::AudioSettings::default()
             },
             audio_options: available_audio_options(),
-            audio_inputs: AudioService::available_input_options(),
             recording: None,
             fallback_playhead,
             last_tick: Instant::now(),
@@ -412,7 +408,6 @@ impl NotwigApp {
     pub fn enable_audio(&mut self) {
         self.audio_options = available_audio_options();
         AudioService::prepare_input_options();
-        self.audio_inputs = AudioService::available_input_options();
         self.restart_audio();
     }
 
@@ -785,7 +780,6 @@ impl NotwigApp {
             }
         }
         self.audio_options = available_audio_options();
-        self.audio_inputs = AudioService::available_input_options();
     }
 
     fn audio_start_failed(&mut self, err: String) {
@@ -827,7 +821,6 @@ impl NotwigApp {
 
     fn rescan_audio_devices(&mut self) {
         self.audio_options = available_audio_options();
-        self.audio_inputs = AudioService::available_input_options();
     }
 
     fn enter_audio_device_lost(&mut self, message: String) {
@@ -931,7 +924,17 @@ impl NotwigApp {
             .tracks
             .values()
             .filter(|track| track.kind == TrackKind::Audio && track.record_armed)
-            .filter_map(|track| track.io.audio_input.clone().map(|input| (track.id, input)))
+            .filter_map(|track| {
+                track
+                    .io
+                    .audio_input
+                    .clone()
+                    .filter(|input| {
+                        input.driver == self.audio_settings.driver
+                            && input.device == self.audio_settings.device
+                    })
+                    .map(|input| (track.id, input))
+            })
             .collect()
     }
 
@@ -944,7 +947,7 @@ impl NotwigApp {
             && self.workspace.doc.transport.playing
             && !requests.is_empty()
         {
-            self.begin_recording_capture();
+            self.begin_recording_capture(None);
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -974,23 +977,18 @@ impl NotwigApp {
                 .workspace
                 .apply(CommandPayload::SetRecording { recording: false });
             self.stop_recording_capture();
-            if self.report(result).is_some() {
-                self.notify_info("Record mode off.".into());
-            }
+            let _ = self.report(result);
         } else {
             let result = self
                 .workspace
                 .apply(CommandPayload::SetRecording { recording: true });
-            if let Some(()) = self.report(result) {
-                if self.workspace.doc.transport.playing {
-                    self.begin_recording_capture();
-                }
-                self.notify_info("Record mode on.".into());
+            if self.report(result).is_some() && self.workspace.doc.transport.playing {
+                self.begin_recording_capture(None);
             }
         }
     }
 
-    fn begin_recording_capture(&mut self) {
+    fn begin_recording_capture(&mut self, started_at: Option<TimeMus>) {
         if self.recording.is_some() {
             return;
         }
@@ -999,7 +997,7 @@ impl NotwigApp {
             return;
         }
         let snapshot = self.audio_snapshot();
-        let started_at = self.current_playhead(&snapshot);
+        let started_at = started_at.unwrap_or_else(|| self.current_playhead(&snapshot));
         let sample_rate = self.workspace.doc.meta.sample_rate.value();
         let block_size = if snapshot.block_size > 0 {
             snapshot.block_size
@@ -1203,7 +1201,6 @@ impl NotwigApp {
                 .state
                 .selection
                 .select_clip(clip_id, track_id, false);
-            self.notify_info("Recording finished.".into());
         }
         self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
     }
@@ -1513,7 +1510,6 @@ impl NotwigApp {
             dirty: self.workspace.dirty,
             saving: false,
             audio_settings,
-            audio_inputs: self.audio_inputs.clone(),
             recording_takes,
             dsp: snapshot.dsp.clone(),
             clipboard: self.workspace.clipboard().clone(),
@@ -1840,12 +1836,14 @@ impl NotwigApp {
     fn handle_intent(&mut self, intent: UiIntent) {
         match intent {
             UiIntent::Play => {
+                let was_playing = self.workspace.doc.transport.playing;
+                let play_start = self.workspace.doc.transport.playhead;
                 let result = self.workspace.play();
                 if self.report(result).is_some()
                     && self.workspace.doc.transport.recording
                     && self.recording.is_none()
                 {
-                    self.begin_recording_capture();
+                    self.begin_recording_capture((!was_playing).then_some(play_start));
                 }
             }
             UiIntent::Pause => {
@@ -2932,7 +2930,7 @@ impl eframe::App for NotwigApp {
                             && self.workspace.doc.transport.playing
                             && self.recording.is_none()
                         {
-                            self.begin_recording_capture();
+                            self.begin_recording_capture(None);
                         }
                     }
                     EngineEvent::RecordingFailed(error) => {

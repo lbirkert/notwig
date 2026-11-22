@@ -342,7 +342,8 @@ impl AudioService {
                     device_views.push(notwig_ui::AudioDeviceView {
                         id: name.clone(),
                         label: name,
-                        channels: output_channel_count(&device),
+                        input_channels: input_channel_count(&device),
+                        output_channels: output_channel_count(&device),
                         sample_rates: supported_sample_rates(&device),
                     });
                 }
@@ -370,13 +371,37 @@ impl AudioService {
                 devices: vec![notwig_ui::AudioDeviceView {
                     id: "Default Device".into(),
                     label: "Default Output".into(),
-                    channels: 2,
+                    input_channels: 2,
+                    output_channels: 2,
                     sample_rates: COMMON_SAMPLE_RATES.to_vec(),
                 }],
             });
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let web_inputs = crate::audio_input::available_input_options();
+            let web_input_channels = web_inputs
+                .iter()
+                .filter(|input| input.driver == "WebAudio")
+                .map(|input| input.channels)
+                .max()
+                .unwrap_or(0);
+            for driver in &mut drivers {
+                if driver.id == "WebAudio" {
+                    for device in &mut driver.devices {
+                        device.input_channels = device.input_channels.max(web_input_channels);
+                    }
+                }
+            }
+        }
         drivers
     }
+}
+
+fn input_channel_count(device: &cpal::Device) -> u16 {
+    device.supported_input_configs().map_or(0, |configs| {
+        configs.map(|config| config.channels()).max().unwrap_or(0)
+    })
 }
 
 fn output_channel_count(device: &cpal::Device) -> u16 {
@@ -410,7 +435,7 @@ fn supported_sample_rates(device: &cpal::Device) -> Vec<u32> {
 }
 
 fn system_out_device(host: &cpal::Host) -> notwig_ui::AudioDeviceView {
-    let (channels, sample_rates) = host.default_output_device().map_or_else(
+    let (output_channels, sample_rates) = host.default_output_device().map_or_else(
         || (2, COMMON_SAMPLE_RATES.to_vec()),
         |device| {
             let rates = supported_sample_rates(&device);
@@ -422,10 +447,14 @@ fn system_out_device(host: &cpal::Host) -> notwig_ui::AudioDeviceView {
             (output_channel_count(&device), rates)
         },
     );
+    let input_channels = host
+        .default_input_device()
+        .map_or(0, |device| input_channel_count(&device));
     notwig_ui::AudioDeviceView {
         id: SYSTEM_OUT_DEVICE_ID.to_string(),
         label: SYSTEM_OUT_LABEL.to_string(),
-        channels,
+        input_channels,
+        output_channels,
         sample_rates,
     }
 }
@@ -474,7 +503,7 @@ fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String>
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn resolve_input_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
-    if name.is_empty() {
+    if name.is_empty() || name == SYSTEM_OUT_DEVICE_ID {
         return host
             .default_input_device()
             .ok_or_else(|| "no default input device".to_string());
@@ -519,11 +548,11 @@ fn choose_config(device: &cpal::Device, project_rate: u32) -> Option<StreamConfi
     candidate
 }
 
-fn output_route(settings: &AudioSettings, stream_channels: u16) -> (usize, usize) {
-    let default_first = 0;
-    let default_channels = usize::from(stream_channels.clamp(1, 2));
+fn output_route(settings: &AudioSettings, stream_channels: u16) -> (usize, Option<usize>) {
+    let default_left = 0;
+    let default_right = (stream_channels >= 2).then_some(1);
     let Some(id) = settings.master_output.as_deref() else {
-        return (default_first, default_channels);
+        return (default_left, default_right);
     };
     let Some(channel) = settings.channels.iter().find(|channel| {
         channel.id == id
@@ -531,15 +560,23 @@ fn output_route(settings: &AudioSettings, stream_channels: u16) -> (usize, usize
             && channel.driver == settings.driver
             && channel.device == settings.device
     }) else {
-        return (default_first, default_channels);
+        return (default_left, default_right);
     };
-    let first = usize::from(channel.first_channel);
-    if first >= usize::from(stream_channels.max(1)) {
-        return (default_first, default_channels);
+    let left = usize::from(channel.left_channel);
+    if left >= usize::from(stream_channels.max(1)) {
+        return (default_left, default_right);
     }
-    let requested = usize::from(channel.channel_count());
-    let available = usize::from(stream_channels) - first;
-    (first, requested.min(available))
+    if channel.channel_count() < 2 {
+        return (left, None);
+    }
+    let Some(right) = channel
+        .resolved_right_channel()
+        .map(usize::from)
+        .filter(|right| *right < usize::from(stream_channels) && *right != left)
+    else {
+        return (default_left, default_right);
+    };
+    (left, Some(right))
 }
 
 fn build<T>(
@@ -547,7 +584,7 @@ fn build<T>(
     config: StreamConfig,
     mut engine: Engine,
     snapshot: Arc<Mutex<AudioSnapshot>>,
-    output_route: (usize, usize),
+    output_route: (usize, Option<usize>),
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
@@ -639,14 +676,10 @@ where
                         0.0
                     };
                     for (channel_index, sample) in frame.iter_mut().enumerate() {
-                        let value = if channel_index >= output_route.0
-                            && channel_index < output_route.0 + output_route.1
-                        {
-                            match channel_index - output_route.0 {
-                                0 => left,
-                                1 => right,
-                                _ => 0.0,
-                            }
+                        let value = if channel_index == output_route.0 {
+                            left
+                        } else if Some(channel_index) == output_route.1 {
+                            right
                         } else {
                             0.0
                         };

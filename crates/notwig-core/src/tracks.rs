@@ -81,6 +81,16 @@ pub struct AudioInputRef {
     pub channel: u16,
     #[serde(default = "default_input_channels")]
     pub channels: u16,
+    #[serde(default)]
+    pub right_channel: Option<u16>,
+}
+
+impl AudioInputRef {
+    #[must_use]
+    pub fn right(&self) -> u16 {
+        self.right_channel
+            .unwrap_or_else(|| self.channel.saturating_add(1))
+    }
 }
 
 const fn default_input_channels() -> u16 {

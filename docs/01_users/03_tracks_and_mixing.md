@@ -55,10 +55,10 @@ The info panel exposes the same controls and adds:
 - pan and volume with a peak hold readout;
 - the track's device list.
 
-Audio tracks record one selected mono or stereo input. Named inputs configured
-in **Settings > Audio** are listed before the raw hardware channels and use the
-currently selected audio device. Arm tracks before enabling record mode; clips
-grow in place while playback runs.
+Audio tracks record one selected mono or stereo input. The input picker lists
+only named inputs configured in **Settings > Audio**; all of them use the single
+audio device selected there. Arm tracks before enabling record mode; clips grow
+in place while playback runs.
 
 Click a peak readout to reset its held value.
 

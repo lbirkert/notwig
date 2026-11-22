@@ -632,7 +632,15 @@ impl NotwigUi {
         let devices = self
             .devices_for(view)
             .iter()
-            .map(|device| (device.id.clone(), device.label.clone()))
+            .map(|device| {
+                (
+                    device.id.clone(),
+                    format!(
+                        "{} · {}-in, {}-out",
+                        device.label, device.input_channels, device.output_channels
+                    ),
+                )
+            })
             .collect();
         if form::select_row(
             ui,
@@ -731,37 +739,52 @@ impl NotwigUi {
 
     fn audio_io_settings(&mut self, ui: &mut egui::Ui, runtime: &RuntimeView) {
         form::section_heading(ui, "Inputs & Outputs");
+        let selected = selected_device(runtime, &self.audio_draft);
+        let input_channels = selected.map_or(0, |device| device.input_channels);
+        let output_channels = selected.map_or(0, |device| device.output_channels);
+        let device_label = selected.map_or_else(
+            || "the selected audio device".to_string(),
+            |device| device.label.clone(),
+        );
         ui.label(
-            RichText::new(
-                "Name channels on the selected audio device. Named inputs appear in the track input picker for recording.",
-            )
+            RichText::new(format!(
+                "Name channels on {device_label}. Named inputs appear in the track input picker for recording."
+            ))
             .small()
             .color(theme::TEXT_MUTED),
         );
         ui.add_space(6.0);
-        let inputs = channel_device_options(runtime, AudioChannelDirection::Input);
-        let outputs = channel_device_options(runtime, AudioChannelDirection::Output);
         ui.horizontal_wrapped(|ui| {
-            for (direction, format) in [
-                (AudioChannelDirection::Input, AudioChannelFormat::Mono),
-                (AudioChannelDirection::Input, AudioChannelFormat::Stereo),
-                (AudioChannelDirection::Output, AudioChannelFormat::Mono),
-                (AudioChannelDirection::Output, AudioChannelFormat::Stereo),
+            for (direction, format, available) in [
+                (
+                    AudioChannelDirection::Input,
+                    AudioChannelFormat::Mono,
+                    input_channels,
+                ),
+                (
+                    AudioChannelDirection::Input,
+                    AudioChannelFormat::Stereo,
+                    input_channels,
+                ),
+                (
+                    AudioChannelDirection::Output,
+                    AudioChannelFormat::Mono,
+                    output_channels,
+                ),
+                (
+                    AudioChannelDirection::Output,
+                    AudioChannelFormat::Stereo,
+                    output_channels,
+                ),
             ] {
-                let options = match direction {
-                    AudioChannelDirection::Input => &inputs,
-                    AudioChannelDirection::Output => &outputs,
-                };
                 let label = format!(
                     "Add {} {}",
                     format.label().to_lowercase(),
                     direction.label().to_lowercase()
                 );
-                if ui
-                    .add_enabled(!options.is_empty(), egui::Button::new(label))
-                    .clicked()
-                {
-                    add_audio_channel(&mut self.audio_draft, direction, format, options);
+                let enabled = available >= format.channel_count();
+                if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                    add_audio_channel(&mut self.audio_draft, direction, format, available);
                 }
             }
         });
@@ -769,18 +792,14 @@ impl NotwigUi {
 
         let mut channels = self.audio_draft.channels.clone();
         for channel in &mut channels {
-            let options = match channel.direction {
-                AudioChannelDirection::Input => &inputs,
-                AudioChannelDirection::Output => &outputs,
+            channel.driver.clone_from(&self.audio_draft.driver);
+            channel.device.clone_from(&self.audio_draft.device);
+            let available = if channel.direction == AudioChannelDirection::Input {
+                input_channels
+            } else {
+                output_channels
             };
-            if let Some(option) = preferred_device(options, &self.audio_draft) {
-                channel.driver.clone_from(&option.driver);
-                channel.device.clone_from(&option.device);
-                let available = option.channels.max(1);
-                channel.first_channel = channel
-                    .first_channel
-                    .min(available.saturating_sub(channel.channel_count()));
-            }
+            normalize_channel_channels(channel, available);
         }
         if channels.is_empty() {
             ui.label(
@@ -791,15 +810,12 @@ impl NotwigUi {
         } else {
             let mut remove = None;
             for channel in &mut channels {
-                let options = match channel.direction {
-                    AudioChannelDirection::Input => &inputs,
-                    AudioChannelDirection::Output => &outputs,
+                let available = if channel.direction == AudioChannelDirection::Input {
+                    input_channels
+                } else {
+                    output_channels
                 };
-                let available = preferred_device(options, &self.audio_draft)
-                    .map_or(2, |option| option.channels)
-                    .max(1);
-                let max_first = available.saturating_sub(channel.channel_count());
-                channel.first_channel = channel.first_channel.min(max_first);
+                normalize_channel_channels(channel, available);
                 egui::Frame::new()
                     .fill(theme::PANEL_LIGHT)
                     .stroke(egui::Stroke::new(1.0_f32, theme::GRID))
@@ -817,25 +833,37 @@ impl NotwigUi {
                                     .small()
                                     .color(theme::TEXT_MUTED),
                             );
-                            let channel_label = channel_range_label(channel);
-                            egui::ComboBox::from_id_salt(("audio-channel-first", &channel.id))
-                                .selected_text(channel_label)
-                                .width(116.0)
-                                .show_ui(ui, |ui| {
-                                    for first in 0..=max_first {
-                                        let label = if channel.channel_count() >= 2 {
-                                            format!("Channels {}-{}", first + 1, first + 2)
-                                        } else {
-                                            format!("Channel {}", first + 1)
-                                        };
-                                        if ui
-                                            .selectable_label(first == channel.first_channel, label)
-                                            .clicked()
-                                        {
-                                            channel.first_channel = first;
-                                        }
-                                    }
-                                });
+                            if channel.channel_count() >= 2 {
+                                ui.label(RichText::new("L").small().color(theme::TEXT_MUTED));
+                                channel_channel_combo(
+                                    ui,
+                                    ("audio-channel-left", &channel.id),
+                                    &mut channel.left_channel,
+                                    available,
+                                    None,
+                                );
+                                ui.label(RichText::new("R").small().color(theme::TEXT_MUTED));
+                                let mut right = channel
+                                    .right_channel
+                                    .unwrap_or_else(|| channel.left_channel.saturating_add(1));
+                                channel_channel_combo(
+                                    ui,
+                                    ("audio-channel-right", &channel.id),
+                                    &mut right,
+                                    available,
+                                    Some(channel.left_channel),
+                                );
+                                channel.right_channel = Some(right);
+                            } else {
+                                channel_channel_combo(
+                                    ui,
+                                    ("audio-channel-left", &channel.id),
+                                    &mut channel.left_channel,
+                                    available,
+                                    None,
+                                );
+                                channel.right_channel = None;
+                            }
                             if ui.button("Remove").clicked() {
                                 remove = Some(channel.id.clone());
                             }
@@ -893,19 +921,6 @@ impl NotwigUi {
                         }
                     });
             });
-            if let Some(channel) = master.as_ref().and_then(|id| {
-                self.audio_draft
-                    .channels
-                    .iter()
-                    .find(|channel| &channel.id == id)
-            }) {
-                if !channel.driver.is_empty() {
-                    self.audio_draft.driver.clone_from(&channel.driver);
-                }
-                if !channel.device.is_empty() {
-                    self.audio_draft.device.clone_from(&channel.device);
-                }
-            }
             self.audio_draft.master_output = master;
         }
     }
@@ -968,96 +983,102 @@ impl NotwigUi {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ChannelDeviceOption {
-    key: String,
-    driver: String,
-    device: String,
-    channels: u16,
+fn selected_device<'a>(
+    runtime: &'a RuntimeView,
+    draft: &crate::runtime::AudioSettingsValue,
+) -> Option<&'a crate::runtime::AudioDeviceView> {
+    runtime
+        .audio_settings
+        .drivers
+        .iter()
+        .find(|driver| driver.id == draft.driver)
+        .and_then(|driver| {
+            driver
+                .devices
+                .iter()
+                .find(|device| device.id == draft.device)
+        })
 }
 
-fn channel_device_key(driver: &str, device: &str) -> String {
-    format!("{driver}\u{1f}{device}")
+fn normalize_channel_channels(channel: &mut AudioChannelConfig, available: u16) {
+    if available == 0 {
+        return;
+    }
+    channel.left_channel = channel.left_channel.min(available - 1);
+    if channel.channel_count() >= 2 {
+        if available < 2 {
+            channel.format = AudioChannelFormat::Mono;
+            channel.right_channel = None;
+            return;
+        }
+        let mut right = channel
+            .right_channel
+            .unwrap_or_else(|| channel.left_channel.saturating_add(1))
+            .min(available - 1);
+        if right == channel.left_channel {
+            right = (channel.left_channel + 1) % available;
+        }
+        channel.right_channel = Some(right);
+    } else {
+        channel.right_channel = None;
+    }
 }
 
-fn channel_device_options(
-    runtime: &RuntimeView,
-    direction: AudioChannelDirection,
-) -> Vec<ChannelDeviceOption> {
-    let mut options = Vec::new();
-    match direction {
-        AudioChannelDirection::Input => {
-            for input in &runtime.audio_inputs {
-                let key = channel_device_key(&input.driver, &input.device);
-                if options
-                    .iter()
-                    .any(|option: &ChannelDeviceOption| option.key == key)
-                {
+fn channel_channel_combo(
+    ui: &mut egui::Ui,
+    id: impl std::hash::Hash,
+    channel: &mut u16,
+    available: u16,
+    exclude: Option<u16>,
+) {
+    let available = available.max(1);
+    if *channel >= available {
+        *channel = 0;
+    }
+    if exclude == Some(*channel) {
+        *channel = (0..available)
+            .find(|candidate| Some(*candidate) != exclude)
+            .unwrap_or(*channel);
+    }
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(format!("Ch {}", *channel + 1))
+        .width(72.0)
+        .show_ui(ui, |ui| {
+            for candidate in 0..available {
+                if Some(candidate) == exclude {
                     continue;
                 }
-                options.push(ChannelDeviceOption {
-                    key,
-                    driver: input.driver.clone(),
-                    device: input.device.clone(),
-                    channels: input.channels.max(1),
-                });
-            }
-        }
-        AudioChannelDirection::Output => {
-            for driver in &runtime.audio_settings.drivers {
-                for device in &driver.devices {
-                    let key = channel_device_key(&driver.id, &device.id);
-                    if options
-                        .iter()
-                        .any(|option: &ChannelDeviceOption| option.key == key)
-                    {
-                        continue;
-                    }
-                    options.push(ChannelDeviceOption {
-                        key,
-                        driver: driver.id.clone(),
-                        device: device.id.clone(),
-                        channels: device.channels.max(1),
-                    });
+                if ui
+                    .selectable_label(candidate == *channel, format!("Ch {}", candidate + 1))
+                    .clicked()
+                {
+                    *channel = candidate;
                 }
             }
-        }
-    }
-    options
-}
-
-fn preferred_device<'a>(
-    options: &'a [ChannelDeviceOption],
-    draft: &crate::runtime::AudioSettingsValue,
-) -> Option<&'a ChannelDeviceOption> {
-    let key = channel_device_key(&draft.driver, &draft.device);
-    options
-        .iter()
-        .find(|option| option.key == key)
-        .or_else(|| options.first())
+        });
 }
 
 fn add_audio_channel(
     draft: &mut crate::runtime::AudioSettingsValue,
     direction: AudioChannelDirection,
     format: AudioChannelFormat,
-    options: &[ChannelDeviceOption],
+    available: u16,
 ) {
-    let Some(option) = preferred_device(options, draft) else {
+    if available < format.channel_count() {
         return;
-    };
+    }
     let used = draft
         .channels
         .iter()
-        .filter(|channel| {
-            channel.direction == direction
-                && channel.driver == option.driver
-                && channel.device == option.device
+        .filter(|channel| channel.direction == direction)
+        .map(|channel| {
+            let right = channel.right_channel.unwrap_or(channel.left_channel);
+            channel.left_channel.max(right).saturating_add(1)
         })
-        .map(|channel| channel.first_channel + channel.channel_count())
         .max()
         .unwrap_or(0);
-    let first_channel = used.min(option.channels.saturating_sub(format.channel_count()));
+    let left_channel = used.min(available.saturating_sub(format.channel_count()));
+    let right_channel = (format.channel_count() >= 2).then(|| left_channel + 1);
     let count = draft
         .channels
         .iter()
@@ -1069,22 +1090,11 @@ fn add_audio_channel(
         name: format!("{} {} {count}", format.label(), direction.label()),
         direction,
         format,
-        driver: option.driver.clone(),
-        device: option.device.clone(),
-        first_channel,
+        driver: draft.driver.clone(),
+        device: draft.device.clone(),
+        left_channel,
+        right_channel,
     });
-}
-
-fn channel_range_label(channel: &AudioChannelConfig) -> String {
-    if channel.channel_count() >= 2 {
-        format!(
-            "Channels {}-{}",
-            channel.first_channel + 1,
-            channel.first_channel + 2
-        )
-    } else {
-        format!("Channel {}", channel.first_channel + 1)
-    }
 }
 
 struct ExtensionCard {

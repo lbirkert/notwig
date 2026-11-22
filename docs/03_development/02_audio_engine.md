@@ -210,13 +210,15 @@ the audio callback.
 ## 9. Input monitoring and recording capture
 
 Recording reuses the control exchange boundary. The app opens one input stream
-per selected device. Named mono or stereo inputs are aliases for a device and
-channel pair; the track still stores a physical `AudioInputRef`, so renaming or
+per selected device. The app is restricted to one device at a time; named mono
+or stereo inputs are aliases for that device and one or two independent
+channels. The track still stores a physical `AudioInputRef`, so renaming or
 removing a named input does not rewrite existing tracks. Each armed track gets a
 preallocated slot in `notwig-engine::InputBus`:
 
-- the input callback selects the configured mono channel or stereo pair and
-  pushes interleaved samples into bounded monitoring and recording queues;
+- the input callback selects the configured mono channel or independent left and
+  right channels and pushes interleaved samples into bounded monitoring and
+  recording queues;
 - the app trims one audio block from the start of each new take to compensate
   for block-level capture latency;
 - the audio thread drains the monitoring queue into the armed track's input

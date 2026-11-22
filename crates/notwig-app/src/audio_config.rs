@@ -178,6 +178,47 @@ pub fn validated(
     if settings.device.is_empty() {
         settings.device = crate::audio::SYSTEM_OUT_DEVICE_ID.to_string();
     }
+    let device = options
+        .iter()
+        .find(|driver| driver.id == settings.driver)
+        .and_then(|driver| {
+            driver
+                .devices
+                .iter()
+                .find(|device| device.id == settings.device)
+        });
+    for channel in &mut settings.channels {
+        channel.driver.clone_from(&settings.driver);
+        channel.device.clone_from(&settings.device);
+        let Some(device) = device else {
+            continue;
+        };
+        let available = match channel.direction {
+            notwig_ui::AudioChannelDirection::Input => device.input_channels,
+            notwig_ui::AudioChannelDirection::Output => device.output_channels,
+        };
+        if available == 0 {
+            continue;
+        }
+        channel.left_channel = channel.left_channel.min(available - 1);
+        match channel.format {
+            notwig_ui::AudioChannelFormat::Mono => channel.right_channel = None,
+            notwig_ui::AudioChannelFormat::Stereo if available < 2 => {
+                channel.format = notwig_ui::AudioChannelFormat::Mono;
+                channel.right_channel = None;
+            }
+            notwig_ui::AudioChannelFormat::Stereo => {
+                let mut right = channel
+                    .right_channel
+                    .unwrap_or_else(|| channel.left_channel.saturating_add(1))
+                    .min(available - 1);
+                if right == channel.left_channel {
+                    right = (channel.left_channel + 1) % available;
+                }
+                channel.right_channel = Some(right);
+            }
+        }
+    }
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
     }

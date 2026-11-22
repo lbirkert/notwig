@@ -80,14 +80,24 @@ pub struct AudioChannelConfig {
     pub driver: String,
     #[serde(default)]
     pub device: String,
+    #[serde(default, alias = "first_channel")]
+    pub left_channel: u16,
     #[serde(default)]
-    pub first_channel: u16,
+    pub right_channel: Option<u16>,
 }
 
 impl AudioChannelConfig {
     #[must_use]
     pub fn channel_count(&self) -> u16 {
         self.format.channel_count()
+    }
+
+    #[must_use]
+    pub fn resolved_right_channel(&self) -> Option<u16> {
+        (self.channel_count() >= 2).then(|| {
+            self.right_channel
+                .unwrap_or_else(|| self.left_channel.saturating_add(1))
+        })
     }
 
     #[must_use]
@@ -118,7 +128,8 @@ pub struct AudioInputView {
 pub struct AudioDeviceView {
     pub id: String,
     pub label: String,
-    pub channels: u16,
+    pub input_channels: u16,
+    pub output_channels: u16,
     pub sample_rates: Vec<u32>,
 }
 
@@ -220,7 +231,6 @@ pub struct RuntimeView {
     pub dirty: bool,
     pub saving: bool,
     pub audio_settings: AudioSettingsView,
-    pub audio_inputs: Vec<AudioInputView>,
     pub recording_takes: Vec<RecordingTakeView>,
     pub dsp: DspAnalysisView,
     pub clipboard: Clipboard,
@@ -260,7 +270,6 @@ impl Default for RuntimeView {
             dirty: false,
             saving: false,
             audio_settings: AudioSettingsView::default(),
-            audio_inputs: Vec::new(),
             recording_takes: Vec::new(),
             dsp: DspAnalysisView::default(),
             clipboard: Clipboard::default(),

@@ -79,8 +79,9 @@ impl NotwigUi {
                     notwig_core::AudioInputRef {
                         driver: channel.driver.clone(),
                         device: channel.device.clone(),
-                        channel: channel.first_channel,
+                        channel: channel.left_channel,
                         channels: channel.channel_count(),
+                        right_channel: channel.resolved_right_channel(),
                     },
                 )
             })
@@ -91,80 +92,31 @@ impl NotwigUi {
                 if let Some((name, _)) = named_inputs.iter().find(|(_, named)| named == input) {
                     return name.clone();
                 }
-                if input.channels >= 2 {
-                    format!(
-                        "{} · Inputs {}-{}",
-                        input.device,
-                        input.channel + 1,
-                        input.channel + 2
-                    )
-                } else {
-                    format!("{} · Input {}", input.device, input.channel + 1)
-                }
+                "Input not configured".to_string()
             },
         );
         egui::ComboBox::from_id_salt(("track-input", track.id))
             .selected_text(label)
             .width(ui.available_width().min(280.0))
             .show_ui(ui, |ui| {
-                if !named_inputs.is_empty() {
-                    ui.label(
-                        RichText::new("Named inputs")
-                            .small()
-                            .color(theme::TEXT_MUTED),
-                    );
-                    for (name, option) in &named_inputs {
-                        let label = if option.channels >= 2 {
-                            format!("{name} · Stereo")
-                        } else {
-                            format!("{name} · Mono")
-                        };
-                        if ui
-                            .selectable_label(selected.as_ref() == Some(option), label)
-                            .clicked()
-                        {
-                            self.emit(UiIntent::SetTrackInput {
-                                track_id: track.id,
-                                input: Some(option.clone()),
-                            });
-                            ui.close();
-                        }
-                    }
+                if named_inputs.is_empty() {
+                    ui.label("No inputs configured in Audio Settings.");
                 }
-                if runtime.audio_inputs.is_empty() && named_inputs.is_empty() {
-                    ui.label("No audio inputs available.");
-                }
-                if !runtime.audio_inputs.is_empty() {
-                    if !named_inputs.is_empty() {
-                        ui.separator();
-                        ui.label(
-                            RichText::new("Hardware inputs")
-                                .small()
-                                .color(theme::TEXT_MUTED),
-                        );
-                    }
-                    for device in &runtime.audio_inputs {
-                        for channel in 0..device.channels {
-                            let option = notwig_core::AudioInputRef {
-                                driver: device.driver.clone(),
-                                device: device.device.clone(),
-                                channel,
-                                channels: 1,
-                            };
-                            if ui
-                                .selectable_label(
-                                    selected.as_ref() == Some(&option),
-                                    format!("{} — Input {}", device.label, channel + 1),
-                                )
-                                .clicked()
-                            {
-                                self.emit(UiIntent::SetTrackInput {
-                                    track_id: track.id,
-                                    input: Some(option),
-                                });
-                                ui.close();
-                            }
-                        }
+                for (name, option) in &named_inputs {
+                    let label = if option.channels >= 2 {
+                        format!("{name} · Stereo")
+                    } else {
+                        format!("{name} · Mono")
+                    };
+                    if ui
+                        .selectable_label(selected.as_ref() == Some(option), label)
+                        .clicked()
+                    {
+                        self.emit(UiIntent::SetTrackInput {
+                            track_id: track.id,
+                            input: Some(option.clone()),
+                        });
+                        ui.close();
                     }
                 }
                 if selected.is_some() && ui.button("Clear input").clicked() {

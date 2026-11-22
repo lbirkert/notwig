@@ -33,7 +33,8 @@ fn options() -> Vec<AudioDriverView> {
         devices: vec![AudioDeviceView {
             id: "Speakers".into(),
             label: "Speakers".into(),
-            channels: 2,
+            input_channels: 2,
+            output_channels: 2,
             sample_rates: vec![44_100, 48_000],
         }],
     }]
@@ -193,7 +194,8 @@ fn named_channel() -> AudioChannelConfig {
         format: AudioChannelFormat::Mono,
         driver: "CoreAudio".into(),
         device: "Interface".into(),
-        first_channel: 2,
+        left_channel: 2,
+        right_channel: None,
     }
 }
 
@@ -210,7 +212,8 @@ fn audio_config_round_trip_persists_named_channels() {
             format: AudioChannelFormat::Stereo,
             driver: "CoreAudio".into(),
             device: "Speakers".into(),
-            first_channel: 0,
+            left_channel: 0,
+            right_channel: Some(1),
         },
     ];
     saved.master_output = Some("main-out".into());
@@ -221,6 +224,27 @@ fn audio_config_round_trip_persists_named_channels() {
     assert_eq!(loaded.master_output.as_deref(), Some("main-out"));
 
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn validation_keeps_independent_stereo_channels_on_the_selected_device() {
+    let mut configured = settings("CoreAudio", "Speakers", 256);
+    configured.channels = vec![AudioChannelConfig {
+        id: "stereo".into(),
+        name: "Stereo".into(),
+        direction: AudioChannelDirection::Input,
+        format: AudioChannelFormat::Stereo,
+        driver: "Other".into(),
+        device: "Other".into(),
+        left_channel: 1,
+        right_channel: Some(0),
+    }];
+    let validated = validated(configured, &options());
+    let channel = &validated.channels[0];
+    assert_eq!(channel.driver, "CoreAudio");
+    assert_eq!(channel.device, "Speakers");
+    assert_eq!(channel.left_channel, 1);
+    assert_eq!(channel.right_channel, Some(0));
 }
 
 #[test]
@@ -238,7 +262,8 @@ fn validation_drops_missing_master_output() {
         format: AudioChannelFormat::Mono,
         driver: "CoreAudio".into(),
         device: "Speakers".into(),
-        first_channel: 1,
+        left_channel: 1,
+        right_channel: None,
     }];
     mono_output.master_output = Some("main-out".into());
     let with_output = validated(mono_output, &options());

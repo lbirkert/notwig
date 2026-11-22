@@ -8,9 +8,10 @@ three pages.
 The Audio page selects the output system:
 
 - **Driver**: the available audio backends.
-- **Device**: the output device for the selected driver. **System Out** follows
-  the operating system's default output device, so it keeps working when the
-  default changes. On first launch, the default driver and **System Out** are
+- **Device**: the output device for the selected driver, annotated with its
+  input and output channel counts (for example `16-in, 16-out`). **System Out**
+  follows the operating system's default output device, so it keeps working when
+  the default changes. On first launch, the default driver and **System Out** are
   selected automatically.
 - **Sample rate**: automatic or a rate reported by the device.
 - **Block size**: 16 to 2048 samples, in steps of 16.
@@ -37,17 +38,18 @@ The **Inputs & Outputs** section names the interface channels used by tracks:
 
 - **Add mono input**, **Add stereo input**, **Add mono output**, and
   **Add stereo output** create a named channel.
-- Each row names the channel and selects the physical channel or channel pair.
-  Named channels use the single device selected in **Audio System**; there is no
-  per-channel device selector.
+- Each row names the channel. Mono channels select one physical channel; stereo
+  channels select independent left and right channels.
+- Named channels always use the single device selected in **Audio System**;
+  there is no per-channel device selector.
 - **Remove** deletes a named channel. Tracks keep their physical channel
   selection, so remove a channel only when its tracks have been reassigned.
 - **Master output** chooses which named output carries the stereo mix. The
   default output uses the first two channels of the selected device.
 
-Named inputs appear at the top of the audio track input picker. A stereo input
-records both of its channels; a mono input records one channel into both sides
-of the stereo asset.
+The audio track input picker lists only the named inputs configured here. A
+stereo input records its left and right channels; a mono input records one
+channel into both sides of the stereo asset.
 
 ## Shortcuts
 
