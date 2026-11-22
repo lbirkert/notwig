@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use egui::{Color32, Rect, RichText};
+use notwig_core::dsp::DeviceRegistry;
 use notwig_core::{ProjectDoc, TrackId, TrackKind};
-use notwig_dsp::DeviceRegistry;
 
 use crate::arranger::{BarSelectionDrag, ClipDrag, GroupDrag, TimeDrag, TrackDrop};
 use crate::commands::{COMMANDS, CommandCategory, KeyChord, ShortcutCommand, Shortcuts};
@@ -107,7 +107,7 @@ impl Default for NotwigUi {
         Self {
             state: UiState::default(),
             intents: Vec::new(),
-            registry: notwig_dsp::stock_registry(),
+            registry: notwig_core::dsp::stock_registry(),
             device_panel_host: None,
             egui_panel_textures: BTreeMap::new(),
             egui_panel_keyboard: false,
@@ -583,6 +583,9 @@ impl NotwigUi {
                 .map_or(runtime.playhead, |(range, _)| range.start);
             self.emit(UiIntent::PasteClips { at });
         }
+        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Record) {
+            self.emit(UiIntent::ToggleRecord);
+        }
         if self.shortcuts.was_pressed(ctx, ShortcutCommand::Stop) {
             self.emit(UiIntent::Stop);
         } else if self.shortcuts.was_pressed(ctx, ShortcutCommand::Play) {
@@ -984,7 +987,9 @@ impl NotwigUi {
                             {
                                 self.emit(UiIntent::Stop);
                             }
-                            record_button(ui);
+                            if record_button(ui, doc.transport.recording) {
+                                self.emit(UiIntent::ToggleRecord);
+                            }
                             if icon_button_sized(
                                 ui,
                                 Icon::Loop,
@@ -1838,14 +1843,16 @@ pub(crate) fn cpu_component(ui: &mut egui::Ui, cpu: f32) -> egui::Response {
     response.on_hover_text("DSP load — click for analysis")
 }
 
-fn record_button(ui: &mut egui::Ui) {
+fn record_button(ui: &mut egui::Ui, recording: bool) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(TOP_BAR_ICON, TOP_BAR_ICON), egui::Sense::click());
     let painter = ui.painter();
     painter.rect_filled(
         rect,
         egui::CornerRadius::same(4),
-        if response.hovered() {
+        if recording {
+            Color32::from_rgb(86, 34, 34)
+        } else if response.hovered() {
             theme::GRID_STRONG
         } else {
             theme::PANEL
@@ -1854,11 +1861,24 @@ fn record_button(ui: &mut egui::Ui) {
     painter.rect_stroke(
         rect,
         egui::CornerRadius::same(4),
-        egui::Stroke::new(1.0_f32, theme::GRID),
+        egui::Stroke::new(
+            1.0_f32,
+            if recording {
+                Color32::from_rgb(231, 91, 82)
+            } else {
+                theme::GRID
+            },
+        ),
         egui::StrokeKind::Inside,
     );
     crate::icons::paint(painter, rect, Icon::Record, Color32::from_rgb(231, 91, 82));
-    response.on_hover_text("Record (not implemented)");
+    response
+        .on_hover_text(if recording {
+            "Stop recording"
+        } else {
+            "Record armed tracks"
+        })
+        .clicked()
 }
 
 fn format_position_bars(

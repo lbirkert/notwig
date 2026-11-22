@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::egui_panel::EguiInput;
 use crate::geometry::Color;
-use crate::ui::UiInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeSnapshot {
@@ -69,9 +68,6 @@ pub struct DeviceDrawContext {
     pub bypassed: bool,
     pub params: BTreeMap<ParamId, ParamValue>,
     pub theme: ThemeSnapshot,
-    /// Pointer, modifier, and focus snapshot for the command-IR panel path.
-    #[serde(default)]
-    pub input: UiInput,
     /// Pointer, keyboard, and focus snapshot for the egui panel path.
     #[serde(default)]
     pub egui: EguiInput,

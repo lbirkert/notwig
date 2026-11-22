@@ -1,9 +1,8 @@
 mod child;
-#[allow(dead_code)]
 mod parent;
 mod protocol;
 
-pub(crate) use parent::EngineClientHandle;
+pub(crate) use parent::{EngineClient, EngineClientHandle, EngineEvent};
 pub(crate) use protocol::WireBuild;
 
 /// Runs the native audio engine in its own process.

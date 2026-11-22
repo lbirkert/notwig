@@ -80,6 +80,17 @@ pub enum CommandPayload {
         id: TrackId,
         active: bool,
     },
+    SetTrackRecordArm {
+        id: TrackId,
+        armed: bool,
+    },
+    SetTrackInput {
+        id: TrackId,
+        input: Option<crate::tracks::AudioInputRef>,
+    },
+    SetRecording {
+        recording: bool,
+    },
     MoveTrack {
         id: TrackId,
         parent: Option<TrackId>,

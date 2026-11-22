@@ -1,11 +1,11 @@
-use notwig_core::{ParamId, ParamValue, TimeMus};
-use notwig_dsp::DeviceProcessor;
-use notwig_dsp::devices::{DeviceSpec, ProcessContext, RenderConfig, TransportInfo};
-use notwig_dsp::params::{ParamSpec, Unit};
-use notwig_dsp::stock::{
+use notwig_core::dsp::DeviceProcessor;
+use notwig_core::dsp::devices::{DeviceSpec, ProcessContext, RenderConfig, TransportInfo};
+use notwig_core::dsp::params::{ParamSpec, Unit};
+use notwig_core::dsp::stock::{
     EqProcessor, ToolProcessor, band_param, chain_spec, eq_spec, p_dry_wet, p_eq_output_gain,
     p_input_gain, p_output_gain, p_polarity_l, tool_spec,
 };
+use notwig_core::{ParamId, ParamValue, TimeMus};
 
 fn config() -> RenderConfig {
     RenderConfig {

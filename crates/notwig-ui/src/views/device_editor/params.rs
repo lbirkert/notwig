@@ -1,6 +1,6 @@
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Vec2};
+use notwig_core::dsp::{ParamKind, ParamSpec};
 use notwig_core::{DeviceInstance, Norm01, ParamValue};
-use notwig_dsp::{ParamKind, ParamSpec};
 
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
@@ -30,7 +30,7 @@ impl NotwigUi {
         &mut self,
         ui: &mut egui::Ui,
         device: &DeviceInstance,
-        spec: &notwig_dsp::DeviceSpec,
+        spec: &notwig_core::dsp::DeviceSpec,
     ) {
         let scope = ui.id().with(("plugin-param-editor", device.id));
         ui.push_id(scope, |ui| {
@@ -42,7 +42,7 @@ impl NotwigUi {
         &mut self,
         ui: &mut egui::Ui,
         device: &DeviceInstance,
-        spec: &notwig_dsp::DeviceSpec,
+        spec: &notwig_core::dsp::DeviceSpec,
     ) {
         let mut search = self
             .plugin_search

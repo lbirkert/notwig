@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::devices::DeviceProcessor;
-use crate::graph::{CompiledPlan, PlanDevice};
+use super::devices::DeviceProcessor;
+use super::graph::{CompiledPlan, PlanDevice};
 
 pub trait DeviceFactory: Send + Sync {
     fn create(&self, plan: &CompiledPlan, device: &PlanDevice) -> Option<Box<dyn DeviceProcessor>>;
@@ -16,7 +16,7 @@ impl DeviceFactory for StockDeviceFactory {
         _plan: &CompiledPlan,
         device: &PlanDevice,
     ) -> Option<Box<dyn DeviceProcessor>> {
-        crate::stock::instantiate_stock_params(&device.type_id, &device.spec, &device.param_values)
+        super::stock::instantiate_stock_params(&device.type_id, &device.spec, &device.param_values)
     }
 }
 

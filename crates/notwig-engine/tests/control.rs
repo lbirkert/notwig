@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use notwig_core::dsp::EngineCaps;
 use notwig_core::ids::{DeviceChain, Track};
 use notwig_core::protocol::MetronomeState;
 use notwig_core::protocol::PlaybackSchedule;
 use notwig_core::{Id, Meta, ProjectDoc, SampleRate};
-use notwig_dsp::EngineCaps;
 use notwig_engine::{Engine, EngineConfig, EngineControl, StockDeviceFactory, TransportUpdate};
 use uuid::Uuid;
 
@@ -35,7 +35,9 @@ fn prepare(doc: &ProjectDoc) -> Box<notwig_engine::PreparedRuntime> {
     Engine::prepare_runtime(
         EngineConfig::new(48_000, 128),
         Arc::new(StockDeviceFactory),
-        Arc::new(notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps).unwrap()),
+        Arc::new(
+            notwig_core::dsp::compile(doc, &notwig_core::dsp::stock_registry(), caps).unwrap(),
+        ),
         Arc::new(PlaybackSchedule::from_doc(doc)),
         Arc::new(BTreeMap::new()),
     )

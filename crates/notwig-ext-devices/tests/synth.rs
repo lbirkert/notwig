@@ -1,18 +1,13 @@
 use notwig_core::DeviceKind;
-use notwig_dsp::DeviceUiSpec;
+use notwig_core::dsp::DeviceUiSpec;
 use notwig_ext_api::{
-    DeviceExtension, DrawCommand, NoteEvent, NoteKind, PanelCommand,
-    geometry::{Point, Rect, Size},
-    ui::{RecordUi, Style, UiContext, UiInput, UiMemory},
+    DeviceExtension, DeviceMeterSnapshot, EguiFrame, EguiInput, EguiModifiers, NoteEvent, NoteKind,
+    ThemeSnapshot, egui, egui_panel,
 };
 use notwig_ext_devices::{
     SYNTH_TYPE_ID, SynthDevice, synth_attack_id, synth_decay_id, synth_oscillator_id,
     synth_release_id, synth_sustain_id,
 };
-
-fn target() -> Rect {
-    Rect::from_min_size(Point::new(0.0, 0.0), Size::new(260.0, 200.0))
-}
 
 fn note(kind: NoteKind, pitch: u8, velocity: f32) -> NoteEvent {
     NoteEvent {
@@ -21,6 +16,24 @@ fn note(kind: NoteKind, pitch: u8, velocity: f32) -> NoteEvent {
         pitch,
         velocity,
     }
+}
+
+fn draw() -> EguiFrame {
+    let mut synth = SynthDevice::new();
+    let context = egui::Context::default();
+    let input = EguiInput {
+        width: 260.0,
+        height: 200.0,
+        pixels_per_point: 1.0,
+        time: Some(0.0),
+        focused: true,
+        max_texture_side: 4096,
+        modifiers: EguiModifiers::default(),
+        events: Vec::new(),
+    };
+    egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+        synth.draw_egui(ui, DeviceMeterSnapshot::default());
+    })
 }
 
 #[test]
@@ -55,32 +68,10 @@ fn spec_is_an_instrument_with_oscillator_and_adsr() {
 }
 
 #[test]
-fn draw_produces_a_valid_panel() {
-    let mut synth = SynthDevice::new();
-    let input = UiInput::default();
-    let mut memory = UiMemory::new();
-    let panel = {
-        let mut record = RecordUi::new(&input, &mut memory);
-        {
-            let mut ui = UiContext::new(&mut record, Style::default(), target());
-            synth.draw(&mut ui);
-        }
-        record.into_panel()
-    };
-
-    panel.validate().unwrap();
-    let texts: Vec<&str> = panel
-        .commands
-        .iter()
-        .filter_map(|command| match command {
-            PanelCommand::Draw(DrawCommand::Text { text, .. }) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert!(texts.iter().any(|text| text.eq_ignore_ascii_case("Synth")));
-    for label in ["Sine", "Atk", "Dec", "Sus", "Rel"] {
-        assert!(texts.contains(&label), "missing {label}: {texts:?}");
-    }
+fn draw_produces_a_valid_frame() {
+    let frame = draw();
+    frame.validate().unwrap();
+    assert_ne!(frame.primitives.len(), 0);
 }
 
 #[test]

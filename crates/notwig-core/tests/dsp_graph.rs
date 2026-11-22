@@ -1,9 +1,9 @@
+use notwig_core::dsp::devices::EngineCaps;
+use notwig_core::dsp::{DeviceRegistry, compile, stock_registry};
 use notwig_core::ids::{Device, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_dsp::devices::EngineCaps;
-use notwig_dsp::{DeviceRegistry, compile, stock_registry};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -115,7 +115,7 @@ fn unknown_plugins_remain_unresolved_but_compilable() {
 fn latent_registry() -> DeviceRegistry {
     let mut registry = stock_registry();
     for (type_id, latency) in [("test.latent16", 16), ("test.latent32", 32)] {
-        let mut spec = notwig_dsp::stock::tool_spec();
+        let mut spec = notwig_core::dsp::stock::tool_spec();
         spec.type_id = type_id.into();
         spec.latency_samples = latency;
         registry.register(spec);
@@ -197,7 +197,7 @@ fn nested_chain_latency_sums_children_and_respects_bypass() {
     let doc = insert_device(
         &doc,
         300,
-        notwig_dsp::stock::CHAIN_TYPE_ID,
+        notwig_core::dsp::stock::CHAIN_TYPE_ID,
         chain,
         vec![child_chain],
     );

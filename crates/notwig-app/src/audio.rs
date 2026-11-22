@@ -10,6 +10,9 @@ use notwig_engine::{ControlHandle, Engine, EngineConfig};
 use notwig_ext_api::DeviceMeterSnapshot;
 use notwig_ui::MeterValues;
 
+use crate::audio_input::{InputHub, InputRequest, available_input_options};
+use crate::recording::RecordingSession;
+
 /// Synthetic device id that always resolves to the host's default output
 /// device. It is selectable in Settings instead of relying on an empty device
 /// string to imply the system default.
@@ -94,6 +97,7 @@ struct DspSample {
 
 pub struct AudioService {
     _stream: cpal::Stream,
+    input_hub: InputHub,
     pub snapshot: Arc<Mutex<AudioSnapshot>>,
     pub settings: AudioSettings,
 }
@@ -189,11 +193,13 @@ impl AudioService {
             jitter_history: Vec::with_capacity(DSP_HISTORY),
             ..AudioSnapshot::default()
         }));
+        let input_hub = InputHub::new(config.sample_rate);
         let mut engine = Engine::new(EngineConfig::new(
             config.sample_rate,
             settings.block_size.max(16) as usize,
         ));
         engine.attach_control(control);
+        engine.attach_input_bus(input_hub.bus());
         let stream = match sample_format {
             SampleFormat::F32 => build::<f32>(&device, config, engine, Arc::clone(&snapshot)),
             SampleFormat::I16 => build::<i16>(&device, config, engine, Arc::clone(&snapshot)),
@@ -207,6 +213,7 @@ impl AudioService {
         }
         Ok(Self {
             _stream: stream,
+            input_hub,
             snapshot,
             settings: settings.clone(),
         })
@@ -217,6 +224,36 @@ impl AudioService {
             |poisoned| poisoned.into_inner().clone(),
             |snapshot| snapshot.clone(),
         )
+    }
+
+    pub(crate) fn configure_inputs(
+        &self,
+        requests: &[(TrackId, notwig_core::AudioInputRef)],
+    ) -> Result<Vec<(TrackId, u16)>, String> {
+        let requests: Vec<InputRequest> = requests
+            .iter()
+            .map(|(track_id, input)| InputRequest {
+                track_id: *track_id,
+                input: input.clone(),
+            })
+            .collect();
+        self.input_hub.configure(&requests)
+    }
+
+    pub(crate) fn begin_recording(
+        &self,
+        slots: Vec<(TrackId, u16)>,
+        sample_rate: u32,
+    ) -> RecordingSession {
+        RecordingSession::start(self.input_hub.bus(), slots, sample_rate)
+    }
+
+    pub fn take_input_error(&self) -> Option<String> {
+        self.input_hub.take_error()
+    }
+
+    pub fn available_input_options() -> Vec<notwig_ui::AudioInputView> {
+        available_input_options()
     }
 
     pub fn available_options() -> Vec<notwig_ui::AudioDriverView> {
@@ -302,7 +339,7 @@ pub fn resolve_output_device_name(driver: &str, name: &str) -> Result<String, St
         .map_err(|err| format!("output device description: {err}"))
 }
 
-fn resolve_host(driver: &str) -> Result<cpal::Host, String> {
+pub(crate) fn resolve_host(driver: &str) -> Result<cpal::Host, String> {
     if driver.is_empty() {
         return Ok(cpal::default_host());
     }
@@ -330,6 +367,25 @@ fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String>
                 == Some(name)
         })
         .ok_or_else(|| format!("audio device not found: {name}"))
+}
+
+pub(crate) fn resolve_input_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
+    if name.is_empty() {
+        return host
+            .default_input_device()
+            .ok_or_else(|| "no default input device".to_string());
+    }
+    host.input_devices()
+        .map_err(|err| format!("input devices: {err}"))?
+        .find(|device| {
+            device
+                .description()
+                .ok()
+                .map(|description| description.name().to_string())
+                .as_deref()
+                == Some(name)
+        })
+        .ok_or_else(|| format!("input device not found: {name}"))
 }
 
 fn choose_config(device: &cpal::Device, project_rate: u32) -> Option<StreamConfig> {

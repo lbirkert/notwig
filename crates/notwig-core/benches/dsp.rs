@@ -2,19 +2,19 @@ use std::collections::BTreeMap;
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use notwig_core::ids::{Device, DeviceChain, Track};
-use notwig_core::protocol::{Command, CommandPayload};
-use notwig_core::{
-    DeviceKind, Id, Meta, ParamValue, ProjectDoc, SampleRate, SchemaVersion, TrackKind, apply,
-};
-use notwig_dsp::stock::{
+use notwig_core::dsp::stock::{
     ChainProcessor, EqProcessor, ToolProcessor, band_param, chain_spec, eq_magnitude_response,
     eq_spec, p_dry_wet, p_eq_output_gain, p_eq_shift, p_input_gain, p_output_gain, p_pan,
     p_polarity_l, p_polarity_r, p_width, tool_spec,
 };
-use notwig_dsp::{
+use notwig_core::dsp::{
     DeviceProcessor, DeviceRegistry, DeviceSpec, EngineCaps, ProcessContext, RenderConfig,
     TransportInfo, compile, stock_registry,
+};
+use notwig_core::ids::{Device, DeviceChain, Track};
+use notwig_core::protocol::{Command, CommandPayload};
+use notwig_core::{
+    DeviceKind, Id, Meta, ParamValue, ProjectDoc, SampleRate, SchemaVersion, TrackKind, apply,
 };
 use uuid::Uuid;
 

@@ -83,11 +83,19 @@ impl NotwigUi {
 
                 let needle = state.search.to_lowercase();
                 let stock: Vec<BrowserEntry> = [
-                    ("Tool", notwig_dsp::stock::TOOL_TYPE_ID, DeviceKind::AudioFx),
-                    ("EQ", notwig_dsp::stock::EQ_TYPE_ID, DeviceKind::AudioFx),
+                    (
+                        "Tool",
+                        notwig_core::dsp::stock::TOOL_TYPE_ID,
+                        DeviceKind::AudioFx,
+                    ),
+                    (
+                        "EQ",
+                        notwig_core::dsp::stock::EQ_TYPE_ID,
+                        DeviceKind::AudioFx,
+                    ),
                     (
                         "Chain",
-                        notwig_dsp::stock::CHAIN_TYPE_ID,
+                        notwig_core::dsp::stock::CHAIN_TYPE_ID,
                         DeviceKind::Container,
                     ),
                 ]
@@ -109,9 +117,9 @@ impl NotwigUi {
                     .registry
                     .iter()
                     .filter(|spec| {
-                        spec.type_id != notwig_dsp::stock::TOOL_TYPE_ID
-                            && spec.type_id != notwig_dsp::stock::EQ_TYPE_ID
-                            && spec.type_id != notwig_dsp::stock::CHAIN_TYPE_ID
+                        spec.type_id != notwig_core::dsp::stock::TOOL_TYPE_ID
+                            && spec.type_id != notwig_core::dsp::stock::EQ_TYPE_ID
+                            && spec.type_id != notwig_core::dsp::stock::CHAIN_TYPE_ID
                             && !is_plugin_type_id(&spec.type_id)
                     })
                     .filter(|spec| {

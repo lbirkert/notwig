@@ -5,10 +5,10 @@ use egui::{
     Align, Align2, Color32, CornerRadius, FontId, Id, Layout, Rect, RichText, Sense, Stroke,
     StrokeKind, Vec2,
 };
+use notwig_core::dsp::ParamSpec;
 use notwig_core::{
     DeviceChainId, DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue, ProjectDoc, TrackId,
 };
-use notwig_dsp::ParamSpec;
 
 use crate::icons::{Icon, icon_button_sized};
 use crate::intent::UiIntent;
@@ -18,7 +18,6 @@ use crate::theme;
 use crate::widgets::format_param;
 
 mod browser;
-mod drawer;
 mod egui_render;
 mod eq;
 mod extension;
@@ -383,7 +382,7 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
         device: &DeviceInstance,
-        spec: Option<&notwig_dsp::DeviceSpec>,
+        spec: Option<&notwig_core::dsp::DeviceSpec>,
         height: f32,
         depth: usize,
     ) {
@@ -457,15 +456,15 @@ impl NotwigUi {
         &mut self,
         ui: &mut egui::Ui,
         device: &DeviceInstance,
-        spec: &notwig_dsp::DeviceSpec,
+        spec: &notwig_core::dsp::DeviceSpec,
         width: f32,
     ) {
         let button_width = ((width - 32.0) / 3.0).max(42.0);
         ui.horizontal(|ui| {
             for (id, label) in [
-                (notwig_dsp::stock::p_polarity_l(), "L−"),
-                (notwig_dsp::stock::p_swap_lr(), "Swap L/R"),
-                (notwig_dsp::stock::p_polarity_r(), "R−"),
+                (notwig_core::dsp::stock::p_polarity_l(), "L−"),
+                (notwig_core::dsp::stock::p_swap_lr(), "Swap L/R"),
+                (notwig_core::dsp::stock::p_polarity_r(), "R−"),
             ] {
                 let current = device
                     .param_values
@@ -495,10 +494,10 @@ impl NotwigUi {
         });
         ui.add_space(4.0);
         let columns = [
-            (notwig_dsp::stock::p_input_gain(), "Volume"),
-            (notwig_dsp::stock::p_output_gain(), "Gain"),
-            (notwig_dsp::stock::p_pan(), "Pan"),
-            (notwig_dsp::stock::p_width(), "Width"),
+            (notwig_core::dsp::stock::p_input_gain(), "Volume"),
+            (notwig_core::dsp::stock::p_output_gain(), "Gain"),
+            (notwig_core::dsp::stock::p_pan(), "Pan"),
+            (notwig_core::dsp::stock::p_width(), "Width"),
         ];
         for row in columns.chunks(2) {
             ui.horizontal(|ui| {
@@ -515,10 +514,10 @@ impl NotwigUi {
                         .unwrap_or_else(|| param.default.clone());
                     let mut norm = param.norm(&current).0;
                     let value = match *id {
-                        id if id == notwig_dsp::stock::p_pan() => {
+                        id if id == notwig_core::dsp::stock::p_pan() => {
                             format!("{:.0} %", param.physical(&current) * 100.0)
                         }
-                        id if id == notwig_dsp::stock::p_width() => {
+                        id if id == notwig_core::dsp::stock::p_width() => {
                             format!("{:.0} %", param.physical(&current) * 100.0)
                         }
                         _ => format_param(param.unit, param.physical(&current)),
@@ -550,13 +549,13 @@ impl NotwigUi {
         &mut self,
         ui: &mut egui::Ui,
         device: &DeviceInstance,
-        spec: &notwig_dsp::DeviceSpec,
+        spec: &notwig_core::dsp::DeviceSpec,
     ) {
         ui.vertical_centered(|ui| {
             ui.add_space(6.0);
             for (id, label) in [
-                (notwig_dsp::stock::p_input_gain(), "Wet Gain"),
-                (notwig_dsp::stock::p_dry_wet(), "Mix"),
+                (notwig_core::dsp::stock::p_input_gain(), "Wet Gain"),
+                (notwig_core::dsp::stock::p_dry_wet(), "Mix"),
             ] {
                 let Some(param) = spec.params.iter().find(|param| param.id == id) else {
                     continue;

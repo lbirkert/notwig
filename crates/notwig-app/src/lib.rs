@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod audio_config;
+mod audio_input;
 pub mod clock;
 pub mod edit_lowering;
 mod engine_build;
@@ -12,6 +13,7 @@ pub mod gui;
 pub mod history;
 pub mod logging;
 mod plugins;
+mod recording;
 mod shortcuts;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -19,13 +19,14 @@ phase.
   VST3/VST2/CLAP/LV2/AU hosting, WASM and native extension devices and panels
   with ordered target selection, a supervised native audio-engine process with
   plugin DSP and editor hosting, an extension explorer with index/ZIP installs
-  and hash-verified downloads, render mixdown, persisted audio settings,
-  customizable keyboard shortcuts, and DSP load analysis.
-- **Not implemented yet:** audio/MIDI recording, live input/monitoring,
-  automation editing, general extension drawing hooks, Clip Launcher/scenes,
-  comping/takes, warping, tempo/time-signature automation, modulation/macros
-  runtime, stock instruments, Windows/Linux builds, collaboration, and
-  out-of-process plugin hosting.
+  and hash-verified downloads, render mixdown, linear audio recording with
+  per-track input and monitoring, persisted audio settings, customizable
+  keyboard shortcuts, and DSP load analysis.
+- **Not implemented yet:** MIDI recording, loop/punch recording, take lanes,
+  monitoring modes, automation editing, general extension drawing hooks, Clip
+  Launcher/scenes, comping, warping, tempo/time-signature automation,
+  modulation/macros runtime, stock instruments, Windows/Linux builds,
+  collaboration, and out-of-process plugin hosting.
 
 ## Where to start
 

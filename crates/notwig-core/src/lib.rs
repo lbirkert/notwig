@@ -2,6 +2,7 @@
 
 pub mod apply;
 pub mod domain;
+pub mod dsp;
 pub mod edit;
 pub mod ids;
 pub mod protocol;
@@ -30,8 +31,8 @@ pub use time::{
     Semitones, TempoMap, TimeAudio, TimeMus,
 };
 pub use tracks::{
-    Connection, MixerState, RoutingGraph, Send as TrackSend, SignalType, Track, TrackForest,
-    TrackIO, TrackKind, TrackOutput,
+    AudioInputRef, Connection, MixerState, RoutingGraph, Send as TrackSend, SignalType, Track,
+    TrackForest, TrackIO, TrackKind, TrackOutput,
 };
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]

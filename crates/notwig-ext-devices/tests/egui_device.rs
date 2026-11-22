@@ -1,6 +1,6 @@
-#![cfg(feature = "egui")]
-
-use notwig_ext_api::{DeviceExtension, EguiInput, EguiModifiers, ThemeSnapshot, egui, egui_panel};
+use notwig_ext_api::{
+    DeviceExtension, DeviceMeterSnapshot, EguiInput, EguiModifiers, ThemeSnapshot, egui, egui_panel,
+};
 use notwig_ext_devices::{EGUI_GAIN_TYPE_ID, EguiGainDevice, egui_gain_id};
 
 #[test]
@@ -18,7 +18,7 @@ fn egui_device_draws_a_valid_frame() {
         events: Vec::new(),
     };
     let frame = egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
-        device.draw_egui(ui);
+        device.draw_egui(ui, DeviceMeterSnapshot::default());
     });
     frame.validate().unwrap();
     assert_ne!(frame.primitives.len(), 0);

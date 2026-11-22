@@ -23,13 +23,13 @@ pub struct NoteEvent {
     pub velocity: f32,
 }
 
-impl From<notwig_dsp::NoteEvent> for NoteEvent {
-    fn from(event: notwig_dsp::NoteEvent) -> Self {
+impl From<notwig_core::dsp::NoteEvent> for NoteEvent {
+    fn from(event: notwig_core::dsp::NoteEvent) -> Self {
         Self {
             sample_offset: event.sample_offset,
             kind: match event.kind {
-                notwig_dsp::NoteKind::On => NoteKind::On,
-                notwig_dsp::NoteKind::Off => NoteKind::Off,
+                notwig_core::dsp::NoteKind::On => NoteKind::On,
+                notwig_core::dsp::NoteKind::Off => NoteKind::Off,
             },
             pitch: event.pitch,
             velocity: event.velocity,

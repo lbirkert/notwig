@@ -14,8 +14,8 @@ fn temp_dir() -> PathBuf {
     dir
 }
 
-fn extension_instrument_spec() -> notwig_dsp::DeviceSpec {
-    notwig_dsp::DeviceSpec {
+fn extension_instrument_spec() -> notwig_core::dsp::DeviceSpec {
+    notwig_core::dsp::DeviceSpec {
         type_id: "test.phase".into(),
         version: notwig_core::SchemaVersion::V0,
         kind: DeviceKind::Instrument,
@@ -24,7 +24,7 @@ fn extension_instrument_spec() -> notwig_dsp::DeviceSpec {
         latency_samples: 0,
         name: "Phase".into(),
         vendor: "Test".into(),
-        ui: notwig_dsp::DeviceUiSpec::default(),
+        ui: notwig_core::dsp::DeviceUiSpec::default(),
     }
 }
 
@@ -205,7 +205,7 @@ fn device_parameters_affect_offline_render() {
     workspace
         .insert_stock(
             track.main_chain,
-            notwig_dsp::stock::TOOL_TYPE_ID,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
             DeviceKind::AudioFx,
             None,
         )
@@ -214,7 +214,7 @@ fn device_parameters_affect_offline_render() {
     workspace
         .apply(CommandPayload::SetParam {
             device_id: device,
-            param_id: notwig_dsp::stock::p_output_gain(),
+            param_id: notwig_core::dsp::stock::p_output_gain(),
             value: notwig_core::ParamValue::F64(-60.0),
             ramp: None,
         })
@@ -1062,7 +1062,7 @@ fn duplicating_a_track_copies_clips_and_devices() {
     workspace
         .insert_stock(
             workspace.doc.tracks[&track].main_chain,
-            notwig_dsp::stock::TOOL_TYPE_ID,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
             DeviceKind::AudioFx,
             None,
         )
@@ -1137,7 +1137,7 @@ fn inserting_stock_device_rebuilds_engine() {
     workspace
         .insert_stock(
             track.main_chain,
-            notwig_dsp::stock::TOOL_TYPE_ID,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
             DeviceKind::AudioFx,
             None,
         )
@@ -1410,7 +1410,7 @@ fn structural_undo_and_redo_request_engine_rebuild() {
     workspace
         .insert_stock(
             track.main_chain,
-            notwig_dsp::stock::TOOL_TYPE_ID,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
             DeviceKind::AudioFx,
             None,
         )
@@ -1919,7 +1919,7 @@ fn plugin_state_round_trips_through_the_bundle() {
     workspace
         .insert_stock(
             chain,
-            notwig_dsp::stock::TOOL_TYPE_ID,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
             DeviceKind::AudioFx,
             None,
         )
@@ -1928,7 +1928,7 @@ fn plugin_state_round_trips_through_the_bundle() {
         .doc
         .devices
         .iter()
-        .find(|(_, device)| device.type_id == notwig_dsp::stock::TOOL_TYPE_ID)
+        .find(|(_, device)| device.type_id == notwig_core::dsp::stock::TOOL_TYPE_ID)
         .map(|(id, _)| id)
         .unwrap();
     let state = notwig_plugins::PluginState {

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use notwig_dsp::DeviceSpec;
+use notwig_core::dsp::DeviceSpec;
 use notwig_ext_api::{ExtensionInfo, ExtensionManifest, ExtensionStatus};
 use wasmtime::Module;
 

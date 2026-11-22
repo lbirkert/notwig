@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::DeviceId;
 use crossbeam_queue::ArrayQueue;
-use notwig_core::DeviceId;
 
 /// Frames in one monitor block. Large enough for typical live buffers; larger
 /// engine blocks are split across several queue entries.

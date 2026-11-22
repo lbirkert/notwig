@@ -19,7 +19,6 @@ web = []
 [dependencies]
 notwig-core.workspace = true
 notwig-project.workspace = true
-notwig-dsp.workspace = true
 notwig-ext-api.workspace = true
 notwig-ext = { workspace = true, default-features = false }
 notwig-engine.workspace = true

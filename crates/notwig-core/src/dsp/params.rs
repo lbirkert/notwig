@@ -1,4 +1,4 @@
-use notwig_core::{Db, Norm01, ParamId, ParamValue};
+use crate::{Db, Norm01, ParamId, ParamValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ParamKind {
@@ -255,9 +255,9 @@ pub enum Value {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParamSet {
-    pub device_id: notwig_core::DeviceId,
+    pub device_id: crate::DeviceId,
     pub param_id: ParamId,
     pub value: Value,
     pub sample_offset: Option<u32>,
-    pub ramp: Option<notwig_core::protocol::RampSpec>,
+    pub ramp: Option<crate::protocol::RampSpec>,
 }

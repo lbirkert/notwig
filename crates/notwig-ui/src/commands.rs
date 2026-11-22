@@ -150,6 +150,7 @@ pub enum ShortcutCommand {
     AudioSettings,
     RenderMixdown,
     Play,
+    Record,
     Stop,
     ToggleLoop,
     LoopSelection,
@@ -298,6 +299,14 @@ pub const COMMANDS: &[CommandSpec] = &[
             alt: false,
             shift: false,
         }],
+    },
+    CommandSpec {
+        command: ShortcutCommand::Record,
+        id: "record",
+        label: "Record",
+        description: "Start or stop recording on armed audio tracks.",
+        category: CommandCategory::Transport,
+        defaults: &[KeyChord::command(Key::R)],
     },
     CommandSpec {
         command: ShortcutCommand::Stop,

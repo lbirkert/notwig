@@ -5,11 +5,10 @@ use notwig_core::ids::{Device, DeviceChain, Param, Track};
 use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, DeviceMeterSnapshot, DevicePanelFrame, DevicePanelHost, DrawCommand,
-    EguiFrame, EguiImage, EguiMesh, EguiPrimitive, EguiTextureDelta, EguiTextureOptions,
-    EguiVertex, PanelAction, PanelCommand, PanelDraw, Point, Rect,
+    DeviceDrawContext, DeviceMeterSnapshot, DevicePanelHost, EguiFrame, EguiImage, EguiMesh,
+    EguiPrimitive, EguiTextureDelta, EguiTextureOptions, EguiVertex, PanelAction,
 };
 use notwig_ui::{NotwigUi, RuntimeView, UiIntent};
 use uuid::Uuid;
@@ -18,43 +17,35 @@ fn id<T>(n: u128) -> Id<T> {
     Id::from_uuid(Uuid::from_u128(n))
 }
 
-struct FakeHost {
-    called: Arc<AtomicBool>,
-    panel: PanelDraw,
-    expected_meter: Option<DeviceMeterSnapshot>,
-}
-
-impl DevicePanelHost for FakeHost {
-    fn draw_device_panel(
-        &mut self,
-        _type_id: &str,
-        context: &DeviceDrawContext,
-    ) -> Option<DevicePanelFrame> {
-        self.called.store(true, Ordering::Relaxed);
-        assert!(context.width > 0.0);
-        assert!(context.height > 0.0);
-        if let Some(expected) = self.expected_meter {
-            assert_eq!(context.meter, expected);
-        }
-        Some(DevicePanelFrame::Commands(self.panel.clone()))
-    }
-}
-
 struct FakeEguiHost {
+    called: Arc<AtomicBool>,
     action: Option<PanelAction>,
+    expected_meter: Option<DeviceMeterSnapshot>,
+    invalid: bool,
 }
 
 impl DevicePanelHost for FakeEguiHost {
     fn draw_device_panel(
         &mut self,
         _type_id: &str,
-        _context: &DeviceDrawContext,
-    ) -> Option<DevicePanelFrame> {
-        Some(DevicePanelFrame::Egui(EguiFrame {
+        context: &DeviceDrawContext,
+    ) -> Option<EguiFrame> {
+        self.called.store(true, Ordering::Relaxed);
+        assert!(context.width > 0.0);
+        assert!(context.height > 0.0);
+        if let Some(expected) = self.expected_meter {
+            assert_eq!(context.meter, expected);
+        }
+        let indices = if self.invalid {
+            vec![0, 1, 9]
+        } else {
+            vec![0, 1, 2, 0, 2, 3]
+        };
+        Some(EguiFrame {
             primitives: vec![EguiPrimitive {
                 clip_rect: [0.0, 0.0, 200.0, 200.0],
                 mesh: EguiMesh {
-                    indices: vec![0, 1, 2, 0, 2, 3],
+                    indices,
                     vertices: vec![
                         EguiVertex {
                             pos: [0.0, 0.0],
@@ -100,7 +91,7 @@ impl DevicePanelHost for FakeEguiHost {
             wants_pointer: false,
             copy_text: None,
             repaint_after_ms: None,
-        }))
+        })
     }
 }
 
@@ -162,19 +153,17 @@ fn extension_spec() -> DeviceSpec {
     }
 }
 
-fn panel() -> PanelDraw {
-    PanelDraw {
-        commands: vec![PanelCommand::Draw(DrawCommand::FillRect {
-            rect: Rect::new(Point::new(0.0, 0.0), Point::new(20.0, 20.0)),
-            radius: 2.0,
-            color: Color::rgb(255, 0, 0),
-        })],
-        actions: Vec::new(),
-    }
-}
-
-fn render(ui: &mut NotwigUi, doc: &ProjectDoc) -> Vec<UiIntent> {
-    render_with_runtime(ui, doc, &RuntimeView::default())
+fn extension_spec_with_param(param_id: ParamId) -> DeviceSpec {
+    let mut spec = extension_spec();
+    spec.params.push(ParamSpec::continuous(
+        param_id,
+        "Gain",
+        Unit::Decibels,
+        -24.0,
+        24.0,
+        0.0,
+    ));
+    spec
 }
 
 fn render_with_runtime(
@@ -197,17 +186,8 @@ fn render_with_runtime(
     intents
 }
 
-fn extension_spec_with_param(param_id: ParamId) -> DeviceSpec {
-    let mut spec = extension_spec();
-    spec.params.push(ParamSpec::continuous(
-        param_id,
-        "Gain",
-        Unit::Decibels,
-        -24.0,
-        24.0,
-        0.0,
-    ));
-    spec
+fn render(ui: &mut NotwigUi, doc: &ProjectDoc) -> Vec<UiIntent> {
+    render_with_runtime(ui, doc, &RuntimeView::default())
 }
 
 #[test]
@@ -218,10 +198,13 @@ fn egui_frame_composites_and_applies_actions() {
     ui.registry.register(extension_spec_with_param(param_id));
     ui.state.selection.select_track(id::<Track>(2), false);
     ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
+        called: Arc::new(AtomicBool::new(false)),
         action: Some(PanelAction::SetParamNormalized {
             param_id,
             norm: 0.5,
         }),
+        expected_meter: None,
+        invalid: false,
     })));
     let intents = render(&mut ui, &doc);
     assert!(intents.iter().any(|intent| matches!(
@@ -234,53 +217,6 @@ fn egui_frame_composites_and_applies_actions() {
             && *param == param_id
             && *value == ParamValue::F64(0.0)
     )));
-}
-
-#[test]
-fn panel_action_sets_param_normalized() {
-    let doc = doc();
-    let param_id = id::<Param>(7);
-    let mut ui = NotwigUi::default();
-    ui.registry.register(extension_spec_with_param(param_id));
-    ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeHost {
-        called: Arc::new(AtomicBool::new(false)),
-        panel: PanelDraw {
-            commands: Vec::new(),
-            actions: vec![PanelAction::SetParamNormalized {
-                param_id,
-                norm: 0.5,
-            }],
-        },
-        expected_meter: None,
-    })));
-    let intents = render(&mut ui, &doc);
-    assert!(intents.iter().any(|intent| matches!(
-        intent,
-        UiIntent::SetParam {
-            device_id,
-            param_id: param,
-            value,
-        } if *device_id == id::<Device>(50)
-            && *param == param_id
-            && *value == ParamValue::F64(0.0)
-    )));
-}
-
-#[test]
-fn extension_panel_host_receives_device_context() {
-    let doc = doc();
-    let called = Arc::new(AtomicBool::new(false));
-    let mut ui = NotwigUi::default();
-    ui.registry.register(extension_spec());
-    ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeHost {
-        called: Arc::clone(&called),
-        panel: panel(),
-        expected_meter: None,
-    })));
-    let _ = render(&mut ui, &doc);
-    assert!(called.load(Ordering::Relaxed));
 }
 
 #[test]
@@ -296,10 +232,11 @@ fn extension_panel_receives_device_meter() {
     let mut ui = NotwigUi::default();
     ui.registry.register(extension_spec());
     ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeHost {
+    ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
         called: Arc::clone(&called),
-        panel: panel(),
+        action: None,
         expected_meter: Some(meter),
+        invalid: false,
     })));
     let mut runtime = RuntimeView::default();
     runtime.device_meters.insert(id::<Device>(50), meter);
@@ -308,23 +245,17 @@ fn extension_panel_receives_device_meter() {
 }
 
 #[test]
-fn invalid_extension_panel_falls_back_without_panicking() {
+fn invalid_egui_frame_is_ignored_without_panicking() {
     let doc = doc();
     let called = Arc::new(AtomicBool::new(false));
     let mut ui = NotwigUi::default();
     ui.registry.register(extension_spec());
     ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeHost {
+    ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
         called: Arc::clone(&called),
-        panel: PanelDraw {
-            commands: vec![PanelCommand::Draw(DrawCommand::FillRect {
-                rect: Rect::new(Point::new(10.0, 10.0), Point::new(0.0, 0.0)),
-                radius: 0.0,
-                color: Color::WHITE,
-            })],
-            actions: Vec::new(),
-        },
+        action: None,
         expected_meter: None,
+        invalid: true,
     })));
     let _ = render(&mut ui, &doc);
     assert!(called.load(Ordering::Relaxed));

@@ -4,12 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use notwig_core::dsp::CompiledPlan;
 use notwig_core::protocol::{MetronomeState, RampSpec};
 use notwig_core::{
     AssetId, AudioAssetBuffer, Db, DeviceId, NoteId, Pan, ParamId, ParamValue, PlaybackSchedule,
     TimeMus, TrackId,
 };
-use notwig_dsp::CompiledPlan;
 
 use crate::runtime::ActivePlan;
 
@@ -39,6 +39,12 @@ pub struct ParamUpdate {
     pub param_id: ParamId,
     pub value: ParamValue,
     pub ramp: Option<RampSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputRoute {
+    pub track_id: TrackId,
+    pub slot: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -74,6 +80,7 @@ pub struct EngineControlUpdate {
     pub preview_offs: Vec<(TrackId, NoteId)>,
     pub transport: Option<TransportUpdate>,
     pub metronome: Option<MetronomeState>,
+    pub input_routes: Option<Vec<InputRoute>>,
     pub all_notes_off: bool,
 }
 
@@ -96,6 +103,7 @@ pub struct EngineData {
     pub(crate) preview_offs: Vec<(TrackId, NoteId)>,
     pub(crate) transport: Option<TransportUpdate>,
     pub(crate) metronome: Option<MetronomeState>,
+    pub(crate) input_routes: Option<Vec<InputRoute>>,
     pub(crate) all_notes_off: bool,
 }
 
@@ -114,6 +122,10 @@ impl EngineData {
 
     pub fn set_transport(&mut self, transport: TransportUpdate) {
         self.transport = Some(transport);
+    }
+
+    pub fn set_input_routes(&mut self, routes: Vec<InputRoute>) {
+        self.input_routes = Some(routes);
     }
 
     /// Update only the metronome without touching the transport or playhead.
@@ -153,6 +165,7 @@ impl EngineData {
             preview_offs: std::mem::take(&mut self.preview_offs),
             transport: self.transport.take(),
             metronome: self.metronome.take(),
+            input_routes: self.input_routes.take(),
             all_notes_off: std::mem::replace(&mut self.all_notes_off, false),
         }
     }

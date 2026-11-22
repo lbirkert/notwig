@@ -1,13 +1,13 @@
+use egui::{Align2, FontId, Sense, Vec2};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
-use notwig_ext_api::{
-    Align, DeviceExtension, DeviceMeterSnapshot, METER_MIN_DB, Point, Size, UiContext, knob,
-    paint_stereo_meter, section,
-};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ui::{draw_stereo_meter_with_peak, knob, palette, section};
 use uuid::Uuid;
 
 use crate::dynamics::{
-    History, HistorySample, ThresholdCurve, follow_peak, linear_to_db, paint_history_graph,
+    History, HistorySample, METER_MIN_DB, ThresholdCurve, follow_peak, linear_to_db,
+    paint_history_graph,
 };
 
 pub const TYPE_ID: &str = "notwig.ext.devices.limiter";
@@ -30,6 +30,16 @@ const METER_WIDTH: f32 = 40.0;
 const GRAPH_HEIGHT: f32 = 116.0;
 const KNOB_WIDTH: f32 = 78.0;
 const KNOB_HEIGHT: f32 = 58.0;
+
+fn knob_label(ui: &egui::Ui, rect: egui::Rect, label: &str) {
+    ui.painter().with_clip_rect(rect).text(
+        egui::pos2(rect.center().x, rect.bottom() + 8.0),
+        Align2::CENTER_TOP,
+        label,
+        FontId::proportional(10.0),
+        palette::TEXT_MUTED,
+    );
+}
 
 #[must_use]
 pub fn threshold_id() -> ParamId {
@@ -196,90 +206,88 @@ impl DeviceExtension for LimiterDevice {
         }
     }
 
-    fn draw(&mut self, ui: &mut UiContext<'_>) {
-        self.update_meters(ui.device_meter());
+    fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
+        self.update_meters(meter);
         section(ui, "Limiter");
 
-        let width = ui.available_rect().width();
-        let spacing = ui.style().spacing.width;
+        let width = ui.available_width();
+        let meter_width = 40.0;
+        let graph_height = 116.0;
         ui.horizontal(|ui| {
-            let graph_width = (width - METER_WIDTH - spacing).max(60.0);
-            let graph_rect = ui.allocate(Size::new(graph_width, GRAPH_HEIGHT));
-            let theme = ui.theme();
+            let graph_width = (width - meter_width - 6.0).max(60.0);
+            let (graph_rect, _) =
+                ui.allocate_exact_size(Vec2::new(graph_width, graph_height), Sense::hover());
             paint_history_graph(
                 ui.painter(),
-                &theme,
                 graph_rect,
                 &self.history,
                 self.threshold_db as f32,
                 ThresholdCurve::FollowGain,
                 false,
             );
-            let font = ui.mono_font();
-            let text = format!("GR {:.1} dB", self.gain_reduction_db);
-            ui.painter().text(
-                Point::new(graph_rect.min.x + 6.0, graph_rect.min.y + 5.0),
-                &text,
-                font,
-                theme.text_muted,
-                Align::left_top(),
+            ui.painter().with_clip_rect(graph_rect).text(
+                graph_rect.min + egui::vec2(6.0, 5.0),
+                Align2::LEFT_TOP,
+                format!("GR {:.1} dB", self.gain_reduction_db),
+                FontId::monospace(9.0),
+                palette::TEXT_MUTED,
             );
 
-            let meter_rect = ui.allocate(Size::new(METER_WIDTH, GRAPH_HEIGHT));
+            let (meter_rect, _) =
+                ui.allocate_exact_size(Vec2::new(meter_width, graph_height), Sense::hover());
             let to_linear = |db: f32| 10.0_f32.powf(db / 20.0);
-            paint_stereo_meter(
+            draw_stereo_meter_with_peak(
                 ui.painter(),
-                &theme,
                 meter_rect,
                 to_linear(self.meter_left_db),
                 to_linear(self.meter_right_db),
-                to_linear(self.meter_peak_db),
+                Some(to_linear(self.meter_peak_db)),
             );
         });
 
-        let mut threshold_change = None;
-        let mut release_change = None;
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let threshold_rect = ui.allocate(Size::new(KNOB_WIDTH, KNOB_HEIGHT));
-            let threshold_ui_id = ui.id("threshold");
-            threshold_change = knob(
+            let knob_width = 78.0;
+            let knob_height = 58.0;
+
+            let (threshold_rect, _) =
+                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
+            if let Some(norm) = knob(
                 ui,
-                threshold_ui_id,
+                ui.make_persistent_id(("ext-limiter", "threshold")),
                 threshold_rect,
                 threshold_norm(self.threshold_db),
                 threshold_norm(DEFAULT_THRESHOLD_DB),
                 true,
                 "Threshold",
-            );
+            ) {
+                self.threshold_db =
+                    MIN_THRESHOLD_DB + f64::from(norm) * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB);
+                self.update_threshold();
+                egui_panel::set_param_normalized(ui, threshold_id(), norm);
+            }
+            knob_label(ui, threshold_rect, "Threshold");
 
-            let release_rect = ui.allocate(Size::new(KNOB_WIDTH, KNOB_HEIGHT));
-            let release_ui_id = ui.id("release");
-            release_change = knob(
+            let (release_rect, _) =
+                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
+            if let Some(norm) = knob(
                 ui,
-                release_ui_id,
+                ui.make_persistent_id(("ext-limiter", "release")),
                 release_rect,
                 release_norm(self.release_seconds),
                 release_norm(DEFAULT_RELEASE_SECONDS),
                 false,
                 "Release",
-            );
+            ) {
+                self.release_seconds = MIN_RELEASE_SECONDS
+                    + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
+                self.update_release();
+                egui_panel::set_param_normalized(ui, release_id(), norm);
+            }
+            knob_label(ui, release_rect, "Release");
         });
 
-        if let Some(norm) = threshold_change {
-            self.threshold_db =
-                MIN_THRESHOLD_DB + f64::from(norm) * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB);
-            self.update_threshold();
-            ui.set_param_normalized(threshold_id(), norm);
-        }
-
-        if let Some(norm) = release_change {
-            self.release_seconds =
-                MIN_RELEASE_SECONDS + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
-            self.update_release();
-            ui.set_param_normalized(release_id(), norm);
-        }
-
-        ui.request_repaint();
+        ui.ctx().request_repaint();
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {

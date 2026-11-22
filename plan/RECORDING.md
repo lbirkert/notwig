@@ -1,6 +1,8 @@
 # Recording plan
 
-Status: proposed. This is a planning note, not stable user documentation.
+Status: first milestone implemented (linear audio recording with per-track input
+and chain monitoring). Advanced recording remains planned. This is a planning
+note, not stable user documentation.
 
 Related:
 

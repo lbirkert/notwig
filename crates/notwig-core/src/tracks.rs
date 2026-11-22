@@ -74,9 +74,17 @@ pub enum TrackOutput {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioInputRef {
+    pub driver: String,
+    pub device: String,
+    pub channel: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackIO {
-    pub audio_in: Option<String>,
+    #[serde(default)]
+    pub audio_input: Option<AudioInputRef>,
     pub midi_in: Option<String>,
     pub audio_out: TrackOutput,
 }
@@ -84,7 +92,7 @@ pub struct TrackIO {
 impl Default for TrackIO {
     fn default() -> Self {
         Self {
-            audio_in: None,
+            audio_input: None,
             midi_in: None,
             audio_out: TrackOutput::Default,
         }
@@ -112,6 +120,8 @@ pub struct Track {
     pub parent: Option<TrackId>,
     pub mixer: MixerState,
     pub io: TrackIO,
+    #[serde(default)]
+    pub record_armed: bool,
     pub main_chain: DeviceChainId,
     pub sends: Vec<Send>,
 }

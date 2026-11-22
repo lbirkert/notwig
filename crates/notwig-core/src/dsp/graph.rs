@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use notwig_core::{
+use crate::{
     Db, DeviceChainId, DeviceId, Pan, ParamId, ParamValue, ProjectDoc, SendId, SoloContext,
     TrackId, TrackKind, TrackOutput,
 };
 
-use crate::devices::{DeviceSpec, DeviceUiSpec, EngineCaps, RenderConfig};
-use crate::registry::DeviceRegistry;
+use super::devices::{DeviceSpec, DeviceUiSpec, EngineCaps, RenderConfig};
+use super::registry::DeviceRegistry;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum GraphError {
@@ -45,7 +45,7 @@ pub struct PlanSend {
 pub struct PlanDevice {
     pub id: DeviceId,
     pub type_id: String,
-    pub kind: notwig_core::DeviceKind,
+    pub kind: crate::DeviceKind,
     pub spec: DeviceSpec,
     pub param_values: BTreeMap<ParamId, ParamValue>,
     pub bypass: bool,

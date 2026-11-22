@@ -22,10 +22,20 @@ use syn::{ItemFn, parse_macro_input};
 /// without a copy.
 #[proc_macro_attribute]
 pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let egui = attr
-        .to_string()
-        .split(',')
-        .any(|part| part.trim() == "egui");
+    if !attr.is_empty() {
+        let supported = attr
+            .to_string()
+            .split(',')
+            .all(|part| part.trim() == "egui");
+        if !supported {
+            return syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "unsupported notwig_extension option",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
     let function = parse_macro_input!(item as ItemFn);
     if function.sig.asyncness.is_some() {
         return syn::Error::new_spanned(
@@ -38,62 +48,36 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
     let entrypoint = &function.sig.ident;
     let wasm_module = format_ident!("__notwig_extension_wasm_{}", entrypoint);
     let native_module = format_ident!("__notwig_extension_native_{}", entrypoint);
-    let wasm_egui_exports = egui.then(|| {
-        quote! {
-            #[unsafe(no_mangle)]
-            pub extern "C" fn notwig_device_supports_egui(
-                type_ptr: i32,
-                type_len: i32,
-            ) -> i32 {
-                with_str(type_ptr, type_len, |type_id| {
-                    i32::from(extension().supports_egui(type_id))
-                })
-                .unwrap_or(0)
-            }
-
-            #[unsafe(no_mangle)]
-            pub extern "C" fn notwig_device_draw_egui(
-                handle: i32,
-                ctx_ptr: i32,
-                ctx_len: i32,
-            ) -> i64 {
-                with_bytes(ctx_ptr, ctx_len, |bytes| {
-                    extension().draw_egui_pointer(handle, bytes)
-                })
-                .unwrap_or(0)
-            }
+    let wasm_egui_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_device_draw_egui(
+            handle: i32,
+            ctx_ptr: i32,
+            ctx_len: i32,
+        ) -> i64 {
+            with_bytes(ctx_ptr, ctx_len, |bytes| {
+                extension().draw_egui_pointer(handle, bytes)
+            })
+            .unwrap_or(0)
         }
-    });
-    let native_egui_exports = egui.then(|| {
-        quote! {
-            #[unsafe(no_mangle)]
-            pub extern "C" fn notwig_device_supports_egui(
-                type_ptr: *const u8,
-                type_len: usize,
-            ) -> i32 {
-                with_str_ptr(type_ptr, type_len, |type_id| {
-                    i32::from(extension().supports_egui(type_id))
-                })
-                .unwrap_or(0)
-            }
-
-            #[unsafe(no_mangle)]
-            pub extern "C" fn notwig_device_draw_egui(
-                handle: i32,
-                ctx_ptr: *const u8,
-                ctx_len: usize,
-            ) -> NotwigNativeBytes {
-                with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
-                    extension()
-                        .draw_egui_bytes(handle, bytes)
-                        .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
-                            NotwigNativeBytes { ptr, len }
-                        })
-                })
-                .unwrap_or_else(NotwigNativeBytes::empty)
-            }
+    };
+    let native_egui_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_device_draw_egui(
+            handle: i32,
+            ctx_ptr: *const u8,
+            ctx_len: usize,
+        ) -> NotwigNativeBytes {
+            with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
+                extension()
+                    .draw_egui_bytes(handle, bytes)
+                    .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
+                        NotwigNativeBytes { ptr, len }
+                    })
+            })
+            .unwrap_or_else(NotwigNativeBytes::empty)
         }
-    });
+    };
     let expanded = quote! {
         #function
 
@@ -232,18 +216,6 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_latency(handle: i32) -> i32 {
                 i32::try_from(extension().latency(handle)).unwrap_or(0)
-            }
-
-            #[unsafe(no_mangle)]
-            pub extern "C" fn notwig_device_draw(
-                handle: i32,
-                ctx_ptr: i32,
-                ctx_len: i32,
-            ) -> i64 {
-                with_bytes(ctx_ptr, ctx_len, |bytes| {
-                    extension().draw_pointer(handle, bytes)
-                })
-                .unwrap_or(0)
             }
            #wasm_egui_exports
         }
@@ -407,22 +379,6 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_latency(handle: i32) -> i32 {
                 i32::try_from(extension().latency(handle)).unwrap_or(0)
-            }
-
-            #[unsafe(no_mangle)]
-            pub extern "C" fn notwig_device_draw(
-                handle: i32,
-                ctx_ptr: *const u8,
-                ctx_len: usize,
-            ) -> NotwigNativeBytes {
-                with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
-                    extension()
-                        .draw_json(handle, bytes)
-                        .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
-                            NotwigNativeBytes { ptr, len }
-                        })
-                })
-                .unwrap_or_else(NotwigNativeBytes::empty)
             }
            #native_egui_exports
         }

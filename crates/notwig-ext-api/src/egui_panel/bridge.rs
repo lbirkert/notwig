@@ -3,7 +3,7 @@ use notwig_core::{ParamId, ParamValue};
 use crate::context::ThemeSnapshot;
 use crate::geometry::Color;
 use crate::panel::PanelAction;
-use crate::ui::CursorIcon;
+use crate::cursor::CursorIcon;
 
 use super::{
     EguiEvent, EguiFrame, EguiImage, EguiInput, EguiMesh, EguiModifiers, EguiPointerButton,

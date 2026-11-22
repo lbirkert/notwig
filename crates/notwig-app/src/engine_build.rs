@@ -4,11 +4,11 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc;
 
-use notwig_core::protocol::PlaybackSchedule;
-use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, ProjectDoc};
-use notwig_dsp::{
+use notwig_core::dsp::{
     CompiledPlan, CompositeDeviceFactory, DeviceFactory, EngineCaps, StockDeviceFactory,
 };
+use notwig_core::protocol::PlaybackSchedule;
+use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, ProjectDoc};
 use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory, PreparedRuntime, TransportRuntime};
 use notwig_ext_api::ExtensionSettings;
 use notwig_plugins::{PluginDescriptor, PluginState};
@@ -27,14 +27,14 @@ pub(crate) struct EngineExtensionRuntime {
 pub(crate) struct EngineBuildRequest {
     pub(crate) doc: ProjectDoc,
     pub(crate) caps: EngineCaps,
-    pub(crate) registry: notwig_dsp::DeviceRegistry,
+    pub(crate) registry: notwig_core::dsp::DeviceRegistry,
     pub(crate) extension_factory: Option<Arc<dyn DeviceFactory>>,
     pub(crate) plugin_descriptors: Vec<PluginDescriptor>,
     pub(crate) plugin_states: BTreeMap<DeviceId, PluginState>,
     pub(crate) assets: BTreeMap<AssetId, Arc<AudioAssetBuffer>>,
     pub(crate) sample_rate: u32,
     pub(crate) max_block_size: usize,
-    pub(crate) monitors: Arc<notwig_dsp::MonitorRegistry>,
+    pub(crate) monitors: Arc<notwig_core::dsp::MonitorRegistry>,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) extension_runtime: Option<EngineExtensionRuntime>,
 }
@@ -62,8 +62,9 @@ impl EngineBuildRequest {
             monitors,
             extension_runtime: _,
         } = self;
-        let plan =
-            Arc::new(notwig_dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?);
+        let plan = Arc::new(
+            notwig_core::dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?,
+        );
         let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
         let config = EngineConfig::new(sample_rate, max_block_size);
         let plugin_factory: Arc<dyn DeviceFactory> = Arc::new(PluginDeviceFactory::with_monitors(
@@ -96,7 +97,8 @@ impl EngineBuildRequest {
             monitors: _,
             extension_runtime,
         } = self;
-        let plan = notwig_dsp::compile(&doc, &registry, caps).map_err(|error| error.to_string())?;
+        let plan =
+            notwig_core::dsp::compile(&doc, &registry, caps).map_err(|error| error.to_string())?;
         let schedule = PlaybackSchedule::from_doc(&doc);
         let (extension_root, extension_settings) = extension_runtime.map_or_else(
             || (None, BTreeMap::new()),

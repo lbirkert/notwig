@@ -2,7 +2,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use notwig_core::{DeviceId, ParamId};
+use notwig_core::{AudioAssetBuffer, AudioInputRef, DeviceId, ParamId, TrackId};
 use notwig_plugins::{PluginDescriptor, PluginState};
 
 use super::protocol::{
@@ -26,6 +26,9 @@ pub(crate) enum EngineEvent {
         value: f64,
     },
     EditorTransportToggle,
+    InputError(String),
+    RecordingFinished(Vec<(TrackId, AudioAssetBuffer)>),
+    RecordingFailed(String),
     Error(String),
 }
 
@@ -47,6 +50,27 @@ impl EngineClientHandle {
     ) -> Result<(), String> {
         self.requests
             .send(EngineRequest::Control(update))
+            .map_err(|_| "audio engine process is not running".into())
+    }
+
+    pub(crate) fn configure_inputs(
+        &self,
+        requests: Vec<(TrackId, AudioInputRef)>,
+    ) -> Result<(), String> {
+        self.requests
+            .send(EngineRequest::ConfigureInputs { requests })
+            .map_err(|_| "audio engine process is not running".into())
+    }
+
+    pub(crate) fn start_recording(&self) -> Result<(), String> {
+        self.requests
+            .send(EngineRequest::StartRecording)
+            .map_err(|_| "audio engine process is not running".into())
+    }
+
+    pub(crate) fn stop_recording(&self) -> Result<(), String> {
+        self.requests
+            .send(EngineRequest::StopRecording)
             .map_err(|_| "audio engine process is not running".into())
     }
 }
@@ -217,6 +241,15 @@ impl EngineClient {
                         }
                         EngineReply::EditorTransportToggle => {
                             let _ = reader_events.send(EngineEvent::EditorTransportToggle);
+                        }
+                        EngineReply::InputError(error) => {
+                            let _ = reader_events.send(EngineEvent::InputError(error));
+                        }
+                        EngineReply::RecordingFinished(captures) => {
+                            let _ = reader_events.send(EngineEvent::RecordingFinished(captures));
+                        }
+                        EngineReply::RecordingFailed(error) => {
+                            let _ = reader_events.send(EngineEvent::RecordingFailed(error));
                         }
                         EngineReply::Error(error) => {
                             if let Ok(mut snapshot) = reader_snapshot.lock() {

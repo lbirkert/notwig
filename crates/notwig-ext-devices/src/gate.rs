@@ -1,13 +1,13 @@
+use egui::{Align2, FontId, Sense, Vec2};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
-use notwig_ext_api::{
-    Align, DeviceExtension, DeviceMeterSnapshot, METER_MIN_DB, Point, Rect, Size, UiContext, knob,
-    paint_stereo_meter, section,
-};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ui::{draw_stereo_meter_with_peak, knob, palette, section};
 use uuid::Uuid;
 
 use crate::dynamics::{
-    History, HistorySample, ThresholdCurve, follow_peak, linear_to_db, paint_history_graph,
+    History, HistorySample, METER_MIN_DB, ThresholdCurve, follow_peak, linear_to_db,
+    paint_history_graph,
 };
 
 pub const TYPE_ID: &str = "notwig.ext.devices.gate";
@@ -39,6 +39,16 @@ const METER_WIDTH: f32 = 40.0;
 const GRAPH_HEIGHT: f32 = 116.0;
 const KNOB_HEIGHT: f32 = 58.0;
 const KNOB_GAP: f32 = 2.0;
+
+fn knob_label(ui: &egui::Ui, rect: egui::Rect, label: &str) {
+    ui.painter().with_clip_rect(rect).text(
+        egui::pos2(rect.center().x, rect.bottom() + 8.0),
+        Align2::CENTER_TOP,
+        label,
+        FontId::proportional(10.0),
+        palette::TEXT_MUTED,
+    );
+}
 
 #[must_use]
 pub fn threshold_id() -> ParamId {
@@ -274,137 +284,137 @@ impl DeviceExtension for GateDevice {
         }
     }
 
-    fn draw(&mut self, ui: &mut UiContext<'_>) {
-        self.update_meters(ui.device_meter());
+    fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
+        self.update_meters(meter);
         section(ui, "Gate");
 
-        let width = ui.available_rect().width();
-        let spacing = ui.style().spacing.width;
+        let width = ui.available_width();
+        let meter_width = 40.0;
+        let graph_height = 116.0;
         ui.horizontal(|ui| {
-            let graph_width = (width - METER_WIDTH - spacing).max(60.0);
-            let graph_rect = ui.allocate(Size::new(graph_width, GRAPH_HEIGHT));
-            let theme = ui.theme();
+            let graph_width = (width - meter_width - 6.0).max(60.0);
+            let (graph_rect, _) =
+                ui.allocate_exact_size(Vec2::new(graph_width, graph_height), Sense::hover());
             paint_history_graph(
                 ui.painter(),
-                &theme,
                 graph_rect,
                 &self.history,
                 self.threshold_db as f32,
                 ThresholdCurve::Fixed,
                 true,
             );
-            let font = ui.mono_font();
             let closed = self.gain_reduction_db < -1.0;
             let text = format!(
                 "{} {:.0} dB",
                 if closed { "CLOSED" } else { "OPEN" },
                 self.gain_reduction_db
             );
-            ui.painter().text(
-                Point::new(graph_rect.min.x + 6.0, graph_rect.min.y + 5.0),
-                &text,
-                font,
+            ui.painter().with_clip_rect(graph_rect).text(
+                graph_rect.min + egui::vec2(6.0, 5.0),
+                Align2::LEFT_TOP,
+                text,
+                FontId::monospace(9.0),
                 if closed {
-                    theme.text_muted
+                    palette::TEXT_MUTED
                 } else {
-                    theme.accent
+                    palette::ACCENT
                 },
-                Align::left_top(),
             );
 
-            let meter_rect = ui.allocate(Size::new(METER_WIDTH, GRAPH_HEIGHT));
+            let (meter_rect, _) =
+                ui.allocate_exact_size(Vec2::new(meter_width, graph_height), Sense::hover());
             let to_linear = |db: f32| 10.0_f32.powf(db / 20.0);
-            paint_stereo_meter(
+            draw_stereo_meter_with_peak(
                 ui.painter(),
-                &theme,
                 meter_rect,
                 to_linear(self.meter_left_db),
                 to_linear(self.meter_right_db),
-                to_linear(self.meter_peak_db),
+                Some(to_linear(self.meter_peak_db)),
             );
         });
 
-        let row = ui.allocate(Size::new(width, KNOB_HEIGHT));
-        let count = 5.0_f32;
-        let knob_width = ((width - KNOB_GAP * (count - 1.0)) / count).max(24.0);
-        let cells = [
-            (
-                "Thr",
-                threshold_norm(self.threshold_db),
-                threshold_norm(DEFAULT_THRESHOLD_DB),
-            ),
-            (
-                "Atk",
-                attack_norm(self.attack_seconds),
-                attack_norm(DEFAULT_ATTACK_SECONDS),
-            ),
-            (
-                "Hold",
-                hold_norm(self.hold_seconds),
-                hold_norm(DEFAULT_HOLD_SECONDS),
-            ),
-            (
-                "Rel",
-                release_norm(self.release_seconds),
-                release_norm(DEFAULT_RELEASE_SECONDS),
-            ),
-            (
-                "Rng",
-                range_norm(self.range_db),
-                range_norm(DEFAULT_RANGE_DB),
-            ),
-        ];
-        let mut changes = [None; 5];
-        for (index, (label, value, default)) in cells.into_iter().enumerate() {
-            let rect = Rect::from_min_size(
-                Point::new(
-                    row.min.x + index as f32 * (knob_width + KNOB_GAP),
-                    row.min.y,
+        ui.add_space(4.0);
+        let gap = 2.0;
+        let knob_width = ((width - gap * 4.0) / 5.0).max(24.0);
+        let knob_height = 58.0;
+        ui.horizontal(|ui| {
+            let cells = [
+                (
+                    "Thr",
+                    threshold_norm(self.threshold_db),
+                    threshold_norm(DEFAULT_THRESHOLD_DB),
                 ),
-                Size::new(knob_width, KNOB_HEIGHT),
-            );
-            changes[index] = knob(
-                ui,
-                ui.id(("gate", index)),
-                rect,
-                value,
-                default,
-                false,
-                label,
-            );
-        }
+                (
+                    "Atk",
+                    attack_norm(self.attack_seconds),
+                    attack_norm(DEFAULT_ATTACK_SECONDS),
+                ),
+                (
+                    "Hold",
+                    hold_norm(self.hold_seconds),
+                    hold_norm(DEFAULT_HOLD_SECONDS),
+                ),
+                (
+                    "Rel",
+                    release_norm(self.release_seconds),
+                    release_norm(DEFAULT_RELEASE_SECONDS),
+                ),
+                (
+                    "Rng",
+                    range_norm(self.range_db),
+                    range_norm(DEFAULT_RANGE_DB),
+                ),
+            ];
+            let mut changes = [None; 5];
+            for (index, (label, value, default)) in cells.into_iter().enumerate() {
+                let (rect, _) = ui.allocate_exact_size(
+                    Vec2::new(knob_width, knob_height),
+                    Sense::hover(),
+                );
+                changes[index] = knob(
+                    ui,
+                    ui.make_persistent_id(("ext-gate", index)),
+                    rect,
+                    value,
+                    default,
+                    false,
+                    label,
+                );
+                knob_label(ui, rect, label);
+            }
 
-        if let Some(norm) = changes[0] {
-            self.threshold_db =
-                MIN_THRESHOLD_DB + f64::from(norm) * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB);
-            self.update_threshold();
-            ui.set_param_normalized(threshold_id(), norm);
-        }
-        if let Some(norm) = changes[1] {
-            self.attack_seconds =
-                MIN_ATTACK_SECONDS + f64::from(norm) * (MAX_ATTACK_SECONDS - MIN_ATTACK_SECONDS);
-            self.update_timing();
-            ui.set_param_normalized(attack_id(), norm);
-        }
-        if let Some(norm) = changes[2] {
-            self.hold_seconds =
-                MIN_HOLD_SECONDS + f64::from(norm) * (MAX_HOLD_SECONDS - MIN_HOLD_SECONDS);
-            self.update_timing();
-            ui.set_param_normalized(hold_id(), norm);
-        }
-        if let Some(norm) = changes[3] {
-            self.release_seconds =
-                MIN_RELEASE_SECONDS + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
-            self.update_timing();
-            ui.set_param_normalized(release_id(), norm);
-        }
-        if let Some(norm) = changes[4] {
-            self.range_db = MIN_RANGE_DB + f64::from(norm) * (MAX_RANGE_DB - MIN_RANGE_DB);
-            self.update_range();
-            ui.set_param_normalized(range_id(), norm);
-        }
+            if let Some(norm) = changes[0] {
+                self.threshold_db =
+                    MIN_THRESHOLD_DB + f64::from(norm) * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB);
+                self.update_threshold();
+                egui_panel::set_param_normalized(ui, threshold_id(), norm);
+            }
+            if let Some(norm) = changes[1] {
+                self.attack_seconds = MIN_ATTACK_SECONDS
+                    + f64::from(norm) * (MAX_ATTACK_SECONDS - MIN_ATTACK_SECONDS);
+                self.update_timing();
+                egui_panel::set_param_normalized(ui, attack_id(), norm);
+            }
+            if let Some(norm) = changes[2] {
+                self.hold_seconds =
+                    MIN_HOLD_SECONDS + f64::from(norm) * (MAX_HOLD_SECONDS - MIN_HOLD_SECONDS);
+                self.update_timing();
+                egui_panel::set_param_normalized(ui, hold_id(), norm);
+            }
+            if let Some(norm) = changes[3] {
+                self.release_seconds = MIN_RELEASE_SECONDS
+                    + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
+                self.update_timing();
+                egui_panel::set_param_normalized(ui, release_id(), norm);
+            }
+            if let Some(norm) = changes[4] {
+                self.range_db = MIN_RANGE_DB + f64::from(norm) * (MAX_RANGE_DB - MIN_RANGE_DB);
+                self.update_range();
+                egui_panel::set_param_normalized(ui, range_id(), norm);
+            }
+        });
 
-        ui.request_repaint();
+        ui.ctx().request_repaint();
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {

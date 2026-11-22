@@ -1,5 +1,10 @@
 use std::sync::Arc;
 
+use notwig_core::dsp::devices::{ProcessContext, ProcessStatus};
+use notwig_core::dsp::{
+    CompiledPlan, DeviceProcessor, DeviceRegistry, EngineCaps, GraphError, NoteEvent, PlanDevice,
+    RenderConfig, instantiate_stock_params,
+};
 use notwig_core::ids::{
     Asset as AssetMarker, Clip as ClipMarker, Device as DeviceMarker, DeviceChain,
     Send as SendMarker, Track,
@@ -8,11 +13,6 @@ use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, Play
 use notwig_core::sequencer::{AudioClipData, ClipKind, ClipPayload, FadeShape};
 use notwig_core::tracks::{Send, TrackKind, TrackOutput};
 use notwig_core::*;
-use notwig_dsp::devices::{ProcessContext, ProcessStatus};
-use notwig_dsp::{
-    CompiledPlan, DeviceProcessor, DeviceRegistry, EngineCaps, GraphError, NoteEvent, PlanDevice,
-    RenderConfig, instantiate_stock_params,
-};
 use notwig_engine::{DeviceFactory, Engine, EngineConfig};
 use uuid::Uuid;
 
@@ -145,9 +145,9 @@ fn impulse_buffer(frames: u64, at: u64, value: f32) -> AudioAssetBuffer {
 }
 
 fn pdc_registry() -> DeviceRegistry {
-    let mut registry = notwig_dsp::stock_registry();
+    let mut registry = notwig_core::dsp::stock_registry();
     for (type_id, latency) in [("test.latent32", 32), ("test.latent64", 64)] {
-        let mut spec = notwig_dsp::stock::tool_spec();
+        let mut spec = notwig_core::dsp::stock::tool_spec();
         spec.type_id = type_id.into();
         spec.latency_samples = latency;
         registry.register(spec);
@@ -230,7 +230,7 @@ fn prepare_engine(
         max_block_size: config.max_block_size,
         channels: 2,
     };
-    let plan = notwig_dsp::compile(doc, &pdc_registry(), caps).unwrap();
+    let plan = notwig_core::dsp::compile(doc, &pdc_registry(), caps).unwrap();
     let mut engine = Engine::with_factory(config, Arc::new(PdcFactory));
     engine
         .apply(EngineMsg::UpdateSchedule {

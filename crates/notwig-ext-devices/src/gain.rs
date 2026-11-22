@@ -1,11 +1,16 @@
+use egui::{Align2, FontId, Sense, Vec2};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_core::{DeviceKind, ParamId, ParamValue, SchemaVersion};
-use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
-use notwig_ext_api::{DeviceExtension, UiContext, egui, egui_panel, label, section};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ui::{knob, label, palette, section};
 use uuid::Uuid;
 
 pub const TYPE_ID: &str = "notwig.ext.devices.egui-gain";
 
 const GAIN_UUID: u128 = 0x4547_5549_4741_494e_0000_0000_0000_0001;
+
+const MIN_GAIN_DB: f64 = -24.0;
+const MAX_GAIN_DB: f64 = 24.0;
 
 #[must_use]
 pub fn gain_id() -> ParamId {
@@ -27,9 +32,11 @@ impl Default for EguiGainDevice {
     }
 }
 
-impl DeviceExtension for EguiGainDevice {
-    const SUPPORTS_EGUI: bool = true;
+fn gain_norm(db: f64) -> f32 {
+    ((db - MIN_GAIN_DB) / (MAX_GAIN_DB - MIN_GAIN_DB)) as f32
+}
 
+impl DeviceExtension for EguiGainDevice {
     fn new() -> Self {
         Self::default()
     }
@@ -44,8 +51,8 @@ impl DeviceExtension for EguiGainDevice {
                 gain_id(),
                 "Gain",
                 Unit::Decibels,
-                -24.0,
-                24.0,
+                MIN_GAIN_DB,
+                MAX_GAIN_DB,
                 0.0,
             )],
             latency_samples: 0,
@@ -55,24 +62,37 @@ impl DeviceExtension for EguiGainDevice {
         }
     }
 
-    fn draw(&mut self, ui: &mut UiContext<'_>) {
-        section(ui, "EGUI GAIN");
-        label(ui, "This device can also draw with the command API.");
-    }
-
-    fn draw_egui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Egui Gain");
-        ui.label("This panel runs the real egui API inside the extension.");
+    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
+        section(ui, "Egui Gain");
+        label(ui, "This panel uses notwig-ui components inside the guest egui context.");
         ui.add_space(6.0);
-        let mut gain_db = self.gain_db;
-        if ui
-            .add(egui::Slider::new(&mut gain_db, -24.0..=24.0).text("Gain (dB)"))
-            .changed()
-        {
+
+        let width = ui.available_width().min(78.0);
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 58.0), Sense::hover());
+        if let Some(norm) = knob(
+            ui,
+            ui.make_persistent_id(("egui-gain", "gain")),
+            rect,
+            gain_norm(self.gain_db),
+            gain_norm(0.0),
+            true,
+            "Gain (dB)",
+        ) {
+            let gain_db =
+                MIN_GAIN_DB + f64::from(norm) * (MAX_GAIN_DB - MIN_GAIN_DB);
+            self.gain_db = gain_db;
+            self.gain = 10.0_f32.powf((gain_db / 20.0) as f32);
             egui_panel::set_param_value(ui, gain_id(), ParamValue::F64(gain_db));
         }
-        ui.separator();
-        ui.label(format!("Linear gain: {:.3}", self.gain));
+        ui.painter().with_clip_rect(rect).text(
+            egui::pos2(rect.center().x, rect.bottom() + 8.0),
+            Align2::CENTER_TOP,
+            format!("{:+.1} dB", self.gain_db),
+            FontId::proportional(10.0),
+            palette::TEXT_MUTED,
+        );
+        ui.add_space(16.0);
+        label(ui, &format!("Linear gain: {:.3}", self.gain));
     }
 
     fn set_param(&mut self, param_id: ParamId, value: f64) -> bool {

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use notwig_dsp::DeviceFactory;
-use notwig_dsp::{DeviceSpec, DeviceUiSpec};
+use notwig_core::dsp::DeviceFactory;
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{DevicePanelHost, ExtensionInfo, ExtensionSettings, ExtensionStatus, target};
 use wasmtime::Module;
 

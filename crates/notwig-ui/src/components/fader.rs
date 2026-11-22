@@ -1,16 +1,16 @@
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind};
 
-use crate::theme;
-use crate::widgets::format_db;
+use crate::palette;
 
 /// Default decibel range for track volume faders.
-pub(crate) const DB_MIN: f32 = -60.0;
-pub(crate) const DB_MAX: f32 = 6.0;
+pub const DB_MIN: f32 = -60.0;
+/// Maximum decibel value for track volume faders.
+pub const DB_MAX: f32 = 6.0;
 
 /// Draws a horizontal decibel fader and handles drag interaction.
 ///
 /// Returns the new decibel value when it changed.
-pub(crate) fn volume_fader(
+pub fn volume_fader(
     ui: &mut egui::Ui,
     id: egui::Id,
     rect: Rect,
@@ -20,11 +20,11 @@ pub(crate) fn volume_fader(
 ) -> Option<f32> {
     let response = ui
         .interact(rect, id, Sense::click_and_drag())
-        .on_hover_text(format_db(notwig_core::Db(db)));
+        .on_hover_text(super::format_db(notwig_core::Db(db)));
     if response.hovered() || response.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    let value = crate::widgets::value_drag(
+    let value = super::value_drag(
         ui,
         &response,
         id,
@@ -41,7 +41,7 @@ pub(crate) fn volume_fader(
     painter.rect_stroke(
         rect,
         CornerRadius::same(3),
-        Stroke::new(1.0_f32, theme::GRID),
+        Stroke::new(1.0_f32, palette::GRID),
         StrokeKind::Inside,
     );
     let t = ((db - min_db) / (max_db - min_db)).clamp(0.0, 1.0);

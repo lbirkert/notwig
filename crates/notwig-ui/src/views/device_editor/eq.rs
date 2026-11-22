@@ -120,7 +120,8 @@ impl NotwigUi {
         for index in 0..=240u32 {
             let t = f64::from(index) / 240.0;
             let freq = 10.0_f64.powf(log_min + t * (log_max - log_min));
-            let magnitude = notwig_dsp::stock::eq_magnitude_response(&values, sample_rate, freq);
+            let magnitude =
+                notwig_core::dsp::stock::eq_magnitude_response(&values, sample_rate, freq);
             let db = 20.0 * magnitude.max(1e-12).log10();
             let point = (db.is_finite() && db >= -f64::from(range) && db <= f64::from(range))
                 .then(|| egui::pos2(x_for_freq(freq), y_for_db(db)));
@@ -135,11 +136,11 @@ impl NotwigUi {
         }
         let band = self.eq_band.min(3);
         let selected_freq = values
-            .get(&notwig_dsp::stock::band_param(band, 2))
+            .get(&notwig_core::dsp::stock::band_param(band, 2))
             .and_then(ParamValue::as_f64)
             .unwrap_or(1_000.0);
         let selected_enabled = matches!(
-            values.get(&notwig_dsp::stock::band_param(band, 0)),
+            values.get(&notwig_core::dsp::stock::band_param(band, 0)),
             Some(ParamValue::Bool(true))
         );
         if selected_enabled {
@@ -155,15 +156,15 @@ impl NotwigUi {
         let mut point_positions = Vec::new();
         for band_index in 0..4 {
             let enabled = matches!(
-                values.get(&notwig_dsp::stock::band_param(band_index, 0)),
+                values.get(&notwig_core::dsp::stock::band_param(band_index, 0)),
                 Some(ParamValue::Bool(true))
             );
             let freq = values
-                .get(&notwig_dsp::stock::band_param(band_index, 2))
+                .get(&notwig_core::dsp::stock::band_param(band_index, 2))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(1_000.0);
             let gain = values
-                .get(&notwig_dsp::stock::band_param(band_index, 3))
+                .get(&notwig_core::dsp::stock::band_param(band_index, 3))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(0.0);
             point_positions.push((
@@ -260,7 +261,7 @@ impl NotwigUi {
                     if enable {
                         self.emit(UiIntent::SetParam {
                             device_id: device.id,
-                            param_id: notwig_dsp::stock::band_param(band_index, 0),
+                            param_id: notwig_core::dsp::stock::band_param(band_index, 0),
                             value: ParamValue::Bool(true),
                         });
                     }
@@ -273,15 +274,15 @@ impl NotwigUi {
                     } else {
                         (
                             values
-                                .get(&notwig_dsp::stock::band_param(band_index, 2))
+                                .get(&notwig_core::dsp::stock::band_param(band_index, 2))
                                 .and_then(ParamValue::as_f64)
                                 .unwrap_or(1_000.0),
                             values
-                                .get(&notwig_dsp::stock::band_param(band_index, 3))
+                                .get(&notwig_core::dsp::stock::band_param(band_index, 3))
                                 .and_then(ParamValue::as_f64)
                                 .unwrap_or(0.0),
                             values
-                                .get(&notwig_dsp::stock::band_param(band_index, 4))
+                                .get(&notwig_core::dsp::stock::band_param(band_index, 4))
                                 .and_then(ParamValue::as_f64)
                                 .unwrap_or(0.707),
                         )
@@ -311,7 +312,7 @@ impl NotwigUi {
                     self.eq_band = *band_index;
                     self.emit(UiIntent::SetParam {
                         device_id: device.id,
-                        param_id: notwig_dsp::stock::band_param(*band_index, 0),
+                        param_id: notwig_core::dsp::stock::band_param(*band_index, 0),
                         value: ParamValue::Bool(true),
                     });
                     self.emit_eq_param(device.id, *band_index, 2, freq_for_x(pos.x));
@@ -328,7 +329,7 @@ impl NotwigUi {
                     self.eq_band = *band_index;
                     self.emit(UiIntent::SetParam {
                         device_id: device.id,
-                        param_id: notwig_dsp::stock::band_param(*band_index, 0),
+                        param_id: notwig_core::dsp::stock::band_param(*band_index, 0),
                         value: ParamValue::Bool(false),
                     });
                 }
@@ -376,8 +377,8 @@ impl NotwigUi {
 
     fn eq_body(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, sample_rate: f64) {
         let band = self.eq_band.min(3);
-        let shift_id = notwig_dsp::stock::p_eq_shift();
-        let gain_id = notwig_dsp::stock::p_eq_output_gain();
+        let shift_id = notwig_core::dsp::stock::p_eq_shift();
+        let gain_id = notwig_core::dsp::stock::p_eq_output_gain();
         ui.spacing_mut().item_spacing.y = 0.0;
         let curve_height = (ui.available_height() - 56.0).max(60.0);
         ui.allocate_ui_with_layout(
@@ -464,11 +465,11 @@ impl NotwigUi {
 
     fn eq_band_controls(&mut self, ui: &mut egui::Ui, device: &DeviceInstance, band: usize) {
         let values = self.device_values(device);
-        let enabled_id = notwig_dsp::stock::band_param(band, 0);
-        let type_id = notwig_dsp::stock::band_param(band, 1);
-        let freq_id = notwig_dsp::stock::band_param(band, 2);
-        let gain_id = notwig_dsp::stock::band_param(band, 3);
-        let q_id = notwig_dsp::stock::band_param(band, 4);
+        let enabled_id = notwig_core::dsp::stock::band_param(band, 0);
+        let type_id = notwig_core::dsp::stock::band_param(band, 1);
+        let freq_id = notwig_core::dsp::stock::band_param(band, 2);
+        let gain_id = notwig_core::dsp::stock::band_param(band, 3);
+        let q_id = notwig_core::dsp::stock::band_param(band, 4);
         ui.allocate_ui_with_layout(
             Vec2::new(ui.available_width(), 24.0),
             egui::Layout::left_to_right(Align::Center),
@@ -586,7 +587,7 @@ impl NotwigUi {
     fn emit_eq_param(&mut self, device_id: DeviceId, band: usize, offset: u128, value: f64) {
         self.emit(UiIntent::SetParam {
             device_id,
-            param_id: notwig_dsp::stock::band_param(band, offset),
+            param_id: notwig_core::dsp::stock::band_param(band, offset),
             value: ParamValue::F64(value),
         });
     }

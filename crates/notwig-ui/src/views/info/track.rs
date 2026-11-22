@@ -65,6 +65,58 @@ impl NotwigUi {
         ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
     }
 
+    fn track_input_editor(&mut self, ui: &mut egui::Ui, track: &Track, runtime: &RuntimeView) {
+        let selected = track.io.audio_input.clone();
+        let label = selected.as_ref().map_or_else(
+            || "No input".to_string(),
+            |input| format!("{} · Input {}", input.device, input.channel + 1),
+        );
+        egui::ComboBox::from_id_salt(("track-input", track.id))
+            .selected_text(label)
+            .width(ui.available_width().min(280.0))
+            .show_ui(ui, |ui| {
+                if runtime.audio_inputs.is_empty() {
+                    ui.label("No audio inputs available.");
+                }
+                for device in &runtime.audio_inputs {
+                    for channel in 0..device.channels {
+                        let option = notwig_core::AudioInputRef {
+                            driver: device.driver.clone(),
+                            device: device.device.clone(),
+                            channel,
+                        };
+                        if ui
+                            .selectable_label(
+                                selected.as_ref() == Some(&option),
+                                format!("{} — Input {}", device.label, channel + 1),
+                            )
+                            .clicked()
+                        {
+                            self.emit(UiIntent::SetTrackInput {
+                                track_id: track.id,
+                                input: Some(option),
+                            });
+                            ui.close();
+                        }
+                    }
+                }
+                if selected.is_some() && ui.button("Clear input").clicked() {
+                    self.emit(UiIntent::SetTrackInput {
+                        track_id: track.id,
+                        input: None,
+                    });
+                    ui.close();
+                }
+            });
+        if track.record_armed {
+            ui.label(
+                RichText::new("Monitoring while armed")
+                    .small()
+                    .color(theme::ACCENT),
+            );
+        }
+    }
+
     fn track_comment_editor(&mut self, ui: &mut egui::Ui, track: &Track) {
         ui.add_space(6.0);
         let mut comment = track.comment.clone();
@@ -149,6 +201,11 @@ impl NotwigUi {
         }
         self.track_color_editor(ui, &track);
         self.track_comment_editor(ui, &track);
+        if track.kind == TrackKind::Audio {
+            ui.separator();
+            ui.label(theme::heading(ui.ctx(), "INPUT"));
+            self.track_input_editor(ui, &track, runtime);
+        }
         ui.separator();
 
         let devices = doc
@@ -243,7 +300,12 @@ impl NotwigUi {
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.horizontal(|ui| {
-                        info_record_button(ui);
+                        if info_record_button(ui, track.record_armed) {
+                            self.emit(UiIntent::SetTrackRecordArm {
+                                track_id,
+                                armed: !track.record_armed,
+                            });
+                        }
                         if mixer_toggle(ui, "S", track.mixer.solo, theme::ACCENT) {
                             self.emit(UiIntent::SetTrackMixer {
                                 track_id,
@@ -342,10 +404,18 @@ fn track_kind_title(kind: TrackKind) -> &'static str {
     }
 }
 
-fn info_record_button(ui: &mut egui::Ui) {
+fn info_record_button(ui: &mut egui::Ui, armed: bool) -> bool {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(34.0, 24.0), Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, egui::CornerRadius::same(3), theme::GRID);
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::same(3),
+        if armed {
+            Color32::from_rgb(150, 48, 48)
+        } else {
+            theme::GRID
+        },
+    );
     crate::icons::paint(
         painter,
         rect,
@@ -353,7 +423,12 @@ fn info_record_button(ui: &mut egui::Ui) {
         Color32::from_rgb(231, 91, 82),
     );
     ui.interact(rect, egui::Id::new("sidebar-record"), Sense::click())
-        .on_hover_text("Record (not implemented)");
+        .on_hover_text(if armed {
+            "Disarm recording"
+        } else {
+            "Arm for recording"
+        })
+        .clicked()
 }
 
 fn mixer_toggle(ui: &mut egui::Ui, label: &str, active: bool, color: Color32) -> bool {

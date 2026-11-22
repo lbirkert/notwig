@@ -14,7 +14,7 @@ mod imp {
     use std::time::{Duration, Instant};
 
     use block2::RcBlock;
-    use notwig_dsp::{AudioMonitor, MonitorBlock};
+    use notwig_core::dsp::{AudioMonitor, MonitorBlock};
     use notwig_rack::core::buffer::BusRange;
     use notwig_rack::core::{
         AudioBuffer, BusLayout, EventList, Plugin, ProcessContext as RackContext, WindowHandle,
@@ -600,7 +600,7 @@ impl NativePluginWindow {
     pub fn open(
         descriptor: &PluginDescriptor,
         _sample_rate: u32,
-        _monitor: Option<std::sync::Arc<notwig_dsp::AudioMonitor>>,
+        _monitor: Option<std::sync::Arc<notwig_core::dsp::AudioMonitor>>,
     ) -> Result<Self, PluginError> {
         Err(PluginError::BackendUnavailable(descriptor.format))
     }

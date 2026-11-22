@@ -6,17 +6,28 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["app"]
+app = [
+  "dep:image",
+  "dep:notwig-ext-api",
+  "dep:notwig-project",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:thiserror",
+  "dep:uuid",
+]
+
 [dependencies]
-notwig-core.workspace = true
-notwig-project.workspace = true
-notwig-dsp.workspace = true
-notwig-ext-api = { workspace = true, features = ["egui"] }
+notwig-core = { workspace = true, default-features = false }
+notwig-ext-api = { workspace = true, optional = true }
+notwig-project = { workspace = true, optional = true }
 egui.workspace = true
-image.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-uuid = { workspace = true, features = ["v4"] }
+image = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["v4"], optional = true }
 
 [lints]
 workspace = true

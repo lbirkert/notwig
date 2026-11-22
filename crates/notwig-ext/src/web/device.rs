@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use notwig_core::{ParamId, ParamValue};
-use notwig_dsp::{
+use notwig_core::dsp::{
     CompiledPlan, DeviceFactory, DeviceProcessor, GraphError, Latency, NoteEvent, PlanDevice,
     ProcessContext, ProcessStatus, RenderConfig,
 };
+use notwig_core::{ParamId, ParamValue};
 use notwig_ext_api::{NOTE_EVENT_BYTES, NoteEvent as ExtensionNoteEvent, encode_note_event};
 
 use crate::web::compiled::WebLoadedExtensions;

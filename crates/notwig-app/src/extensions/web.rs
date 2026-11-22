@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use notwig_dsp::{DeviceFactory, DeviceSpec};
+use notwig_core::dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{
     ExtensionArchive, WebExtensionHost, WebExtensionPackage, read_archive, validate_extension_id,
 };

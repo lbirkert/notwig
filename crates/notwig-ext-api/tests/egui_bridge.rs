@@ -1,5 +1,3 @@
-#![cfg(feature = "egui")]
-
 use notwig_core::ParamId;
 use notwig_ext_api::{EguiInput, EguiModifiers, PanelAction, ThemeSnapshot, egui_panel};
 

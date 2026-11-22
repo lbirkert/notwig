@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use notwig_core::{ParamId, ParamValue};
-use notwig_dsp::{
+use notwig_core::dsp::{
     DeviceProcessor, GraphError, Latency, NormMap, NoteKind, ParamFlags, ParamKind, ParamSpec,
     ProcessContext, ProcessStatus, RangeSpec, RenderConfig, Unit,
 };
+use notwig_core::{ParamId, ParamValue};
 use notwig_rack::core::buffer::BusRange;
 use notwig_rack::core::{
     AudioBuffer, BusLayout, Event, EventBody, EventList, MidiData, Plugin,
@@ -98,7 +98,7 @@ impl DeviceProcessor for RackPluginInstance {
         &mut self,
         ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        events: &[notwig_dsp::NoteEvent],
+        events: &[notwig_core::dsp::NoteEvent],
     ) -> ProcessStatus {
         let frames = audio.len() / 2;
         if frames == 0 {
@@ -277,7 +277,7 @@ impl PluginInstance for RackPluginInstance {
     }
 }
 
-fn build_events(events: &[notwig_dsp::NoteEvent]) -> EventList {
+fn build_events(events: &[notwig_core::dsp::NoteEvent]) -> EventList {
     let mut list = EventList::new();
     for event in events {
         let body = match event.kind {

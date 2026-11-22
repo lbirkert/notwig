@@ -1,8 +1,8 @@
+use egui::{Align2, FontId, Sense, Vec2};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
 use notwig_core::{DeviceKind, ParamId, ParamValue, SchemaVersion};
-use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
-use notwig_ext_api::{
-    DeviceExtension, NoteEvent, NoteKind, Point, Rect, Size, UiContext, dropdown, knob, section,
-};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, NoteEvent, NoteKind, egui, egui_panel};
+use notwig_ui::{dropdown, knob, palette, section};
 use uuid::Uuid;
 
 pub const TYPE_ID: &str = "notwig.ext.devices.synth";
@@ -359,87 +359,94 @@ impl DeviceExtension for SynthDevice {
         }
     }
 
-    fn draw(&mut self, ui: &mut UiContext<'_>) {
+    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "Synth");
 
-        let width = ui.available_rect().width();
-        let dropdown_rect = ui.allocate(Size::new(width, DROPDOWN_HEIGHT));
-
-        let row = ui.allocate(Size::new(width, KNOB_HEIGHT));
-        let count = 4.0_f32;
-        let knob_width = ((width - KNOB_GAP * (count - 1.0)) / count).max(24.0);
-        let cells = [
-            (
-                "Atk",
-                attack_norm(self.attack_seconds),
-                attack_norm(DEFAULT_ATTACK_SECONDS),
-            ),
-            (
-                "Dec",
-                decay_norm(self.decay_seconds),
-                decay_norm(DEFAULT_DECAY_SECONDS),
-            ),
-            ("Sus", self.sustain as f32, DEFAULT_SUSTAIN as f32),
-            (
-                "Rel",
-                release_norm(self.release_seconds),
-                release_norm(DEFAULT_RELEASE_SECONDS),
-            ),
-        ];
-        let mut changes = [None; 4];
-        for (index, (label, value, default)) in cells.into_iter().enumerate() {
-            let rect = Rect::from_min_size(
-                Point::new(
-                    row.min.x + index as f32 * (knob_width + KNOB_GAP),
-                    row.min.y,
-                ),
-                Size::new(knob_width, KNOB_HEIGHT),
-            );
-            changes[index] = knob(
-                ui,
-                ui.id(("synth", index)),
-                rect,
-                value,
-                default,
-                false,
-                label,
-            );
-        }
-
-        if let Some(norm) = changes[0] {
-            self.attack_seconds =
-                MIN_ATTACK_SECONDS + f64::from(norm) * (MAX_ATTACK_SECONDS - MIN_ATTACK_SECONDS);
-            ui.set_param_normalized(attack_id(), norm);
-        }
-        if let Some(norm) = changes[1] {
-            self.decay_seconds =
-                MIN_DECAY_SECONDS + f64::from(norm) * (MAX_DECAY_SECONDS - MIN_DECAY_SECONDS);
-            ui.set_param_normalized(decay_id(), norm);
-        }
-        if let Some(norm) = changes[2] {
-            self.sustain = f64::from(norm);
-            ui.set_param_normalized(sustain_id(), norm);
-        }
-        if let Some(norm) = changes[3] {
-            self.release_seconds =
-                MIN_RELEASE_SECONDS + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
-            ui.set_param_normalized(release_id(), norm);
-        }
-
+        let width = ui.available_width();
         let selected = self.oscillator.index() as usize;
         if let Some(index) = dropdown(
             ui,
-            ui.id("oscillator"),
-            dropdown_rect,
+            ui.make_persistent_id(("ext-synth", "oscillator")),
             selected,
             &OSCILLATOR_OPTIONS,
-            &mut self.oscillator_open,
         ) {
             self.oscillator = OscillatorMode::from_index(index as u32);
-            ui.set_param_value(oscillator_id(), ParamValue::EnumIndex(index as u32));
+            egui_panel::set_param_value(
+                ui,
+                oscillator_id(),
+                ParamValue::EnumIndex(index as u32),
+            );
         }
 
-        ui.request_repaint();
+        ui.add_space(4.0);
+        let gap = 2.0;
+        let knob_width = ((width - gap * 3.0) / 4.0).max(24.0);
+        let knob_height = 58.0;
+        ui.horizontal(|ui| {
+            let cells = [
+                (
+                    "Atk",
+                    attack_norm(self.attack_seconds),
+                    attack_norm(DEFAULT_ATTACK_SECONDS),
+                ),
+                (
+                    "Dec",
+                    decay_norm(self.decay_seconds),
+                    decay_norm(DEFAULT_DECAY_SECONDS),
+                ),
+                ("Sus", self.sustain as f32, DEFAULT_SUSTAIN as f32),
+                (
+                    "Rel",
+                    release_norm(self.release_seconds),
+                    release_norm(DEFAULT_RELEASE_SECONDS),
+                ),
+            ];
+            let mut changes = [None; 4];
+            for (index, (label, value, default)) in cells.into_iter().enumerate() {
+                let (rect, _) = ui.allocate_exact_size(
+                    Vec2::new(knob_width, knob_height),
+                    Sense::hover(),
+                );
+                changes[index] = knob(
+                    ui,
+                    ui.make_persistent_id(("ext-synth", index)),
+                    rect,
+                    value,
+                    default,
+                    false,
+                    label,
+                );
+                ui.painter().with_clip_rect(rect).text(
+                    egui::pos2(rect.center().x, rect.bottom() + 8.0),
+                    Align2::CENTER_TOP,
+                    label,
+                    FontId::proportional(10.0),
+                    palette::TEXT_MUTED,
+                );
+            }
+
+            if let Some(norm) = changes[0] {
+                self.attack_seconds = MIN_ATTACK_SECONDS
+                    + f64::from(norm) * (MAX_ATTACK_SECONDS - MIN_ATTACK_SECONDS);
+                egui_panel::set_param_normalized(ui, attack_id(), norm);
+            }
+            if let Some(norm) = changes[1] {
+                self.decay_seconds =
+                    MIN_DECAY_SECONDS + f64::from(norm) * (MAX_DECAY_SECONDS - MIN_DECAY_SECONDS);
+                egui_panel::set_param_normalized(ui, decay_id(), norm);
+            }
+            if let Some(norm) = changes[2] {
+                self.sustain = f64::from(norm);
+                egui_panel::set_param_normalized(ui, sustain_id(), norm);
+            }
+            if let Some(norm) = changes[3] {
+                self.release_seconds = MIN_RELEASE_SECONDS
+                    + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
+                egui_panel::set_param_normalized(ui, release_id(), norm);
+            }
+        });
+
+        ui.ctx().request_repaint();
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {

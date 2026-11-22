@@ -1,14 +1,16 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use notwig_core::dsp::devices::{ProcessContext, ProcessStatus};
+use notwig_core::dsp::{
+    CompiledPlan, DeviceProcessor, EngineCaps, NoteEvent, NoteKind, PlanDevice,
+};
 use notwig_core::ids::{Device as DeviceMarker, DeviceChain, Note as NoteMarker, Track};
 use notwig_core::protocol::{Command, CommandPayload, PlaybackSchedule};
 use notwig_core::tracks::TrackKind;
 use notwig_core::{
     DeviceKind, Id, Meta, ParamId, ParamValue, ProjectDoc, SampleRate, TimeMus, TrackId, apply,
 };
-use notwig_dsp::devices::{ProcessContext, ProcessStatus};
-use notwig_dsp::{CompiledPlan, DeviceProcessor, EngineCaps, NoteEvent, NoteKind, PlanDevice};
 use notwig_engine::{DeviceFactory, Engine, EngineConfig, EngineControl, PreviewNote};
 use uuid::Uuid;
 
@@ -72,7 +74,10 @@ struct RecordingInstrument {
 }
 
 impl DeviceProcessor for RecordingInstrument {
-    fn prepare(&mut self, _config: notwig_dsp::RenderConfig) -> Result<(), notwig_dsp::GraphError> {
+    fn prepare(
+        &mut self,
+        _config: notwig_core::dsp::RenderConfig,
+    ) -> Result<(), notwig_core::dsp::GraphError> {
         Ok(())
     }
 
@@ -114,7 +119,11 @@ impl DeviceFactory for RecordingFactory {
                 elapsed_frames: 0,
             }));
         }
-        notwig_dsp::instantiate_stock_params(&device.type_id, &device.spec, &device.param_values)
+        notwig_core::dsp::instantiate_stock_params(
+            &device.type_id,
+            &device.spec,
+            &device.param_values,
+        )
     }
 }
 
@@ -127,7 +136,9 @@ fn setup() -> (Engine, EngineControl, Captured, TrackId) {
         max_block_size: config.max_block_size,
         channels: 2,
     };
-    let plan = Arc::new(notwig_dsp::compile(&doc, &notwig_dsp::stock_registry(), caps).unwrap());
+    let plan = Arc::new(
+        notwig_core::dsp::compile(&doc, &notwig_core::dsp::stock_registry(), caps).unwrap(),
+    );
     let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
     let events = Arc::new(Mutex::new(Vec::new()));
     let factory: Arc<dyn DeviceFactory> = Arc::new(RecordingFactory {

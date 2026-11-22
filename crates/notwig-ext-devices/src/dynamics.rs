@@ -1,16 +1,31 @@
-use notwig_ext_api::{Color, Drawer, METER_MIN_DB, Point, Rect, Stroke, ThemeSnapshot};
+use notwig_ext_api::egui;
+use egui::{Color32, CornerRadius, Rect, Stroke, StrokeKind};
+use notwig_ui::palette;
 
 /// Number of frames retained by [`History`].
 pub const HISTORY_LEN: usize = 50;
 
+/// Lowest level, in dBFS, shown by meters and history.
+pub const METER_MIN_DB: f32 = -60.0;
+
 const GRAPH_MIN_DB: f32 = -60.0;
 const GRAPH_MAX_DB: f32 = 0.0;
 
-const SIGNAL_FILL: Color = Color::rgba(96, 224, 184, 56);
-const SIGNAL_STROKE: Color = Color::rgb(96, 224, 184);
-const THRESHOLD_GLOW: Color = Color::rgba(86, 156, 255, 80);
-const THRESHOLD_STROKE: Color = Color::rgb(86, 156, 255);
-const GAIN_STROKE: Color = Color::rgba(255, 190, 90, 220);
+fn signal_fill() -> Color32 {
+    Color32::from_rgba_unmultiplied(96, 224, 184, 56)
+}
+
+const SIGNAL_STROKE: Color32 = Color32::from_rgb(96, 224, 184);
+
+fn threshold_glow() -> Color32 {
+    Color32::from_rgba_unmultiplied(86, 156, 255, 80)
+}
+
+const THRESHOLD_STROKE: Color32 = Color32::from_rgb(86, 156, 255);
+
+fn gain_stroke() -> Color32 {
+    Color32::from_rgba_unmultiplied(255, 190, 90, 220)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HistorySample {
@@ -96,8 +111,7 @@ pub fn follow_peak(current_db: f32, target_db: f32, decay_db: f32) -> f32 {
 
 /// Paints a peak-history graph with a threshold overlay and optional gain line.
 pub fn paint_history_graph(
-    drawer: &mut dyn Drawer,
-    theme: &ThemeSnapshot,
+    painter: &egui::Painter,
     rect: Rect,
     history: &History,
     threshold_db: f32,
@@ -105,15 +119,19 @@ pub fn paint_history_graph(
     show_gain: bool,
 ) {
     let graph = rect.shrink(1.0);
-    drawer.fill_rect(rect, 4.0, theme.panel);
-    drawer.stroke_rect(rect, 4.0, Stroke::new(1.0, theme.grid));
+    painter.rect_filled(rect, CornerRadius::same(4), palette::PANEL);
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0_f32, palette::GRID),
+        StrokeKind::Inside,
+    );
 
     for db in [-48.0, -36.0, -24.0, -12.0] {
         let y = db_to_y(graph, db);
-        drawer.line(
-            Point::new(graph.min.x, y),
-            Point::new(graph.max.x, y),
-            Stroke::new(1.0, theme.grid),
+        painter.line_segment(
+            [egui::pos2(graph.min.x, y), egui::pos2(graph.max.x, y)],
+            Stroke::new(1.0_f32, palette::GRID),
         );
     }
 
@@ -126,10 +144,10 @@ pub fn paint_history_graph(
     let step = graph.width() / (HISTORY_LEN - 1) as f32;
     let x_at = |slot: usize| graph.min.x + slot as f32 * step;
 
-    let peak: Vec<Point> = samples
+    let peak: Vec<egui::Pos2> = samples
         .iter()
         .enumerate()
-        .map(|(index, sample)| Point::new(x_at(index), db_to_y(graph, sample.level_db)))
+        .map(|(index, sample)| egui::pos2(x_at(index), db_to_y(graph, sample.level_db)))
         .collect();
     for (index, point) in peak.iter().enumerate() {
         let left = if index == 0 {
@@ -142,15 +160,18 @@ pub fn paint_history_graph(
         } else {
             f32::midpoint(x_at(index), x_at(index + 1))
         };
-        drawer.fill_rect(
-            Rect::new(Point::new(left, point.y), Point::new(right, graph.max.y)),
-            0.0,
-            SIGNAL_FILL,
+        painter.rect_filled(
+            Rect::from_min_max(egui::pos2(left, point.y), egui::pos2(right, graph.max.y)),
+            CornerRadius::ZERO,
+            signal_fill(),
         );
     }
-    drawer.path(&peak, false, None, Some(Stroke::new(1.5, SIGNAL_STROKE)));
+    painter.add(egui::Shape::line(
+        peak,
+        Stroke::new(1.5_f32, SIGNAL_STROKE),
+    ));
 
-    let threshold: Vec<Point> = samples
+    let threshold: Vec<egui::Pos2> = samples
         .iter()
         .enumerate()
         .map(|(index, sample)| {
@@ -158,29 +179,25 @@ pub fn paint_history_graph(
                 ThresholdCurve::Fixed => threshold_db,
                 ThresholdCurve::FollowGain => threshold_db + sample.gain_db,
             };
-            Point::new(x_at(index), db_to_y(graph, db))
+            egui::pos2(x_at(index), db_to_y(graph, db))
         })
         .collect();
-    drawer.path(
-        &threshold,
-        false,
-        None,
-        Some(Stroke::new(4.0, THRESHOLD_GLOW)),
-    );
-    drawer.path(
-        &threshold,
-        false,
-        None,
-        Some(Stroke::new(1.5, THRESHOLD_STROKE)),
-    );
+    painter.add(egui::Shape::line(
+        threshold.clone(),
+        Stroke::new(4.0_f32, threshold_glow()),
+    ));
+    painter.add(egui::Shape::line(
+        threshold,
+        Stroke::new(1.5_f32, THRESHOLD_STROKE),
+    ));
 
     if show_gain {
-        let gain: Vec<Point> = samples
+        let gain: Vec<egui::Pos2> = samples
             .iter()
             .enumerate()
-            .map(|(index, sample)| Point::new(x_at(index), db_to_y(graph, sample.gain_db)))
+            .map(|(index, sample)| egui::pos2(x_at(index), db_to_y(graph, sample.gain_db)))
             .collect();
-        drawer.path(&gain, false, None, Some(Stroke::new(1.0, GAIN_STROKE)));
+        painter.add(egui::Shape::line(gain, Stroke::new(1.0_f32, gain_stroke())));
     }
 }
 

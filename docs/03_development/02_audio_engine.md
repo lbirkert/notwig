@@ -207,7 +207,32 @@ the audio callback.
 11. The app only records a live playhead into the document on save; it does not
     publish it back as a seek while the engine owns playback.
 
-## 9. Tests
+## 9. Input monitoring and recording capture
+
+Recording reuses the control exchange boundary. The app opens one input stream
+per selected device. Each armed track gets a preallocated slot in
+`notwig-engine::InputBus`:
+
+- the input callback selects the configured channel and pushes samples into a
+  bounded monitoring queue and, while a take is active, a recording queue;
+- the audio thread drains the monitoring queue into the armed track's input
+  buffer before the track's device chain runs, so monitoring follows devices,
+  mixer, pan, mute/solo, and routing;
+- a writer thread drains recording queues into a temporary take without doing
+  file I/O in either audio callback;
+- routing tables are published through `EngineControlUpdate.input_routes` and
+  swapped without allocating on the audio thread;
+- queue overflow marks the take invalid instead of silently truncating it.
+
+Native recording runs in the engine process. The UI process sends input
+configuration, start, and stop requests over IPC, and the engine process returns
+the captured buffers for finalization. Browser recording keeps the input hub and
+engine in the same process and drains capture queues from the UI event loop.
+
+Finalization writes a float WAV asset, builds its waveform, registers the asset,
+clears the destination range, and creates the recorded clip in one batch.
+
+## 10. Tests
 
 - `notwig-engine/tests/control.rs` covers the exchange, interval gating,
   prepared-runtime installation and durability across non-prepared publishes,
@@ -217,3 +242,8 @@ the audio callback.
 - `notwig-app/tests/transport.rs` exercises transport timing through the app.
 - `notwig-app/tests/workspace.rs` covers async engine preparation and the
   app-side control path.
+- `notwig-engine/tests/input.rs` covers monitoring injection through the track
+  chain.
+- `notwig-core/tests/recording.rs` covers record arm, input selection, and
+  transport recording state.
+- `notwig-app/tests/recording.rs` covers recorded asset and clip finalization.

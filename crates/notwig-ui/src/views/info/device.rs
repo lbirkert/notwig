@@ -91,23 +91,23 @@ impl NotwigUi {
         ui.label(theme::heading(ui.ctx(), "BANDS"));
         for band in 0..4 {
             let enabled = matches!(
-                values.get(&notwig_dsp::stock::band_param(band, 0)),
+                values.get(&notwig_core::dsp::stock::band_param(band, 0)),
                 Some(ParamValue::Bool(true))
             );
             let kind = values
-                .get(&notwig_dsp::stock::band_param(band, 1))
+                .get(&notwig_core::dsp::stock::band_param(band, 1))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(0.0) as u32;
             let freq = values
-                .get(&notwig_dsp::stock::band_param(band, 2))
+                .get(&notwig_core::dsp::stock::band_param(band, 2))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(1_000.0);
             let gain = values
-                .get(&notwig_dsp::stock::band_param(band, 3))
+                .get(&notwig_core::dsp::stock::band_param(band, 3))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(0.0);
             let q = values
-                .get(&notwig_dsp::stock::band_param(band, 4))
+                .get(&notwig_core::dsp::stock::band_param(band, 4))
                 .and_then(ParamValue::as_f64)
                 .unwrap_or(0.707);
             let selected = self.eq_band.min(3) == band;
@@ -136,7 +136,7 @@ impl NotwigUi {
                         {
                             self.emit(UiIntent::SetParam {
                                 device_id: device.id,
-                                param_id: notwig_dsp::stock::band_param(band, 0),
+                                param_id: notwig_core::dsp::stock::band_param(band, 0),
                                 value: ParamValue::Bool(!enabled),
                             });
                         }

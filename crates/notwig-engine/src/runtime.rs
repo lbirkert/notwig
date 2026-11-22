@@ -1,18 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use notwig_core::dsp::{
+    CompiledPlan, DeviceProcessor, NoteEvent, NoteKind, PlanTrack, ProcessContext, RenderConfig,
+    TransportInfo,
+};
 use notwig_core::{
     AssetId, AudioAssetBuffer, ClipPayload, Db, DeviceChainId, DeviceId, NoteId, Pan, ParamId,
     ParamValue, PlaybackSchedule, SendId, TrackId, TrackOutput,
 };
-use notwig_dsp::{
-    CompiledPlan, DeviceProcessor, NoteEvent, NoteKind, PlanTrack, ProcessContext, RenderConfig,
-    TransportInfo,
-};
 
 use crate::control::PreviewNote;
 use crate::engine::{EngineConfig, EngineError};
-use notwig_dsp::DeviceFactory;
+use crate::input::{InputBus, MAX_INPUT_TRACKS};
+use notwig_core::dsp::DeviceFactory;
 
 const PREVIEW_POOL_CAPACITY: usize = 32;
 
@@ -363,6 +364,8 @@ impl ActivePlan {
         output: &mut [f32],
         playing: bool,
         include_clips: bool,
+        input_bus: Option<&InputBus>,
+        input_routes: &[Option<(TrackId, u16)>; MAX_INPUT_TRACKS],
     ) -> Result<(), EngineError> {
         let max_frames = self.config.max_block_size.max(1);
         if frames > max_frames {
@@ -376,12 +379,22 @@ impl ActivePlan {
                     &mut output[range],
                     playing,
                     include_clips,
+                    input_bus,
+                    input_routes,
                 );
                 written += count;
             }
             return Ok(());
         }
-        self.render_inner(start_sample, frames, output, playing, include_clips);
+        self.render_inner(
+            start_sample,
+            frames,
+            output,
+            playing,
+            include_clips,
+            input_bus,
+            input_routes,
+        );
         Ok(())
     }
 
@@ -392,10 +405,20 @@ impl ActivePlan {
         output: &mut [f32],
         playing: bool,
         include_clips: bool,
+        input_bus: Option<&InputBus>,
+        input_routes: &[Option<(TrackId, u16)>; MAX_INPUT_TRACKS],
     ) {
         for track in self.tracks.values_mut() {
             track.buffer[..frames * 2].fill(0.0);
             track.pre_fader[..frames * 2].fill(0.0);
+        }
+
+        if let Some(bus) = input_bus {
+            for (track_id, slot) in input_routes.iter().flatten() {
+                if let Some(track) = self.tracks.get_mut(track_id) {
+                    bus.drain_monitor_into(*slot, frames, &mut track.buffer[..frames * 2]);
+                }
+            }
         }
 
         if include_clips {
@@ -906,7 +929,7 @@ impl ActivePlan {
         }
     }
 
-    fn mix_send(&mut self, source: TrackId, send: &notwig_dsp::PlanSend, frames: usize) {
+    fn mix_send(&mut self, source: TrackId, send: &notwig_core::dsp::PlanSend, frames: usize) {
         let Some(source_track) = self.tracks.get_mut(&source) else {
             return;
         };
@@ -1116,8 +1139,8 @@ fn build_processor(
     if device.bypass {
         return None;
     }
-    if device.type_id == notwig_dsp::stock::CHAIN_TYPE_ID {
-        let mut chain = notwig_dsp::stock::ChainProcessor::new(&device.spec);
+    if device.type_id == notwig_core::dsp::stock::CHAIN_TYPE_ID {
+        let mut chain = notwig_core::dsp::stock::ChainProcessor::new(&device.spec);
         for param in &device.spec.params {
             chain.set_param(param.id, &param.default);
         }

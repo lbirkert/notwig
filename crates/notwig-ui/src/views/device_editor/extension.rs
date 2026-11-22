@@ -1,15 +1,13 @@
 use std::collections::BTreeMap;
 
-use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
+use egui::{Color32, Sense, Vec2};
+use notwig_core::dsp::{DeviceSpec, ParamKind};
 use notwig_core::{DeviceInstance, Norm01, ParamValue};
-use notwig_dsp::{DeviceSpec, ParamKind};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, DeviceMeterSnapshot, DevicePanelFrame, EguiInput, PanelAction,
-    PanelCommand, PanelDraw, ThemeSnapshot, UiInput,
+    Color, DeviceDrawContext, DeviceMeterSnapshot, EguiInput, PanelAction, ThemeSnapshot,
 };
 
-use super::drawer::{EguiDrawer, to_egui_cursor, ui_input};
-use super::egui_render::{egui_input, paint_egui_frame};
+use super::egui_render::{egui_input, paint_egui_frame, to_egui_cursor};
 use crate::shell::NotwigUi;
 use crate::theme;
 
@@ -29,18 +27,8 @@ impl NotwigUi {
             response.request_focus();
         }
         let focused = response.has_focus();
-        let input = ui_input(ui, target);
         let egui_input = egui_input(ui, target, size, focused);
-        let context = device_context(
-            device,
-            spec,
-            sample_rate,
-            selected,
-            meter,
-            input,
-            egui_input,
-            size,
-        );
+        let context = device_context(device, spec, sample_rate, selected, meter, egui_input, size);
         let frame = {
             let Some(host) = self.device_panel_host.as_mut() else {
                 return false;
@@ -50,146 +38,11 @@ impl NotwigUi {
         let Some(frame) = frame else {
             return false;
         };
-        match frame {
-            DevicePanelFrame::Commands(panel) => {
-                if panel.validate().is_err() {
-                    return false;
-                }
-                self.paint_panel(ui, device, spec, &panel, target);
-            }
-            DevicePanelFrame::Egui(frame) => {
-                paint_egui_frame(self, ui, device, spec, &frame, target);
-                if frame.wants_keyboard && focused {
-                    self.egui_panel_keyboard = true;
-                }
-            }
+        paint_egui_frame(self, ui, device, spec, &frame, target);
+        if frame.wants_keyboard && focused {
+            self.egui_panel_keyboard = true;
         }
         true
-    }
-
-    fn paint_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        device: &DeviceInstance,
-        spec: &DeviceSpec,
-        panel: &PanelDraw,
-        target: Rect,
-    ) {
-        let mut drawer = EguiDrawer::new(ui.painter().clone(), target);
-        for command in &panel.commands {
-            match command {
-                PanelCommand::Draw(command) => drawer.paint_command(command),
-                PanelCommand::Knob {
-                    rect,
-                    param_id,
-                    label,
-                    bipolar,
-                } => {
-                    let Some(param) = spec.params.iter().find(|param| param.id == *param_id) else {
-                        continue;
-                    };
-                    let rect = to_rect(*rect, target.min);
-                    let value = device
-                        .param_values
-                        .get(param_id)
-                        .cloned()
-                        .unwrap_or_else(|| param.default.clone());
-                    let mut norm = param.norm(&value).0;
-                    let default_norm = param.norm(&param.default).0;
-                    let changed = crate::widgets::knob(
-                        ui,
-                        ui.make_persistent_id(("extension-knob", device.id, *param_id)),
-                        rect,
-                        norm,
-                        default_norm,
-                        *bipolar,
-                        &param.name,
-                    );
-                    if let Some(changed) = changed {
-                        norm = changed;
-                        self.emit(crate::intent::UiIntent::SetParam {
-                            device_id: device.id,
-                            param_id: *param_id,
-                            value: param.value_from_norm(Norm01::clamped(norm)),
-                        });
-                    }
-                    ui.painter().text(
-                        Rect::from_min_max(
-                            egui::pos2(rect.left(), rect.bottom()),
-                            egui::pos2(rect.right(), rect.bottom() + 14.0),
-                        )
-                        .center(),
-                        Align2::CENTER_TOP,
-                        label,
-                        FontId::proportional(10.0),
-                        theme::TEXT_MUTED,
-                    );
-                }
-                PanelCommand::Toggle {
-                    rect,
-                    param_id,
-                    label,
-                } => {
-                    let rect = to_rect(*rect, target.min);
-                    let value = device.param_values.get(param_id);
-                    let active = matches!(value, Some(ParamValue::Bool(true)));
-                    let response = ui.interact(
-                        rect,
-                        ui.make_persistent_id(("extension-toggle", device.id, *param_id)),
-                        Sense::click(),
-                    );
-                    let painter = ui.painter();
-                    painter.rect_filled(
-                        rect,
-                        egui::CornerRadius::same(4),
-                        if active {
-                            theme::ACCENT
-                        } else {
-                            theme::PANEL_LIGHT
-                        },
-                    );
-                    painter.text(
-                        rect.center(),
-                        Align2::CENTER_CENTER,
-                        label,
-                        FontId::proportional(10.0),
-                        if active {
-                            Color32::BLACK
-                        } else {
-                            theme::TEXT_MUTED
-                        },
-                    );
-                    if response.clicked() {
-                        self.emit(crate::intent::UiIntent::SetParam {
-                            device_id: device.id,
-                            param_id: *param_id,
-                            value: ParamValue::Bool(!active),
-                        });
-                    }
-                }
-                PanelCommand::Label { rect, text } => {
-                    let rect = to_rect(*rect, target.min);
-                    ui.painter().with_clip_rect(target).text(
-                        rect.min,
-                        Align2::LEFT_TOP,
-                        text,
-                        FontId::proportional(11.0),
-                        theme::TEXT_MUTED,
-                    );
-                }
-                PanelCommand::Section { rect, title } => {
-                    let rect = to_rect(*rect, target.min);
-                    ui.painter().with_clip_rect(target).text(
-                        rect.min,
-                        Align2::LEFT_TOP,
-                        title.to_uppercase(),
-                        FontId::monospace(9.0),
-                        theme::TEXT_MUTED,
-                    );
-                }
-            }
-        }
-        self.apply_panel_actions(ui, device, spec, &panel.actions);
     }
 
     pub(super) fn apply_panel_actions(
@@ -239,7 +92,6 @@ fn device_context(
     sample_rate: u32,
     selected: bool,
     meter: DeviceMeterSnapshot,
-    input: UiInput,
     egui: EguiInput,
     size: Vec2,
 ) -> DeviceDrawContext {
@@ -258,7 +110,6 @@ fn device_context(
             .map(|(id, value)| (*id, value.clone()))
             .collect::<BTreeMap<_, _>>(),
         theme: theme_snapshot(),
-        input,
         egui,
         meter,
     }
@@ -282,7 +133,10 @@ fn theme_snapshot() -> ThemeSnapshot {
     }
 }
 
-fn validated_param_value(param: &notwig_dsp::ParamSpec, value: &ParamValue) -> Option<ParamValue> {
+fn validated_param_value(
+    param: &notwig_core::dsp::ParamSpec,
+    value: &ParamValue,
+) -> Option<ParamValue> {
     match param.kind {
         ParamKind::Bool => match value {
             ParamValue::Bool(value) => Some(ParamValue::Bool(*value)),
@@ -313,14 +167,6 @@ fn validated_param_value(param: &notwig_dsp::ParamSpec, value: &ParamValue) -> O
             Some(ParamValue::F64(stepped))
         }
     }
-}
-
-fn to_pos(point: notwig_ext_api::Point, origin: Pos2) -> Pos2 {
-    egui::pos2(origin.x + point.x, origin.y + point.y)
-}
-
-fn to_rect(rect: notwig_ext_api::Rect, origin: Pos2) -> Rect {
-    Rect::from_min_max(to_pos(rect.min, origin), to_pos(rect.max, origin))
 }
 
 fn to_color32(color: Color32) -> Color {

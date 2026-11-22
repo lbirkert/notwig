@@ -5,16 +5,14 @@
 //! send only tessellated meshes, texture deltas, and validated host actions.
 //! The host decodes those bytes, remaps texture ids, and composites the meshes.
 
-#[cfg(feature = "egui")]
 mod bridge;
 
-#[cfg(feature = "egui")]
 pub use bridge::{apply_theme, run_frame, set_param_normalized, set_param_value};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cursor::CursorIcon;
 use crate::panel::{PanelAction, validate_action};
-use crate::ui::CursorIcon;
 
 /// Maximum serialized size of one egui frame.
 pub const MAX_EGUI_FRAME_BYTES: usize = 8 * 1024 * 1024;
@@ -308,7 +306,7 @@ impl EguiFrame {
         }
 
         for (index, action) in self.actions.iter().enumerate() {
-            validate_action(action, index).map_err(|_| EguiFrameError::InvalidAction { index })?;
+            validate_action(action).map_err(|_| EguiFrameError::InvalidAction { index })?;
         }
         Ok(())
     }

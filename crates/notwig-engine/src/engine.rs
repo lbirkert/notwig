@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
+use notwig_core::dsp::{CompiledPlan, DeviceFactory, StockDeviceFactory};
 use notwig_core::{AssetId, AudioAssetBuffer, EngineMsg, PlaybackSchedule, RtEvent, TimeMus};
-use notwig_dsp::{CompiledPlan, DeviceFactory, StockDeviceFactory};
 
-use crate::control::{ControlHandle, EngineData, PreparedRuntime};
+use crate::control::{ControlHandle, EngineData, InputRoute, PreparedRuntime};
+use crate::input::{InputBus, MAX_INPUT_TRACKS};
 use crate::runtime::ActivePlan;
 
 /// The audio thread checks the shared control slot once per this many frames.
@@ -96,6 +97,8 @@ pub struct Engine {
     control_frames_until_sync: u64,
     metronome_enabled: bool,
     metronome_beats_per_bar: u8,
+    input_bus: Option<Arc<InputBus>>,
+    input_routes: [Option<(notwig_core::TrackId, u16)>; MAX_INPUT_TRACKS],
     offline: bool,
 }
 
@@ -135,6 +138,8 @@ impl Engine {
             control_frames_until_sync: DEFAULT_CONTROL_SYNC_FRAMES,
             metronome_enabled: false,
             metronome_beats_per_bar: 4,
+            input_bus: None,
+            input_routes: [None; MAX_INPUT_TRACKS],
             offline: false,
         }
     }
@@ -144,6 +149,10 @@ impl Engine {
     pub fn attach_control(&mut self, control: ControlHandle) {
         self.control = Some(control);
         self.control_frames_until_sync = self.control_sync_frames.max(1);
+    }
+
+    pub fn attach_input_bus(&mut self, bus: Arc<InputBus>) {
+        self.input_bus = Some(bus);
     }
 
     pub fn set_control_sync_frames(&mut self, frames: u64) {
@@ -452,6 +461,15 @@ impl Engine {
             }
         }
 
+        if let Some(routes) = &self.control_data.input_routes {
+            self.input_routes = [None; MAX_INPUT_TRACKS];
+            for InputRoute { track_id, slot } in routes {
+                if let Some(entry) = self.input_routes.get_mut(usize::from(*slot)) {
+                    *entry = Some((*track_id, *slot));
+                }
+            }
+        }
+
         if let Some(transport) = self.control_data.transport {
             let jumped = (self.transport.playhead_samples as u64) != transport.playhead_samples;
             self.transport.playing = transport.playing;
@@ -557,7 +575,15 @@ impl Engine {
                     self.all_notes_off = false;
                 }
                 let start = self.transport.playhead_samples.max(0.0) as u64;
-                let _ = runtime.render(start, frames, stereo, false, false);
+                let _ = runtime.render(
+                    start,
+                    frames,
+                    stereo,
+                    false,
+                    false,
+                    self.input_bus.as_deref(),
+                    &self.input_routes,
+                );
             }
             if !self.offline {
                 self.transport_tick();
@@ -596,6 +622,8 @@ impl Engine {
                     &mut stereo[written * 2..(written + segment) * 2],
                     self.transport.playing,
                     true,
+                    self.input_bus.as_deref(),
+                    &self.input_routes,
                 )
             } else {
                 Err(EngineError::NoPlan)

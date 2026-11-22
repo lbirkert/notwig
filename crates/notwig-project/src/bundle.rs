@@ -193,6 +193,9 @@ fn normalize_and_validate(doc: &mut ProjectDoc) -> Result<(), CoreError> {
 fn normalize_loaded(doc: &mut ProjectDoc) {
     doc.transport.playing = false;
     doc.transport.recording = false;
+    for track in doc.tracks.values_mut() {
+        track.record_armed = false;
+    }
 }
 
 pub fn session_lock_path(bundle: &Path) -> PathBuf {

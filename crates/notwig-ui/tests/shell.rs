@@ -789,7 +789,7 @@ fn selecting_a_device_renders_its_info_panel() {
         &doc,
         &Command::new(CommandPayload::InsertDevice {
             id: eq,
-            type_id: notwig_dsp::stock::EQ_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::EQ_TYPE_ID.into(),
             version: Some(SchemaVersion::V0),
             kind: DeviceKind::AudioFx,
             target_chain: audio_chain,

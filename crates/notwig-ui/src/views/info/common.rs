@@ -1,5 +1,5 @@
+use notwig_core::dsp::DeviceRegistry;
 use notwig_core::{DeviceChainId, ProjectDoc};
-use notwig_dsp::DeviceRegistry;
 
 use crate::theme;
 

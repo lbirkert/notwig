@@ -1,5 +1,10 @@
 use std::sync::Arc;
 
+use notwig_core::dsp::devices::{ProcessContext, ProcessStatus};
+use notwig_core::dsp::{
+    CompiledPlan, DeviceProcessor, EngineCaps, NoteEvent, NoteKind, PlanDevice,
+    instantiate_stock_params,
+};
 use notwig_core::ids::{
     Asset as AssetMarker, Clip as ClipMarker, Device as DeviceMarker, DeviceChain,
     Note as NoteMarker, Slice as SliceMarker, Track,
@@ -12,11 +17,6 @@ use notwig_core::sequencer::{
 };
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_dsp::devices::{ProcessContext, ProcessStatus};
-use notwig_dsp::{
-    CompiledPlan, DeviceProcessor, EngineCaps, NoteEvent, NoteKind, PlanDevice,
-    instantiate_stock_params,
-};
 use notwig_engine::{
     DeviceFactory, Engine, EngineConfig, EngineControl, StockDeviceFactory, TransportUpdate,
 };
@@ -144,7 +144,7 @@ fn prepare_engine(
         max_block_size: config.max_block_size,
         channels: 2,
     };
-    let plan = notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps).unwrap();
+    let plan = notwig_core::dsp::compile(doc, &notwig_core::dsp::stock_registry(), caps).unwrap();
     let mut engine = Engine::with_factory(config, factory);
     engine
         .apply(EngineMsg::UpdateSchedule {
@@ -211,7 +211,7 @@ fn stock_device_changes_audio() {
         &doc,
         &Command::new(CommandPayload::InsertDevice {
             id: id::<DeviceMarker>(300),
-            type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
             version: Some(SchemaVersion::V0),
             kind: DeviceKind::AudioFx,
             target_chain: chain,
@@ -226,7 +226,7 @@ fn stock_device_changes_audio() {
         &doc,
         &Command::new(CommandPayload::SetParam {
             device_id: id::<DeviceMarker>(300),
-            param_id: notwig_dsp::stock::p_output_gain(),
+            param_id: notwig_core::dsp::stock::p_output_gain(),
             value: ParamValue::F64(-60.0),
             ramp: None,
         }),
@@ -275,7 +275,7 @@ fn live_param_updates_change_processing() {
         &doc,
         &Command::new(CommandPayload::InsertDevice {
             id: id::<DeviceMarker>(300),
-            type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
             version: Some(SchemaVersion::V0),
             kind: DeviceKind::AudioFx,
             target_chain: chain,
@@ -295,7 +295,7 @@ fn live_param_updates_change_processing() {
     engine
         .apply(EngineMsg::SetParam {
             device_id: id::<DeviceMarker>(300),
-            param_id: notwig_dsp::stock::p_output_gain(),
+            param_id: notwig_core::dsp::stock::p_output_gain(),
             value: ParamValue::F64(-60.0),
             ramp: None,
         })
@@ -318,7 +318,7 @@ fn nested_chain_processes_child_devices() {
         &doc,
         &Command::new(CommandPayload::InsertDevice {
             id: id::<DeviceMarker>(300),
-            type_id: notwig_dsp::stock::CHAIN_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::CHAIN_TYPE_ID.into(),
             version: Some(SchemaVersion::V0),
             kind: DeviceKind::Container,
             target_chain: chain,
@@ -332,7 +332,7 @@ fn nested_chain_processes_child_devices() {
         &result.doc,
         &Command::new(CommandPayload::InsertDevice {
             id: id::<DeviceMarker>(301),
-            type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
             version: Some(SchemaVersion::V0),
             kind: DeviceKind::AudioFx,
             target_chain: child_chain,
@@ -353,7 +353,7 @@ fn nested_chain_processes_child_devices() {
     engine
         .apply(EngineMsg::SetParam {
             device_id: id::<DeviceMarker>(301),
-            param_id: notwig_dsp::stock::p_output_gain(),
+            param_id: notwig_core::dsp::stock::p_output_gain(),
             value: ParamValue::F64(-60.0),
             ramp: None,
         })
@@ -418,7 +418,10 @@ impl SineInstrument {
 }
 
 impl DeviceProcessor for SineInstrument {
-    fn prepare(&mut self, config: notwig_dsp::RenderConfig) -> Result<(), notwig_dsp::GraphError> {
+    fn prepare(
+        &mut self,
+        config: notwig_core::dsp::RenderConfig,
+    ) -> Result<(), notwig_core::dsp::GraphError> {
         self.sample_rate = f64::from(config.sample_rate);
         Ok(())
     }
@@ -559,7 +562,9 @@ fn sustained_note_survives_a_runtime_swap_at_the_same_playhead() {
         max_block_size: config.max_block_size,
         channels: 2,
     };
-    let plan = Arc::new(notwig_dsp::compile(&doc, &notwig_dsp::stock_registry(), caps).unwrap());
+    let plan = Arc::new(
+        notwig_core::dsp::compile(&doc, &notwig_core::dsp::stock_registry(), caps).unwrap(),
+    );
     let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
     let replacement = Engine::prepare_runtime(
         config,
@@ -835,7 +840,9 @@ fn runtime_chunks_blocks_larger_than_its_prepared_buffer() {
         max_block_size: small.max_block_size,
         channels: 2,
     };
-    let plan = Arc::new(notwig_dsp::compile(&doc, &notwig_dsp::stock_registry(), caps).unwrap());
+    let plan = Arc::new(
+        notwig_core::dsp::compile(&doc, &notwig_core::dsp::stock_registry(), caps).unwrap(),
+    );
     let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
     let factory: Arc<dyn DeviceFactory> = Arc::new(StockDeviceFactory);
     let prepared = Engine::prepare_runtime(

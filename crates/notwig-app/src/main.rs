@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use notwig_app::{gui, logging};
+use notwig_core::dsp::EngineCaps;
 use notwig_core::ids::{Asset, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, PlaybackSchedule};
 use notwig_core::sequencer::{AudioClipData, ClipPayload, FadeShape};
@@ -13,7 +14,6 @@ use notwig_core::{
     AssetKind, AudioAssetBuffer, ClipKind, Db, Id, Meta, ProjectDoc, RangeMus, Rational,
     SampleRate, TrackId, apply,
 };
-use notwig_dsp::EngineCaps;
 use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory};
 use notwig_project::{ProjectError, import_asset, open, save, write_wav_f32};
 use uuid::Uuid;
@@ -29,7 +29,7 @@ enum AppError {
     #[error("engine error: {0}")]
     Engine(#[from] notwig_engine::EngineError),
     #[error("graph error: {0}")]
-    Graph(#[from] notwig_dsp::GraphError),
+    Graph(#[from] notwig_core::dsp::GraphError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("invalid argument: {0}")]
@@ -200,7 +200,7 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
         &doc,
         &Command::new(CommandPayload::InsertDevice {
             id: eq_id,
-            type_id: notwig_dsp::stock::EQ_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::EQ_TYPE_ID.into(),
             version: Some(notwig_core::SchemaVersion::V0),
             kind: notwig_core::DeviceKind::AudioFx,
             target_chain: chain_id,
@@ -212,27 +212,27 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
     .doc;
     for (param, value) in [
         (
-            notwig_dsp::stock::band_param(1, 0),
+            notwig_core::dsp::stock::band_param(1, 0),
             notwig_core::ParamValue::Bool(true),
         ),
         (
-            notwig_dsp::stock::band_param(1, 2),
+            notwig_core::dsp::stock::band_param(1, 2),
             notwig_core::ParamValue::F64(180.0),
         ),
         (
-            notwig_dsp::stock::band_param(1, 3),
+            notwig_core::dsp::stock::band_param(1, 3),
             notwig_core::ParamValue::F64(-5.0),
         ),
         (
-            notwig_dsp::stock::band_param(2, 0),
+            notwig_core::dsp::stock::band_param(2, 0),
             notwig_core::ParamValue::Bool(true),
         ),
         (
-            notwig_dsp::stock::band_param(2, 2),
+            notwig_core::dsp::stock::band_param(2, 2),
             notwig_core::ParamValue::F64(3_500.0),
         ),
         (
-            notwig_dsp::stock::band_param(2, 3),
+            notwig_core::dsp::stock::band_param(2, 3),
             notwig_core::ParamValue::F64(4.0),
         ),
     ] {
@@ -252,7 +252,7 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
         &doc,
         &Command::new(CommandPayload::InsertDevice {
             id: tool_id,
-            type_id: notwig_dsp::stock::TOOL_TYPE_ID.into(),
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
             version: Some(notwig_core::SchemaVersion::V0),
             kind: notwig_core::DeviceKind::AudioFx,
             target_chain: chain_id,
@@ -384,7 +384,7 @@ fn render_doc(
         max_block_size: 512,
         channels: 2,
     };
-    let plan = notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps)?;
+    let plan = notwig_core::dsp::compile(doc, &notwig_core::dsp::stock_registry(), caps)?;
     let config = EngineConfig::new(sample_rate, 512);
     let mut plugins = notwig_plugins::PluginHost::new();
     let descriptors = if doc.devices.values().any(|device| {

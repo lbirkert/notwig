@@ -1,4 +1,4 @@
-use notwig_dsp::{DeviceSpec, DeviceUiSpec};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DeviceRendererKind {

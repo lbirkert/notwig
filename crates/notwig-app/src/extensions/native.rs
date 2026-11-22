@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use notwig_dsp::{DeviceFactory, DeviceSpec};
+use notwig_core::dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{
     ExtensionHost, InstalledExtension, install_zip_bytes, install_zip_file, uninstall,
 };

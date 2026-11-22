@@ -120,11 +120,13 @@ fn apply_payload(
         }
         CommandPayload::Pause => {
             doc.transport.playing = false;
+            doc.transport.recording = false;
             changes.push(DocChange::Transport(doc.transport.clone()));
             Ok(vec![transport_msg(doc)])
         }
         CommandPayload::Stop => {
             doc.transport.playing = false;
+            doc.transport.recording = false;
             doc.transport.playhead = match doc.transport.loop_range {
                 Some(range) if doc.transport.loop_enabled => range.start,
                 _ => TimeMus::zero(),
@@ -194,6 +196,33 @@ fn apply_payload(
             let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
             track.active = *active;
             changes.track(doc, *id);
+            Ok(Vec::new())
+        }
+        CommandPayload::SetTrackRecordArm { id, armed } => {
+            let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
+            if *armed && track.kind != TrackKind::Audio {
+                return Err(CoreError::ValidationFailed {
+                    reason: "only audio tracks can be armed for recording".into(),
+                });
+            }
+            track.record_armed = *armed;
+            changes.track(doc, *id);
+            Ok(Vec::new())
+        }
+        CommandPayload::SetTrackInput { id, input } => {
+            let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
+            if track.kind != TrackKind::Audio {
+                return Err(CoreError::ValidationFailed {
+                    reason: "only audio tracks can select an audio input".into(),
+                });
+            }
+            track.io.audio_input.clone_from(input);
+            changes.track(doc, *id);
+            Ok(Vec::new())
+        }
+        CommandPayload::SetRecording { recording } => {
+            doc.transport.recording = *recording;
+            changes.push(DocChange::Transport(doc.transport.clone()));
             Ok(Vec::new())
         }
         CommandPayload::SetTrackMixer {
@@ -640,6 +669,7 @@ pub fn create_track(
         active: true,
         parent,
         mixer: crate::tracks::MixerState::default(),
+        record_armed: false,
         io: crate::tracks::TrackIO {
             audio_out: if kind == TrackKind::Master {
                 TrackOutput::None

@@ -39,18 +39,24 @@ Each track header contains:
 - a vertical peak meter;
 - a menu button for the track context actions.
 
-**R** is painted for future record arming. Recording and monitoring are not
-implemented. **M** mutes the track. **S** solos it. Solo respects group ancestry
-and descendants, so soloing a group keeps its children audible.
+**R** arms an audio track for recording. An armed track monitors its selected
+input through its device chain and mixer. **M** mutes the track. **S** solos it.
+Solo respects group ancestry and descendants, so soloing a group keeps its
+children audible.
 
 The info panel exposes the same controls and adds:
 
 - an editable name;
 - a color picker;
 - a comment field;
+- an input device and channel picker for audio tracks;
 - the active-state power button;
 - pan and volume with a peak hold readout;
 - the track's device list.
+
+Audio tracks record one selected input channel. Per-track input selection uses a
+driver, device, and channel, so an interface's inputs can be assigned to
+different tracks.
 
 Click a peak readout to reset its held value.
 
@@ -86,7 +92,8 @@ Mix with volume, pan, mute, solo, and the device chain.
 
 ## Audio format
 
-The engine and asset pipeline are stereo. Mono files are imported into the
-stereo path. More than two channels is not a supported track format yet.
+The engine and asset pipeline are stereo. Mono files and single-channel
+recordings are converted into the stereo path. More than two channels is not a
+supported track format yet.
 
 Next: [Arranger](04_arranger.md).

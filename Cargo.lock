@@ -2359,7 +2359,6 @@ dependencies = [
  "js-sys",
  "mouse_position",
  "notwig-core",
- "notwig-dsp",
  "notwig-engine",
  "notwig-ext",
  "notwig-ext-api",
@@ -2390,21 +2389,10 @@ dependencies = [
 name = "notwig-core"
 version = "0.1.0"
 dependencies = [
- "indexmap",
- "proptest",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "uuid",
-]
-
-[[package]]
-name = "notwig-dsp"
-version = "0.1.0"
-dependencies = [
  "criterion",
  "crossbeam-queue",
- "notwig-core",
+ "indexmap",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2417,7 +2405,6 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-queue",
  "notwig-core",
- "notwig-dsp",
  "notwig-plugins",
  "serde",
  "serde_json",
@@ -2432,7 +2419,6 @@ dependencies = [
  "js-sys",
  "libloading",
  "notwig-core",
- "notwig-dsp",
  "notwig-ext-api",
  "postcard",
  "serde",
@@ -2453,7 +2439,6 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "notwig-core",
- "notwig-dsp",
  "notwig-ext-macros",
  "postcard",
  "serde",
@@ -2466,8 +2451,8 @@ name = "notwig-ext-devices"
 version = "0.1.0"
 dependencies = [
  "notwig-core",
- "notwig-dsp",
  "notwig-ext-api",
+ "notwig-ui",
  "serde_json",
  "uuid",
 ]
@@ -2487,7 +2472,6 @@ version = "0.1.0"
 dependencies = [
  "block2 0.6.2",
  "notwig-core",
- "notwig-dsp",
  "notwig-rack",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -2623,7 +2607,6 @@ dependencies = [
  "egui",
  "image",
  "notwig-core",
- "notwig-dsp",
  "notwig-ext-api",
  "notwig-project",
  "serde",

@@ -3,7 +3,7 @@
   "name": "Notwig Stock Devices",
   "vendor": "Notwig",
   "version": "0.1.0",
-  "api_version": 2,
+  "api_version": 3,
   "entrypoints": [
     {
       "entrypoint": "$$ENTRYPOINT",
@@ -12,7 +12,7 @@
   ],
   "capabilities": [
     "device",
-    "ui.draw"
+    "ui.egui"
   ],
   "devices": [
     {
@@ -26,6 +26,10 @@
     {
       "name": "Notwig Stock Synth",
       "type_id": "notwig.ext.devices.synth"
+    },
+    {
+      "name": "Notwig Egui Gain",
+      "type_id": "notwig.ext.devices.egui-gain"
     }
   ],
   "description": "Stereo-linked limiter, gate, and a simple polyphonic synthesizer.",

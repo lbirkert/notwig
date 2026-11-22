@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use notwig_core::{DeviceId, DeviceKind, NoteId, ParamValue, TrackId};
-use notwig_dsp::{
+use notwig_core::dsp::{
     CompiledPlan, NoteEvent, NoteKind, PlanDevice, ProcessContext, RenderConfig, TransportInfo,
 };
+use notwig_core::{DeviceId, DeviceKind, NoteId, ParamValue, TrackId};
 use notwig_ext::ExtensionHost;
 
 const LOOKAHEAD_SAMPLES: u32 = 64;
@@ -70,7 +70,7 @@ fn built_limiter_extension_loads_and_processes_audio() {
         return;
     };
     let specs = host.specs();
-    assert_eq!(specs.len(), 3);
+    assert_eq!(specs.len(), 4);
     let limiter_spec = specs
         .iter()
         .find(|spec| spec.type_id == "notwig.ext.devices.limiter")
@@ -243,7 +243,7 @@ fn built_native_extension_loads_and_processes_audio() {
         return;
     };
     let specs = host.specs();
-    assert_eq!(specs.len(), 3);
+    assert_eq!(specs.len(), 4);
     let limiter_spec = specs
         .iter()
         .find(|spec| spec.type_id == "notwig.ext.devices.limiter")

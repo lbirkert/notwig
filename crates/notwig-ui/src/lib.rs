@@ -1,46 +1,80 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "app")]
 mod clipboard;
+#[cfg(feature = "app")]
 mod commands;
+#[cfg(feature = "app")]
 mod intent;
+#[cfg(feature = "app")]
 mod runtime;
+#[cfg(feature = "app")]
 mod state;
+#[cfg(feature = "app")]
 mod views;
+#[cfg(feature = "app")]
 mod waveform;
+#[cfg(feature = "app")]
 mod widgets;
 
+pub mod components;
+pub mod palette;
+
+pub use components::{
+    DB_MAX, DB_MIN, button, divider, draw_stereo_meter, draw_stereo_meter_with_peak, dropdown,
+    format_db, format_param, knob, label, section, toggle, value_drag, volume_fader,
+};
+
+#[cfg(feature = "app")]
 pub(crate) use views::{arranger, settings, shell};
+#[cfg(feature = "app")]
 pub(crate) use widgets::{drop_target, form, icons, theme, timeline};
 
+#[cfg(feature = "app")]
 pub use clipboard::Clipboard;
+#[cfg(feature = "app")]
 pub use commands::{KeyChord, ShortcutCommand, Shortcuts};
+#[cfg(feature = "app")]
 pub use intent::{DropAudioTarget, ExportBitDepth, ExportFormat, ExportOptions, UiIntent};
+#[cfg(feature = "app")]
 pub use runtime::{
-    AudioDeviceView, AudioDriverView, AudioSettingsValue, AudioSettingsView, DspAnalysisView,
-    MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView, RecentProjectView,
-    RuntimeView,
+    AudioDeviceView, AudioDriverView, AudioInputView, AudioSettingsValue, AudioSettingsView,
+    DspAnalysisView, MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView,
+    RecentProjectView, RuntimeView,
 };
+#[cfg(feature = "app")]
 pub use shell::NotwigUi;
 
+#[cfg(feature = "app")]
 /// Installs the shared theme and fonts before the first frame is painted.
 pub fn configure(ctx: &egui::Context) {
     theme::apply(ctx);
 }
+#[cfg(feature = "app")]
 pub use state::{
     EditFocus, Notification, NotificationKind, OpenedEditor, Selection, UiState, Viewport,
 };
+#[cfg(feature = "app")]
 pub use views::arranger::ClipDrag;
+#[cfg(feature = "app")]
 pub use views::arranger::edit::{clamp_node_shift, paste_target};
+#[cfg(feature = "app")]
 pub use views::audio_editor::{ClipEditorState, ClipLane};
+#[cfg(feature = "app")]
 pub use views::midi_editor::MidiEditorState;
+#[cfg(feature = "app")]
 pub use views::settings::SettingsCategory;
+#[cfg(feature = "app")]
 pub use waveform::{AudioWaveform, WaveformCache};
+#[cfg(feature = "app")]
 pub use widgets::icons::Icon;
+#[cfg(feature = "app")]
 pub use widgets::{
-    SNAP_LEVELS, SnapLevel, SnapSettings, adaptive_step, format_beats, format_db, format_param,
-    snap_16, snap_label, snap_step, snap_step_label, snap_time,
+    SNAP_LEVELS, SnapLevel, SnapSettings, adaptive_step, format_beats, snap_16, snap_label,
+    snap_step, snap_step_label, snap_time,
 };
 
+#[cfg(feature = "app")]
 #[doc(hidden)]
 pub mod test_api {
     pub use crate::shell::test_api as shell;

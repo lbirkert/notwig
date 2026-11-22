@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use notwig_ext_api::{DeviceDrawContext, DevicePanelFrame, DevicePanelHost, ExtensionCapability};
+use notwig_ext_api::{DeviceDrawContext, DevicePanelHost, EguiFrame, ExtensionCapability};
 
 use crate::web::compiled::WebLoadedExtensions;
 use crate::web::instance::WebExtensionInstance;
@@ -9,7 +9,6 @@ use crate::web::instance::WebExtensionInstance;
 struct UiInstance {
     instance: WebExtensionInstance,
     handle: i32,
-    supports_egui: bool,
 }
 
 pub(crate) struct WebExtensionPanelHost {
@@ -31,7 +30,7 @@ impl DevicePanelHost for WebExtensionPanelHost {
         &mut self,
         type_id: &str,
         context: &DeviceDrawContext,
-    ) -> Option<DevicePanelFrame> {
+    ) -> Option<EguiFrame> {
         let extension = self.loaded.find_type(type_id)?;
         let device_key = context.device_id.as_str();
         if !self.instances.contains_key(device_key) {
@@ -48,18 +47,16 @@ impl DevicePanelHost for WebExtensionPanelHost {
                         error
                     })
                     .ok()?;
-            let handle = instance.create_device(type_id).ok()?;
-            let supports_egui = extension
+            if !extension
                 .manifest
                 .has_capability(ExtensionCapability::UiEgui)
-                && instance.supports_egui(type_id).unwrap_or(false);
+            {
+                return None;
+            }
+            let handle = instance.create_device(type_id).ok()?;
             self.instances.insert(
                 context.device_id.clone(),
-                UiInstance {
-                    instance,
-                    handle,
-                    supports_egui,
-                },
+                UiInstance { instance, handle },
             );
         }
         let result = {
@@ -67,28 +64,7 @@ impl DevicePanelHost for WebExtensionPanelHost {
             for (param_id, value) in &context.params {
                 let _ = ui.instance.set_param(ui.handle, *param_id, value);
             }
-            if ui.supports_egui {
-                match ui.instance.draw_egui_panel(ui.handle, context) {
-                    Ok(frame) => Ok(DevicePanelFrame::Egui(frame)),
-                    Err(error) => {
-                        tracing::warn!(
-                            extension = %extension.manifest.id,
-                            type_id,
-                            device_id = %context.device_id,
-                            error = %error,
-                            "extension egui panel failed; falling back to command panels"
-                        );
-                        ui.supports_egui = false;
-                        ui.instance
-                            .draw_panel(ui.handle, context)
-                            .map(DevicePanelFrame::Commands)
-                    }
-                }
-            } else {
-                ui.instance
-                    .draw_panel(ui.handle, context)
-                    .map(DevicePanelFrame::Commands)
-            }
+            ui.instance.draw_egui_panel(ui.handle, context)
         };
         match result {
             Ok(frame) => Some(frame),

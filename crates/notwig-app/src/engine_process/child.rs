@@ -4,8 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
+use notwig_core::dsp::{
+    CompositeDeviceFactory, DeviceFactory, MonitorRegistry, StockDeviceFactory,
+};
 use notwig_core::{DeviceId, ParamId};
-use notwig_dsp::{CompositeDeviceFactory, DeviceFactory, MonitorRegistry, StockDeviceFactory};
 use notwig_engine::{Engine, EngineControl, EngineControlUpdate, PluginDeviceFactory};
 use notwig_ext::ExtensionHost;
 use notwig_plugins::{NativePluginWindow, PluginHost, prepare_window_host, pump_window_host};
@@ -14,6 +16,7 @@ use super::protocol::{
     EngineReply, EngineRequest, PROTOCOL_VERSION, WireBuild, read_frame, write_frame,
 };
 use crate::audio::{AudioService, AudioSettings};
+use crate::recording::RecordingSession;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(16);
 
@@ -99,6 +102,24 @@ pub(crate) fn run_engine_host() -> Result<(), String> {
                             break;
                         }
                     }
+                    EngineRequest::ConfigureInputs { requests } => {
+                        if worker_tx
+                            .send(WorkerCommand::ConfigureInputs { requests })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    EngineRequest::StartRecording => {
+                        if worker_tx.send(WorkerCommand::StartRecording).is_err() {
+                            break;
+                        }
+                    }
+                    EngineRequest::StopRecording => {
+                        if worker_tx.send(WorkerCommand::StopRecording).is_err() {
+                            break;
+                        }
+                    }
                     EngineRequest::OpenEditor {
                         device_id,
                         descriptor,
@@ -179,6 +200,11 @@ enum WorkerCommand {
     },
     Build(WireBuild),
     Control(EngineControlUpdate),
+    ConfigureInputs {
+        requests: Vec<(notwig_core::TrackId, notwig_core::AudioInputRef)>,
+    },
+    StartRecording,
+    StopRecording,
     Shutdown,
 }
 
@@ -187,6 +213,8 @@ struct EngineWorker {
     service: Option<AudioService>,
     monitors: Arc<MonitorRegistry>,
     replies: mpsc::Sender<EngineReply>,
+    input_routes: Vec<(notwig_core::TrackId, u16)>,
+    recording: Option<RecordingSession>,
 }
 
 impl EngineWorker {
@@ -196,6 +224,8 @@ impl EngineWorker {
             service: None,
             monitors,
             replies,
+            input_routes: Vec::new(),
+            recording: None,
         }
     }
 
@@ -208,6 +238,9 @@ impl EngineWorker {
                 }) => self.open_device(project_rate, &settings),
                 Ok(WorkerCommand::Build(build)) => self.build(build),
                 Ok(WorkerCommand::Control(update)) => self.apply_control(update),
+                Ok(WorkerCommand::ConfigureInputs { requests }) => self.configure_inputs(requests),
+                Ok(WorkerCommand::StartRecording) => self.start_recording(),
+                Ok(WorkerCommand::StopRecording) => self.stop_recording(),
                 Ok(WorkerCommand::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
@@ -225,7 +258,9 @@ impl EngineWorker {
     }
 
     fn open_device(&mut self, project_rate: u32, settings: &AudioSettings) {
+        self.stop_recording();
         self.service = None;
+        self.input_routes.clear();
         self.control.data_mut().clear();
         match AudioService::start_with(self.control.handle(), project_rate, settings) {
             Ok(service) => {
@@ -271,6 +306,75 @@ impl EngineWorker {
             Err(error) => {
                 tracing::warn!(error = %error, "audio engine host build failed");
                 let _ = self.replies.send(EngineReply::BuildFinished(Err(error)));
+            }
+        }
+    }
+
+    fn configure_inputs(
+        &mut self,
+        requests: Vec<(notwig_core::TrackId, notwig_core::AudioInputRef)>,
+    ) {
+        let Some(service) = &self.service else {
+            let _ = self
+                .replies
+                .send(EngineReply::InputError("audio device is not open".into()));
+            return;
+        };
+        match service.configure_inputs(&requests) {
+            Ok(routes) => {
+                self.input_routes = routes;
+                let routes = self
+                    .input_routes
+                    .iter()
+                    .map(|(track_id, slot)| notwig_engine::InputRoute {
+                        track_id: *track_id,
+                        slot: *slot,
+                    })
+                    .collect();
+                self.control.data_mut().set_input_routes(routes);
+                self.control.flush();
+            }
+            Err(error) => {
+                self.input_routes.clear();
+                self.control.data_mut().set_input_routes(Vec::new());
+                self.control.flush();
+                let _ = self.replies.send(EngineReply::InputError(error));
+            }
+        }
+    }
+
+    fn start_recording(&mut self) {
+        let Some(service) = &self.service else {
+            let _ = self.replies.send(EngineReply::RecordingFailed(
+                "audio device is not open".into(),
+            ));
+            return;
+        };
+        if self.recording.is_some() {
+            return;
+        }
+        if self.input_routes.is_empty() {
+            let _ = self.replies.send(EngineReply::RecordingFailed(
+                "arm an audio track with an input first".into(),
+            ));
+            return;
+        }
+        let sample_rate = service.snapshot().sample_rate;
+        self.recording = Some(service.begin_recording(self.input_routes.clone(), sample_rate));
+    }
+
+    fn stop_recording(&mut self) {
+        let Some(session) = self.recording.take() else {
+            return;
+        };
+        match session.finish() {
+            Ok(captures) => {
+                let _ = self.replies.send(EngineReply::RecordingFinished(
+                    captures.into_iter().collect(),
+                ));
+            }
+            Err(error) => {
+                let _ = self.replies.send(EngineReply::RecordingFailed(error));
             }
         }
     }

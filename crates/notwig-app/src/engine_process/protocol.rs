@@ -3,9 +3,9 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use notwig_core::dsp::CompiledPlan;
 use notwig_core::protocol::PlaybackSchedule;
-use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, ParamId};
-use notwig_dsp::CompiledPlan;
+use notwig_core::{AssetId, AudioAssetBuffer, AudioInputRef, DeviceId, ParamId, TrackId};
 use notwig_engine::{EngineConfig, EngineControlUpdate};
 use notwig_ext_api::ExtensionSettings;
 use notwig_plugins::{PluginDescriptor, PluginState};
@@ -40,6 +40,11 @@ pub(crate) enum EngineRequest {
     },
     Build(WireBuild),
     Control(EngineControlUpdate),
+    ConfigureInputs {
+        requests: Vec<(TrackId, AudioInputRef)>,
+    },
+    StartRecording,
+    StopRecording,
     OpenEditor {
         device_id: DeviceId,
         descriptor: PluginDescriptor,
@@ -89,6 +94,9 @@ pub(crate) enum EngineReply {
         value: f64,
     },
     EditorTransportToggle,
+    InputError(String),
+    RecordingFinished(Vec<(TrackId, AudioAssetBuffer)>),
+    RecordingFailed(String),
     Error(String),
 }
 

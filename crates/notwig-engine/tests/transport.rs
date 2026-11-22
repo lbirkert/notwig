@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use notwig_core::dsp::EngineCaps;
 use notwig_core::ids::{DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, PlaybackSchedule};
 use notwig_core::*;
-use notwig_dsp::EngineCaps;
 use notwig_engine::{Engine, EngineConfig};
 use uuid::Uuid;
 
@@ -30,7 +30,7 @@ fn apply_plan(engine: &mut Engine, doc: &ProjectDoc) {
         max_block_size: 128,
         channels: 2,
     };
-    let plan = notwig_dsp::compile(doc, &notwig_dsp::stock_registry(), caps).unwrap();
+    let plan = notwig_core::dsp::compile(doc, &notwig_core::dsp::stock_registry(), caps).unwrap();
     engine
         .apply(EngineMsg::UpdateSchedule {
             schedule: Arc::new(PlaybackSchedule::from_doc(doc)),

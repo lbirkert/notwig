@@ -167,7 +167,8 @@ frame that carries input and returns draw commands plus host actions.
 | Module | Responsibility |
 |---|---|
 | `engine.rs` | Transport, plan/schedule application, block processing, offline render |
-| `control.rs` | `EngineData`, `EngineControl`, `ControlHandle`, `PreparedRuntime`, `RuntimeLoader` |
+| `control.rs` | `EngineData`, `EngineControl`, `ControlHandle`, `PreparedRuntime`, `RuntimeLoader`, input routes |
+| `input.rs` | Bounded monitoring and recording queues for per-track input capture |
 | `runtime.rs` | Active plan instances, track/device runtime state, track and per-device meter snapshots, event collection |
 | `factory.rs` | Stock and plugin device factories |
 
@@ -224,6 +225,8 @@ frame that carries input and returns draw commands plus host actions.
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle; native wire-build preparation |
 | `engine_process/` | Native engine child process, IPC protocol, parent client, and editor hosting |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
+| `audio_input.rs` | Input device enumeration, per-device CPAL input streams, and input queue routing |
+| `recording.rs` | Recording-session writer and capture-buffer lifecycle |
 | `audio_config.rs` | Persisted audio driver/device/block-size config |
 | `plugins/mod.rs` | Target-selected plugin catalog exports |
 | `plugins/native.rs` | Plugin catalog, scan subprocess, crash-isolated load probe, and cache glue |

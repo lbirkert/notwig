@@ -9,6 +9,7 @@ use crate::clock::{SystemTime, UNIX_EPOCH};
 use crate::engine_build::{EngineBuild, EngineBuildRequest};
 use crate::history::History;
 use crate::plugins::{PluginCatalog, new_plugin_host, plugin_entries};
+use notwig_core::dsp::{AudioMonitor, DeviceFactory, DeviceSpec, EngineCaps, MonitorRegistry};
 use notwig_core::ids::{
     Clip as ClipMarker, Device as DeviceMarker, DeviceChain as DeviceChainMarker,
     Note as NoteMarker, Track as TrackMarker,
@@ -20,7 +21,6 @@ use notwig_core::{
     Meta, NoteId, ProjectDoc, Rational, SampleRate, SchemaVersion, StateBlobRef, TrackId,
     TrackKind, apply,
 };
-use notwig_dsp::{AudioMonitor, DeviceFactory, DeviceSpec, EngineCaps, MonitorRegistry};
 use notwig_engine::{
     ControlHandle, Engine, EngineControl, ParamUpdate, PreparedRuntime, PreviewNote,
     TrackStateUpdate, TransportUpdate,
@@ -474,7 +474,10 @@ impl Workspace {
         let structural = payload.requires_plan_rebuild();
         let record_undo = !matches!(
             payload,
-            CommandPayload::SetTransport { .. } | CommandPayload::Pause | CommandPayload::Stop
+            CommandPayload::SetTransport { .. }
+                | CommandPayload::SetRecording { .. }
+                | CommandPayload::Pause
+                | CommandPayload::Stop
         );
         let before = record_undo.then(|| self.doc.clone());
         match apply(&self.doc, &Command::new(payload)) {
@@ -856,6 +859,39 @@ impl Workspace {
         self.engine_control
             .data_mut()
             .push_preview_off(track_id, note_id);
+        self.engine_control.flush();
+    }
+
+    pub fn start_recording(&mut self) -> Result<(), String> {
+        if !self.doc.transport.playing {
+            self.play_start = Some(self.doc.transport.playhead);
+        }
+        self.apply(CommandPayload::SetTransport {
+            playing: Some(true),
+            playhead: Some(self.doc.transport.playhead),
+            loop_enabled: None,
+            loop_range: None,
+            metronome: None,
+        })?;
+        self.apply(CommandPayload::SetRecording { recording: true })
+    }
+
+    pub fn finish_recording(
+        &mut self,
+        track_id: TrackId,
+        start: notwig_core::TimeMus,
+        buffer: notwig_core::AudioAssetBuffer,
+    ) -> Result<ClipId, String> {
+        self.finish_audio_recording(track_id, start, buffer)
+    }
+
+    pub fn set_input_routes(&mut self, routes: Vec<(TrackId, u16)>) {
+        self.engine_control.data_mut().set_input_routes(
+            routes
+                .into_iter()
+                .map(|(track_id, slot)| notwig_engine::InputRoute { track_id, slot })
+                .collect(),
+        );
         self.engine_control.flush();
     }
 
@@ -1335,12 +1371,12 @@ impl Workspace {
         true
     }
 
-    pub fn plugin_specs(&self) -> impl Iterator<Item = &notwig_dsp::DeviceSpec> {
+    pub fn plugin_specs(&self) -> impl Iterator<Item = &notwig_core::dsp::DeviceSpec> {
         self.plugin_specs.values()
     }
 
-    fn device_registry(&self) -> notwig_dsp::DeviceRegistry {
-        let mut registry = notwig_dsp::stock_registry();
+    fn device_registry(&self) -> notwig_core::dsp::DeviceRegistry {
+        let mut registry = notwig_core::dsp::stock_registry();
         for spec in self.plugin_specs.values() {
             registry.register(spec.clone());
         }
@@ -1414,7 +1450,7 @@ impl Workspace {
         );
         self.plugin_specs.insert(
             type_id.to_owned(),
-            notwig_dsp::DeviceSpec {
+            notwig_core::dsp::DeviceSpec {
                 type_id: type_id.to_owned(),
                 version: notwig_core::SchemaVersion::V0,
                 kind: if descriptor.is_instrument {
@@ -1427,7 +1463,7 @@ impl Workspace {
                 latency_samples: capabilities.latency_samples,
                 name: descriptor.name,
                 vendor: descriptor.vendor,
-                ui: notwig_dsp::DeviceUiSpec::Generic,
+                ui: notwig_core::dsp::DeviceUiSpec::Generic,
             },
         );
     }

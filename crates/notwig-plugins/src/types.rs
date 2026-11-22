@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use notwig_dsp::DeviceProcessor;
+use notwig_core::dsp::DeviceProcessor;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -119,14 +119,14 @@ pub const PLUGIN_METADATA_PREFIX: &str = "NOTWIG_PLUGIN_METADATA:";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginMetadata {
     pub capabilities: PluginCapabilities,
-    pub params: Vec<notwig_dsp::ParamSpec>,
+    pub params: Vec<notwig_core::dsp::ParamSpec>,
 }
 
 pub trait PluginInstance: DeviceProcessor {
     fn capabilities(&self) -> PluginCapabilities;
     fn save_state(&mut self) -> Result<PluginState, PluginError>;
     fn load_state(&mut self, state: &PluginState) -> Result<(), PluginError>;
-    fn describe_parameters(&self) -> Vec<notwig_dsp::ParamSpec> {
+    fn describe_parameters(&self) -> Vec<notwig_core::dsp::ParamSpec> {
         Vec::new()
     }
 }

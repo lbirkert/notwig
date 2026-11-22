@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 notwig-core.workspace = true
-notwig-dsp.workspace = true
 notwig-plugins.workspace = true
 crossbeam-queue.workspace = true
 serde.workspace = true

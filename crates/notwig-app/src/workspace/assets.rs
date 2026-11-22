@@ -2,10 +2,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(not(target_arch = "wasm32"))]
-use notwig_core::TrackId;
 use notwig_core::protocol::CommandPayload;
-use notwig_core::{AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, Id};
+use notwig_core::{
+    AssetId, AudioAssetBuffer, ClipId, ClipPayload, Db, Id, RangeMus, TimeMus, TrackId,
+};
 use notwig_ui::AudioWaveform;
 use uuid::Uuid;
 
@@ -14,6 +14,126 @@ use super::Workspace;
 impl Workspace {
     pub(super) fn insert_waveform(&mut self, asset_id: AssetId, buffer: Arc<AudioAssetBuffer>) {
         Arc::make_mut(&mut self.waveforms).insert(asset_id, AudioWaveform::new(buffer));
+    }
+}
+
+impl Workspace {
+    pub(super) fn finish_audio_recording(
+        &mut self,
+        track_id: TrackId,
+        start: TimeMus,
+        captured: AudioAssetBuffer,
+    ) -> Result<ClipId, String> {
+        if captured.samples.is_empty() {
+            return Err("recording produced no audio".into());
+        }
+        let mut samples = Vec::with_capacity(captured.samples.len() * 2);
+        for sample in &captured.samples {
+            samples.push(*sample);
+            samples.push(*sample);
+        }
+        let buffer = AudioAssetBuffer {
+            sample_rate: captured.sample_rate,
+            channels: 2,
+            samples,
+        };
+        let duration = buffer.frame_count();
+        let end = start + self.doc.tempo_map().samples_to_mus(duration);
+        let range = RangeMus::new(start, end).map_err(|err| err.to_string())?;
+        let asset_id = Id::<notwig_core::ids::Asset>::from_uuid(Uuid::new_v4());
+        let uri = self.write_recording_asset(asset_id, &buffer)?;
+        let entry = notwig_core::AssetEntry {
+            id: asset_id,
+            kind: notwig_core::AssetKind::Audio,
+            uri,
+            original_name: Some("Recording.wav".into()),
+            hash: None,
+            format: "wav".into(),
+            sample_rate: Some(buffer.sample_rate),
+            channels: Some(buffer.channels),
+            duration_samples: Some(duration),
+            original_sample_rate: Some(captured.sample_rate),
+            original_channels: Some(captured.channels),
+        };
+        let buffer = Arc::new(buffer);
+        self.insert_waveform(asset_id, Arc::clone(&buffer));
+        self.assets.insert(asset_id, buffer);
+        let clip_id = Id::<notwig_core::ids::Clip>::from_uuid(Uuid::new_v4());
+        let payloads = vec![
+            CommandPayload::RegisterAsset { asset_id, entry },
+            CommandPayload::ClearRange { track_id, range },
+            CommandPayload::CreateClip {
+                id: clip_id,
+                track_id,
+                kind: notwig_core::ClipKind::Audio,
+                range,
+                payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                    asset_id,
+                    source_start_sample: 0,
+                    source_end_sample: duration,
+                    gain_db: Db(0.0),
+                    fade_in_samples: 0,
+                    fade_out_samples: 0,
+                    fade_shape: notwig_core::FadeShape::Linear,
+                    slices: Vec::new(),
+                    slices_enabled: false,
+                }),
+            },
+            CommandPayload::EditClip {
+                clip_id,
+                range: None,
+                name: Some(Some("Recording".into())),
+                muted: None,
+                content_start: None,
+                content_length: None,
+                audio: None,
+            },
+        ];
+        self.apply_batch(payloads)?;
+        self.prepare_asset();
+        self.status = Some("Recording finished.".into());
+        Ok(clip_id)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Workspace {
+    fn write_recording_asset(
+        &mut self,
+        asset_id: AssetId,
+        buffer: &AudioAssetBuffer,
+    ) -> Result<String, String> {
+        let (directory, uri) = if let Some(bundle) = self.bundle.clone() {
+            let uri = format!("assets/{asset_id}-{}.wav", buffer.sample_rate);
+            (bundle, uri)
+        } else {
+            let directory = std::env::temp_dir().join(format!("notwig-record-{asset_id}"));
+            std::fs::create_dir_all(directory.join("pending")).map_err(|err| err.to_string())?;
+            self.pending_import_dirs.insert(asset_id, directory.clone());
+            let uri = format!("pending/{asset_id}.wav");
+            (directory, uri)
+        };
+        let assets_dir = directory.join("assets");
+        std::fs::create_dir_all(&assets_dir).map_err(|err| err.to_string())?;
+        let path = directory.join(&uri);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        notwig_project::write_wav_f32(&path, buffer.sample_rate, buffer.channels, &buffer.samples)
+            .map_err(|err| err.to_string())?;
+        Ok(uri)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Workspace {
+    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
+    fn write_recording_asset(
+        &mut self,
+        asset_id: AssetId,
+        _buffer: &AudioAssetBuffer,
+    ) -> Result<String, String> {
+        Ok(format!("assets/{asset_id}.wav"))
     }
 }
 

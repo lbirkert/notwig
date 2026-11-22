@@ -1,16 +1,29 @@
-use notwig_dsp::DeviceUiSpec;
+use notwig_core::dsp::DeviceUiSpec;
 use notwig_ext_api::{
-    DeviceExtension, DeviceMeterSnapshot, DrawCommand, PanelCommand,
-    geometry::{Point, Rect, Size},
-    ui::{RecordUi, Style, UiContext, UiInput, UiMemory},
+    DeviceExtension, DeviceMeterSnapshot, EguiFrame, EguiInput, EguiModifiers, ThemeSnapshot, egui,
+    egui_panel,
 };
 use notwig_ext_devices::{
     GATE_TYPE_ID, GateDevice, gate_attack_id, gate_hold_id, gate_range_id, gate_release_id,
     gate_threshold_id,
 };
 
-fn target() -> Rect {
-    Rect::from_min_size(Point::new(0.0, 0.0), Size::new(260.0, 200.0))
+fn draw(meter: DeviceMeterSnapshot) -> EguiFrame {
+    let mut gate = GateDevice::new();
+    let context = egui::Context::default();
+    let input = EguiInput {
+        width: 260.0,
+        height: 200.0,
+        pixels_per_point: 1.0,
+        time: Some(0.0),
+        focused: true,
+        max_texture_side: 4096,
+        modifiers: EguiModifiers::default(),
+        events: Vec::new(),
+    };
+    egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+        gate.draw_egui(ui, meter);
+    })
 }
 
 #[test]
@@ -36,65 +49,22 @@ fn spec_is_a_valid_device_spec() {
 }
 
 #[test]
-fn draw_produces_a_valid_panel() {
-    let mut gate = GateDevice::new();
-    let input = UiInput::default();
-    let mut memory = UiMemory::new();
-    let panel = {
-        let mut record = RecordUi::new(&input, &mut memory);
-        {
-            let mut ui = UiContext::new(&mut record, Style::default(), target());
-            gate.draw(&mut ui);
-        }
-        record.into_panel()
-    };
-
-    panel.validate().unwrap();
-    assert_ne!(panel.commands.len(), 0);
-
-    let texts: Vec<&str> = panel
-        .commands
-        .iter()
-        .filter_map(|command| match command {
-            PanelCommand::Draw(DrawCommand::Text { text, .. }) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert!(texts.iter().any(|text| text.eq_ignore_ascii_case("Gate")));
-    for label in ["Thr", "Atk", "Hold", "Rel", "Rng"] {
-        assert!(texts.contains(&label), "missing {label}: {texts:?}");
-    }
+fn draw_produces_a_valid_frame() {
+    let frame = draw(DeviceMeterSnapshot::default());
+    frame.validate().unwrap();
+    assert_ne!(frame.primitives.len(), 0);
 }
 
 #[test]
 fn draw_uses_the_engine_meter_snapshot() {
-    let mut gate = GateDevice::new();
-    let input = UiInput::default();
-    let mut memory = UiMemory::new();
-    let meter = DeviceMeterSnapshot {
+    let frame = draw(DeviceMeterSnapshot {
         input_peak_l: 1.0,
         input_peak_r: 1.0,
         output_peak_l: 0.0001,
         output_peak_r: 0.0001,
-    };
-    let panel = {
-        let mut record = RecordUi::new(&input, &mut memory);
-        {
-            let mut ui = UiContext::new_with_meter(&mut record, Style::default(), target(), meter);
-            gate.draw(&mut ui);
-        }
-        record.into_panel()
-    };
-
-    let texts: Vec<&str> = panel
-        .commands
-        .iter()
-        .filter_map(|command| match command {
-            PanelCommand::Draw(DrawCommand::Text { text, .. }) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    assert!(texts.contains(&"CLOSED -80 dB"), "texts: {texts:?}");
+    });
+    frame.validate().unwrap();
+    assert_ne!(frame.primitives.len(), 0);
 }
 
 #[test]

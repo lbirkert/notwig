@@ -125,13 +125,25 @@ impl NotwigUi {
         );
         let solo_rect = mute_rect.translate(Vec2::new(-22.0, 0.0));
         let record_rect = mute_rect.translate(Vec2::new(-44.0, 0.0));
-        painter.rect_filled(record_rect, CornerRadius::same(3), theme::GRID);
+        painter.rect_filled(
+            record_rect,
+            CornerRadius::same(3),
+            if track.record_armed {
+                Color32::from_rgb(150, 48, 48)
+            } else {
+                theme::GRID
+            },
+        );
         painter.text(
             record_rect.center(),
             Align2::CENTER_CENTER,
             "R",
             FontId::monospace(9.5),
-            theme::TEXT_MUTED,
+            if track.record_armed {
+                Color32::WHITE
+            } else {
+                theme::TEXT_MUTED
+            },
         );
         painter.rect_filled(
             mute_rect,
@@ -358,6 +370,25 @@ impl NotwigUi {
                 pan: None,
                 mute: None,
                 solo: Some(!track.mixer.solo),
+            });
+        }
+        if track.kind == TrackKind::Audio
+            && ui
+                .interact(
+                    record_rect,
+                    Id::new(("record-arm", track_id)),
+                    Sense::click(),
+                )
+                .on_hover_text(if track.record_armed {
+                    "Disarm recording"
+                } else {
+                    "Arm for recording"
+                })
+                .clicked()
+        {
+            self.emit(UiIntent::SetTrackRecordArm {
+                track_id,
+                armed: !track.record_armed,
             });
         }
 

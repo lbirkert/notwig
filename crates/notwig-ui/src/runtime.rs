@@ -34,6 +34,14 @@ pub struct AudioSettingsValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AudioInputView {
+    pub driver: String,
+    pub device: String,
+    pub label: String,
+    pub channels: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AudioDeviceView {
     pub id: String,
     pub label: String,
@@ -127,6 +135,7 @@ pub struct RuntimeView {
     pub dirty: bool,
     pub saving: bool,
     pub audio_settings: AudioSettingsView,
+    pub audio_inputs: Vec<AudioInputView>,
     pub dsp: DspAnalysisView,
     pub clipboard: Clipboard,
     pub extensions: Vec<ExtensionInfo>,
@@ -160,6 +169,7 @@ impl Default for RuntimeView {
             dirty: false,
             saving: false,
             audio_settings: AudioSettingsView::default(),
+            audio_inputs: Vec::new(),
             dsp: DspAnalysisView::default(),
             clipboard: Clipboard::default(),
             extensions: Vec::new(),

@@ -7,7 +7,7 @@ use crate::web::device::WebExtensionDeviceFactory;
 use crate::web::instance::WebExtensionInstance;
 use crate::web::package::WebExtensionPackage;
 use crate::web::panel::WebExtensionPanelHost;
-use notwig_dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
+use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionStatus};
 
 pub struct WebExtensionHost {

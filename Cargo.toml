@@ -4,7 +4,6 @@ exclude = ["crates/notwig-rack"]
 members = [
   "crates/notwig-core",
   "crates/notwig-project",
-  "crates/notwig-dsp",
   "crates/notwig-ext-api",
   "crates/notwig-ext-devices",
   "crates/notwig-ext-macros",
@@ -26,7 +25,6 @@ repository = "https://github.com/lbirkert/notwig"
 [workspace.dependencies]
 notwig-core = { path = "crates/notwig-core" }
 notwig-project = { path = "crates/notwig-project" }
-notwig-dsp = { path = "crates/notwig-dsp" }
 notwig-ext-api = { path = "crates/notwig-ext-api" }
 notwig-ext-devices = { path = "crates/notwig-ext-devices" }
 notwig-ext-macros = { path = "crates/notwig-ext-macros" }

@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 
-use notwig_core::{Db, DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue, SchemaVersion};
+use crate::{Db, DeviceId, DeviceInstance, DeviceKind, ParamId, ParamValue, SchemaVersion};
 use uuid::Uuid;
 
-use crate::devices::{
+use super::devices::{
     DeviceProcessor, DeviceSpec, DeviceUiSpec, Latency, Port, PortDir, ProcessContext,
     ProcessStatus, SignalType,
 };
-use crate::graph::GraphError;
-use crate::params::{ParamSpec, Unit};
-use crate::registry::DeviceRegistry;
-use crate::smoothing::SmoothedValue;
+use super::graph::GraphError;
+use super::params::{ParamSpec, Unit};
+use super::registry::DeviceRegistry;
+use super::smoothing::SmoothedValue;
 
 pub const TOOL_TYPE_ID: &str = "notwig.tool";
 pub const EQ_TYPE_ID: &str = "notwig.eq";
@@ -332,7 +332,7 @@ impl ToolProcessor {
 }
 
 impl DeviceProcessor for ToolProcessor {
-    fn prepare(&mut self, config: crate::devices::RenderConfig) -> Result<(), GraphError> {
+    fn prepare(&mut self, config: super::devices::RenderConfig) -> Result<(), GraphError> {
         self.smooth.set_sample_rate(f64::from(config.sample_rate));
         self.smooth.snap();
         Ok(())
@@ -350,7 +350,7 @@ impl DeviceProcessor for ToolProcessor {
         &mut self,
         _ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        _events: &[crate::devices::NoteEvent],
+        _events: &[super::devices::NoteEvent],
     ) -> ProcessStatus {
         for frame in audio.chunks_exact_mut(2) {
             let input_gain = self.smooth.input_gain.next() as f32;
@@ -361,7 +361,7 @@ impl DeviceProcessor for ToolProcessor {
             let polarity_l = self.smooth.polarity_l.next() as f32;
             let polarity_r = self.smooth.polarity_r.next() as f32;
             let swap = self.smooth.swap_lr.next() as f32;
-            let (pan_l, pan_r) = notwig_core::Pan(pan).gains();
+            let (pan_l, pan_r) = crate::Pan(pan).gains();
             let dry_l = frame[0];
             let dry_r = frame[1];
             let mut l = dry_l * input_gain * polarity_l;
@@ -648,7 +648,7 @@ impl EqProcessor {
 }
 
 impl DeviceProcessor for EqProcessor {
-    fn prepare(&mut self, config: crate::devices::RenderConfig) -> Result<(), GraphError> {
+    fn prepare(&mut self, config: super::devices::RenderConfig) -> Result<(), GraphError> {
         self.sample_rate = f64::from(config.sample_rate).max(1.0);
         self.ramp_samples = ((self.sample_rate * 0.010).round() as u32).max(1);
         self.output_gain.set_sample_rate(self.sample_rate, 15.0);
@@ -685,7 +685,7 @@ impl DeviceProcessor for EqProcessor {
         &mut self,
         _ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        _events: &[crate::devices::NoteEvent],
+        _events: &[super::devices::NoteEvent],
     ) -> ProcessStatus {
         for band in 0..4 {
             self.update_band(band);
@@ -745,7 +745,7 @@ impl ChainProcessor {
 }
 
 impl DeviceProcessor for ChainProcessor {
-    fn prepare(&mut self, config: crate::devices::RenderConfig) -> Result<(), GraphError> {
+    fn prepare(&mut self, config: super::devices::RenderConfig) -> Result<(), GraphError> {
         self.set_sample_rate(f64::from(config.sample_rate));
         self.wet_gain.snap();
         self.output_gain.snap();
@@ -800,7 +800,7 @@ impl DeviceProcessor for ChainProcessor {
         &mut self,
         ctx: &ProcessContext<'_>,
         audio: &mut [f32],
-        events: &[crate::devices::NoteEvent],
+        events: &[super::devices::NoteEvent],
     ) -> ProcessStatus {
         if self.dry.len() < audio.len() {
             self.dry.resize(audio.len(), 0.0);

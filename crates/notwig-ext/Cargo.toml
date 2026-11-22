@@ -13,7 +13,6 @@ web = ["dep:js-sys", "dep:wasm-bindgen", "dep:web-sys"]
 
 [dependencies]
 notwig-core = { workspace = true, default-features = false }
-notwig-dsp.workspace = true
 notwig-ext-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true

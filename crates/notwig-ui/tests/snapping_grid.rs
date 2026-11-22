@@ -199,7 +199,10 @@ fn snap_step_label_reports_real_bar_multiples() {
         snap_step_label(seven_eight + seven_eight, seven_eight),
         "2 bars"
     );
-    assert_eq!(snap_step_label(TimeMus::new(1, 1), TimeMus::new(4, 1)), "1/4");
+    assert_eq!(
+        snap_step_label(TimeMus::new(1, 1), TimeMus::new(4, 1)),
+        "1/4"
+    );
 }
 
 #[test]

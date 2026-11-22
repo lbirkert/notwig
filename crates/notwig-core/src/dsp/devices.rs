@@ -1,6 +1,6 @@
-use notwig_core::{DeviceId, DeviceKind, NoteId, ParamId, ParamValue, SchemaVersion, TimeMus};
+use crate::{DeviceId, DeviceKind, NoteId, ParamId, ParamValue, SchemaVersion, TimeMus};
 
-pub use notwig_core::tracks::SignalType;
+pub use crate::tracks::SignalType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PortDir {

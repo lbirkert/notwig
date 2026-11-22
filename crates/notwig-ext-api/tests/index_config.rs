@@ -12,7 +12,7 @@ const INDEX: &str = r#"[
     "name": "Notwig Stock Devices",
     "vendor": "Notwig",
     "version": "0.1.0",
-    "api_version": 2,
+    "api_version": 3,
     "urls": [
       {
         "url": "extensions/ext-devices-macos-arm64.zip",
@@ -25,7 +25,7 @@ const INDEX: &str = r#"[
         "targets": ["wasm"]
       }
     ],
-    "capabilities": ["device", "ui.draw"],
+    "capabilities": ["device", "ui.egui"],
     "devices": [
       { "name": "Notwig Stock Limiter", "type_id": "notwig.ext.devices.limiter" }
     ],
@@ -95,7 +95,7 @@ fn rejects_invalid_index_entries() {
 #[test]
 fn manifest_requires_entrypoints_and_accepts_aliases() {
     let manifest: ExtensionManifest = serde_json::from_str(
-        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":2,"entrypoints":[{"file":"native.dylib","target":"macos-arm64"},{"entrypoint":"plugin.wasm","target":"wasm"}]}"#,
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"entrypoints":[{"file":"native.dylib","target":"macos-arm64"},{"entrypoint":"plugin.wasm","target":"wasm"}]}"#,
     )
     .unwrap();
     manifest.validate().unwrap();
@@ -108,7 +108,7 @@ fn manifest_requires_entrypoints_and_accepts_aliases() {
 #[test]
 fn manifest_rejects_empty_entrypoints() {
     let manifest: ExtensionManifest = serde_json::from_str(
-        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":2,"entrypoints":[]}"#,
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"entrypoints":[]}"#,
     )
     .unwrap();
     assert!(manifest.validate().is_err());
@@ -117,7 +117,7 @@ fn manifest_rejects_empty_entrypoints() {
 #[test]
 fn manifest_rejects_path_traversal_images() {
     let manifest: ExtensionManifest = serde_json::from_str(
-        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":2,"entrypoints":[{"entrypoint":"extension.wasm","target":"wasm"}],"image":"../escape.png"}"#,
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"entrypoints":[{"entrypoint":"extension.wasm","target":"wasm"}],"image":"../escape.png"}"#,
     )
     .unwrap();
     assert!(manifest.validate().is_err());
@@ -127,13 +127,13 @@ fn manifest_rejects_path_traversal_images() {
 fn manifest_rejects_legacy_entry_fields() {
     assert!(
         serde_json::from_str::<ExtensionManifest>(
-            r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":2,"entry":"extension.wasm"}"#,
+            r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"entry":"extension.wasm"}"#,
         )
         .is_err()
     );
     assert!(
         serde_json::from_str::<ExtensionManifest>(
-            r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":2,"entrypoint":"extension.wasm"}"#,
+            r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"entrypoint":"extension.wasm"}"#,
         )
         .is_err()
     );

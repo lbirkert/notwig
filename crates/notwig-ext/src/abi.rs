@@ -1,7 +1,7 @@
 use notwig_core::ParamValue;
 use notwig_ext_api::{
     ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
-    PanelDraw, unpack_ptr_len,
+    unpack_ptr_len,
 };
 use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Memory, Module, OptLevel, Store, StoreLimits,
@@ -57,9 +57,7 @@ pub(crate) struct ExtensionInstance {
     set_param: TypedFunc<(i32, i32, i32, i32, f64), i32>,
     process: ProcessFn,
     latency: TypedFunc<i32, i32>,
-    draw: TypedFunc<(i32, i32, i32), i64>,
-    supports_egui: Option<TypedFunc<(i32, i32), i32>>,
-    draw_egui: Option<TypedFunc<(i32, i32, i32), i64>>,
+    draw_egui: TypedFunc<(i32, i32, i32), i64>,
 }
 
 impl ExtensionInstance {
@@ -137,13 +135,7 @@ impl ExtensionInstance {
         let set_param = get_func(&instance, &mut store, "notwig_device_set_param")?;
         let process = get_func(&instance, &mut store, "notwig_device_process")?;
         let latency = get_func(&instance, &mut store, "notwig_device_latency")?;
-        let draw = get_func(&instance, &mut store, "notwig_device_draw")?;
-        let supports_egui = instance
-            .get_typed_func::<(i32, i32), i32>(&mut store, "notwig_device_supports_egui")
-            .ok();
-        let draw_egui = instance
-            .get_typed_func::<(i32, i32, i32), i64>(&mut store, "notwig_device_draw_egui")
-            .ok();
+        let draw_egui = get_func(&instance, &mut store, "notwig_device_draw_egui")?;
 
         Ok(Self {
             store,
@@ -157,8 +149,6 @@ impl ExtensionInstance {
             set_param,
             process,
             latency,
-            draw,
-            supports_egui,
             draw_egui,
         })
     }
@@ -170,7 +160,7 @@ impl ExtensionInstance {
     pub(crate) fn describe(
         &mut self,
         type_id: &str,
-    ) -> Result<notwig_dsp::DeviceSpec, ExtensionError> {
+    ) -> Result<notwig_core::dsp::DeviceSpec, ExtensionError> {
         let (ptr, len) = self.write_input(type_id.as_bytes())?;
         self.reset_fuel()?;
         let packed = self
@@ -283,29 +273,6 @@ impl ExtensionInstance {
             .unwrap_or(0)
     }
 
-    pub(crate) fn draw_panel(
-        &mut self,
-        handle: i32,
-        context: &notwig_ext_api::DeviceDrawContext,
-    ) -> Result<PanelDraw, ExtensionError> {
-        let json = serde_json::to_vec(context)
-            .map_err(|error| ExtensionError::Abi(format!("encode draw context: {error}")))?;
-        let (ptr, len) = self.write_input(&json)?;
-        self.reset_fuel()?;
-        let packed = self
-            .draw
-            .call(&mut self.store, (handle, ptr, len))
-            .map_err(wasm_err)?;
-        self.free_input(ptr, len);
-        let json = self.read_packed_json(packed)?;
-        let panel: PanelDraw = serde_json::from_slice(&json)
-            .map_err(|error| ExtensionError::Abi(format!("parse panel draw: {error}")))?;
-        panel
-            .validate()
-            .map_err(|error| ExtensionError::Abi(error.to_string()))?;
-        Ok(panel)
-    }
-
     pub(crate) fn alloc_audio(&mut self, bytes: usize) -> Result<i32, ExtensionError> {
         let len = i32::try_from(bytes)
             .map_err(|_| ExtensionError::Abi("audio buffer is too large".into()))?;
@@ -391,34 +358,17 @@ impl ExtensionInstance {
         Ok(bytes)
     }
 
-    pub(crate) fn supports_egui(&mut self, type_id: &str) -> Result<bool, ExtensionError> {
-        let Some(function) = self.supports_egui.clone() else {
-            return Ok(false);
-        };
-        let (ptr, len) = self.write_input(type_id.as_bytes())?;
-        self.reset_fuel()?;
-        let supported = function
-            .call(&mut self.store, (ptr, len))
-            .map_err(wasm_err)?;
-        self.free_input(ptr, len);
-        Ok(supported != 0)
-    }
-
     pub(crate) fn draw_egui_panel(
         &mut self,
         handle: i32,
         context: &DeviceDrawContext,
     ) -> Result<EguiFrame, ExtensionError> {
-        let Some(function) = self.draw_egui.clone() else {
-            return Err(ExtensionError::MissingExport(
-                "notwig_device_draw_egui".into(),
-            ));
-        };
         let context = postcard::to_allocvec(context)
             .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
         let (ptr, len) = self.write_input(&context)?;
         self.reset_fuel()?;
-        let packed = function
+        let packed = self
+            .draw_egui
             .call(&mut self.store, (handle, ptr, len))
             .map_err(wasm_err)?;
         self.free_input(ptr, len);

@@ -51,6 +51,7 @@ pub enum UiIntent {
     Play,
     Pause,
     Stop,
+    ToggleRecord,
     ToggleLoop,
     ToggleMetronome,
     SetPlayhead(TimeMus),
@@ -145,6 +146,14 @@ pub enum UiIntent {
     SetTrackActive {
         track_id: TrackId,
         active: bool,
+    },
+    SetTrackRecordArm {
+        track_id: TrackId,
+        armed: bool,
+    },
+    SetTrackInput {
+        track_id: TrackId,
+        input: Option<notwig_core::AudioInputRef>,
     },
     GroupTracks {
         tracks: Vec<TrackId>,

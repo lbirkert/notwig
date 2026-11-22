@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use notwig_core::SchemaVersion;
+use crate::SchemaVersion;
 
-use crate::devices::DeviceSpec;
+use super::devices::DeviceSpec;
 
 #[derive(Debug, Clone, Default)]
 pub struct DeviceRegistry {

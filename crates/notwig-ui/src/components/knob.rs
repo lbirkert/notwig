@@ -1,13 +1,13 @@
 use egui::{Color32, Rect, Sense, Stroke};
 
-use crate::theme;
+use crate::palette;
 
 /// Draws a rotary knob and handles drag interaction.
 ///
 /// The value is normalized to `0.0..=1.0`. Dragging vertically changes the
 /// value; double-click resets to `default_norm`; Cmd/Ctrl+click opens the
 /// shared numeric editor. Returns the new normalized value when it changed.
-pub(crate) fn knob(
+pub fn knob(
     ui: &mut egui::Ui,
     id: egui::Id,
     rect: Rect,
@@ -24,7 +24,7 @@ pub(crate) fn knob(
     }
     let mut norm = value_norm;
     let mut changed = false;
-    if let Some(value) = crate::widgets::value_drag(
+    if let Some(value) = super::value_drag(
         ui,
         &response,
         id.with("knob-drag"),
@@ -60,20 +60,24 @@ fn draw_knob(painter: &egui::Painter, rect: Rect, norm: f32, bipolar: bool) {
     } else {
         start
     };
-    let steps = 24;
-    let mut points = Vec::with_capacity(steps + 1);
-    for step in 0..=steps {
-        let t = step as f32 / steps as f32;
-        let angle = arc_start + (angle - arc_start) * t;
-        points.push(egui::pos2(
-            center.x + radius * angle.cos(),
-            center.y + radius * angle.sin(),
+    // A bipolar knob at its center has a zero-length arc. Tessellating a line
+    // with identical points produces NaNs, so draw the arc only when it spans.
+    if (angle - arc_start).abs() > f32::EPSILON {
+        let steps = 24;
+        let mut points = Vec::with_capacity(steps + 1);
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            let angle = arc_start + (angle - arc_start) * t;
+            points.push(egui::pos2(
+                center.x + radius * angle.cos(),
+                center.y + radius * angle.sin(),
+            ));
+        }
+        painter.add(egui::Shape::line(
+            points,
+            Stroke::new(3.0_f32, palette::ACCENT),
         ));
     }
-    painter.add(egui::Shape::line(
-        points,
-        Stroke::new(3.0_f32, theme::ACCENT),
-    ));
     painter.line_segment(
         [
             center,
@@ -90,7 +94,7 @@ fn draw_knob(painter: &egui::Painter, rect: Rect, norm: f32, bipolar: bool) {
                 egui::pos2(center.x, rect.top() - 1.0),
                 egui::pos2(center.x, rect.top() + 1.0),
             ],
-            Stroke::new(1.5_f32, theme::TEXT_MUTED),
+            Stroke::new(1.5_f32, palette::TEXT_MUTED),
         );
     }
 }

@@ -31,26 +31,26 @@ These stay outside the core and become extensions: the clip launcher and scenes,
 
 The app is an arranger-first stereo DAW. It creates tracks, arranges MIDI and audio clips, edits audio slices, hosts VST3, VST2, CLAP, LV2, and AU (v2/v3) plugins, applies Tool, EQ, and Chain devices, mixes with volume, pan, mute, and solo, loops playback, and renders offline. An extension host adds user-provided WASM or native devices with DSP and custom panels.
 
-The largest gaps are automation, recording, and warping.
+The largest gaps are automation, warping, and advanced recording workflows.
 
 ## Working order
 
 The current priorities, in order:
 
 1. Audio editing and warping.
-2. Recording, input routing, and monitoring.
+2. Advanced recording: MIDI, takes, loop, and punch.
 3. Automation lanes and editing.
 4. Plugin host depth.
 
 The MIDI editor, real-time-safe engine boundary, recovery UI, settings
-persistence, plugin state, and hosted-plugin latency reporting are in place.
-Warping remains the top audio priority; recording and automation are the
+persistence, plugin state, hosted-plugin latency reporting, and linear audio
+recording with per-track input are in place. Warping and automation remain the
 largest missing core workflows.
 
 Dependencies worth planning around:
 
 - Warping needs a tempo map and an audio stretch engine.
-- Recording needs input devices, monitoring, and punch handling.
+- Advanced recording needs MIDI input, take lanes, and punch handling.
 - Automation needs stable parameter target IDs and an automation lane model.
 
 ## Project and application
@@ -118,7 +118,7 @@ Dependencies worth planning around:
 | Dedicated mixer view | 🚫 Not Planned | ⭐⭐⭐⭐⭐ | Mixer controls live in track headers and the inspector. |
 | Channel strip processing | 📋 Planned | ⭐⭐⭐⭐ | EQ and dynamics on every channel. |
 | Peak and RMS meters | 🧪 Partial | ⭐⭐⭐⭐ | The engine computes peak and RMS. The UI draws peak with hold and click-to-reset; RMS display and a clip flag are missing. |
-| Record arm and monitoring | 📋 Planned | ⭐⭐⭐⭐⭐ | Buttons are painted but inert. |
+| Record arm and monitoring | ✅ Implemented | ⭐⭐⭐⭐⭐ | Per-track audio input, arm state, and chain monitoring. Monitoring is tied to arm. |
 | Hybrid tracks | 🚫 Not Planned | ⭐ | Bitwig-specific. Extension point. |
 | Clip launcher and scenes | 🚫 Not Planned | ⭐ | Extension point. |
 
@@ -192,12 +192,12 @@ Dependencies worth planning around:
 | Warp markers and transient detection | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Pitch shift | 📋 Planned | ⭐⭐⭐ |  |
 | Audio quantize and groove | 📋 Planned | ⭐⭐⭐ |  |
-| Audio recording | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
-| Loop and punch recording | 📋 Planned | ⭐⭐⭐⭐ |  |
+| Audio recording | 🧪 Partial | ⭐⭐⭐⭐⭐ | Linear mono-input recording with destination replacement. Loop/punch recording and takes are planned. |
+| Loop and punch recording | 📋 Planned | ⭐⭐⭐⭐ | Linear recording is implemented first. |
 | Take lanes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |
-| Input monitoring | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
-| Input routing | 📋 Planned | ⭐⭐⭐⭐⭐ | Input fields exist but are always empty. |
+| Input monitoring | 🧪 Partial | ⭐⭐⭐⭐⭐ | Armed tracks monitor through the track chain. Monitoring modes are planned. |
+| Input routing | 🧪 Partial | ⭐⭐⭐⭐⭐ | Per-track driver, device, and single-channel input. Stereo-pair and multi-channel input are planned. |
 | Mono and stereo track formats | 📋 Planned | ⭐⭐⭐⭐ | Engine and assets are stereo today. |
 | Surround and multi-channel | 🚫 Not Planned | ⭐ |  |
 | Sample-rate conversion on rate change | 📋 Planned | ⭐⭐⭐ | The app warns that existing assets are not resampled. |

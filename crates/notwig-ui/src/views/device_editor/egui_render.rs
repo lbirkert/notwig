@@ -2,10 +2,11 @@ use std::time::Duration;
 
 use egui::{Pos2, Rect, Vec2};
 use notwig_core::DeviceInstance;
-use notwig_dsp::DeviceSpec;
-use notwig_ext_api::{EguiEvent, EguiFrame, EguiInput, EguiModifiers, EguiPointerButton};
+use notwig_core::dsp::DeviceSpec;
+use notwig_ext_api::{
+    CursorIcon, EguiEvent, EguiFrame, EguiInput, EguiModifiers, EguiPointerButton,
+};
 
-use super::drawer::to_egui_cursor;
 use crate::shell::NotwigUi;
 
 pub(super) fn egui_input(ui: &egui::Ui, target: Rect, size: Vec2, focused: bool) -> EguiInput {
@@ -162,6 +163,18 @@ pub(super) fn paint_egui_frame(
     if let Some(repaint_after_ms) = frame.repaint_after_ms {
         ui.ctx()
             .request_repaint_after(Duration::from_millis(u64::from(repaint_after_ms)));
+    }
+}
+
+pub(super) fn to_egui_cursor(cursor: CursorIcon) -> egui::CursorIcon {
+    match cursor {
+        CursorIcon::Default => egui::CursorIcon::Default,
+        CursorIcon::PointingHand => egui::CursorIcon::PointingHand,
+        CursorIcon::ResizeVertical => egui::CursorIcon::ResizeVertical,
+        CursorIcon::ResizeHorizontal => egui::CursorIcon::ResizeHorizontal,
+        CursorIcon::Text => egui::CursorIcon::Text,
+        CursorIcon::Grab => egui::CursorIcon::Grab,
+        CursorIcon::Grabbing => egui::CursorIcon::Grabbing,
     }
 }
 

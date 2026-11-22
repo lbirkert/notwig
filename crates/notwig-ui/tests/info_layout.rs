@@ -1,8 +1,8 @@
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_core::ids::{Device, DeviceChain, Track};
 use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ui::{NotwigUi, RuntimeView};
 use uuid::Uuid;
 

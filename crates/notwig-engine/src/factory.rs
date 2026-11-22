@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use notwig_core::{DeviceId, ParamId, ParamValue};
-use notwig_dsp::{
+use notwig_core::dsp::{
     AudioMonitor, CompiledPlan, DeviceFactory, DeviceProcessor, Latency, MonitorRegistry,
     NoteEvent, PlanDevice, ProcessContext, ProcessStatus, RenderConfig, StockDeviceFactory,
 };
+use notwig_core::{DeviceId, ParamId, ParamValue};
 use notwig_plugins::{PluginDescriptor, PluginHost, PluginInstance, PluginState};
 
 pub struct PluginDeviceFactory {
@@ -65,7 +65,7 @@ struct PluginDevice {
 }
 
 impl DeviceProcessor for PluginDevice {
-    fn prepare(&mut self, config: RenderConfig) -> Result<(), notwig_dsp::GraphError> {
+    fn prepare(&mut self, config: RenderConfig) -> Result<(), notwig_core::dsp::GraphError> {
         self.instance.prepare(config)
     }
 

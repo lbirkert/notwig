@@ -4,7 +4,7 @@ use js_sys::{BigInt, Function, Object, Reflect, Uint8Array};
 use notwig_core::ParamValue;
 use notwig_ext_api::{
     ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
-    PanelDraw, unpack_ptr_len,
+    unpack_ptr_len,
 };
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -25,9 +25,7 @@ pub(crate) struct WebExtensionInstance {
     set_param: Function,
     process: Function,
     latency: Function,
-    draw: Function,
-    supports_egui: Option<Function>,
-    draw_egui: Option<Function>,
+    draw_egui: Function,
     host_global: String,
 }
 
@@ -112,9 +110,7 @@ impl WebExtensionInstance {
             set_param: function(&exports, "notwig_device_set_param")?,
             process: function(&exports, "notwig_device_process")?,
             latency: function(&exports, "notwig_device_latency")?,
-            draw: function(&exports, "notwig_device_draw")?,
-            supports_egui: optional_function(&exports, "notwig_device_supports_egui"),
-            draw_egui: optional_function(&exports, "notwig_device_draw_egui"),
+            draw_egui: function(&exports, "notwig_device_draw_egui")?,
             memory,
             host_global: host_name,
         })
@@ -123,7 +119,7 @@ impl WebExtensionInstance {
     pub(crate) fn describe(
         &mut self,
         type_id: &str,
-    ) -> Result<notwig_dsp::DeviceSpec, ExtensionError> {
+    ) -> Result<notwig_core::dsp::DeviceSpec, ExtensionError> {
         let (ptr, len) = self.write_input(type_id.as_bytes())?;
         let packed = call_u64(&self.describe, &[JsValue::from(ptr), JsValue::from(len)])?;
         self.free_input(ptr, len);
@@ -236,57 +232,16 @@ impl WebExtensionInstance {
             .unwrap_or(0)
     }
 
-    pub(crate) fn draw_panel(
-        &mut self,
-        handle: i32,
-        context: &DeviceDrawContext,
-    ) -> Result<PanelDraw, ExtensionError> {
-        let json = serde_json::to_vec(context)
-            .map_err(|error| ExtensionError::Abi(format!("encode draw context: {error}")))?;
-        let (ptr, len) = self.write_input(&json)?;
-        let packed = call_u64(
-            &self.draw,
-            &[
-                JsValue::from(handle),
-                JsValue::from(ptr),
-                JsValue::from(len),
-            ],
-        )?;
-        self.free_input(ptr, len);
-        let json = self.read_packed_json(packed)?;
-        let panel: PanelDraw = serde_json::from_slice(&json)
-            .map_err(|error| ExtensionError::Abi(format!("parse panel draw: {error}")))?;
-        panel
-            .validate()
-            .map_err(|error| ExtensionError::Abi(error.to_string()))?;
-        Ok(panel)
-    }
-
-    pub(crate) fn supports_egui(&mut self, type_id: &str) -> Result<bool, ExtensionError> {
-        let Some(function) = self.supports_egui.clone() else {
-            return Ok(false);
-        };
-        let (ptr, len) = self.write_input(type_id.as_bytes())?;
-        let supported = call_i32(&function, &[JsValue::from(ptr), JsValue::from(len)])?;
-        self.free_input(ptr, len);
-        Ok(supported != 0)
-    }
-
     pub(crate) fn draw_egui_panel(
         &mut self,
         handle: i32,
         context: &DeviceDrawContext,
     ) -> Result<EguiFrame, ExtensionError> {
-        let Some(function) = self.draw_egui.clone() else {
-            return Err(ExtensionError::MissingExport(
-                "notwig_device_draw_egui".into(),
-            ));
-        };
         let context = postcard::to_allocvec(context)
             .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
         let (ptr, len) = self.write_input(&context)?;
         let packed = call_u64(
-            &function,
+            &self.draw_egui,
             &[
                 JsValue::from(handle),
                 JsValue::from(ptr),
@@ -411,12 +366,6 @@ fn function(exports: &Object, name: &str) -> Result<Function, ExtensionError> {
         .map_err(|_| ExtensionError::MissingExport(name.to_owned()))?
         .dyn_into()
         .map_err(|_| ExtensionError::MissingExport(name.to_owned()))
-}
-
-fn optional_function(exports: &Object, name: &str) -> Option<Function> {
-    Reflect::get(exports, &JsValue::from_str(name))
-        .ok()
-        .and_then(|value| value.dyn_into().ok())
 }
 
 fn call_i32(function: &Function, args: &[JsValue]) -> Result<i32, ExtensionError> {

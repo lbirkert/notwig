@@ -149,7 +149,7 @@ mod tests {
                 "name": "Test Gain",
                 "vendor": "Test",
                 "version": "0.1.0",
-                "api_version": 2,
+                "api_version": 3,
                 "urls": [{{ "url": "{url}", "hash": "{HASH}", "targets": ["{target}"] }}],
                 "devices": [{{ "name": "Gain", "type_id": "com.test.gain.fx" }}]
             }}]"#
