@@ -22,7 +22,7 @@ use crate::views::midi_editor::MidiEditorState;
 use notwig_core::edit::SelectionMode;
 
 // Keep the app bar compact while leaving the native traffic lights room.
-const APP_BAR_HEIGHT: f32 = 22.0;
+const APP_BAR_HEIGHT: f32 = 28.0;
 const TOP_BAR_HEIGHT: f32 = 34.0;
 const TOP_BAR_ICON: f32 = 30.0;
 const TOP_BAR_FONT: f32 = 12.0;
