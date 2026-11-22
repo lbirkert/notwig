@@ -100,6 +100,10 @@ pub struct Track {
     pub id: TrackId,
     pub kind: TrackKind,
     pub name: String,
+    /// True while the name is still the automatic name assigned by creation or
+    /// an instrument insertion. Explicit renames clear it.
+    #[serde(default)]
+    pub name_is_auto: bool,
     pub color: Option<Color>,
     #[serde(default)]
     pub comment: String,

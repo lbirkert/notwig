@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::CoreError;
 use crate::ids::{AssetId, DeviceChainId, DeviceId, ParamId, TrackId};
 use crate::sequencer::ArrangerState;
-use crate::time::{Color, RangeMus, SampleRate, SchemaVersion, TimeMus};
+use crate::time::{Color, RangeMus, SampleRate, SchemaVersion, TimeMus, TimeSignature};
 use crate::tracks::{RoutingGraph, Track, TrackForest};
 
 pub type OrderedMap<K, V> = IndexMap<K, V>;
@@ -48,6 +48,21 @@ impl Meta {
         }
         SampleRate::new(self.sample_rate.value())?;
         Ok(())
+    }
+
+    #[must_use]
+    pub const fn time_signature(&self) -> TimeSignature {
+        TimeSignature::new(self.time_sig_num, self.time_sig_den)
+    }
+
+    #[must_use]
+    pub fn beat_length(&self) -> TimeMus {
+        self.time_signature().beat_length()
+    }
+
+    #[must_use]
+    pub fn bar_length(&self) -> TimeMus {
+        self.time_signature().bar_length()
     }
 }
 

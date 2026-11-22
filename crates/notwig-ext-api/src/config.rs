@@ -57,4 +57,40 @@ impl ExtensionConfig {
         serde_json::to_string_pretty(self)
             .map_err(|error| format!("encode extension config: {error}"))
     }
+
+    /// Returns `false` only when the extension has an explicit disabled
+    /// setting. Extensions without a stored setting are enabled by default.
+    #[must_use]
+    pub fn is_enabled(&self, id: &str) -> bool {
+        is_enabled(&self.settings, id)
+    }
+
+    /// Replaces the built-in default index URL with one relative to `base`.
+    /// Custom index URLs are left untouched, and an empty base keeps the
+    /// official fallback.
+    pub fn resolve_default_index(&mut self, base: &str) {
+        let resolved = default_index_url_for_base(base);
+        for index in &mut self.indexes {
+            if index == DEFAULT_INDEX_URL {
+                index.clone_from(&resolved);
+            }
+        }
+    }
+}
+
+/// Returns `false` only when `settings` explicitly disables `id`.
+#[must_use]
+pub fn is_enabled(settings: &BTreeMap<String, ExtensionSettings>, id: &str) -> bool {
+    settings.get(id).is_none_or(|settings| settings.enabled)
+}
+
+/// Builds the default index URL for a site base such as
+/// `https://example.com` or `https://example.com/notwig`.
+#[must_use]
+pub fn default_index_url_for_base(base: &str) -> String {
+    let base = base.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return DEFAULT_INDEX_URL.to_owned();
+    }
+    format!("{base}/extensions.json")
 }

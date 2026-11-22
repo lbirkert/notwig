@@ -33,6 +33,27 @@ pub fn lower_arranger(
             EditOp::Remove { object } => {
                 commands.push(CommandPayload::DeleteClip { clip_id: *object });
             }
+            EditOp::Split { object, at } => {
+                let Some(clip) = model.clip(*object) else {
+                    return Err(format!("missing clip {object}"));
+                };
+                let mut new_note_ids = Vec::new();
+                if let ClipPayload::Midi(midi) = &clip.payload {
+                    let split_offset = *at - clip.range.start;
+                    let split_content = midi.content_start + split_offset;
+                    for note in &midi.notes {
+                        if note.start < split_content && note.start + note.length > split_content {
+                            new_note_ids.push(NoteId::from_uuid(Uuid::new_v4()));
+                        }
+                    }
+                }
+                commands.push(CommandPayload::SplitClip {
+                    clip_id: *object,
+                    at: *at,
+                    new_clip_id: ClipId::from_uuid(Uuid::new_v4()),
+                    new_note_ids,
+                });
+            }
             EditOp::Move { object, lane, span } => {
                 commands.push(CommandPayload::MoveClip {
                     clip_id: *object,

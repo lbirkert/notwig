@@ -354,7 +354,10 @@ impl Workspace {
     fn install_prepared_runtime(&mut self, runtime: Box<PreparedRuntime>) {
         // Always republish transport when a runtime is installed. Tempo and
         // sample-rate changes rebuild the runtime and must also refresh the
-        // sample positions of a musical loop range.
+        // sample positions of a musical loop range. The exchange keeps a pending
+        // prepared runtime across intervening publishes, so reporting readiness
+        // here is safe: the runtime will be installed unless a newer one
+        // supersedes it.
         let transport = Some(self.transport_update(self.preserved_playhead_samples()));
         self.engine_ready = true;
         self.publish_engine_control(transport, false, Some(runtime));
@@ -362,6 +365,17 @@ impl Workspace {
 
     fn sync_engine(&mut self) {
         self.publish_engine_control(None, false, None);
+    }
+
+    /// Publish a metronome-only change. This deliberately omits the transport
+    /// so toggling the click cannot move the playhead or clear sustained notes.
+    fn publish_metronome(&mut self) {
+        let metronome = notwig_core::protocol::MetronomeState {
+            enabled: self.doc.transport.metronome_enabled,
+            beats_per_bar: self.doc.meta.time_sig_num,
+        };
+        self.engine_control.data_mut().set_metronome(metronome);
+        self.engine_control.flush();
     }
 
     fn transport_update(&self, playhead_samples: u64) -> TransportUpdate {
@@ -444,6 +458,16 @@ impl Workspace {
                 ..
             }
         );
+        let metronome_only = matches!(
+            &payload,
+            CommandPayload::SetTransport {
+                playing: None,
+                playhead: None,
+                loop_enabled: None,
+                loop_range: None,
+                metronome: Some(_),
+            }
+        );
         let structural = payload.requires_plan_rebuild();
         let record_undo = !matches!(
             payload,
@@ -459,6 +483,8 @@ impl Workspace {
                 }
                 if structural {
                     self.request_engine_rebuild();
+                } else if metronome_only {
+                    self.publish_metronome();
                 } else {
                     let (mut transport, all_notes_off) = control_updates(result.engine_msgs);
                     if preserve_playhead && let Some(update) = transport.as_mut() {
@@ -771,6 +797,9 @@ impl Workspace {
     }
 
     pub fn set_playhead(&mut self, playhead: notwig_core::TimeMus) -> Result<(), String> {
+        if self.doc.transport.playhead == playhead {
+            return Ok(());
+        }
         self.apply(CommandPayload::SetTransport {
             playing: None,
             playhead: Some(playhead),
@@ -778,6 +807,25 @@ impl Workspace {
             loop_range: None,
             metronome: None,
         })
+    }
+
+    /// Record the playhead for a save without seeking the audio engine.
+    ///
+    /// While the transport runs, the engine owns the live playhead. Publishing
+    /// the interpolated UI playhead back as a transport update would rewind to a
+    /// slightly stale sample and trigger an all-notes-off. Update the document
+    /// directly instead; an actual seek goes through [`Self::set_playhead`].
+    pub fn sync_playhead_for_save(&mut self, playhead: notwig_core::TimeMus) -> Result<(), String> {
+        if self.doc.transport.playhead == playhead {
+            return Ok(());
+        }
+        if self.doc.transport.playing {
+            self.doc.transport.playhead = playhead;
+            self.dirty = true;
+            Ok(())
+        } else {
+            self.set_playhead(playhead)
+        }
     }
 
     /// Stage a short, UI-triggered note preview for the audio engine.
@@ -968,29 +1016,21 @@ impl Workspace {
     }
 
     pub fn split_clip(&mut self, clip_id: ClipId, at: notwig_core::TimeMus) -> Result<(), String> {
-        let Some(clip) = self.doc.arranger.clips.get(&clip_id).cloned() else {
+        let Some(clip) = self.doc.arranger.clips.get(&clip_id) else {
             return Err("clip not found".into());
         };
         if at <= clip.range.start || at >= clip.range.end {
             return Err("split position must lie inside the clip".into());
         }
-        let new_clip = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
-        let mut new_note_ids = Vec::new();
-        if let ClipPayload::Midi(midi) = &clip.payload {
-            let split_offset = at - clip.range.start;
-            let split_content = midi.content_start + split_offset;
-            for note in &midi.notes {
-                if note.start < split_content && note.start + note.length > split_content {
-                    new_note_ids.push(Id::<NoteMarker>::from_uuid(Uuid::new_v4()));
-                }
-            }
-        }
-        self.apply(CommandPayload::SplitClip {
-            clip_id,
-            at,
-            new_clip_id: new_clip,
-            new_note_ids,
-        })
+        let track_id = clip.track_id;
+        let range = notwig_core::RangeMus::new(at, at).map_err(|err| err.to_string())?;
+        let selection = edit::Selection::time(range, [track_id]);
+        let plan = {
+            let model = ArrangerModel::new(&self.doc);
+            edit::split(&model, &selection).map_err(|err| err.to_string())?
+        };
+        self.lower_and_apply(plan)?;
+        Ok(())
     }
 
     pub fn duplicate_clip(&mut self, clip_id: ClipId) -> Result<ClipId, String> {
@@ -1233,6 +1273,20 @@ impl Workspace {
         } else {
             Vec::new()
         };
+        let name = if self
+            .doc
+            .tracks
+            .values()
+            .any(|track| track.main_chain == chain_id && track.kind == TrackKind::Instrument)
+        {
+            let registry = self.device_registry();
+            registry
+                .resolve(type_id, version)
+                .or_else(|| registry.resolve_latest(type_id))
+                .map(|spec| spec.name.clone())
+        } else {
+            None
+        };
         self.apply(CommandPayload::InsertDevice {
             id,
             type_id: type_id.into(),
@@ -1241,7 +1295,7 @@ impl Workspace {
             target_chain: chain_id,
             index,
             child_chain_ids: child_chains,
-            name: None,
+            name,
         })
     }
 
@@ -1707,45 +1761,12 @@ impl Workspace {
         clip_ids: &[ClipId],
         time: Option<(notwig_core::RangeMus, Vec<TrackId>)>,
     ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
-        if let Some((range, tracks)) = &time
-            && range.is_empty()
-        {
-            return self.split_clips_at_point(*range, tracks);
-        }
         let selection = Self::edit_selection(clip_ids, time);
         let plan = {
             let model = ArrangerModel::new(&self.doc);
             edit::delete(&model, &selection).map_err(|err| err.to_string())?
         };
         self.lower_and_apply(plan).map(Option::unwrap_or_default)
-    }
-
-    fn split_clips_at_point(
-        &mut self,
-        range: notwig_core::RangeMus,
-        tracks: &[TrackId],
-    ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
-        let at = range.start;
-        let clip_ids: Vec<ClipId> = self
-            .doc
-            .arranger
-            .clips
-            .values()
-            .filter(|clip| tracks.contains(&clip.track_id))
-            .filter(|clip| clip.range.start < at && at < clip.range.end)
-            .map(|clip| clip.id)
-            .collect();
-        for clip_id in clip_ids {
-            self.split_clip(clip_id, at)?;
-        }
-        self.status = Some("Split clips at time selection.".into());
-        Ok(SelectionInfo {
-            objects: Vec::new(),
-            time: Some(edit::TimeSelection {
-                span: range,
-                lanes: tracks.iter().copied().collect(),
-            }),
-        })
     }
 
     #[doc(hidden)]

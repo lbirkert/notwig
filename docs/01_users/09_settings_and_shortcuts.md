@@ -8,7 +8,9 @@ three pages.
 The Audio page selects the output system:
 
 - **Driver**: the available audio backends.
-- **Device**: the output device for the selected driver.
+- **Device**: the output device for the selected driver. **System Out** follows
+  the operating system's default output device, so it keeps working when the
+  default changes.
 - **Sample rate**: automatic or a rate reported by the device.
 - **Block size**: 16 to 2048 samples, in steps of 16.
 - **Apply** opens the selected device and rebuilds the engine.
@@ -16,9 +18,10 @@ The Audio page selects the output system:
 
 The page shows the block size in samples and the resulting latency in
 milliseconds. Driver, device, and block size persist per user in
-`audio.json`. The sample rate is project-scoped. If the saved driver or device
-is unavailable, Notwig falls back to an available option and reports the
-problem on the page.
+`audio.json`. The sample rate is project-scoped; if the selected device does not
+support the project rate, Notwig uses the device's default rate. If the saved
+driver or device is unavailable, Notwig falls back to an available option and
+reports the problem on the page.
 
 All audio settings are applied through the apply action. Changing the device
 while a project is open can interrupt playback.
@@ -53,6 +56,7 @@ command catalog and are not rebindable.
 | Transport | Loop time or clip selection / toggle loop | Cmd+L |
 | Edit | Undo | Cmd+Z |
 | Edit | Redo | Cmd+Shift+Z |
+| Edit | Select All | Cmd+A |
 | Edit | Copy | Cmd+C |
 | Edit | Cut | Cmd+X |
 | Edit | Paste | Cmd+V |

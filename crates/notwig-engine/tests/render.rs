@@ -4,7 +4,9 @@ use notwig_core::ids::{
     Asset as AssetMarker, Clip as ClipMarker, Device as DeviceMarker, DeviceChain,
     Note as NoteMarker, Slice as SliceMarker, Track,
 };
-use notwig_core::protocol::{Command, CommandPayload, EngineMsg, PlanHandle, PlaybackSchedule};
+use notwig_core::protocol::{
+    Command, CommandPayload, EngineMsg, MetronomeState, PlanHandle, PlaybackSchedule,
+};
 use notwig_core::sequencer::{
     AudioClipData, AudioSlice, ClipKind, ClipPayload, FadeShape, MidiClipData, NoteEntity,
 };
@@ -15,7 +17,9 @@ use notwig_dsp::{
     CompiledPlan, DeviceProcessor, EngineCaps, NoteEvent, NoteKind, PlanDevice,
     instantiate_stock_params,
 };
-use notwig_engine::{DeviceFactory, Engine, EngineConfig, StockDeviceFactory};
+use notwig_engine::{
+    DeviceFactory, Engine, EngineConfig, EngineControl, StockDeviceFactory, TransportUpdate,
+};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -534,6 +538,122 @@ fn instrument_receives_notes_and_stops_at_note_off() {
     let second_half_energy: f32 = output[24_000..].iter().map(|s| s.abs()).sum();
     assert!(first_half_energy > 10.0, "first {first_half_energy}");
     assert!(second_half_energy < 1e-3, "second {second_half_energy}");
+}
+
+#[test]
+fn sustained_note_survives_a_runtime_swap_at_the_same_playhead() {
+    let doc = note_doc_with_sine();
+    let config = EngineConfig::new(48_000, 128);
+    let mut engine = prepare_engine(&doc, vec![], Arc::new(TestFactory), config);
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+    engine.set_control_sync_frames(1);
+
+    let mut first = vec![0.0_f32; 128 * 2];
+    engine.process(&mut first, 128).unwrap();
+    assert!(first.iter().any(|sample| sample.abs() > 1e-4));
+
+    let factory: Arc<dyn DeviceFactory> = Arc::new(TestFactory);
+    let caps = EngineCaps {
+        sample_rate: config.sample_rate,
+        max_block_size: config.max_block_size,
+        channels: 2,
+    };
+    let plan = Arc::new(notwig_dsp::compile(&doc, &notwig_dsp::stock_registry(), caps).unwrap());
+    let schedule = Arc::new(PlaybackSchedule::from_doc(&doc));
+    let replacement = Engine::prepare_runtime(
+        config,
+        Arc::clone(&factory),
+        plan,
+        schedule,
+        Arc::new(std::collections::BTreeMap::new()),
+    )
+    .unwrap();
+
+    let playhead = engine.playhead_samples();
+    producer.data_mut().set_prepared_runtime(replacement);
+    producer.data_mut().set_transport(TransportUpdate {
+        playing: true,
+        playhead_samples: playhead,
+        loop_enabled: false,
+        loop_start_samples: None,
+        loop_end_samples: None,
+        stop: false,
+        metronome: None,
+    });
+    producer.flush();
+
+    let mut second = vec![0.0_f32; 128 * 2];
+    engine.process(&mut second, 128).unwrap();
+    assert!(
+        second.iter().any(|sample| sample.abs() > 1e-4),
+        "the sustained note must be re-primed after a runtime swap"
+    );
+}
+
+#[test]
+fn seeking_into_a_sustained_note_reprimes_it() {
+    let doc = note_doc_with_sine();
+    let mut engine = prepare_engine(
+        &doc,
+        vec![],
+        Arc::new(TestFactory),
+        EngineConfig::new(48_000, 128),
+    );
+
+    let mut first = vec![0.0_f32; 128 * 2];
+    engine.process(&mut first, 128).unwrap();
+    assert!(first.iter().any(|sample| sample.abs() > 1e-4));
+
+    engine
+        .apply(EngineMsg::SetTransport {
+            playing: true,
+            playhead_samples: 6_000,
+            loop_enabled: false,
+            loop_start_samples: None,
+            loop_end_samples: None,
+            stop: false,
+            metronome: None,
+        })
+        .unwrap();
+
+    let mut second = vec![0.0_f32; 128 * 2];
+    engine.process(&mut second, 128).unwrap();
+    assert!(
+        second.iter().any(|sample| sample.abs() > 1e-4),
+        "seeking inside a sustained note must re-prime it"
+    );
+}
+
+#[test]
+fn metronome_only_update_does_not_cut_a_sustained_note() {
+    let doc = note_doc_with_sine();
+    let mut engine = prepare_engine(
+        &doc,
+        vec![],
+        Arc::new(TestFactory),
+        EngineConfig::new(48_000, 128),
+    );
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+    engine.set_control_sync_frames(1);
+
+    let mut first = vec![0.0_f32; 128 * 2];
+    engine.process(&mut first, 128).unwrap();
+    assert!(first.iter().any(|sample| sample.abs() > 1e-4));
+
+    producer.data_mut().set_metronome(MetronomeState {
+        enabled: true,
+        beats_per_bar: 4,
+    });
+    producer.flush();
+
+    let mut second = vec![0.0_f32; 128 * 2];
+    engine.process(&mut second, 128).unwrap();
+    assert!(
+        second.iter().any(|sample| sample.abs() > 1e-4),
+        "toggling the metronome must not emit all-notes-off"
+    );
 }
 
 #[test]

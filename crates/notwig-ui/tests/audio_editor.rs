@@ -193,6 +193,77 @@ fn run_panel_with_output(
     (intents, output)
 }
 
+fn assert_no_black_editor_frame(
+    output: &egui::FullOutput,
+    content: egui::Rect,
+    screen: egui::Rect,
+) {
+    let region = egui::Rect::from_min_max(
+        egui::pos2(screen.left(), content.top() + 1.0),
+        egui::pos2(screen.right(), screen.bottom()),
+    );
+    for clipped in &output.shapes {
+        if let egui::Shape::Rect(shape) = &clipped.shape
+            && shape.fill == egui::Color32::BLACK
+            && shape.rect.width() > 150.0
+            && shape.rect.height() > 60.0
+            && shape.rect.intersects(region)
+        {
+            panic!("editor is surrounded by a black frame: {:?}", shape.rect);
+        }
+    }
+}
+
+fn editor_scrollbar_strip(output: &egui::FullOutput, content: egui::Rect) -> egui::Rect {
+    let panel_light = egui::Color32::from_rgb(31, 33, 39);
+    for clipped in &output.shapes {
+        if let egui::Shape::Rect(shape) = &clipped.shape {
+            let rect = shape.rect;
+            if shape.fill == panel_light
+                && rect.width() > 300.0
+                && (rect.top() - content.bottom()).abs() < 6.0
+                && rect.height() > 0.0
+                && rect.height() < 30.0
+            {
+                return rect;
+            }
+        }
+    }
+    panic!("editor scrollbar strip not found");
+}
+
+#[test]
+fn clip_editor_layout_has_no_black_frame_and_flush_scrollbar() {
+    let (doc, clip) = panel_doc(0);
+    let mut runtime = RuntimeView::default();
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
+    let mut ui = NotwigUi::default();
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    let ctx = egui::Context::default();
+    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    let (_, output) = run_panel_with_output(&ctx, &mut ui, &doc, &runtime, Vec::new());
+
+    let content = ui.clip_editor_content_rect;
+    let screen = panel_screen();
+    assert_no_black_editor_frame(&output, content, screen);
+
+    let bar = editor_scrollbar_strip(&output, content);
+    assert!(
+        (bar.top() - content.bottom()).abs() < 0.5,
+        "scrollbar should sit flush under the timeline: bar {bar:?}, content {content:?}"
+    );
+    assert!(bar.bottom() > bar.top());
+    assert!(bar.bottom() <= screen.bottom() + 0.5);
+}
+
 #[test]
 fn node_and_bar_selection_are_mutually_exclusive() {
     let mut state = ClipEditorState::new(ClipId::nil());
@@ -378,6 +449,7 @@ fn move_snaps_anchor_and_preserves_group_offsets() {
     let shift = group_move_shift(
         drag,
         1.1,
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -394,6 +466,7 @@ fn move_clamps_group_at_timeline_start() {
     let shift = group_move_shift(
         drag,
         -10.0,
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -411,6 +484,7 @@ fn move_allows_events_past_the_clip_end() {
     let shift = group_move_shift(
         drag,
         10.0,
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         true,
         TimeMus::zero(),
@@ -426,12 +500,69 @@ fn alt_bypasses_move_snap() {
     let shift = group_move_shift(
         drag,
         1.1 / 3.0,
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         true,
         TimeMus::zero(),
         &starts,
     );
     assert!((shift.as_f64() - 1.1 / 3.0).abs() < 1e-6);
+}
+
+#[test]
+fn move_snaps_to_the_absolute_grid_when_the_clip_start_is_off_grid() {
+    let drag = drag(SliceDragMode::Move);
+    let starts = [TimeMus::new(1, 1)];
+    let clip_start = TimeMus::new(3, 10);
+    let shift = group_move_shift(
+        drag,
+        0.68,
+        clip_start,
+        TimeMus::new(1, 4),
+        false,
+        TimeMus::zero() - clip_start,
+        &starts,
+    );
+    let absolute = clip_start + drag_origin_start(&drag) + shift;
+    assert_eq!(absolute, TimeMus::new(2, 1));
+    assert_eq!(shift, TimeMus::new(7, 10));
+}
+
+#[test]
+fn trim_start_snaps_to_the_absolute_grid_when_the_clip_start_is_off_grid() {
+    let clip_start = TimeMus::new(3, 10);
+    let geometry = slice_geometry(
+        &slice(),
+        Some(drag(SliceDragMode::TrimStart)),
+        0.68,
+        TimeMus::zero(),
+        &map(),
+        clip_start,
+        TimeMus::new(1, 4),
+        false,
+        TimeMus::zero() - clip_start,
+        true,
+    );
+    assert_eq!(clip_start + geometry_start(&geometry), TimeMus::new(2, 1));
+}
+
+#[test]
+fn trim_end_snaps_to_the_absolute_grid_when_the_clip_start_is_off_grid() {
+    let clip_start = TimeMus::new(3, 10);
+    let geometry = slice_geometry(
+        &slice(),
+        Some(drag(SliceDragMode::TrimEnd)),
+        0.68,
+        TimeMus::zero(),
+        &map(),
+        clip_start,
+        TimeMus::new(1, 4),
+        false,
+        TimeMus::zero() - clip_start,
+        true,
+    );
+    let end = clip_start + geometry_start(&geometry) + geometry_duration(&geometry, &map());
+    assert_eq!(end, TimeMus::new(4, 1));
 }
 
 #[test]
@@ -442,6 +573,7 @@ fn trim_start_keeps_right_edge_fixed() {
         1.0,
         TimeMus::zero(),
         &map(),
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -463,6 +595,7 @@ fn trim_end_extends_source_and_clamps_non_empty() {
         1.0,
         TimeMus::zero(),
         &map(),
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -477,6 +610,7 @@ fn trim_end_extends_source_and_clamps_non_empty() {
         -100.0,
         TimeMus::zero(),
         &map(),
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -982,7 +1116,7 @@ fn clip_editor_panel_resizes_with_its_single_handle() {
         (ui.clip_editor_content_rect.height() - before.height()).abs() < 0.5,
         "an idle frame should not change the panel height"
     );
-    let handle = egui::pos2(before.left() + 150.0, before.top() - 3.0);
+    let handle = egui::pos2(before.left() + 150.0, before.top() + 1.0);
     let _ = run_panel(
         &ctx,
         &mut ui,
@@ -1040,7 +1174,7 @@ fn clip_editor_panel_collapses_below_the_resize_threshold() {
     let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
 
     let before = ui.clip_editor_content_rect;
-    let handle = egui::pos2(before.left() + 150.0, before.top() - 3.0);
+    let handle = egui::pos2(before.left() + 150.0, before.top() + 1.0);
     let _ = run_panel(
         &ctx,
         &mut ui,
@@ -1162,6 +1296,73 @@ fn audio_events_use_the_track_color() {
 }
 
 #[test]
+fn paste_uses_the_absolute_grid_with_an_off_grid_clip_start() {
+    let clip_start = TimeMus::new(3, 10);
+    let audio = audio();
+    let clip = notwig_core::ClipEntity {
+        id: ClipId::nil(),
+        track_id: notwig_core::TrackId::nil(),
+        kind: ClipKind::Audio,
+        range: RangeMus::new(clip_start, clip_start + TimeMus::new(4, 1)).unwrap(),
+        name: None,
+        color: None,
+        muted: false,
+        payload: ClipPayload::Audio(audio.clone()),
+    };
+    let slices = vec![slice()];
+    let model = slice_model(&slices, map(), clip.range.length(), clip.range.start);
+    let extract = edit::copy(&model, &Selection::objects([slice().id])).unwrap();
+    let clipboard = Clipboard::AudioClip(extract);
+    let mut state = ClipEditorState::new(clip.id);
+    let mut audio = audio;
+    let mut ui = NotwigUi::default();
+    ui.edit_focus = EditFocus::ClipEditor;
+    let ctx = egui::Context::default();
+    let modifiers = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::V,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            handle_clip_editor_actions(
+                &mut ui,
+                ctx,
+                &mut state,
+                &mut audio,
+                &clip,
+                &map(),
+                &clipboard,
+                TimeMus::new(9, 4),
+            );
+        },
+    );
+    let slices = ui
+        .intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipSlices { slices, .. } => Some(slices.clone()),
+            _ => None,
+        })
+        .expect("paste should emit slices");
+    let pasted = slices
+        .iter()
+        .find(|candidate| candidate.id != slice().id)
+        .expect("pasted slice");
+    assert_eq!(clip_start + pasted.start, TimeMus::new(9, 4));
+}
+
+#[test]
 fn audio_editor_playhead_is_hidden_while_stopped() {
     let mut runtime = RuntimeView {
         playhead: TimeMus::new(3, 1),
@@ -1185,6 +1386,7 @@ fn trim_start_preview_adds_silence_past_the_available_source() {
         -10.0,
         TimeMus::zero(),
         &map(),
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -1279,6 +1481,7 @@ fn leftward_trim_at_the_exact_source_start_adds_silence_prefix() {
         -1.0,
         TimeMus::zero(),
         &map(),
+        TimeMus::zero(),
         TimeMus::new(1, 4),
         false,
         TimeMus::zero(),
@@ -1307,5 +1510,121 @@ fn leftward_trim_at_the_exact_source_start_adds_silence_prefix() {
     assert_eq!(
         slice.start + source_duration(&map(), slice),
         TimeMus::new(4, 1)
+    );
+}
+
+fn editor_clip(audio: AudioClipData) -> notwig_core::ClipEntity {
+    notwig_core::ClipEntity {
+        id: ClipId::nil(),
+        track_id: notwig_core::TrackId::nil(),
+        kind: ClipKind::Audio,
+        range: RangeMus::new(TimeMus::zero(), TimeMus::new(4, 1)).unwrap(),
+        name: None,
+        color: None,
+        muted: false,
+        payload: ClipPayload::Audio(audio),
+    }
+}
+
+fn run_clip_action(
+    ui: &mut NotwigUi,
+    state: &mut ClipEditorState,
+    audio: &mut AudioClipData,
+    clip: &notwig_core::ClipEntity,
+    key: egui::Key,
+    command: bool,
+) {
+    let ctx = egui::Context::default();
+    let modifiers = egui::Modifiers {
+        command,
+        ..Default::default()
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            modifiers,
+            events: vec![egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            handle_clip_editor_actions(
+                ui,
+                ctx,
+                state,
+                audio,
+                clip,
+                &map(),
+                &Clipboard::default(),
+                TimeMus::new(2, 1),
+            );
+        },
+    );
+}
+
+#[test]
+fn command_a_selects_all_audio_events_and_clears_the_bar_selection() {
+    let mut ui = NotwigUi::default();
+    ui.edit_focus = EditFocus::ClipEditor;
+    let mut audio = audio();
+    let clip = editor_clip(audio.clone());
+    let mut state = ClipEditorState::new(clip.id);
+    state.select_bar(RangeMus::new(TimeMus::new(1, 1), TimeMus::new(2, 1)).unwrap());
+    run_clip_action(&mut ui, &mut state, &mut audio, &clip, egui::Key::A, true);
+    assert!(state.selected_contains(slice().id));
+    assert!(state.bar_selection().is_none());
+}
+
+#[test]
+fn deleting_a_zero_width_bar_selection_splits_every_crossing_slice() {
+    let mut ui = NotwigUi::default();
+    ui.edit_focus = EditFocus::ClipEditor;
+    let mut audio = audio();
+    audio.slices = vec![slice_at(8, 1, 0, 24_000), slice_at(9, 1, 24_000, 48_000)];
+    let clip = editor_clip(audio.clone());
+    let mut state = ClipEditorState::new(clip.id);
+    let at = TimeMus::new(3, 2);
+    state.select_bar(RangeMus::new(at, at).unwrap());
+    run_clip_action(
+        &mut ui,
+        &mut state,
+        &mut audio,
+        &clip,
+        egui::Key::Delete,
+        false,
+    );
+    let slices = ui
+        .intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipSlices { slices, .. } => Some(slices.clone()),
+            _ => None,
+        })
+        .expect("delete should emit slices");
+    assert_eq!(slices.len(), 4);
+    for left_id in [8u128, 9u128] {
+        let left = slices
+            .iter()
+            .find(|slice| slice.id == SliceId::from_uuid(Uuid::from_u128(left_id)))
+            .expect("left half keeps its id");
+        assert_eq!(left.start, TimeMus::new(1, 1));
+    }
+    assert_eq!(
+        slices
+            .iter()
+            .filter(|slice| slice.start == TimeMus::new(1, 1))
+            .count(),
+        2
+    );
+    assert_eq!(
+        slices
+            .iter()
+            .filter(|slice| slice.start == TimeMus::new(3, 2))
+            .count(),
+        2
     );
 }

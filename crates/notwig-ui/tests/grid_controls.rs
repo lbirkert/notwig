@@ -1,4 +1,5 @@
 use egui::{Pos2, Rect, Vec2};
+use notwig_core::TimeMus;
 use notwig_ui::SnapSettings;
 use notwig_ui::test_api::timeline::snap_controls::{CONTROLS_WIDTH, SnapControlsRects, show};
 
@@ -17,7 +18,7 @@ fn frame(
         },
         |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                *rects = Some(show(ui, rect, "test", snap, 64.0, 4));
+                *rects = Some(show(ui, rect, "test", snap, 64.0, TimeMus::new(4, 1)));
             });
         },
     );

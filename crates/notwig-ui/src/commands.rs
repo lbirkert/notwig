@@ -155,6 +155,7 @@ pub enum ShortcutCommand {
     LoopSelection,
     Undo,
     Redo,
+    SelectAll,
     Copy,
     Cut,
     Paste,
@@ -349,6 +350,14 @@ pub const COMMANDS: &[CommandSpec] = &[
             alt: false,
             shift: true,
         }],
+    },
+    CommandSpec {
+        command: ShortcutCommand::SelectAll,
+        id: "select_all",
+        label: "Select All",
+        description: "Select every object in the focused editor.",
+        category: CommandCategory::Edit,
+        defaults: &[KeyChord::command(Key::A)],
     },
     CommandSpec {
         command: ShortcutCommand::Copy,

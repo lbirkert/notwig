@@ -22,6 +22,7 @@ editing.
 - Double-click an empty area of the note grid to create a note.
 - The new note snaps to the grid and gets a default length that does not
   overlap an existing note on the same pitch.
+- Creating a note sets the time selection to its span.
 - Double-click a note to delete it.
 - Click a piano key to preview that pitch. Dragging across keys keeps the
   preview held until you release the pointer.
@@ -55,17 +56,23 @@ Creating a note replaces any existing note it would overlap.
 | Delete | **Delete** |
 
 Moves and resizes are collision-aware: a note is trimmed instead of overlapping
-another note on the same pitch. Hold **Shift** or **Alt** to bypass snapping.
+another note on the same pitch. Snapping uses the note's absolute timeline
+position, so an off-grid clip start or a nonzero clip content offset does not
+push notes off the grid. Hold **Shift** or **Alt** to bypass snapping.
 
 The editor previews a note when you create it, select it, move it, or change its
-velocity on the keyboard. Playing notes are highlighted while the transport
-runs.
+velocity on the keyboard. The audition is capped to a short length, so clicking
+a long note does not sustain it for its full duration. Playing notes are
+highlighted while the transport runs.
 
 ## Clipboard and time selection
 
 The MIDI editor keeps its own note clipboard. Copy and paste work on notes and
 time selections. Pasting uses the time selection start, or the playhead when no
-time selection exists. Duplicate places the copy after the selection.
+time selection exists. A playhead paste snaps in absolute timeline time before
+converting back to note content time, so the result lands on the grid even when
+the clip start and content offset are off-grid. Duplicate places the copy after
+the selection.
 
 The arranger and audio clip editor share a different clipboard. MIDI note
 clipboard data is not interchangeable with them.

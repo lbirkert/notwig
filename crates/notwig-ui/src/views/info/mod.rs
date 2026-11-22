@@ -162,10 +162,18 @@ fn clip_header(ui: &mut egui::Ui, doc: &ProjectDoc, clip: &ClipEntity) {
     });
     ui.horizontal(|ui| {
         ui.label(RichText::new("Start").small().color(theme::TEXT_MUTED));
-        ui.label(format_beats(clip.range.start, doc.meta.time_sig_num));
+        ui.label(format_beats(
+            clip.range.start,
+            doc.meta.bar_length(),
+            doc.meta.beat_length(),
+        ));
     });
     ui.horizontal(|ui| {
         ui.label(RichText::new("Length").small().color(theme::TEXT_MUTED));
-        ui.label(format_beats(clip.range.length(), doc.meta.time_sig_num));
+        ui.label(format_beats(
+            clip.range.length(),
+            doc.meta.bar_length(),
+            doc.meta.beat_length(),
+        ));
     });
 }

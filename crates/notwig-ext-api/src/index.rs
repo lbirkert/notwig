@@ -151,6 +151,18 @@ impl ExtensionIndexEntry {
     pub fn download_for_host(&self) -> Option<&ExtensionIndexUrl> {
         self.download_for(target::is_supported)
     }
+
+    /// Returns the first download that contains a wasm target.
+    #[must_use]
+    pub fn download_for_wasm(&self) -> Option<&ExtensionIndexUrl> {
+        self.download_for(target::is_wasm)
+    }
+
+    /// Returns `true` when the browser build can install this entry.
+    #[must_use]
+    pub fn is_available_to_wasm(&self) -> bool {
+        self.download_for_wasm().is_some()
+    }
 }
 
 fn valid_sha256(hash: &str) -> bool {

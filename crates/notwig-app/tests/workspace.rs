@@ -14,6 +14,29 @@ fn temp_dir() -> PathBuf {
     dir
 }
 
+fn extension_instrument_spec() -> notwig_dsp::DeviceSpec {
+    notwig_dsp::DeviceSpec {
+        type_id: "test.phase".into(),
+        version: notwig_core::SchemaVersion::V0,
+        kind: DeviceKind::Instrument,
+        ports: Vec::new(),
+        params: Vec::new(),
+        latency_samples: 0,
+        name: "Phase".into(),
+        vendor: "Test".into(),
+        ui: notwig_dsp::DeviceUiSpec::default(),
+    }
+}
+
+fn instrument_workspace_with_extension()
+-> (Workspace, notwig_core::TrackId, notwig_core::DeviceChainId) {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.set_extension_devices(vec![extension_instrument_spec()], None);
+    let track = workspace.create_track(TrackKind::Instrument).unwrap();
+    let chain = workspace.doc.tracks[&track].main_chain;
+    (workspace, track, chain)
+}
+
 #[test]
 fn create_clip_save_and_render() {
     let dir = temp_dir();
@@ -2066,4 +2089,96 @@ fn extending_a_midi_clip_left_keeps_notes_at_their_absolute_time() {
     assert_eq!(midi.notes[0].start, Rational::new(2, 1));
     let absolute = clip.range.start + midi.notes[0].start - midi.content_start;
     assert_eq!(absolute, Rational::new(3, 1));
+}
+
+#[test]
+fn inserting_named_extension_instrument_renames_fresh_track() {
+    let (mut workspace, track, chain) = instrument_workspace_with_extension();
+    let original = workspace.doc.tracks[&track].name.clone();
+    assert_ne!(original, "Phase");
+    assert!(workspace.doc.tracks[&track].name_is_auto);
+
+    workspace
+        .insert_device(
+            chain,
+            "test.phase",
+            notwig_core::SchemaVersion::V0,
+            DeviceKind::Instrument,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(workspace.doc.tracks[&track].name, "Phase");
+    assert!(workspace.doc.tracks[&track].name_is_auto);
+}
+
+#[test]
+fn inserting_named_extension_instrument_preserves_manual_track_name() {
+    let (mut workspace, track, chain) = instrument_workspace_with_extension();
+    workspace
+        .apply(CommandPayload::RenameTrack {
+            id: track,
+            name: "Keys".into(),
+        })
+        .unwrap();
+
+    workspace
+        .insert_device(
+            chain,
+            "test.phase",
+            notwig_core::SchemaVersion::V0,
+            DeviceKind::Instrument,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(workspace.doc.tracks[&track].name, "Keys");
+    assert!(!workspace.doc.tracks[&track].name_is_auto);
+}
+
+#[test]
+fn undo_and_redo_restore_instrument_name_and_device_together() {
+    let (mut workspace, track, chain) = instrument_workspace_with_extension();
+    let original = workspace.doc.tracks[&track].name.clone();
+
+    workspace
+        .insert_device(
+            chain,
+            "test.phase",
+            notwig_core::SchemaVersion::V0,
+            DeviceKind::Instrument,
+            None,
+        )
+        .unwrap();
+    assert_eq!(workspace.doc.tracks[&track].name, "Phase");
+    assert_eq!(workspace.doc.devices.len(), 1);
+
+    workspace.undo().unwrap();
+    assert_eq!(workspace.doc.tracks[&track].name, original);
+    assert!(workspace.doc.tracks[&track].name_is_auto);
+    assert!(workspace.doc.devices.is_empty());
+
+    workspace.redo().unwrap();
+    assert_eq!(workspace.doc.tracks[&track].name, "Phase");
+    assert!(workspace.doc.tracks[&track].name_is_auto);
+    assert_eq!(workspace.doc.devices.len(), 1);
+}
+
+#[test]
+fn duplicated_track_is_not_auto_named() {
+    let (mut workspace, track, chain) = instrument_workspace_with_extension();
+    workspace
+        .insert_device(
+            chain,
+            "test.phase",
+            notwig_core::SchemaVersion::V0,
+            DeviceKind::Instrument,
+            None,
+        )
+        .unwrap();
+    assert_eq!(workspace.doc.tracks[&track].name, "Phase");
+
+    let copy = workspace.duplicate_track(track).unwrap();
+    assert_eq!(workspace.doc.tracks[&copy].name, "Phase copy");
+    assert!(!workspace.doc.tracks[&copy].name_is_auto);
 }

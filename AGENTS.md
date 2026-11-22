@@ -172,7 +172,6 @@ the todo tool. Each item should be an atomic, verifiable action ("add
 `CommandPayload::X` and apply it", "add the popup and render test"), not a vague
 area ("do UI").
 
-- Keep exactly one item `in_progress` while work remains.
 - Update statuses as you go; do not batch completions at the end.
 - Mark an item completed only after its verification has actually happened
   (tests, checks, link validation, or a deliberate manual review).

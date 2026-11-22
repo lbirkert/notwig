@@ -6,8 +6,7 @@ use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
 use crate::timeline::TimelineGrid;
-use crate::timeline::interaction::{drag_current_pos, drag_start_pos, trim_range};
-use crate::widgets::snap_time;
+use crate::timeline::interaction::{drag_current_pos, drag_start_pos, snapped_start, trim_range};
 
 use super::edit::clamp_node_shift;
 use super::{ClipDrag, ClipDragMode, GroupDrag};
@@ -48,7 +47,13 @@ impl NotwigUi {
             clip,
             range,
             lane_rect,
-            TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1), snap),
+            TimelineGrid::new(
+                start,
+                ppb,
+                doc.meta.bar_length(),
+                doc.meta.beat_length(),
+                snap,
+            ),
             &runtime.waveforms,
             selected,
             preview.is_some(),
@@ -214,14 +219,7 @@ impl NotwigUi {
                 let current = drag_current_pos(ui, response, drag.start_pointer);
                 let bypass = snap.bypassed(ui.input(|i| i.modifiers));
                 let delta = f64::from(current.x - drag.start_pointer.x) / f64::from(ppb);
-                let primary_start = snap_time(
-                    TimeMus::new(
-                        ((drag.primary_origin.start.as_f64() + delta) * 1_000_000.0).round() as i64,
-                        1_000_000,
-                    ),
-                    grid,
-                    bypass,
-                );
+                let primary_start = snapped_start(drag.primary_origin.start, delta, grid, bypass);
                 let starts: Vec<TimeMus> = drag
                     .origins
                     .iter()
@@ -321,19 +319,11 @@ fn compatible_track(doc: &ProjectDoc, kind: ClipKind, track_id: TrackId) -> bool
     })
 }
 fn drag_range(drag: ClipDrag, delta: f64, bypass: bool, grid: TimeMus) -> RangeMus {
-    let origin_start = drag.origin.start.as_f64();
     let origin_end = drag.origin.end.as_f64();
-    let length = (origin_end - origin_start).max(1.0 / 16.0);
+    let length = (origin_end - drag.origin.start.as_f64()).max(1.0 / 16.0);
     match drag.mode {
         ClipDragMode::Move => {
-            let start = snap_time(
-                TimeMus::new(
-                    (((origin_start + delta) * 1_000_000.0).round()) as i64,
-                    1_000_000,
-                ),
-                grid,
-                bypass,
-            );
+            let start = snapped_start(drag.origin.start, delta, grid, bypass);
             RangeMus::new(
                 start,
                 start + TimeMus::new((length * 1_000_000.0) as i64, 1_000_000),

@@ -36,8 +36,7 @@ impl ExtensionHost {
 
         for discovered in report.extensions {
             let id = discovered.manifest.id.clone();
-            let settings = settings.get(&id).copied().unwrap_or_default();
-            let extension = if settings.enabled {
+            let extension = if notwig_ext_api::config::is_enabled(settings, &id) {
                 load_enabled(&engines, discovered)
             } else {
                 LoadedExtension {

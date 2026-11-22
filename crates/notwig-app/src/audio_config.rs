@@ -111,9 +111,11 @@ pub fn validated(
     options: &[notwig_ui::AudioDriverView],
 ) -> AudioSettings {
     settings.sample_rate = None;
+    let system_out = settings.device == crate::audio::SYSTEM_OUT_DEVICE_ID;
     if !settings.driver.is_empty() {
         if let Some(driver) = options.iter().find(|driver| driver.id == settings.driver) {
             if !settings.device.is_empty()
+                && !system_out
                 && !driver
                     .devices
                     .iter()
@@ -121,11 +123,16 @@ pub fn validated(
             {
                 settings.device.clear();
             }
+        } else if system_out {
+            // System Out still resolves through the default host when device
+            // enumeration is temporarily unavailable.
+            settings.driver.clear();
         } else {
             settings.driver.clear();
             settings.device.clear();
         }
     } else if !settings.device.is_empty()
+        && !system_out
         && !options.iter().any(|driver| {
             driver
                 .devices

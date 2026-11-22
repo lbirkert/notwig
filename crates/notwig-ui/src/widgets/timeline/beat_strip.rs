@@ -6,6 +6,8 @@ use notwig_core::{RangeMus, TimeMus};
 use crate::theme;
 use crate::timeline::TimelineGrid;
 
+use super::grid::{aligned, line_indices};
+
 const LOOP_EDGE_WIDTH: f32 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -359,66 +361,124 @@ fn fill_range(
 
 fn draw_beats(painter: &Painter, rect: Rect, content_left: f32, grid: TimelineGrid) {
     let visible_beats = f64::from(((rect.right() - content_left) / grid.pixels_per_beat).max(1.0));
-    let step = grid.step.as_f64().max(1.0 / 256.0);
-    let bar_len = f64::from(grid.beats_per_bar);
+    let start = grid.start.as_f64();
+    let end = start + visible_beats;
+    let bar = grid.bar_length.as_f64().max(1e-9);
+    let beat_length = grid.beat_length.as_f64().max(1e-9);
+    let step = grid.step.as_f64();
     let show_beats = grid.pixels_per_beat >= 26.0;
-    let first = (grid.start.as_f64() / step).floor() as i64;
-    let last = ((grid.start.as_f64() + visible_beats) / step).ceil() as i64 + 1;
-    for index in first..=last {
-        let beat = index as f64 * step;
-        if beat < 0.0 {
+
+    if step > 0.0 && step as f32 * grid.pixels_per_beat >= 1.0 {
+        for index in line_indices(start, end, step) {
+            let beat = index as f64 * step;
+            if beat < 0.0 || aligned(beat, bar) || aligned(beat, beat_length) {
+                continue;
+            }
+            draw_beat_line(painter, rect, content_left, grid, beat, 20.0, theme::GRID);
+        }
+    }
+
+    for index in line_indices(start, end, beat_length) {
+        let beat = index as f64 * beat_length;
+        if beat < 0.0 || aligned(beat, bar) {
             continue;
         }
-        let x = content_left + (beat - grid.start.as_f64()) as f32 * grid.pixels_per_beat;
-        if x < content_left - 1.0 || x > rect.right() + 1.0 {
-            continue;
-        }
-        let strong = (beat / bar_len).fract().abs() < 1e-6;
-        let beat_line = beat.fract().abs() < 1e-6;
-        let color = if strong {
-            Color32::from_rgb(92, 97, 112)
-        } else if beat_line {
-            theme::GRID_STRONG
-        } else {
-            theme::GRID
-        };
-        painter.line_segment(
-            [
-                egui::pos2(
-                    x,
-                    rect.top()
-                        + if strong {
-                            6.0
-                        } else if beat_line {
-                            14.0
-                        } else {
-                            20.0
-                        },
-                ),
-                egui::pos2(x, rect.bottom()),
-            ],
-            Stroke::new(
-                1.0_f32,
-                crate::timeline::grid_color(color, grid.snap_enabled),
-            ),
+        draw_beat_line(
+            painter,
+            rect,
+            content_left,
+            grid,
+            beat,
+            14.0,
+            theme::GRID_STRONG,
         );
-        if strong || (show_beats && beat_line) {
-            let bar = (beat / bar_len).floor() as i64 + 1;
-            let beat_in_bar = (beat % bar_len).floor() as i64 + 1;
-            let label_color = if strong {
-                theme::TEXT_MUTED
-            } else {
-                theme::GRID_STRONG
-            };
-            painter.text(
-                egui::pos2(x + 3.0, rect.top() + 3.0),
-                Align2::LEFT_TOP,
-                format!("{bar}.{beat_in_bar}"),
-                FontId::monospace(9.0),
-                crate::timeline::grid_color(label_color, grid.snap_enabled),
+        if show_beats {
+            let bar_index = (beat / bar).floor() as i64 + 1;
+            let beat_in_bar =
+                ((beat - (bar_index - 1) as f64 * bar) / beat_length).round() as i64 + 1;
+            draw_beat_label(
+                painter,
+                rect,
+                content_left,
+                grid,
+                beat,
+                format!("{bar_index}.{beat_in_bar}"),
+                theme::GRID_STRONG,
             );
         }
     }
+
+    for index in line_indices(start, end, bar) {
+        let beat = index as f64 * bar;
+        if beat < 0.0 {
+            continue;
+        }
+        draw_beat_line(
+            painter,
+            rect,
+            content_left,
+            grid,
+            beat,
+            6.0,
+            egui::Color32::from_rgb(92, 97, 112),
+        );
+        draw_beat_label(
+            painter,
+            rect,
+            content_left,
+            grid,
+            beat,
+            format!("{}.1", index + 1),
+            theme::TEXT_MUTED,
+        );
+    }
+}
+
+fn draw_beat_line(
+    painter: &Painter,
+    rect: Rect,
+    content_left: f32,
+    grid: TimelineGrid,
+    beat: f64,
+    top_inset: f32,
+    color: Color32,
+) {
+    let x = content_left + (beat - grid.start.as_f64()) as f32 * grid.pixels_per_beat;
+    if x < content_left - 1.0 || x > rect.right() + 1.0 {
+        return;
+    }
+    painter.line_segment(
+        [
+            egui::pos2(x, rect.top() + top_inset),
+            egui::pos2(x, rect.bottom()),
+        ],
+        Stroke::new(
+            1.0_f32,
+            crate::timeline::grid_color(color, grid.snap_enabled),
+        ),
+    );
+}
+
+fn draw_beat_label(
+    painter: &Painter,
+    rect: Rect,
+    content_left: f32,
+    grid: TimelineGrid,
+    beat: f64,
+    label: String,
+    color: Color32,
+) {
+    let x = content_left + (beat - grid.start.as_f64()) as f32 * grid.pixels_per_beat;
+    if x < content_left - 1.0 || x > rect.right() + 1.0 {
+        return;
+    }
+    painter.text(
+        egui::pos2(x + 3.0, rect.top() + 3.0),
+        Align2::LEFT_TOP,
+        label,
+        FontId::monospace(9.0),
+        crate::timeline::grid_color(color, grid.snap_enabled),
+    );
 }
 
 fn draw_play_start(

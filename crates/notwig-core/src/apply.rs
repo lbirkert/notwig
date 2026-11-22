@@ -168,6 +168,7 @@ fn apply_payload(
             }
             let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
             track.name.clone_from(name);
+            track.name_is_auto = false;
             changes.track(doc, *id);
             Ok(Vec::new())
         }
@@ -633,6 +634,7 @@ pub fn create_track(
         id,
         kind,
         name,
+        name_is_auto: true,
         color,
         comment: String::new(),
         active: true,
@@ -1657,6 +1659,11 @@ fn insert_device(
         .values()
         .find(|track| track.main_chain == target_chain)
         .cloned();
+    let display_name = name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
     if let Some(track) = &owner {
         match kind {
             DeviceKind::Instrument => {
@@ -1710,6 +1717,17 @@ fn insert_device(
     chain.devices.insert(index, id);
     changes.device(id);
     changes.push(DocChange::ChainUpserted(target_chain));
+    if let Some(owner) = &owner
+        && owner.kind == TrackKind::Instrument
+        && owner.name_is_auto
+        && kind == DeviceKind::Instrument
+        && let Some(display_name) = display_name
+    {
+        if let Some(track) = doc.tracks.get_mut(&owner.id) {
+            track.name = display_name;
+        }
+        changes.track(doc, owner.id);
+    }
     doc.validate()
 }
 

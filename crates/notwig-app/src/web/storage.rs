@@ -327,25 +327,49 @@ pub(crate) fn download_bytes(name: &str, mime: &str, bytes: &[u8]) -> Result<(),
     let array = Uint8Array::from(bytes);
     let options = web_sys::BlobPropertyBag::new();
     options.set_type(mime);
-    let blob =
-        web_sys::Blob::new_with_u8_array_sequence_and_options(&JsValue::from(array), &options)
-            .map_err(js_error)?;
+    // A bare `Uint8Array` is iterable, so `new Blob(bytes)` stringifies each
+    // numeric byte. Blob parts must be a sequence of BufferSource values.
+    let parts: JsValue = Array::of1(&array.into()).into();
+    let blob = web_sys::Blob::new_with_buffer_source_sequence_and_options(&parts, &options)
+        .map_err(js_error)?;
     let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(js_error)?;
-    let document = web_sys::window()
-        .and_then(|window| window.document())
+    let window = web_sys::window().ok_or_else(|| "no browser window".to_string())?;
+    let document = window
+        .document()
         .ok_or_else(|| "no browser document".to_string())?;
     let element = document.create_element("a").map_err(js_error)?;
     let anchor: web_sys::HtmlAnchorElement = element.clone().unchecked_into();
     anchor.set_href(&url);
     anchor.set_download(name);
-    if let Some(body) = document.body() {
-        let _ = body.append_child(element.as_ref());
-        anchor.click();
-        let _ = body.remove_child(element.as_ref());
-    } else {
-        anchor.click();
+    let body = document.body();
+    if let Some(body) = &body {
+        if let Err(error) = body.append_child(element.as_ref()) {
+            let _ = web_sys::Url::revoke_object_url(&url);
+            return Err(js_error(error));
+        }
     }
-    let _ = web_sys::Url::revoke_object_url(&url);
+    anchor.click();
+    // Defer cleanup to a later task so the browser can start the download
+    // before the object URL is revoked. `once_into_js` releases the closure
+    // after the timeout fires instead of leaking it via `forget`.
+    let revoke_url = url.clone();
+    let cleanup_element = element.clone();
+    let cleanup: js_sys::Function = Closure::once_into_js(move || {
+        let _ = web_sys::Url::revoke_object_url(&revoke_url);
+        if let Some(parent) = cleanup_element.parent_node() {
+            let _ = parent.remove_child(cleanup_element.as_ref());
+        }
+    })
+    .unchecked_into();
+    if window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(&cleanup, 1_000)
+        .is_err()
+    {
+        let _ = web_sys::Url::revoke_object_url(&url);
+        if let Some(body) = &body {
+            let _ = body.remove_child(element.as_ref());
+        }
+    }
     Ok(())
 }
 

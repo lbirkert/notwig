@@ -16,13 +16,29 @@ pub(crate) fn bottom_panel(
     config: PanelConfig,
     content: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
+    bottom_panel_styled(
+        ctx,
+        config,
+        Color32::BLACK,
+        egui::Margin::symmetric(6, 4),
+        content,
+    )
+}
+
+/// Variant of [`bottom_panel`] for custom-painted editors. Letting the caller
+/// choose the frame fill and margin lets the editor content sit flush against
+/// the window instead of floating inside a dark gutter.
+pub(crate) fn bottom_panel_styled(
+    ctx: &egui::Context,
+    config: PanelConfig,
+    fill: Color32,
+    inner_margin: egui::Margin,
+    content: impl FnOnce(&mut egui::Ui) -> bool,
+) -> bool {
     let mut open = true;
     let panel_id = egui::Id::new(config.id);
-    let panel = egui::TopBottomPanel::bottom(panel_id).frame(
-        egui::Frame::new()
-            .fill(Color32::BLACK)
-            .inner_margin(egui::Margin::symmetric(6, 4)),
-    );
+    let panel = egui::TopBottomPanel::bottom(panel_id)
+        .frame(egui::Frame::new().fill(fill).inner_margin(inner_margin));
     let panel = if config.resizable {
         // The panel's own resize handle is the only affordance. Let it shrink
         // past the collapse threshold so a downward drag can close the panel.

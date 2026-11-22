@@ -68,11 +68,11 @@ pub(super) fn midi_editor_scrollbar(
     content: Rect,
     content_end: TimeMus,
     ppb: f32,
-    beats_per_bar: u8,
+    bar_length: TimeMus,
 ) {
     let bar = Rect::from_min_size(
-        egui::pos2(rect.left(), rect.bottom() - SCROLLBAR_H + 2.0),
-        Vec2::new(rect.width(), SCROLLBAR_H - 2.0),
+        egui::pos2(rect.left(), rect.bottom() - SCROLLBAR_H),
+        Vec2::new(rect.width(), SCROLLBAR_H),
     );
     let scroll_right = bar.right() - crate::timeline::CONTROLS_WIDTH - 8.0;
     let track = Rect::from_min_max(
@@ -99,5 +99,5 @@ pub(super) fn midi_editor_scrollbar(
         ),
         egui::pos2(bar.right() - 4.0, bar.bottom()),
     );
-    crate::timeline::snap_controls(ui, controls, "midi-editor", snap, ppb, beats_per_bar);
+    crate::timeline::snap_controls(ui, controls, "midi-editor", snap, ppb, bar_length);
 }

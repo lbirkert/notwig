@@ -4,7 +4,7 @@ use notwig_core::edit::{
     Edge, EditError, EditModel, EditOp, EditorKind, Extract, LaneBounds, NextSelection,
     ObjectExtent, ObjectKind, ObjectMove, ObjectView, Plan, Selection, SelectionMode,
     TimeSelection, TrimLimits, copy, cut, delete, duplicate, materialize, move_selection, paste,
-    relocate_objects, trim_object, trim_selection,
+    relocate_objects, split, trim_object, trim_selection,
 };
 use notwig_core::time::{RangeMus, TimeMus};
 
@@ -160,6 +160,23 @@ fn apply(model: &mut TapeModel, plan: &Plan<&'static str, u32, TapeContent>) {
             EditOp::Erase { span, .. } => erase(model, *span),
             EditOp::Remove { object } => {
                 model.objects.remove(object);
+            }
+            EditOp::Split { object, at } => {
+                let Some(target) = model.objects.get(object).cloned() else {
+                    continue;
+                };
+                if target.span.start >= *at || *at >= target.span.end {
+                    continue;
+                }
+                let mut left = target.clone();
+                left.span = RangeMus::new(target.span.start, *at).unwrap();
+                let mut right = target.clone();
+                right.id = next_id;
+                right.span = RangeMus::new(*at, target.span.end).unwrap();
+                right.source_start += ticks(*at) - ticks(target.span.start);
+                model.objects.insert(*object, left);
+                model.objects.insert(right.id, right);
+                next_id += 1;
             }
             EditOp::Move { object, span, .. } => {
                 if let Some(target) = model.objects.get_mut(object) {
@@ -401,6 +418,36 @@ fn time_selection_move_clamps_to_lane_start() {
 }
 
 #[test]
+fn split_emits_ops_for_crossing_span_objects_only() {
+    let model = TapeModel::new([(1, 2, 5), (2, 6, 7)]);
+    let plan = split(&model, &selection_time(3, 3)).unwrap();
+    assert_eq!(plan.ops.len(), 1);
+    match &plan.ops[0] {
+        EditOp::Split { object, at } => {
+            assert_eq!(*object, 1);
+            assert_eq!(ticks(*at), 48);
+        }
+        _ => panic!("expected split"),
+    }
+    match plan.next {
+        NextSelection::Time(time) => assert_eq!(time.span, span(3, 3)),
+        _ => panic!("expected time selection"),
+    }
+}
+
+#[test]
+fn zero_width_delete_routes_to_split() {
+    let mut model = TapeModel::new([(1, 2, 5), (2, 6, 7)]);
+    let plan = delete(&model, &selection_time(3, 3)).unwrap();
+    assert!(plan.ops.iter().all(|op| matches!(op, EditOp::Split { .. })));
+    apply(&mut model, &plan);
+    assert_eq!(
+        model.snapshot(),
+        vec![(32, 48, 1, 0), (48, 80, 1, 16), (96, 112, 2, 0)]
+    );
+}
+
+#[test]
 fn empty_time_selection_is_rejected() {
     let model = TapeModel::new([(1, 2, 5)]);
     let selection = Selection {
@@ -482,7 +529,7 @@ mod properties {
                         | EditOp::Move { span, .. }
                         | EditOp::Trim { span, .. }
                         | EditOp::Place { span, .. } => *span,
-                        EditOp::Remove { .. } => continue,
+                        EditOp::Remove { .. } | EditOp::Split { .. } => continue,
                     };
                     prop_assert!(span.start <= span.end);
                     prop_assert!(span.start >= TimeMus::zero());

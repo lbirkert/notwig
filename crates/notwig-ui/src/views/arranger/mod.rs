@@ -84,9 +84,10 @@ impl NotwigUi {
             crate::state::Viewport::MAX_PPB,
         );
         let start = self.state.viewport.start;
-        let beats_per_bar = doc.meta.time_sig_num.max(1);
+        let bar_length = doc.meta.bar_length();
+        let beat_length = doc.meta.beat_length();
         let snap = self.state.snap;
-        let grid = snap.step(ppb, beats_per_bar);
+        let grid = snap.step(ppb, bar_length);
         let width = ui.available_width().max(320.0);
         let header_w = HEADER_W.min(width * 0.45);
         self.timeline_width = (width - header_w).max(80.0);
@@ -99,7 +100,7 @@ impl NotwigUi {
         self.timeline_left = timeline_left;
         let playhead = runtime.playing.then_some(runtime.playhead);
         let strip = crate::timeline::BeatStrip {
-            grid: TimelineGrid::new(start, ppb, beats_per_bar, snap),
+            grid: TimelineGrid::new(start, ppb, bar_length, beat_length, snap),
             header_width: header_w,
             header_label: Some("TRACKS"),
             loop_range: if doc.transport.loop_enabled {
@@ -143,7 +144,7 @@ impl NotwigUi {
         let background = ui.painter();
         background.rect_filled(tree_rect, CornerRadius::ZERO, Color32::BLACK);
         background.rect_filled(content_bg, CornerRadius::ZERO, theme::ARRANGER_BG);
-        TimelineGrid::new(start, ppb, beats_per_bar, snap).draw(background, content_bg);
+        TimelineGrid::new(start, ppb, bar_length, beat_length, snap).draw(background, content_bg);
         ui.allocate_ui_with_layout(
             Vec2::new(width, rows_height),
             egui::Layout::top_down(egui::Align::Min),
@@ -238,7 +239,7 @@ impl NotwigUi {
                 &overlay,
                 content_rect,
                 timeline_left,
-                TimelineGrid::new(start, ppb, beats_per_bar, snap),
+                TimelineGrid::new(start, ppb, bar_length, beat_length, snap),
                 playhead,
             );
         }
@@ -260,7 +261,7 @@ impl NotwigUi {
                 );
                 crate::timeline::draw_time_selection_markers(
                     &selection_painter,
-                    TimelineGrid::new(start, ppb, beats_per_bar, snap),
+                    TimelineGrid::new(start, ppb, bar_length, beat_length, snap),
                     timeline_left,
                     row_rect,
                     ruler_rect,

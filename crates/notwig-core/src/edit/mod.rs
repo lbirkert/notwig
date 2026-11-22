@@ -8,7 +8,7 @@ pub mod arranger;
 
 pub use algebra::{
     Edge, ObjectMove, copy, cut, delete, duplicate, materialize, move_selection, paste,
-    relocate_objects, trim_container, trim_object, trim_selection,
+    relocate_objects, split, trim_container, trim_object, trim_selection,
 };
 pub use arranger::{ArrangerModel, ClipContent, join_clips};
 
@@ -281,6 +281,10 @@ pub enum EditOp<L, O, C> {
     },
     Remove {
         object: O,
+    },
+    Split {
+        object: O,
+        at: TimeMus,
     },
     Move {
         object: O,

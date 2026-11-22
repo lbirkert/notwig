@@ -21,9 +21,9 @@ use egui::{Color32, Id, Rect, Sense, Vec2};
 use notwig_core::{Db, TimeMus};
 use notwig_dsp::Unit;
 
-pub fn snap_label(step: TimeMus, beats_per_bar: u8) -> String {
+pub fn snap_label(step: TimeMus, bar_length: TimeMus) -> String {
     let beats = step.as_f64();
-    let bar = f64::from(beats_per_bar.max(1));
+    let bar = bar_length.as_f64().max(f64::EPSILON);
     if beats >= bar {
         let bars = (beats / bar).round() as i64;
         if bars <= 1 {
@@ -54,12 +54,15 @@ pub fn snap_16(time: TimeMus, bypass: bool) -> TimeMus {
     TimeMus::new((snapped * 1_000_000.0).round() as i64, 1_000_000)
 }
 
-pub fn format_beats(time: TimeMus, beats_per_bar: u8) -> String {
+pub fn format_beats(time: TimeMus, bar_length: TimeMus, beat_length: TimeMus) -> String {
     let beats = time.as_f64().max(0.0);
-    let bar = (beats / f64::from(beats_per_bar.max(1))).floor() as u64 + 1;
-    let beat_in_bar = beats % f64::from(beats_per_bar.max(1));
-    let beat = beat_in_bar.floor() as u64 + 1;
-    let sixteenth = ((beat_in_bar.fract()) * 4.0).floor() as u64 + 1;
+    let bar_len = bar_length.as_f64().max(f64::EPSILON);
+    let beat_len = beat_length.as_f64().max(f64::EPSILON);
+    let bar = (beats / bar_len).floor() as u64 + 1;
+    let beat_in_bar = beats % bar_len;
+    let beat = (beat_in_bar / beat_len).floor() as u64 + 1;
+    let sub_beat = (beat_in_bar % beat_len) / beat_len;
+    let sixteenth = (sub_beat * 4.0).floor() as u64 + 1;
     format!("{bar}.{beat}.{sixteenth}")
 }
 

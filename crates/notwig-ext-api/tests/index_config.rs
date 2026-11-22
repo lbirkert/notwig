@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use notwig_ext_api::config::{default_index_url_for_base, is_enabled};
 use notwig_ext_api::{
     CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig, ExtensionIndexEntry, ExtensionManifest,
     ExtensionSettings,
@@ -163,6 +164,98 @@ fn default_index_points_at_the_official_host() {
     );
     let config = ExtensionConfig::default();
     assert_eq!(config.indexes, vec![DEFAULT_INDEX_URL.to_string()]);
+}
+
+#[test]
+fn config_enabled_defaults_to_true_and_honors_overrides() {
+    let mut config = ExtensionConfig::default();
+    assert!(config.is_enabled("com.test.unknown"));
+
+    config.settings.insert(
+        "com.test.enabled".into(),
+        ExtensionSettings { enabled: true },
+    );
+    config.settings.insert(
+        "com.test.disabled".into(),
+        ExtensionSettings { enabled: false },
+    );
+
+    assert!(config.is_enabled("com.test.enabled"));
+    assert!(!config.is_enabled("com.test.disabled"));
+    assert!(is_enabled(&config.settings, "com.test.unknown"));
+    assert!(!is_enabled(&config.settings, "com.test.disabled"));
+}
+
+#[test]
+fn disabled_settings_filter_the_package_load_set() {
+    let mut config = ExtensionConfig::default();
+    config.settings.insert(
+        "com.test.disabled".into(),
+        ExtensionSettings { enabled: false },
+    );
+
+    let packages = ["com.test.enabled", "com.test.disabled"];
+    let loaded = packages
+        .into_iter()
+        .filter(|id| config.is_enabled(id))
+        .collect::<Vec<_>>();
+
+    assert_eq!(loaded, vec!["com.test.enabled"]);
+}
+
+#[test]
+fn wasm_entries_require_a_wasm_download() {
+    let both_targets = first_entry();
+    assert!(both_targets.is_available_to_wasm());
+    assert_eq!(
+        both_targets
+            .download_for_wasm()
+            .map(|download| download.url.as_str()),
+        Some("extensions/ext-devices-wasm.zip")
+    );
+
+    let mut native_only = first_entry();
+    native_only
+        .urls
+        .retain(|download| !download.targets.iter().any(|target| target == "wasm"));
+    assert_eq!(native_only.urls.len(), 1);
+    assert!(native_only.download_for_wasm().is_none());
+    assert!(!native_only.is_available_to_wasm());
+}
+
+#[test]
+fn default_index_resolves_against_a_site_base() {
+    assert_eq!(
+        default_index_url_for_base("https://example.com"),
+        "https://example.com/extensions.json"
+    );
+    assert_eq!(
+        default_index_url_for_base("https://example.com/notwig/"),
+        "https://example.com/notwig/extensions.json"
+    );
+    assert_eq!(default_index_url_for_base(""), DEFAULT_INDEX_URL);
+}
+
+#[test]
+fn resolving_default_index_leaves_custom_urls_alone() {
+    let mut config = ExtensionConfig {
+        version: CONFIG_VERSION,
+        indexes: vec![
+            DEFAULT_INDEX_URL.into(),
+            "https://custom.example/extensions.json".into(),
+        ],
+        settings: BTreeMap::new(),
+    };
+
+    config.resolve_default_index("https://self.example/notwig");
+
+    assert_eq!(
+        config.indexes,
+        vec![
+            "https://self.example/notwig/extensions.json".to_string(),
+            "https://custom.example/extensions.json".to_string(),
+        ]
+    );
 }
 
 #[test]

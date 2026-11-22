@@ -153,6 +153,62 @@ fn flushing_twice_without_new_data_does_not_reapply_old_updates() {
 }
 
 #[test]
+fn prepared_runtime_survives_an_intervening_non_prepared_publish() {
+    let doc = empty_doc();
+    let mut engine = Engine::new(EngineConfig::new(48_000, 128));
+    engine.set_control_sync_frames(1);
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+
+    producer.data_mut().set_prepared_runtime(prepare(&doc));
+    producer.flush();
+
+    // The audio thread has not consumed the prepared runtime yet. A second,
+    // non-prepared publish must carry it forward instead of discarding it.
+    producer.data_mut().set_metronome(MetronomeState {
+        enabled: true,
+        beats_per_bar: 4,
+    });
+    producer.flush();
+
+    let mut output = vec![0.0_f32; 128 * 2];
+    engine
+        .process(&mut output, 128)
+        .expect("the prepared runtime must survive the metronome publish");
+}
+
+#[test]
+fn metronome_only_update_keeps_the_playhead_target() {
+    let doc = empty_doc();
+    let mut engine = Engine::new(EngineConfig::new(48_000, 128));
+    engine.set_control_sync_frames(1);
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+
+    producer.data_mut().set_prepared_runtime(prepare(&doc));
+    producer.data_mut().set_transport(transport(0));
+    producer.flush();
+
+    let mut output = vec![0.0_f32; 128 * 2];
+    engine.process(&mut output, 128).unwrap();
+    assert_eq!(engine.transport().playhead_samples, 128.0);
+
+    producer.data_mut().set_metronome(MetronomeState {
+        enabled: true,
+        beats_per_bar: 4,
+    });
+    producer.flush();
+    engine.process(&mut output, 128).unwrap();
+
+    assert_eq!(
+        engine.transport().playhead_samples,
+        256.0,
+        "a metronome-only update must not seek or rewind the playhead"
+    );
+    assert!(engine.transport().playing);
+}
+
+#[test]
 fn remote_sink_receives_serializable_control_updates() {
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut producer = EngineControl::new();

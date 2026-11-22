@@ -287,6 +287,27 @@ pub fn lower_slice_plan(
             EditOp::Remove { object } => {
                 out.retain(|slice| slice.id != *object);
             }
+            EditOp::Split { object, at } => {
+                let Some(slice) = out.iter().find(|slice| slice.id == *object).cloned() else {
+                    continue;
+                };
+                let Some(interval) = slice_interval(map, &slice) else {
+                    continue;
+                };
+                if interval.start >= *at || *at >= interval.end {
+                    continue;
+                }
+                let Some(left) = slice_segment(map, &slice, interval.start, *at) else {
+                    continue;
+                };
+                let Some(mut right) = slice_segment(map, &slice, *at, interval.end) else {
+                    continue;
+                };
+                right.id = SliceId::from_uuid(Uuid::new_v4());
+                out.retain(|candidate| candidate.id != *object);
+                out.push(left);
+                out.push(right);
+            }
             EditOp::Move { object, span, .. } => {
                 if let Some(slice) = out.iter_mut().find(|slice| slice.id == *object) {
                     slice.start = span.start;

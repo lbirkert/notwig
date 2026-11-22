@@ -49,13 +49,18 @@ audio engine reads.
 1. Modify `engine_data` freely without locking.
 2. Lock the slot.
 3. Exchange the app box with the slot box.
-4. Set `updated = true`.
-5. Unlock and keep the returned (previous) box.
-6. Clear the returned box on the app thread so it can be reused.
+4. If the outgoing box has no prepared runtime but the box still in the slot
+   does, move the pending `PreparedRuntime` into the outgoing box first. A
+   non-prepared publish can therefore never discard a runtime the audio thread
+   has not consumed yet.
+5. Set `updated = true`.
+6. Unlock and keep the returned (previous) box.
+7. Clear the returned box on the app thread so it can be reused.
 
 The returned box may contain the audio thread's retired runtime, plan, schedule,
 or scratch buffers. Dropping and clearing it on the app thread keeps frees off
-the audio thread.
+the audio thread. Two prepared publishes replace each other; the newest wins and
+the older runtime is dropped on the app thread.
 
 ### Audio sync
 
@@ -115,13 +120,15 @@ next interval tries again.
 - track state updates (mute, solo, gain, pan);
 - parameter updates;
 - an optional one-shot transport update;
+- an optional metronome-only update;
 - an optional all-notes-off request;
 - an optional full asset map;
 - an optional `PreparedRuntime` for structural changes.
 
 Normal mixer, parameter, schedule, and asset updates omit `PreparedRuntime`, so
 the existing DSP runtime and its delay lines, active notes, and processor state
-stay in place.
+stay in place. A metronome-only update also omits the transport, so toggling the
+click never moves the playhead or clears sustained notes.
 
 The runtime measures each device's input and output peaks around `process` and
 keeps them in an `ActivePlan` map. `Engine::device_meter_snapshot` exposes that
@@ -133,6 +140,14 @@ the UI thread.
 Transport updates carry a playhead target and are only applied when a transport
 command staged one. A mixer or parameter publish must not rewind the playhead,
 so ordinary control snapshots do not set `transport`.
+
+### Runtime swaps and seeks re-prime notes
+
+A new `ActivePlan` has no active-note state. After installing a prepared runtime,
+and after a transport update that actually changes the playhead, the engine asks
+the runtime to prime notes that cover the current playhead: the next block emits
+note-ons at offset zero for those notes. Unchanged transport publishes do not
+re-prime already-active notes.
 
 ### Assets are swapped as a map
 
@@ -179,22 +194,26 @@ the audio callback.
 3. A sync point under contention is skipped, never waited on.
 4. A control update without a transport update never changes the playhead.
 5. A control update without a prepared runtime never resets DSP state.
-6. Retired audio-side allocations return through the exchange and are dropped on
+6. A pending prepared runtime survives any number of non-prepared publishes until
+   the audio thread consumes it.
+7. Retired audio-side allocations return through the exchange and are dropped on
    the app thread.
-7. Structural values are fully prepared before they are published.
-8. Offline rendering and unit tests may still use `Engine::apply`/`process`
+8. Structural values are fully prepared before they are published.
+9. Offline rendering and unit tests may still use `Engine::apply`/`process`
    directly; the shared exchange path is the real-time path.
-9. The final interleaved output is hard-clipped to +10 dBFS and non-finite
-   samples are replaced with silence. This protects speakers from runaway plugin
-   output when a plugin is enabled, disabled, or reloaded.
+10. The final interleaved output is hard-clipped to +10 dBFS and non-finite
+    samples are replaced with silence. This protects speakers from runaway plugin
+    output when a plugin is enabled, disabled, or reloaded.
+11. The app only records a live playhead into the document on save; it does not
+    publish it back as a seek while the engine owns playback.
 
 ## 9. Tests
 
 - `notwig-engine/tests/control.rs` covers the exchange, interval gating,
-  prepared-runtime installation, transport application, and playhead
-  publication.
+  prepared-runtime installation and durability across non-prepared publishes,
+  transport application, playhead publication, and metronome-only updates.
 - `notwig-engine/tests/render.rs` and `tests/pdc.rs` retain offline behavior
-  parity.
+  parity, including re-priming sustained notes after a runtime swap or seek.
 - `notwig-app/tests/transport.rs` exercises transport timing through the app.
 - `notwig-app/tests/workspace.rs` covers async engine preparation and the
   app-side control path.

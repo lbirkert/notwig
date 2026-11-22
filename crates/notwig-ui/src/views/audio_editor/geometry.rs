@@ -4,14 +4,11 @@ use notwig_core::{RangeMus, SliceId, TempoMap, TimeMus};
 
 use crate::shell::NotwigUi;
 use crate::state::SelectionGroup;
-use crate::timeline::interaction::trim_range;
-use crate::widgets::snap_time;
+use crate::timeline::interaction::{snapped_start, trim_range};
 
 use super::actions::apply_slice_edit;
 use super::model::SliceModel;
 use super::state::{ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, SliceDragMode};
-
-const MICRO: u32 = 1_000_000;
 
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
@@ -29,14 +26,6 @@ impl SliceGeometry {
                 .saturating_add(self.source_end.saturating_sub(self.source_start)),
         )
     }
-}
-
-fn micro_time(value: f64) -> TimeMus {
-    signed_time(value)
-}
-
-fn signed_time(value: f64) -> TimeMus {
-    TimeMus::new((value * f64::from(MICRO)).round() as i64, MICRO)
 }
 
 pub fn clamp_slice_start(start: TimeMus, min_start: TimeMus) -> TimeMus {
@@ -95,20 +84,28 @@ fn clamp_slice_group_shift(requested: TimeMus, starts: &[TimeMus], min_start: Ti
     requested.max(min_start - min)
 }
 
+fn snap_local_start(
+    local_origin: TimeMus,
+    clip_start: TimeMus,
+    delta: f64,
+    grid: TimeMus,
+    bypass: bool,
+) -> TimeMus {
+    let absolute_origin = clip_start + local_origin;
+    snapped_start(absolute_origin, delta, grid, bypass) - clip_start
+}
+
 pub fn group_move_shift(
     drag: SliceDrag,
     delta_mus: f64,
+    clip_start: TimeMus,
     grid: TimeMus,
     bypass: bool,
     min_start: TimeMus,
     starts: &[TimeMus],
 ) -> TimeMus {
     let anchor = clamp_slice_start(
-        snap_time(
-            micro_time(drag.origin_start.as_f64() + delta_mus),
-            grid,
-            bypass,
-        ),
+        snap_local_start(drag.origin_start, clip_start, delta_mus, grid, bypass),
         min_start,
     );
     clamp_slice_group_shift(anchor - drag.origin_start, starts, min_start)
@@ -125,6 +122,7 @@ pub fn slice_geometry(
     delta_mus: f64,
     move_shift: TimeMus,
     map: &TempoMap,
+    clip_start: TimeMus,
     grid: TimeMus,
     bypass: bool,
     min_start: TimeMus,
@@ -144,11 +142,7 @@ pub fn slice_geometry(
                 }
                 SliceDragMode::TrimStart => {
                     let start = clamp_slice_start(
-                        snap_time(
-                            micro_time(drag.origin_start.as_f64() + delta_mus),
-                            grid,
-                            bypass,
-                        ),
+                        snap_local_start(drag.origin_start, clip_start, delta_mus, grid, bypass),
                         min_start,
                     );
                     let delta = samples_for_delta(start - drag.origin_start, map);
@@ -163,7 +157,15 @@ pub fn slice_geometry(
                     geometry.start = start;
                 }
                 SliceDragMode::TrimEnd => {
-                    let source_delta = samples_for_delta(signed_time(delta_mus), map);
+                    let origin_end = drag.origin_start
+                        + map.samples_to_mus(
+                            drag.origin_silent_prefix.saturating_add(
+                                drag.origin_source_end
+                                    .saturating_sub(drag.origin_source_start),
+                            ),
+                        );
+                    let end = snap_local_start(origin_end, clip_start, delta_mus, grid, bypass);
+                    let source_delta = samples_for_delta(end - origin_end, map);
                     let source = i128::from(drag.origin_source_end) + i128::from(source_delta);
                     let min_end = drag.origin_source_start.saturating_add(1);
                     geometry.source_end = u64::try_from(source).unwrap_or(min_end).max(min_end);
@@ -195,7 +197,15 @@ pub(super) fn finish_slice_drag(
     });
     let starts = group_starts(&slices, &state.selected, Some(drag));
     let min_start = TimeMus::zero() - clip_range.start;
-    let move_shift = group_move_shift(drag, delta_mus, grid, bypass, min_start, &starts);
+    let move_shift = group_move_shift(
+        drag,
+        delta_mus,
+        clip_range.start,
+        grid,
+        bypass,
+        min_start,
+        &starts,
+    );
     let model = SliceModel {
         slices: &slices,
         map: *map,
@@ -213,11 +223,7 @@ pub(super) fn finish_slice_drag(
         }
         SliceDragMode::TrimStart => {
             let target = clamp_slice_start(
-                snap_time(
-                    micro_time(drag.origin_start.as_f64() + delta_mus),
-                    grid,
-                    bypass,
-                ),
+                snap_local_start(drag.origin_start, clip_range.start, delta_mus, grid, bypass),
                 min_start,
             );
             edit::trim_object(&model, drag.slice_id, edit::Edge::Start, target)
@@ -229,7 +235,8 @@ pub(super) fn finish_slice_drag(
                         .saturating_sub(drag.origin_source_start),
                 ),
             );
-            let target = signed_time((drag.origin_start + duration).as_f64() + delta_mus);
+            let origin_end = drag.origin_start + duration;
+            let target = snap_local_start(origin_end, clip_range.start, delta_mus, grid, bypass);
             edit::trim_object(&model, drag.slice_id, edit::Edge::End, target)
         }
     };

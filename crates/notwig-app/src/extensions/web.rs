@@ -10,6 +10,7 @@ use notwig_ext::{
     ExtensionArchive, WebExtensionHost, WebExtensionPackage, read_archive, validate_extension_id,
 };
 use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
+use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 
 use super::ExtensionEvent;
@@ -21,6 +22,7 @@ use crate::web::storage::OpfsEntryKind;
 
 const EXTENSIONS_DIR: &str = "notwig-extensions";
 const CONFIG_KEY: &str = "notwig.extension-config";
+const STOCK_PACKAGE: &str = "extensions/ext-devices-wasm.zip";
 
 pub(crate) struct ExtensionManager {
     config: ExtensionConfig,
@@ -73,9 +75,11 @@ impl ExtensionManager {
         self.loading = true;
         let (sender, receiver) = mpsc::channel();
         self.load_rx = Some(receiver);
+        let config = self.config.clone();
         spawn_local(async move {
-            let (packages, errors) = load_packages().await;
-            let host = WebExtensionHost::load(packages);
+            let (packages, mut errors) = load_packages().await;
+            let host = WebExtensionHost::load(packages, &config);
+            errors.extend(host.errors().iter().cloned());
             let _ = sender.send(LoadOutcome { host, errors });
         });
     }
@@ -138,7 +142,11 @@ impl ExtensionManager {
         self.index_rx = None;
         self.index_loading = false;
         self.index_loaded = true;
-        self.index_entries = result.entries;
+        self.index_entries = result
+            .entries
+            .into_iter()
+            .filter(ExtensionIndexEntry::is_available_to_wasm)
+            .collect();
         self.index_errors = result.errors;
     }
 
@@ -332,8 +340,11 @@ impl ExtensionManager {
         Ok(())
     }
 
-    pub(crate) fn set_enabled(&mut self, _id: &str, _enabled: bool) {
-        // Browser extensions are always enabled.
+    pub(crate) fn set_enabled(&mut self, id: &str, enabled: bool) {
+        let entry = self.config.settings.entry(id.to_owned()).or_default();
+        entry.enabled = enabled;
+        self.persist();
+        self.reload();
     }
 
     fn persist(&self) {
@@ -356,25 +367,27 @@ impl ExtensionManager {
 }
 
 async fn load_packages() -> (Vec<WebExtensionPackage>, Vec<String>) {
-    let mut packages = Vec::new();
+    let mut packages = BTreeMap::new();
     let mut errors = Vec::new();
-    let entries = match crate::web::storage::list_opfs_entries(EXTENSIONS_DIR).await {
-        Ok(entries) => entries,
-        Err(error) => return (packages, vec![format!("{EXTENSIONS_DIR}: {error}")]),
-    };
+    let entries = crate::web::storage::list_opfs_entries(EXTENSIONS_DIR)
+        .await
+        .unwrap_or_else(|error| {
+            errors.push(format!("{EXTENSIONS_DIR}: {error}"));
+            Vec::new()
+        });
     for (name, kind) in entries {
         match kind {
             OpfsEntryKind::Directory => {
                 let path = format!("{EXTENSIONS_DIR}/{name}");
                 match load_directory(&path).await {
-                    Ok(package) => packages.push(package),
+                    Ok(package) => insert_package(&mut packages, package),
                     Err(error) => errors.push(format!("{path}: {error}")),
                 }
             }
             OpfsEntryKind::File if is_zip_name(&name) => {
                 let path = format!("{EXTENSIONS_DIR}/{name}");
                 match migrate_zip(&path).await {
-                    Ok(Some(package)) => packages.push(package),
+                    Ok(Some(package)) => insert_package(&mut packages, package),
                     Ok(None) => {}
                     Err(error) => errors.push(format!("{path}: {error}")),
                 }
@@ -382,8 +395,34 @@ async fn load_packages() -> (Vec<WebExtensionPackage>, Vec<String>) {
             OpfsEntryKind::File => {}
         }
     }
-    packages.sort_by(|left, right| left.id().cmp(right.id()));
-    (packages, errors)
+    match load_stock_package().await {
+        Ok(Some(package)) => insert_package(&mut packages, package),
+        Ok(None) => {}
+        Err(error) => errors.push(error),
+    }
+    (packages.into_values().collect(), errors)
+}
+
+fn insert_package(
+    packages: &mut BTreeMap<String, WebExtensionPackage>,
+    package: WebExtensionPackage,
+) {
+    packages.entry(package.id().to_owned()).or_insert(package);
+}
+
+async fn load_stock_package() -> Result<Option<WebExtensionPackage>, String> {
+    let Some(base) = site_base_url() else {
+        return Ok(None);
+    };
+    let url = format!("{base}/{STOCK_PACKAGE}");
+    let Some(bytes) = crate::web::storage::fetch_bytes(&url).await? else {
+        tracing::debug!(url = %url, "stock extension package not found");
+        return Ok(None);
+    };
+    let archive = read_archive(&bytes, None).map_err(|error| format!("{url}: {error}"))?;
+    WebExtensionPackage::from_archive(archive)
+        .map(Some)
+        .map_err(|error| format!("{url}: {error}"))
 }
 
 async fn load_directory(path: &str) -> Result<WebExtensionPackage, String> {
@@ -466,14 +505,41 @@ fn opfs_path(path: &Path) -> String {
 }
 
 fn load_config() -> ExtensionConfig {
-    let Some(text) = web_sys::window()
+    let mut config = match web_sys::window()
         .and_then(|window| window.local_storage().ok().flatten())
         .and_then(|storage| storage.get_item(CONFIG_KEY).ok().flatten())
-    else {
-        return ExtensionConfig::default();
+    {
+        Some(text) => ExtensionConfig::from_json(&text).unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "ignoring invalid extension config");
+            ExtensionConfig::default()
+        }),
+        None => ExtensionConfig::default(),
     };
-    ExtensionConfig::from_json(&text).unwrap_or_else(|error| {
-        tracing::warn!(error = %error, "ignoring invalid extension config");
-        ExtensionConfig::default()
-    })
+    if let Some(base) = site_base_url() {
+        config.resolve_default_index(&base);
+    }
+    config
+}
+
+/// The site base under which `extensions.json` and the stock package live.
+/// This strips the usual `/app/` deployment suffix so those assets resolve
+/// from the documentation root rather than the application subdirectory.
+fn site_base_url() -> Option<String> {
+    let window = web_sys::window()?;
+    let location = js_sys::Reflect::get(&window, &JsValue::from_str("location")).ok()?;
+    let origin = js_sys::Reflect::get(&location, &JsValue::from_str("origin"))
+        .ok()?
+        .as_string()?;
+    if origin.is_empty() || origin == "null" {
+        return None;
+    }
+    let pathname = js_sys::Reflect::get(&location, &JsValue::from_str("pathname"))
+        .ok()
+        .and_then(|value| value.as_string())
+        .unwrap_or_default();
+    let path = pathname.trim_end_matches('/');
+    let path = path.strip_suffix("/index.html").unwrap_or(path);
+    let path = path.strip_suffix("/app").unwrap_or(path);
+    let path = path.trim_end_matches('/');
+    Some(format!("{origin}{path}"))
 }

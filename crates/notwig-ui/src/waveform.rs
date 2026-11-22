@@ -8,12 +8,29 @@ use notwig_core::{AssetId, AudioAssetBuffer};
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
 const BASE_BUCKET: u64 = 64;
-const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 8.0;
-/// Keep the sample-graph path bounded on very wide viewports. Once the visible
-/// span exceeds this many samples, the area envelope takes over.
-const MAX_SAMPLE_GRAPH_POINTS: f64 = 8_192.0;
+/// Once a pixel covers fewer samples than the baseline pyramid bucket, the
+/// sample graph is the only renderer. There is no intermediate per-sample
+/// envelope stage between the pyramid and the sample graph.
+const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = BASE_BUCKET as f64;
 const FILL: Color32 = Color32::from_black_alpha(132);
 const LINE: Color32 = Color32::from_black_alpha(190);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WaveformMode {
+    Envelope,
+    SampleGraph,
+}
+
+/// Pick the renderer from the current zoom. The sample graph takes over as soon
+/// as the pyramid would stop being sufficient; between that point and the
+/// closest zoom there is no separate finer-grained envelope mode.
+fn waveform_mode(samples_per_pixel: f64) -> WaveformMode {
+    if samples_per_pixel <= SAMPLE_GRAPH_SAMPLES_PER_PIXEL {
+        WaveformMode::SampleGraph
+    } else {
+        WaveformMode::Envelope
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioWaveform {
@@ -72,9 +89,8 @@ impl AudioWaveform {
 
     fn level_for(&self, samples_per_pixel: f64) -> Option<&PeakLevel> {
         if samples_per_pixel < BASE_BUCKET as f64 {
-            // Below the baseline bucket, derive per-pixel extents from the
-            // decoded samples so the envelope keeps gaining detail as the user
-            // zooms in.
+            // Rendering uses the sample graph below the baseline bucket; this
+            // fallback only serves exact-data helpers and defensive callers.
             return None;
         }
         let index = self
@@ -192,11 +208,11 @@ pub(crate) fn draw_waveform(
     };
     let samples_per_pixel = (end - start) / f64::from(rect.width().max(1.0));
     let painter = painter.with_clip_rect(rect);
-    let span = end - start;
-    if samples_per_pixel <= SAMPLE_GRAPH_SAMPLES_PER_PIXEL && span <= MAX_SAMPLE_GRAPH_POINTS {
-        draw_sample_graph(&painter, rect, waveform, start, end);
-    } else {
-        draw_envelope(&painter, rect, waveform, start, end, samples_per_pixel);
+    match waveform_mode(samples_per_pixel) {
+        WaveformMode::SampleGraph => draw_sample_graph(&painter, rect, waveform, start, end),
+        WaveformMode::Envelope => {
+            draw_envelope(&painter, rect, waveform, start, end, samples_per_pixel);
+        }
     }
 }
 
@@ -396,6 +412,11 @@ pub mod test_api {
 
     pub fn sample(waveform: &AudioWaveform, frame: u64) -> f32 {
         waveform.sample(frame)
+    }
+
+    /// Test-friendly projection of the private render-mode choice.
+    pub fn uses_sample_graph(samples_per_pixel: f64) -> bool {
+        super::waveform_mode(samples_per_pixel) == super::WaveformMode::SampleGraph
     }
 
     pub fn waveform_region(

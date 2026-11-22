@@ -4,7 +4,7 @@ use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData};
 use notwig_core::tracks::TrackKind;
 use notwig_core::{Id, Meta, ProjectDoc, RangeMus, SampleRate, TimeMus};
-use notwig_ui::{NotwigUi, RuntimeView, UiIntent};
+use notwig_ui::{NotwigUi, RuntimeView, SnapLevel, SnapSettings, UiIntent};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -448,6 +448,90 @@ fn shift_dragging_a_clip_bypasses_grid_snapping() {
         "shift should keep the unsnapped start, got {}",
         range.start.as_f64()
     );
+}
+
+#[test]
+fn dragging_a_clip_snaps_its_absolute_start_when_it_began_off_grid() {
+    let track = id::<Track>(2);
+    let clip = id::<Clip>(20);
+    let doc = with_midi_clip(
+        &with_track(&empty_doc(), 2, TrackKind::Instrument),
+        track,
+        20,
+        TimeMus::new(3, 10),
+        TimeMus::new(43, 10),
+    );
+    let (mut ui, ctx, runtime, _) = mount(&doc, 900.0);
+    ui.state.snap = SnapSettings {
+        enabled: true,
+        adaptive: false,
+        level: SnapLevel::new(1, 4),
+    };
+    let row = *ui.track_rows.get(&track).expect("track row");
+    let ppb = ui.state.viewport.pixels_per_beat;
+    let start = Pos2::new(x_for_beat(&ui, 1.0), row.top() + 12.0);
+    let end = Pos2::new(start.x + ppb * 0.37, start.y);
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        900.0,
+        0.1,
+        egui::Modifiers::default(),
+        vec![egui::Event::PointerMoved(start)],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        900.0,
+        0.12,
+        egui::Modifiers::default(),
+        vec![button(start, true, false)],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        900.0,
+        0.14,
+        egui::Modifiers::default(),
+        vec![egui::Event::PointerMoved(start + Vec2::new(0.0, 8.0))],
+    );
+    let _ = frame(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        900.0,
+        0.16,
+        egui::Modifiers::default(),
+        vec![egui::Event::PointerMoved(end)],
+    );
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen(900.0)),
+            time: Some(0.18),
+            modifiers: egui::Modifiers::default(),
+            events: vec![button(end, false, false)],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let range = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::MoveClip { clip_id, range, .. } if *clip_id == clip => Some(*range),
+            _ => None,
+        })
+        .expect("drag should move the clip");
+    assert_eq!(range.start, TimeMus::new(1, 1));
 }
 
 #[test]

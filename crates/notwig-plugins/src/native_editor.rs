@@ -5,7 +5,7 @@ use crate::types::{PluginDescriptor, PluginError, PluginFormat};
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::{BTreeMap, BTreeSet};
     use std::ffi::CString;
     use std::ptr;
@@ -34,6 +34,9 @@ mod imp {
     thread_local! {
         static SPACE_MONITOR: RefCell<Option<Retained<AnyObject>>> =
             const { RefCell::new(None) };
+        // Tracks whether the matching Space key-down was swallowed, so the
+        // plugin never sees a lone key-up after we consume its key-down.
+        static SPACE_KEY_DOWN_SWALLOWED: Cell<bool> = const { Cell::new(false) };
     }
 
     pub struct NativePluginWindow {
@@ -224,8 +227,8 @@ mod imp {
         }
 
         /// Returns and clears a playback-toggle request recorded while a plugin
-        /// window was key. The Space key itself has already been delivered to
-        /// the plugin editor.
+        /// window was key. The Space key that triggered it is swallowed by the
+        /// event monitor and never reaches the plugin editor.
         pub fn take_playback_toggle(&mut self) -> bool {
             PLAYBACK_TOGGLE_PENDING.swap(false, Ordering::AcqRel)
         }
@@ -375,13 +378,23 @@ mod imp {
                 return;
             }
             let block = RcBlock::new(|event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+                let event_ptr = event.as_ptr();
                 unsafe {
-                    record_space_toggle(event.as_ptr());
+                    if record_space_toggle(event_ptr) {
+                        SPACE_KEY_DOWN_SWALLOWED.with(|swallowed| swallowed.set(true));
+                        return ptr::null_mut();
+                    }
+                    if swallow_owned_space_key_up(event_ptr) {
+                        return ptr::null_mut();
+                    }
                 }
-                event.as_ptr()
+                event_ptr
             });
             let monitor = unsafe {
-                NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+                NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                    NSEventMask::KeyDown | NSEventMask::KeyUp,
+                    &block,
+                )
             };
             if let Some(monitor) = monitor {
                 *slot.borrow_mut() = Some(monitor);
@@ -402,20 +415,80 @@ mod imp {
         });
     }
 
-    unsafe fn record_space_toggle(event: *mut NSEvent) {
-        if event.is_null() {
-            return;
-        }
-        let event = unsafe { &*event };
-        if event.r#type() != NSEventType::KeyDown
-            || event.isARepeat()
-            || event.keyCode() != SPACE_KEY_CODE
-        {
-            return;
+    /// Records a transport toggle for a Space key-down aimed at a plugin window.
+    ///
+    /// Returns `true` when the event belongs to the plugin-window transport
+    /// shortcut and must be swallowed by the monitor. Key repeats are swallowed
+    /// but do not toggle transport again. Events whose first responder is a
+    /// text view or field editor return `false` so spaces can be typed into
+    /// plugin text fields.
+    unsafe fn record_space_toggle(event: *mut NSEvent) -> bool {
+        let Some(event) = (unsafe { event.as_ref() }) else {
+            return false;
+        };
+        if event.r#type() != NSEventType::KeyDown || event.keyCode() != SPACE_KEY_CODE {
+            return false;
         }
         let event_window: *mut AnyObject = unsafe { msg_send![event, window] };
-        if is_plugin_window(event_window) || is_plugin_window(key_window()) {
+        let window = if is_plugin_window(event_window) {
+            event_window
+        } else {
+            let key_window = key_window();
+            if !is_plugin_window(key_window) {
+                return false;
+            }
+            key_window
+        };
+        if first_responder_accepts_text_input(window) {
+            // A new key-down supersedes any key-up ownership we still held.
+            SPACE_KEY_DOWN_SWALLOWED.with(|swallowed| swallowed.set(false));
+            return false;
+        }
+        if !event.isARepeat() {
             PLAYBACK_TOGGLE_PENDING.store(true, Ordering::Release);
+        }
+        true
+    }
+
+    /// Swallows the Space key-up paired with a key-down we already consumed.
+    unsafe fn swallow_owned_space_key_up(event: *mut NSEvent) -> bool {
+        let Some(event) = (unsafe { event.as_ref() }) else {
+            return false;
+        };
+        if event.r#type() != NSEventType::KeyUp || event.keyCode() != SPACE_KEY_CODE {
+            return false;
+        }
+        SPACE_KEY_DOWN_SWALLOWED.with(|swallowed| swallowed.replace(false))
+    }
+
+    /// True when the window's first responder is an `AppKit` text view or field
+    /// editor, which must keep receiving spaces.
+    fn first_responder_accepts_text_input(window: *mut AnyObject) -> bool {
+        if window.is_null() {
+            return false;
+        }
+        let responder: *mut AnyObject = unsafe { msg_send![window, firstResponder] };
+        is_text_input_responder(responder)
+    }
+
+    fn is_text_input_responder(responder: *mut AnyObject) -> bool {
+        if responder.is_null() {
+            return false;
+        }
+        // `NSText` covers field editors and `NSTextView` subclasses without
+        // requiring their AppKit features to be enabled in this crate.
+        let Some(text_class) = AnyClass::get(c"NSText") else {
+            return false;
+        };
+        let mut class = unsafe { (*responder).class() };
+        loop {
+            if ptr::eq(class, text_class) {
+                return true;
+            }
+            match class.superclass() {
+                Some(superclass) => class = superclass,
+                None => return false,
+            }
         }
     }
 

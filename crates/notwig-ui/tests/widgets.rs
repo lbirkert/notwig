@@ -4,12 +4,13 @@ use notwig_ui::{snap_step, snap_time};
 
 #[test]
 fn snapping_step_adapts_to_zoom() {
-    let far = snap_step(16.0, 4);
-    let near = snap_step(100.0, 4);
+    let four_four = TimeMus::new(4, 1);
+    let far = snap_step(16.0, four_four);
+    let near = snap_step(100.0, four_four);
     assert!(far > near, "zoomed out should snap coarser");
     assert_eq!(near, TimeMus::new(1, 2));
     assert!(
-        snap_step(1_000.0, 4) < near,
+        snap_step(1_000.0, four_four) < near,
         "zooming further in should expose finer subdivisions"
     );
 }

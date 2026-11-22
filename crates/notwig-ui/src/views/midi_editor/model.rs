@@ -220,6 +220,24 @@ pub fn lower_note_plan(
             EditOp::Remove { object } => {
                 out.retain(|note| note.id != *object);
             }
+            EditOp::Split { object, at } => {
+                let Some(index) = out.iter().position(|note| note.id == *object) else {
+                    continue;
+                };
+                let note = out[index].clone();
+                let end = note.start + note.length;
+                if note.start >= *at || *at >= end {
+                    continue;
+                }
+                let mut left = note.clone();
+                left.length = *at - note.start;
+                let mut right = note;
+                right.id = NoteId::from_uuid(Uuid::new_v4());
+                right.start = *at;
+                right.length = end - *at;
+                out[index] = left;
+                out.push(right);
+            }
             EditOp::Move {
                 object, lane, span, ..
             } => {
@@ -370,7 +388,10 @@ pub fn create_note_clearing(
         .collect();
     midi.notes = next;
     state.sync_notes(&midi.notes);
-    state.select_notes([note.id]);
+    // The first click of a double-click sets an explicit zero-width time
+    // selection. Select the new note non-additively so the derived time
+    // selection is recomputed to the note's span instead of staying collapsed.
+    state.select_note(note.id, false);
     if !changed.is_empty() || !removed.is_empty() {
         ui.emit(UiIntent::EditMidiNotes {
             clip_id: state.clip_id,

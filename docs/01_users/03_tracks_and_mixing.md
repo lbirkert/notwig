@@ -54,6 +54,11 @@ The info panel exposes the same controls and adds:
 
 Click a peak readout to reset its held value.
 
+While a track still has its automatic name, inserting an instrument renames an
+instrument track to that instrument's display name. Renaming the track yourself
+stops this automatic naming, and other track kinds keep their names when you add
+devices.
+
 ## Active state
 
 The power button in the info panel toggles a track's active state. Inactive

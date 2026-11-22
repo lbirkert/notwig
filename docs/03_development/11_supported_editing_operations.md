@@ -24,7 +24,7 @@ When a cell says "Time / Object", both selection modes work.
 | Select object | ✅ Object | ✅ Object | ✅ Object | Clip, audio event, and note. |
 | Additive select | ✅ | ✅ | ✅ | Cmd-click or Shift-click toggles an object. |
 | Marquee select | ❌ | ❌ | ✅ Object + Time | The MIDI marquee selects notes and forms a time selection. Arranger marquee selection is still planned. |
-| Select all | ❌ | ❌ | ❌ | No `ShortcutCommand`, no `UiIntent`, and no Cmd+A binding. `Key::A` is only used for Alt+A "Disable Track". |
+| Select all | ✅ | ✅ | ✅ | Cmd+A selects every clip, audio event, or note in the focused editor. |
 | Invert selection | ❌ | ❌ | ❌ | No command or intent. |
 | Create time selection | ✅ | ✅ | ✅ | Drag an empty lane or clip body. MIDI click on empty space creates a zero-width range. |
 | Move time selection | ✅ | ✅ | ❌ | Arranger and audio drag the selection body and move its content. MIDI has no drag-move; its range shifts only as a side effect of note nudges and duplicate. |
@@ -45,8 +45,8 @@ When a cell says "Time / Object", both selection modes work.
 | Create object | ✅ | 🧪 | ✅ | Arranger double-click creates a clip. MIDI double-click creates a note. Audio events are created only by dropping audio files; there is no empty-event draw tool. |
 | Mute object | ✅ | ❌ | ❌ | Arranger clips can be muted from the clip menu. Audio events and MIDI notes have no mute; clip-level mute is available through the info panel. |
 | Split at playhead | ✅ | ❌ | ❌ | Arranger clip context menu only. |
-| Split at time-selection point | ✅ | ❌ | ❌ | Arranger: Delete on a zero-width time selection. There is no scissors tool. |
-| Join adjacent objects | ✅ | ❌ | ❌ | Cmd+J joins same-lane, same-kind, adjacent clips. Works for audio and MIDI clips in the arranger. |
+| Split at time-selection point | ✅ | ✅ | ✅ | Delete on a zero-width time selection splits crossing clips, audio events, or notes. There is no scissors tool. |
+| Join adjacent objects | ✅ | ❌ | ❌ | Cmd+J joins same-lane, same-kind, adjacent clips. With a time selection, the intersected clips are used when fewer than two clips are explicitly selected. Works for audio and MIDI clips. |
 | Undo / redo | ✅ | ✅ | ✅ | Workspace-level. One user operation is one undo group. |
 
 ## 4. Editor-specific operations
@@ -87,10 +87,9 @@ tracked in [`Roadmap`](06_roadmap.md).
    `crates/notwig-core/src/edit/`. Each editor supplies an `EditModel` and a
    lowering step; none keeps a second copy of the operation math.
 
-2. **Select All is the clearest missing editing operation.** There is no
-   `SelectAll` command, no intent, and no keyboard binding. Adding it needs an
-   editor-aware intent: clips in the arranger, events in the audio editor, and
-   notes in the MIDI editor. The focused editor should choose the object set.
+2. **Selection is shared through the editors, including Select All.** Cmd+A is
+   a `SelectAll` command. The focused editor chooses the object set: clips in
+   the arranger, events in the audio editor, and notes in the MIDI editor.
 
 3. **Selection-gesture coverage is uneven.** MIDI has a real marquee. The
    arranger and audio editor can only create time selections by dragging, and
@@ -103,10 +102,10 @@ tracked in [`Roadmap`](06_roadmap.md).
    - MIDI editor: create, but no direct move or edge trim. The range is used as
      a clipboard and duplicate anchor and follows note nudges.
 
-5. **Split and join are arranger-only.** The arranger splits at the playhead
-   and at a zero-width time selection, and joins adjacent clips with Cmd+J.
-   Neither clip editor has a split or join command. Time-mode delete can trim
-   or split content as a side effect, but it is not a split tool.
+5. **Point split works in every editor; join is arranger-only.** Delete on a
+   zero-width time selection emits `EditOp::Split` for crossing clips, events,
+   or notes. Cmd+J joins adjacent arranger clips, using the time selection when
+   no two clips are explicitly selected. Neither clip editor has a join command.
 
 6. **Object creation differs by editor.** Arranger and MIDI create objects with
    a double-click. The audio editor creates events only by dropping audio

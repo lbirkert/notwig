@@ -5,7 +5,7 @@ use notwig_core::{ProjectDoc, RangeMus, TimeMus, TrackId};
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
 use crate::timeline::interaction::{
-    drag_current_pos, drag_start_pos, pointer_delta, snapped_delta, trim_range,
+    drag_current_pos, drag_start_pos, pointer_delta, snapped_start, trim_range,
 };
 
 use super::{BarSelectionDrag, BarSelectionEdge};
@@ -121,9 +121,8 @@ impl NotwigUi {
                 let current = drag_current_pos(ui, &body_response, drag.start_pointer);
                 let bypass = self.state.snap.bypassed(ui.input(|i| i.modifiers));
                 let delta = pointer_delta(drag.start_pointer, current, ppb);
-                let requested = snapped_delta(drag.origin.start, delta, grid, bypass);
-                let preview_start = drag.origin.start + requested;
-                let preview_end = drag.origin.end + requested;
+                let preview_start = snapped_start(drag.origin.start, delta, grid, bypass);
+                let preview_end = preview_start + drag.origin.length();
                 if let Ok(range) = RangeMus::new(preview_start, preview_end) {
                     self.state.selection.select_time(range, &drag.tracks);
                 }
@@ -140,7 +139,8 @@ impl NotwigUi {
             let current = drag_current_pos(ui, &body_response, drag.start_pointer);
             let bypass = self.state.snap.bypassed(ui.input(|i| i.modifiers));
             let delta = pointer_delta(drag.start_pointer, current, ppb);
-            let requested = snapped_delta(drag.origin.start, delta, grid, bypass);
+            let requested =
+                snapped_start(drag.origin.start, delta, grid, bypass) - drag.origin.start;
             if requested != TimeMus::zero() {
                 self.emit(UiIntent::MoveTimeSelection {
                     range: drag.origin,

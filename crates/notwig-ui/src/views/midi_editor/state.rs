@@ -74,6 +74,21 @@ fn all_pitches() -> BTreeSet<Pitch> {
     (0..=127).map(Pitch).collect()
 }
 
+/// Upper bound on the wall-clock length of a UI-triggered note audition. A
+/// click on a long note should give a short reference, not sustain it for its
+/// whole duration.
+pub(super) const MAX_PREVIEW_SECONDS: f64 = 0.25;
+
+pub(super) fn capped_preview_length(length: TimeMus, tempo_bpm: f64) -> TimeMus {
+    let max_beats = MAX_PREVIEW_SECONDS * tempo_bpm.max(1.0) / 60.0;
+    let max = TimeMus::new((max_beats * 1_000_000.0).round() as i64, 1_000_000);
+    length.min(max)
+}
+
+pub(super) fn preview_highlight_seconds(length: TimeMus, tempo_bpm: f64) -> f64 {
+    (length.as_f64() * 60.0 / tempo_bpm.max(1.0)).clamp(0.08, MAX_PREVIEW_SECONDS)
+}
+
 impl MidiEditorState {
     pub fn new(clip_id: ClipId) -> Self {
         Self {
@@ -153,6 +168,18 @@ impl MidiEditorState {
         for id in ids {
             self.selected.insert(id);
         }
+        self.recompute_derived_time();
+    }
+
+    #[doc(hidden)]
+    pub fn select_all_notes(&mut self, notes: &[NoteEntity]) {
+        self.selected.clear();
+        self.time_selection = None;
+        self.time_selection_explicit = false;
+        for note in notes {
+            self.selected.insert(note.id);
+        }
+        self.sync_notes(notes);
         self.recompute_derived_time();
     }
 

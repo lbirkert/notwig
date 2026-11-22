@@ -1,0 +1,4 @@
+- make sure notwig extension api is roughly stable
+- make sure the core features work and are mostly bug proof
+- update versions (pre release/alpha?)
+- cargo publish

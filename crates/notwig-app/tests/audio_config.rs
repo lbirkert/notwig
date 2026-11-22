@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use notwig_app::audio::AudioSettings;
+use notwig_app::audio::{
+    AudioSettings, SYSTEM_OUT_DEVICE_ID, resolve_output_device_name, settings_view,
+};
 use notwig_app::audio_config::{load_from_path, save_to_path, validated};
 use notwig_ui::{AudioDeviceView, AudioDriverView};
 use uuid::Uuid;
@@ -84,6 +86,71 @@ fn config_tolerates_missing_and_extra_fields() {
     std::fs::write(&path, br#"{"driver":"CoreAudio","device":"Speakers"}"#).unwrap();
     let loaded = load_from_path(&path);
     assert_eq!(loaded.block_size, 512);
+
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn system_out_resolves_to_the_default_output_device() {
+    let default = resolve_output_device_name("", "");
+    let system_out = resolve_output_device_name("", SYSTEM_OUT_DEVICE_ID);
+    match (default, system_out) {
+        (Ok(default_name), Ok(system_name)) => assert_eq!(default_name, system_name),
+        (Err(default_error), Err(system_error)) => {
+            assert_eq!(default_error, system_error);
+        }
+        (default, system_out) => {
+            panic!(
+                "empty and system-out should resolve the same way: {default:?} vs {system_out:?}"
+            )
+        }
+    }
+}
+
+#[test]
+fn settings_view_warns_when_system_out_is_selected() {
+    let system_out = settings_view(Vec::new(), &settings("", SYSTEM_OUT_DEVICE_ID, 512), None);
+    assert_eq!(
+        system_out.warning.as_deref(),
+        Some("System Out follows the operating system's default output device.")
+    );
+
+    let hardware = settings_view(Vec::new(), &settings("", "Speakers", 512), None);
+    assert_eq!(hardware.warning, None);
+}
+
+#[test]
+fn validation_preserves_system_out_when_the_device_list_is_empty() {
+    let empty_driver = vec![AudioDriverView {
+        id: "CoreAudio".into(),
+        label: "CoreAudio".into(),
+        devices: Vec::new(),
+    }];
+    let kept = validated(
+        settings("CoreAudio", SYSTEM_OUT_DEVICE_ID, 256),
+        &empty_driver,
+    );
+    assert_eq!(kept.driver, "CoreAudio");
+    assert_eq!(kept.device, SYSTEM_OUT_DEVICE_ID);
+
+    let no_drivers = validated(settings("CoreAudio", SYSTEM_OUT_DEVICE_ID, 256), &[]);
+    assert_eq!(no_drivers.driver, "");
+    assert_eq!(no_drivers.device, SYSTEM_OUT_DEVICE_ID);
+
+    let no_driver = validated(settings("", SYSTEM_OUT_DEVICE_ID, 256), &[]);
+    assert_eq!(no_driver.device, SYSTEM_OUT_DEVICE_ID);
+}
+
+#[test]
+fn system_out_round_trips_through_persisted_config() {
+    let path = temp_path();
+    let saved = settings("CoreAudio", SYSTEM_OUT_DEVICE_ID, 128);
+    save_to_path(&path, &saved).unwrap();
+
+    let loaded = load_from_path(&path);
+    assert_eq!(loaded.driver, "CoreAudio");
+    assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
+    assert_eq!(loaded.block_size, 128);
 
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

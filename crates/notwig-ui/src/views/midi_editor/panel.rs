@@ -17,8 +17,9 @@ use crate::timeline::{BeatStrip, ClipChrome, TimelineGrid, playhead_for_strip};
 
 use super::actions::handle_midi_editor_actions;
 use super::geometry::{
-    ROW_HEIGHT, beat_from_content_time, clamp_pitch_scroll, clamp_pitch_shift, clamp_time_shift,
-    content_time_from_beat, pitch_for_y, snapped_shift, velocity_for_y, velocity_y, y_for_pitch,
+    ROW_HEIGHT, absolute_offset, beat_from_content_time, clamp_pitch_scroll, clamp_pitch_shift,
+    clamp_time_shift, content_time_from_beat, pitch_for_y, snapped_shift, velocity_for_y,
+    velocity_y, y_for_pitch,
 };
 use super::model::{
     MidiModel, Pitch, apply_note_lowered, create_note_clearing, default_note_end, lower_note_plan,
@@ -26,6 +27,7 @@ use super::model::{
 use super::navigation::{SCROLLBAR_H, midi_editor_navigation, midi_editor_scrollbar};
 use super::state::{
     MarqueeDrag, MidiEditorState, NoteDrag, NoteDragMode, NoteOrigin, VelocityDrag,
+    capped_preview_length, preview_highlight_seconds,
 };
 
 const KEY_WIDTH: f32 = 56.0;
@@ -78,9 +80,10 @@ impl NotwigUi {
             .viewport
             .pixels_per_beat
             .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
-        let beats_per_bar = doc.meta.time_sig_num.max(1);
+        let bar_length = doc.meta.bar_length();
+        let beat_length = doc.meta.beat_length();
         let mut snap = self.state.snap;
-        let grid = snap.step(ppb, beats_per_bar);
+        let grid = snap.step(ppb, bar_length);
 
         handle_midi_editor_actions(
             self,
@@ -93,7 +96,7 @@ impl NotwigUi {
             doc.meta.tempo_bpm,
         );
 
-        let open = crate::views::panel::bottom_panel(
+        let open = crate::views::panel::bottom_panel_styled(
             ctx,
             crate::views::panel::PanelConfig {
                 id: "midi_editor_panel",
@@ -105,6 +108,8 @@ impl NotwigUi {
                 handle_id: "midi-editor-panel",
                 handle_tooltip: "Drag down to close",
             },
+            theme::PANEL,
+            egui::Margin::same(0),
             |ui| {
                 let width = ui.available_width().max(320.0);
                 let height = ui.available_height().max(200.0);
@@ -140,16 +145,16 @@ impl NotwigUi {
                     .viewport
                     .pixels_per_beat
                     .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
-                let grid = snap.step(ppb, beats_per_bar);
+                let grid = snap.step(ppb, bar_length);
 
                 let painter = ui.painter().clone();
-                painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
+                painter.rect_filled(rect, CornerRadius::ZERO, theme::PANEL);
                 painter.rect_filled(header, CornerRadius::ZERO, theme::PANEL_LIGHT);
                 painter.rect_filled(note_area, CornerRadius::ZERO, theme::LANE);
                 painter.rect_filled(velocity, CornerRadius::ZERO, theme::PANEL_LIGHT);
 
                 let timeline_grid =
-                    TimelineGrid::new(state.viewport.start, ppb, beats_per_bar, snap);
+                    TimelineGrid::new(state.viewport.start, ppb, bar_length, beat_length, snap);
                 let strip_rect =
                     Rect::from_min_max(rect.min, egui::pos2(content.right(), rect.top() + RULER_H));
                 let strip = BeatStrip {
@@ -232,6 +237,7 @@ impl NotwigUi {
                 timeline_grid.draw(&clipped, note_area);
 
                 let bypass = snap.bypassed(ui.input(|input| input.modifiers));
+                let content_offset = absolute_offset(clip.range.start, midi.content_start);
                 let cursor_pos = ui
                     .input(|input| input.pointer.hover_pos())
                     .or_else(|| state.drag.as_ref().map(|drag| drag.origin_pointer));
@@ -410,7 +416,15 @@ impl NotwigUi {
                             .or_else(|| ui.input(|input| input.pointer.hover_pos()))
                             .unwrap_or(drag.origin_pointer);
                         finish_note_drag(
-                            self, &mut state, &mut midi, drag, release, ppb, grid, bypass,
+                            self,
+                            &mut state,
+                            &mut midi,
+                            drag,
+                            release,
+                            ppb,
+                            grid,
+                            bypass,
+                            content_offset,
                         );
                         preview_note_for_action(
                             self,
@@ -460,7 +474,15 @@ impl NotwigUi {
                                     .or_else(|| ui.input(|input| input.pointer.hover_pos()))
                                     .unwrap_or(drag.origin_pointer);
                                 finish_note_drag(
-                                    self, &mut state, &mut midi, drag, release, ppb, grid, bypass,
+                                    self,
+                                    &mut state,
+                                    &mut midi,
+                                    drag,
+                                    release,
+                                    ppb,
+                                    grid,
+                                    bypass,
+                                    content_offset,
                                 );
                                 preview_note_for_action(
                                     self,
@@ -622,7 +644,7 @@ impl NotwigUi {
                     content,
                     content_end,
                     ppb,
-                    beats_per_bar,
+                    bar_length,
                 );
                 self.state.snap = snap;
                 true
@@ -675,9 +697,11 @@ fn build_visuals(
     snap_grid: TimeMus,
     bypass: bool,
 ) -> Vec<NoteVisual> {
+    let offset = absolute_offset(clip.range.start, midi.content_start);
     let mut visuals = Vec::with_capacity(midi.notes.len());
     for note in &midi.notes {
-        let (span, pitch) = preview_span(note, state, pointer, snap_grid, bypass, midi.length);
+        let (span, pitch) =
+            preview_span(note, state, pointer, snap_grid, bypass, midi.length, offset);
         let x1 = grid.x_for_beat(
             beat_from_content_time(span.start, clip.range.start, midi.content_start),
             content_left,
@@ -712,6 +736,7 @@ fn preview_span(
     grid: TimeMus,
     bypass: bool,
     max_length: TimeMus,
+    offset: TimeMus,
 ) -> (RangeMus, u8) {
     let Some(drag) = state.drag.as_ref() else {
         return (
@@ -739,7 +764,7 @@ fn preview_span(
     match drag.mode {
         NoteDragMode::Move => {
             let shift = clamp_time_shift(
-                snapped_shift(drag.origin_start, delta, grid, bypass),
+                snapped_shift(drag.origin_start, offset, delta, grid, bypass),
                 &drag.origins,
                 max_length,
             );
@@ -756,7 +781,7 @@ fn preview_span(
             )
         }
         NoteDragMode::ResizeStart => {
-            let start = (origin.start + snapped_shift(origin.start, delta, grid, bypass))
+            let start = (origin.start + snapped_shift(origin.start, offset, delta, grid, bypass))
                 .max(TimeMus::zero())
                 .min(origin.start + origin.length - TimeMus::new(MIN_NOTE_LEN, MIN_NOTE_DEN));
             (
@@ -768,7 +793,7 @@ fn preview_span(
         NoteDragMode::ResizeEnd => {
             let end = (origin.start
                 + origin.length
-                + snapped_shift(origin.start + origin.length, delta, grid, bypass))
+                + snapped_shift(origin.start + origin.length, offset, delta, grid, bypass))
             .min(max_length)
             .max(origin.start + TimeMus::new(MIN_NOTE_LEN, MIN_NOTE_DEN));
             (
@@ -946,13 +971,14 @@ fn finish_note_drag(
     ppb: f32,
     grid: TimeMus,
     bypass: bool,
+    offset: TimeMus,
 ) {
     let delta = f64::from(release.x - drag.origin_pointer.x) / f64::from(ppb.max(0.001));
     let model = MidiModel::new(midi);
     let plan = match drag.mode {
         NoteDragMode::Move => {
             let shift = clamp_time_shift(
-                snapped_shift(drag.origin_start, delta, grid, bypass),
+                snapped_shift(drag.origin_start, offset, delta, grid, bypass),
                 &drag.origins,
                 midi.length,
             );
@@ -978,13 +1004,20 @@ fn finish_note_drag(
             edit::relocate_objects(&model, &moves)
         }
         NoteDragMode::ResizeStart => {
-            let target = drag.origin_start + snapped_shift(drag.origin_start, delta, grid, bypass);
+            let target =
+                drag.origin_start + snapped_shift(drag.origin_start, offset, delta, grid, bypass);
             edit::trim_object(&model, drag.note_id, edit::Edge::Start, target)
         }
         NoteDragMode::ResizeEnd => {
             let target = drag.origin_start
                 + drag.origin_length
-                + snapped_shift(drag.origin_start + drag.origin_length, delta, grid, bypass);
+                + snapped_shift(
+                    drag.origin_start + drag.origin_length,
+                    offset,
+                    delta,
+                    grid,
+                    bypass,
+                );
             edit::trim_object(&model, drag.note_id, edit::Edge::End, target)
         }
     };
@@ -1026,16 +1059,16 @@ fn preview_note_for_action(
     let Some(note) = midi.notes.iter().find(|note| note.id == note_id) else {
         return;
     };
-    let seconds = note.length.as_f64() * 60.0 / tempo_bpm.max(1.0);
-    state
-        .preview_highlights
-        .insert(note.pitch, now + seconds.max(0.08));
+    state.preview_highlights.insert(
+        note.pitch,
+        now + preview_highlight_seconds(note.length, tempo_bpm),
+    );
     ui.emit(UiIntent::PreviewNote {
         track_id,
         note_id,
         pitch: note.pitch,
         velocity: note.velocity.0,
-        length_mus: Some(note.length),
+        length_mus: Some(capped_preview_length(note.length, tempo_bpm)),
     });
 }
 
@@ -1292,14 +1325,14 @@ fn draw_content_shading(
         clipped.rect_filled(
             Rect::from_min_max(note_area.min, egui::pos2(start_x, note_area.bottom())),
             CornerRadius::ZERO,
-            Color32::from_black_alpha(140),
+            Color32::from_black_alpha(100),
         );
     }
     if end_x < note_area.right() {
         clipped.rect_filled(
             Rect::from_min_max(egui::pos2(end_x, note_area.top()), note_area.max),
             CornerRadius::ZERO,
-            Color32::from_black_alpha(140),
+            Color32::from_black_alpha(100),
         );
     }
 }

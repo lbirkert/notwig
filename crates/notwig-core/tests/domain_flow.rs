@@ -671,3 +671,105 @@ fn create_track_helper_is_usable_directly() {
     .unwrap();
     assert!(doc.tracks.contains_key(&id::<Track>(77)));
 }
+
+#[test]
+fn instrument_track_adopts_named_instrument() {
+    let mut doc = new_doc();
+    let (track, chain) = add_track(&mut doc, 2, TrackKind::Instrument);
+    assert_eq!(doc.tracks[&track].name, "Track 2");
+    assert!(doc.tracks[&track].name_is_auto);
+
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<Device>(300),
+            type_id: "test.operator".into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::Instrument,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: Some("Operator".into()),
+        }),
+    )
+    .unwrap()
+    .doc;
+
+    assert_eq!(doc.tracks[&track].name, "Operator");
+    assert!(doc.tracks[&track].name_is_auto);
+}
+
+#[test]
+fn renamed_instrument_track_keeps_its_name_on_insert() {
+    let mut doc = new_doc();
+    let (track, chain) = add_track(&mut doc, 2, TrackKind::Instrument);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::RenameTrack {
+            id: track,
+            name: "Keys".into(),
+        }),
+    )
+    .unwrap()
+    .doc;
+    assert!(!doc.tracks[&track].name_is_auto);
+
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<Device>(300),
+            type_id: "test.operator".into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::Instrument,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: Some("Operator".into()),
+        }),
+    )
+    .unwrap()
+    .doc;
+
+    assert_eq!(doc.tracks[&track].name, "Keys");
+    assert!(!doc.tracks[&track].name_is_auto);
+}
+
+#[test]
+fn named_devices_do_not_rename_non_instrument_tracks() {
+    let mut doc = new_doc();
+    let (track, chain) = add_track(&mut doc, 2, TrackKind::Audio);
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<Device>(300),
+            type_id: "test.eq".into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::AudioFx,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: Some("Equalizer".into()),
+        }),
+    )
+    .unwrap()
+    .doc;
+
+    assert_eq!(doc.tracks[&track].name, "Track 2");
+    assert!(doc.tracks[&track].name_is_auto);
+}
+
+#[test]
+fn old_serialized_track_loads_without_automatic_name() {
+    let mut doc = new_doc();
+    add_track(&mut doc, 2, TrackKind::Instrument);
+    let mut value = serde_json::to_value(&doc).unwrap();
+    for track in value["tracks"].as_object_mut().unwrap().values_mut() {
+        track
+            .as_object_mut()
+            .unwrap()
+            .remove("name_is_auto")
+            .expect("serialized track carries name_is_auto");
+    }
+    let back: ProjectDoc = serde_json::from_value(value).unwrap();
+    assert!(back.tracks.values().all(|track| !track.name_is_auto));
+}

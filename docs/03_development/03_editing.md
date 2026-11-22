@@ -290,6 +290,7 @@ pub enum EditOp<L, O, C> {
     SetContainer { span: RangeMus },
     Erase { lane: L, span: RangeMus },
     Remove { object: O },
+    Split { object: O, at: TimeMus },
     Move { object: O, lane: L, span: RangeMus },
     Trim { object: O, span: RangeMus },
     Place { lane: L, span: RangeMus, kind: ObjectKind, content: C },
@@ -352,7 +353,7 @@ The operation matrix is the contract. Read it before reading the individual sect
 | Cut | Copy, then remove the whole objects. | Copy clipped, then erase the span on every selected lane. |
 | Paste | Place whole objects at `at + offset`; erase each destination span first. | Place clipped fragments at `at + offset`; erase the whole destination span first, so gaps come back as gaps. |
 | Duplicate | Copy, paste at the bounding end, select the copies. | Copy, paste at the span end, select the new span. |
-| Delete | Remove the whole objects. | Erase the span on every selected lane; objects crossing the boundary are trimmed or split. |
+| Delete | Remove the whole objects. | Erase the span on every selected lane; objects crossing the boundary are trimmed or split. A zero-width span splits crossing objects without removing content. |
 | Move | Shift the whole objects as one group; selection follows. | Clip every intersecting object to the span, shift the fragments, and leave the outside parts in place. Selection span follows. |
 | Trim start/end | Resize the object edge under the pointer; selection becomes that object. | Resize the selection span; content does not change. |
 
@@ -364,6 +365,7 @@ The algebra exports these functions:
 
 ```rust
 copy(model, selection) -> Result<Extract, EditError>
+split(model, selection) -> Result<Plan, EditError>
 delete(model, selection) -> Result<Plan, EditError>
 cut(model, selection) -> Result<(Extract, Plan), EditError>
 paste(model, extract, at) -> Result<Plan, EditError>
@@ -463,6 +465,19 @@ Time mode:
 Keeping the time selection after delete makes repeated edits predictable. Object selection is cleared because its objects no longer exist.
 
 `Erase` is content-aware. It removes, trims, or splits objects in the span, and it is described in section 9.
+
+### 8.5.1 Split
+
+```
+split(model, selection):
+    require a zero-width time selection with at least one lane
+    at = selection.span.start
+    ops = Split { object, at } for every span object on a selected lane
+          with object.span.start < at < object.span.end
+    next = Time { span: selection.span, lanes: selection.lanes }
+```
+
+Split does not remove content. Lowering turns each `Split` into the editor's native split command: the arranger splits a clip and any crossing MIDI note, the MIDI editor splits a note into a left half with the original ID and a right half with a new ID, and the audio editor splits a slice the same way. Delete on a zero-width time selection routes here; copy, cut, and duplicate still reject an empty time selection.
 
 ### 8.6 Move
 
@@ -669,6 +684,7 @@ Command mapping:
 | `Move` | `MoveClip` | move a slice | move a note |
 | `Trim` | `EditClip` | trim a slice | set note start and length |
 | `Remove` | `DeleteClip` | remove a slice | `DeleteNote` |
+| `Split` | `SplitClip` | split a slice | split a note |
 | `SetContainer` | not applicable | `EditClip` range and content | edit MIDI content length |
 
 Lowering must be atomic:
@@ -696,12 +712,14 @@ No operation stretches audio. Waveform scale follows the source sample position,
 
 Snapping is not part of the algebra. The algebra receives resolved times (`to`, `at`, `delta`) and only clamps them to model limits. This keeps the algebra free of display state and makes it deterministic.
 
-The gesture layer owns the shared `SnapSettings` value plus three pure helpers:
+The gesture layer owns the shared `SnapSettings` value plus the pure helpers:
 
 ```
 pointer_delta(pointer, press_origin, pixels_per_beat) -> TimeMus
+snapped_start(absolute_anchor, delta, step, bypass) -> TimeMus
+snapped_shift(absolute_anchor, delta, step, bypass) -> TimeMus
 snap(time, step, bypass) -> TimeMus
-resolve_target(pointer, viewport, snap_step, bypass) -> TimeMus
+resolve_target(pointer, viewport, step, bypass) -> TimeMus
 ```
 
 `SnapSettings` is the single source of truth for snapping. It holds whether
@@ -710,14 +728,25 @@ snap is enabled, whether the grid is adaptive, and the manual `SnapLevel`
 the scrollbar toggle applies to the arranger, the audio editor, and the MIDI
 editor at once.
 
-`SnapSettings::step` computes the active step. Adaptive mode chooses the finest
-note value (or bar multiple) that leaves at least 40 px between lines.
-`SnapSettings::display_step` bounds the painted grid when a very fine manual
-level would otherwise draw an enormous number of lines; snapping still uses the
-exact selected step.
+Snapping is parameterised by the exact bar length (`Meta::bar_length`, derived
+from both the numerator and the denominator), not by a numerator-only beat
+count. `SnapSettings::step` computes the one effective step used to paint the
+grid, snap gestures, and label the grid control. It does not have a separate
+`display_step`. Adaptive mode chooses the finest note value or bar multiple that
+leaves at least 40 px between lines and that either divides the bar or is an
+integer multiple of it, so generated lines always agree with bar boundaries.
+Manual levels use the selected note value exactly. The grid renderer still
+elides step lines below one pixel of spacing to keep very fine manual levels
+readable; bar and beat lines remain visible.
 
 Rules:
 
+- Snapping is absolute. Gestures snap the absolute start time, then derive the
+  shift. Moving a clip or event snaps its start, not its pointer delta.
+- Arranger times are already absolute. Audio events are stored relative to the
+  clip start, so the audio editor snaps `clip.range.start + local_time` and then
+  subtracts `clip.range.start`. MIDI notes are stored in content time, so the
+  MIDI editor uses the offset `clip.range.start - midi.content_start`.
 - Deltas are always measured from the press origin, never accumulated per frame.
 - `snap(snap(t)) == snap(t)`.
 - A bypass modifier returns the input time unchanged.

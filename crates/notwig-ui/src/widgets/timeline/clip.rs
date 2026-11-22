@@ -11,6 +11,13 @@ pub(crate) struct ClipVisual {
     pub name_rect: Rect,
 }
 
+/// Short clips must still be visible and hittable at low zoom, even when their
+/// musical range maps to less than one physical pixel.
+const MIN_CLIP_WIDTH: f32 = 3.0;
+/// Below this width labels, note previews, and waveform previews become noise,
+/// so only the clip body and selection stroke are drawn.
+const MIN_CONTENT_WIDTH: f32 = 24.0;
+
 pub(crate) fn clip_color(doc: &ProjectDoc, clip: &ClipEntity) -> Color32 {
     clip.color
         .or_else(|| doc.tracks.get(&clip.track_id).and_then(|track| track.color))
@@ -48,14 +55,14 @@ pub(crate) fn draw_clip_visual(
 ) -> Option<ClipVisual> {
     let x1 = grid.x_for_beat(range.start, lane_rect.left());
     let x2 = grid.x_for_beat(range.end, lane_rect.left());
-    let clip_rect = Rect::from_min_max(
-        egui::pos2(x1, lane_rect.top() + 3.0),
-        egui::pos2(x2.max(x1 + 1.0), lane_rect.bottom() - 3.0),
-    );
-    let visible = clip_rect.intersect(lane_rect);
-    if visible.width() < 2.0 {
+    if x2 <= lane_rect.left() || x1 >= lane_rect.right() {
         return None;
     }
+    let clip_rect = Rect::from_min_max(
+        egui::pos2(x1, lane_rect.top() + 3.0),
+        egui::pos2(x1 + (x2 - x1).max(MIN_CLIP_WIDTH), lane_rect.bottom() - 3.0),
+    );
+    let show_content = clip_rect.width() >= MIN_CONTENT_WIDTH;
     let color = clip_base_color(doc, clip);
     let color = if clip.muted {
         color.gamma_multiply(0.35)
@@ -73,32 +80,34 @@ pub(crate) fn draw_clip_visual(
         egui::pos2(clip_rect.left(), name_rect.bottom()),
         clip_rect.max,
     );
-    painter.rect_filled(
-        name_rect,
-        CornerRadius {
-            nw: 3,
-            ne: 3,
-            sw: 0,
-            se: 0,
-        },
-        Color32::from_black_alpha(52),
-    );
-    match &clip.payload {
-        ClipPayload::Midi(midi) => {
-            draw_midi_preview(&painter, body_rect, clip.range, midi);
-        }
-        ClipPayload::Audio(audio) => {
-            draw_audio_slices(
-                &painter,
-                doc,
-                clip,
-                audio,
-                waveforms,
-                body_rect,
-                grid,
-                lane_rect.left(),
-                lane_rect.top(),
-            );
+    if show_content {
+        painter.rect_filled(
+            name_rect,
+            CornerRadius {
+                nw: 3,
+                ne: 3,
+                sw: 0,
+                se: 0,
+            },
+            Color32::from_black_alpha(52),
+        );
+        match &clip.payload {
+            ClipPayload::Midi(midi) => {
+                draw_midi_preview(&painter, body_rect, clip.range, midi);
+            }
+            ClipPayload::Audio(audio) => {
+                draw_audio_slices(
+                    &painter,
+                    doc,
+                    clip,
+                    audio,
+                    waveforms,
+                    body_rect,
+                    grid,
+                    lane_rect.left(),
+                    lane_rect.top(),
+                );
+            }
         }
     }
     painter.rect_stroke(
@@ -114,14 +123,16 @@ pub(crate) fn draw_clip_visual(
         ),
         StrokeKind::Inside,
     );
-    let label = clip_label(clip);
-    painter.with_clip_rect(name_rect).text(
-        egui::pos2(name_rect.left() + 8.0, name_rect.center().y),
-        Align2::LEFT_CENTER,
-        label,
-        FontId::monospace(9.5),
-        Color32::from_black_alpha(235),
-    );
+    if show_content {
+        let label = clip_label(clip);
+        painter.with_clip_rect(name_rect).text(
+            egui::pos2(name_rect.left() + 8.0, name_rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::monospace(9.5),
+            Color32::from_black_alpha(235),
+        );
+    }
     if preview {
         painter.rect_stroke(
             clip_rect,
@@ -259,5 +270,23 @@ pub mod test_api {
 
     pub fn clip_color(doc: &ProjectDoc, clip: &ClipEntity) -> Color32 {
         super::clip_color(doc, clip)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn clip_visual_rects(
+        painter: &Painter,
+        doc: &ProjectDoc,
+        clip: &ClipEntity,
+        range: RangeMus,
+        lane_rect: Rect,
+        grid: TimelineGrid,
+        waveforms: &WaveformCache,
+        selected: bool,
+        preview: bool,
+    ) -> Option<(Rect, Rect)> {
+        super::draw_clip_visual(
+            painter, doc, clip, range, lane_rect, grid, waveforms, selected, preview,
+        )
+        .map(|visual| (visual.clip_rect, visual.name_rect))
     }
 }

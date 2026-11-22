@@ -25,6 +25,23 @@ pub mod test_api {
         super::geometry::y_for_pitch(pitch, top, scroll)
     }
 
+    pub fn snapped_shift(
+        anchor: notwig_core::TimeMus,
+        offset: notwig_core::TimeMus,
+        delta: f64,
+        grid: notwig_core::TimeMus,
+        bypass: bool,
+    ) -> notwig_core::TimeMus {
+        super::geometry::snapped_shift(anchor, offset, delta, grid, bypass)
+    }
+
+    pub fn absolute_offset(
+        clip_start: notwig_core::TimeMus,
+        content_start: notwig_core::TimeMus,
+    ) -> notwig_core::TimeMus {
+        super::geometry::absolute_offset(clip_start, content_start)
+    }
+
     pub const ROW_HEIGHT: f32 = super::geometry::ROW_HEIGHT;
     pub const RULER_H: f32 = super::panel::RULER_H;
 

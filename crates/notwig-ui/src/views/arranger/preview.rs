@@ -114,7 +114,7 @@ impl NotwigUi {
             "arranger",
             &mut snap,
             ppb,
-            doc.meta.time_sig_num.max(1),
+            doc.meta.bar_length(),
         );
         self.state.snap = snap;
     }

@@ -160,8 +160,16 @@ impl NotwigUi {
                     ui.label(
                         RichText::new(format!(
                             "{} → {}",
-                            format_beats(self.render_start, doc.meta.time_sig_num),
-                            format_beats(self.render_end, doc.meta.time_sig_num)
+                            format_beats(
+                                self.render_start,
+                                doc.meta.bar_length(),
+                                doc.meta.beat_length()
+                            ),
+                            format_beats(
+                                self.render_end,
+                                doc.meta.bar_length(),
+                                doc.meta.beat_length()
+                            )
                         ))
                         .monospace()
                         .color(theme::TEXT_MUTED),

@@ -70,13 +70,22 @@ pub mod test_api {
         super::interaction::pointer_delta(start, current, ppb)
     }
 
-    pub fn snapped_delta(
-        anchor: notwig_core::TimeMus,
+    pub fn snapped_start(
+        absolute_anchor: notwig_core::TimeMus,
         delta: f64,
         grid: notwig_core::TimeMus,
         bypass: bool,
     ) -> notwig_core::TimeMus {
-        super::interaction::snapped_delta(anchor, delta, grid, bypass)
+        super::interaction::snapped_start(absolute_anchor, delta, grid, bypass)
+    }
+
+    pub fn snapped_shift(
+        absolute_anchor: notwig_core::TimeMus,
+        delta: f64,
+        grid: notwig_core::TimeMus,
+        bypass: bool,
+    ) -> notwig_core::TimeMus {
+        super::interaction::snapped_shift(absolute_anchor, delta, grid, bypass)
     }
 
     pub fn selection_range(

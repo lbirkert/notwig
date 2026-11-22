@@ -66,7 +66,11 @@ pub fn handle_clip_editor_actions(
                 .has_binding(ShortcutCommand::Paste, KeyChord::command(egui::Key::V)));
     let duplicate = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate);
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);
+    let select_all = ui.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll);
     let slices = editor_slices(clip, audio);
+    if select_all {
+        state.select_all(slices.iter().map(|slice| slice.id));
+    }
     let selected: Vec<SliceId> = state.selected.iter().copied().collect();
     let local_bar = state
         .bar_selection

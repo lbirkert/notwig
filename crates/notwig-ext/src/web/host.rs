@@ -8,20 +8,27 @@ use crate::web::instance::WebExtensionInstance;
 use crate::web::package::WebExtensionPackage;
 use crate::web::panel::WebExtensionPanelHost;
 use notwig_dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
-use notwig_ext_api::{DevicePanelHost, ExtensionInfo, ExtensionStatus};
+use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionStatus};
 
 pub struct WebExtensionHost {
     loaded: Arc<WebLoadedExtensions>,
+    errors: Vec<String>,
 }
 
 impl WebExtensionHost {
     /// Loads browser extension packages. The browser build supports WASM
-    /// entrypoints only.
+    /// entrypoints only, and disabled packages are reported without being
+    /// instantiated.
     #[must_use]
-    pub fn load(packages: Vec<WebExtensionPackage>) -> Self {
+    pub fn load(packages: Vec<WebExtensionPackage>, config: &ExtensionConfig) -> Self {
         let mut by_type = BTreeMap::new();
         let mut infos = Vec::new();
+        let mut errors = Vec::new();
         for package in packages {
+            if !config.is_enabled(package.id()) {
+                infos.push(disabled_info(&package));
+                continue;
+            }
             match load_package(&package) {
                 Ok(extension) => {
                     let extension = Arc::new(extension);
@@ -38,17 +45,27 @@ impl WebExtensionHost {
                         }
                     }
                 }
-                Err(error) => infos.push(failed_info(&package, error)),
+                Err(error) => {
+                    errors.push(format!("{}: {error}", package.id()));
+                    infos.push(failed_info(&package, error));
+                }
             }
         }
         Self {
             loaded: Arc::new(WebLoadedExtensions { by_type, infos }),
+            errors,
         }
     }
 
     #[must_use]
     pub fn infos(&self) -> &[ExtensionInfo] {
         &self.loaded.infos
+    }
+
+    /// Per-package failures collected while loading, in package order.
+    #[must_use]
+    pub fn errors(&self) -> &[String] {
+        &self.errors
     }
 
     #[must_use]
@@ -109,6 +126,22 @@ fn load_package(package: &WebExtensionPackage) -> Result<WebLoadedExtension, Ext
         specs,
         info,
     })
+}
+
+fn disabled_info(package: &WebExtensionPackage) -> ExtensionInfo {
+    ExtensionInfo {
+        id: package.manifest.id.clone(),
+        name: package.manifest.name.clone(),
+        vendor: package.manifest.vendor.clone(),
+        version: package.manifest.version.clone(),
+        description: package.manifest.description.clone(),
+        image_path: None,
+        capabilities: package.manifest.capabilities.clone(),
+        status: ExtensionStatus::Disabled,
+        enabled: false,
+        device_count: package.manifest.devices.len(),
+        error: None,
+    }
 }
 
 fn failed_info(package: &WebExtensionPackage, error: ExtensionError) -> ExtensionInfo {

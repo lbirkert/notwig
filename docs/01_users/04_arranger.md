@@ -32,6 +32,7 @@ sample accuracy.
 
 - Click a clip to select it. Cmd-click or Shift-click adds clips to the
   selection.
+- Press **Cmd+A** to select all clips.
 - Drag a clip's title bar to move it in time. Drag it vertically onto a
   compatible track to move it across tracks. MIDI clips accept instrument
   tracks; audio clips accept audio tracks.
@@ -53,6 +54,8 @@ sample accuracy.
 
 A time selection is the input for copy, cut, paste, duplicate, and delete. The
 loop range command also accepts a clip selection when no time selection exists.
+Deleting a zero-width time selection splits clips at that point without removing
+content.
 
 ## Clipboard and structure
 
@@ -61,11 +64,12 @@ The arranger and the audio editor share one workspace clipboard.
 | Action | Key | Notes |
 | --- | --- | --- |
 | Copy | **Cmd+C** | Copies the selected clips or time range. |
+| Select all | **Cmd+A** | Selects every clip. |
 | Cut | **Cmd+X** | Copies, then deletes the source. |
 | Paste | **Cmd+V** | Pastes at the time selection start or the playhead. |
 | Duplicate | **Cmd+D** | Copies and places after the selection. |
-| Delete | **Delete** | Deletes the selected clips or time range. |
-| Join clips | **Cmd+J** | Joins selected adjacent clips on one lane. |
+| Delete | **Delete** | Deletes the selected clips or time range. On a zero-width time selection, splits crossing clips. |
+| Join clips | **Cmd+J** | Joins adjacent clips on one lane. Uses the time selection when fewer than two clips are selected. |
 | Split at playhead | Context menu | Splits a clip where the playhead crosses it. |
 | Undo / redo | **Cmd+Z** / **Cmd+Shift+Z** | One user operation is one undo step. |
 
@@ -107,9 +111,18 @@ snapping for every editor; when it is off, the grid is dimmed. The grid label
 opens grid settings:
 
 - **Adaptive** follows the zoom level and picks the finest subdivision that
-  still leaves at least 40 px between grid lines.
+  still leaves at least 40 px between grid lines. The subdivision always divides
+  the current bar or is a whole number of bars, so it respects the time
+  signature denominator (**6/8** and **7/8** do not fall back to quarter-note
+  lines).
 - With adaptive off, choose an explicit note value from **2/1** down to
-  **1/65536** (including **1/8**).
+  **1/65536** (including **1/8**). The same value drives the painted grid,
+  snapping, and the grid label.
+
+Clip and time-selection moves snap their **start** to the grid, not the pointer
+delta. A clip that starts between grid lines therefore lands on a grid line
+instead of preserving its off-grid offset. Group moves keep the relative
+offsets between selected clips.
 
 Hold **Shift** or **Alt** to bypass snapping for a gesture.
 

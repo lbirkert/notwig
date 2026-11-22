@@ -99,6 +99,15 @@ impl ClipEditorState {
     }
 
     #[doc(hidden)]
+    pub fn select_all(&mut self, slices: impl IntoIterator<Item = SliceId>) {
+        self.selected.clear();
+        self.bar_selection = None;
+        for id in slices {
+            self.selected.insert(id);
+        }
+    }
+
+    #[doc(hidden)]
     pub fn selection_mode(&self) -> Option<notwig_core::edit::SelectionMode> {
         let selection = if self.selected.is_empty() {
             self.bar_selection.map_or_else(Selection::default, |range| {

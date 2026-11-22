@@ -263,6 +263,9 @@ impl Engine {
                 if stop || !playing || jumped {
                     self.all_notes_off = true;
                 }
+                if jumped && let Some(runtime) = &mut self.runtime {
+                    runtime.prime_notes_at(playhead_samples);
+                }
             }
             EngineMsg::SetParam {
                 device_id,
@@ -335,7 +338,11 @@ impl Engine {
             self.factory.as_ref(),
         )?;
         let latency = plan.total_latency;
+        let playhead = self.playhead_samples();
         self.runtime = Some(runtime);
+        if let Some(runtime) = &mut self.runtime {
+            runtime.prime_notes_at(playhead);
+        }
         self.push_event(RtEvent::LatencyChanged {
             device_id: None,
             samples: latency,
@@ -413,6 +420,12 @@ impl Engine {
                 device_id: None,
                 samples: latency,
             });
+            // The new runtime has no note state yet. Re-prime whatever is
+            // sounding under the current playhead so a structural rebuild does
+            // not silence sustained MIDI.
+            if let Some(runtime) = &mut self.runtime {
+                runtime.prime_notes_at(self.transport.playhead_samples.max(0.0) as u64);
+            }
         }
 
         if let Some(assets) = self.control_data.assets.take() {
@@ -457,6 +470,14 @@ impl Engine {
             if transport.stop || !transport.playing || jumped {
                 self.all_notes_off = true;
             }
+            if jumped && let Some(runtime) = &mut self.runtime {
+                runtime.prime_notes_at(transport.playhead_samples);
+            }
+        }
+
+        if let Some(metronome) = self.control_data.metronome {
+            self.metronome_enabled = metronome.enabled;
+            self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
         }
 
         if let Some(runtime) = &mut self.runtime {
@@ -689,6 +710,7 @@ impl Engine {
         if let Some(runtime) = &mut self.runtime {
             runtime.reset();
             runtime.set_measure_meters(false);
+            runtime.prime_notes_at(start_sample);
         }
     }
 

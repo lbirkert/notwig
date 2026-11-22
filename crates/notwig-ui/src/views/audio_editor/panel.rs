@@ -10,6 +10,7 @@ use crate::theme;
 use crate::timeline::interaction::{drag_current_pos, drag_start_pos};
 use crate::timeline::{ClipChrome, ClipChromeDrag, ClipChromeEdge, TimelineGrid};
 
+use super::SCROLLBAR_H;
 use super::actions::{apply_slice_edit, handle_clip_editor_actions};
 use super::geometry::{finish_slice_drag, group_move_shift, group_starts, slice_geometry};
 use super::model::{ClipLane, SliceModel, editor_slices, slice_intersects, source_duration};
@@ -18,7 +19,6 @@ use super::state::{BarDrag, ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, 
 
 const CLIP_HEADER_W: f32 = 120.0;
 const RULER_H: f32 = 38.0;
-const SCROLLBAR_H: f32 = 18.0;
 
 pub(super) fn playhead_for_strip(runtime: &RuntimeView) -> TimeMus {
     crate::timeline::playhead_for_strip(runtime)
@@ -77,7 +77,7 @@ impl NotwigUi {
             runtime.playhead,
         );
 
-        let open = crate::views::panel::bottom_panel(
+        let open = crate::views::panel::bottom_panel_styled(
             ctx,
             crate::views::panel::PanelConfig {
                 id: "clip_editor_panel",
@@ -89,6 +89,8 @@ impl NotwigUi {
                 handle_id: "clip-editor-panel",
                 handle_tooltip: "Drag down to close",
             },
+            theme::PANEL,
+            egui::Margin::same(0),
             |ui| {
                 let width = ui.available_width().max(320.0);
                 let height = (ui.available_height() - SCROLLBAR_H).max(120.0);
@@ -112,15 +114,16 @@ impl NotwigUi {
                     .viewport
                     .pixels_per_beat
                     .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
-                let beats_per_bar = doc.meta.time_sig_num.max(1);
-                let grid = snap.step(ppb, beats_per_bar);
+                let bar_length = doc.meta.bar_length();
+                let beat_length = doc.meta.beat_length();
+                let grid = snap.step(ppb, bar_length);
                 let timeline_grid =
-                    TimelineGrid::new(state.viewport.start, ppb, beats_per_bar, snap);
+                    TimelineGrid::new(state.viewport.start, ppb, bar_length, beat_length, snap);
                 let clip_start_x = timeline_grid.x_for_beat(display_range.start, content.left());
                 let clip_end_x = timeline_grid.x_for_beat(display_range.end, content.left());
 
                 let painter = ui.painter().clone();
-                painter.rect_filled(rect, CornerRadius::ZERO, Color32::BLACK);
+                painter.rect_filled(rect, CornerRadius::ZERO, theme::PANEL);
                 painter.rect_filled(header, CornerRadius::ZERO, theme::PANEL_LIGHT);
                 painter.rect_filled(lanes, CornerRadius::ZERO, theme::LANE);
 
@@ -220,6 +223,7 @@ impl NotwigUi {
                     group_move_shift(
                         drag,
                         drag_delta,
+                        clip_start,
                         grid,
                         bypass,
                         TimeMus::zero() - display_range.start,
@@ -232,7 +236,7 @@ impl NotwigUi {
                         .unwrap_or(drag.start_pointer);
                     let delta =
                         crate::timeline::interaction::pointer_delta(drag.start_pointer, hover, ppb);
-                    let shift = crate::timeline::interaction::snapped_delta(
+                    let shift = crate::timeline::interaction::snapped_shift(
                         drag.origin.start,
                         delta,
                         grid,
@@ -296,7 +300,7 @@ impl NotwigUi {
                                 release,
                                 ppb,
                             );
-                            let delta = crate::timeline::interaction::snapped_delta(
+                            let delta = crate::timeline::interaction::snapped_shift(
                                 drag.origin.start,
                                 delta,
                                 grid,
@@ -327,14 +331,14 @@ impl NotwigUi {
                     clipped.rect_filled(
                         Rect::from_min_max(lanes.min, egui::pos2(clip_start_x, lanes.bottom())),
                         CornerRadius::ZERO,
-                        Color32::from_black_alpha(150),
+                        Color32::from_black_alpha(110),
                     );
                 }
                 if clip_end_x < lanes.right() {
                     clipped.rect_filled(
                         Rect::from_min_max(egui::pos2(clip_end_x, lanes.top()), lanes.max),
                         CornerRadius::ZERO,
-                        Color32::from_black_alpha(150),
+                        Color32::from_black_alpha(110),
                     );
                 }
                 timeline_grid.draw(&clipped, lanes);
@@ -348,6 +352,7 @@ impl NotwigUi {
                         drag_delta,
                         node_shift,
                         &map,
+                        clip_start,
                         grid,
                         bypass,
                         TimeMus::zero() - display_range.start,
@@ -734,7 +739,7 @@ impl NotwigUi {
                     content,
                     content_end,
                     ppb,
-                    beats_per_bar,
+                    bar_length,
                 );
                 self.state.snap = snap;
                 true

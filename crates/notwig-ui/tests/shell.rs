@@ -1442,3 +1442,96 @@ fn app_bar_renders_brand_title_and_saved_project_name() {
     );
     runtime.dirty = false;
 }
+
+#[test]
+fn command_a_selects_all_arranger_clips() {
+    let doc = audio_doc();
+    let mut ui = NotwigUi::default();
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let modifiers = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let clips: Vec<_> = ui.state.selection.clips.iter().copied().collect();
+    assert_eq!(clips.len(), 2);
+    assert!(clips.contains(&id::<Clip>(20)));
+    assert!(clips.contains(&id::<Clip>(60)));
+}
+
+#[test]
+fn command_j_joins_clips_intersected_by_a_time_selection() {
+    let track = id::<Track>(2);
+    let doc = apply(
+        &doc(),
+        &Command::new(CommandPayload::CreateClip {
+            id: id::<Clip>(21),
+            track_id: track,
+            kind: ClipKind::Midi,
+            range: RangeMus::new(Rational::new(4, 1), Rational::new(8, 1)).unwrap(),
+            payload: ClipPayload::Midi(MidiClipData {
+                length: Rational::new(4, 1),
+                content_start: Rational::zero(),
+                notes: vec![],
+            }),
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_time(
+        RangeMus::new(Rational::new(1, 1), Rational::new(7, 1)).unwrap(),
+        &[track],
+    );
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let modifiers = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::J,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let clips = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::JoinClips { clips } => Some(clips.clone()),
+            _ => None,
+        })
+        .expect("Cmd+J with a time selection should join the intersected clips");
+    assert_eq!(clips, vec![id::<Clip>(20), id::<Clip>(21)]);
+}

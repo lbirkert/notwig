@@ -10,7 +10,7 @@ use crate::widgets::snap_time;
 use super::geometry::{beat_from_content_time, clamp_pitch_shift, content_time_from_beat};
 use super::model::Pitch;
 use super::model::{MidiModel, apply_note_lowered, lower_note_plan};
-use super::state::MidiEditorState;
+use super::state::{MidiEditorState, capped_preview_length, preview_highlight_seconds};
 use crate::views::arranger::edit::paste_target;
 
 pub(super) fn handle_midi_editor_actions(
@@ -67,6 +67,10 @@ pub(super) fn handle_midi_editor_actions(
                 .has_binding(ShortcutCommand::Paste, KeyChord::command(egui::Key::V)));
     let duplicate = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate);
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);
+    let select_all = ui.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll);
+    if select_all {
+        state.select_all_notes(&midi.notes);
+    }
     let selection = state.selection();
 
     if !selection.objects.is_empty() {
@@ -123,8 +127,9 @@ pub(super) fn handle_midi_editor_actions(
             range.start
         } else {
             let beat = paste_target(None, playhead);
-            let at = content_time_from_beat(beat, clip.range.start, midi.content_start);
-            snap_time(at.max(TimeMus::zero()), grid, !ui.state.snap.enabled)
+            let absolute = snap_time(beat.max(TimeMus::zero()), grid, !ui.state.snap.enabled);
+            content_time_from_beat(absolute, clip.range.start, midi.content_start)
+                .max(TimeMus::zero())
         };
         let plan = {
             let model = MidiModel::new(midi);
@@ -298,15 +303,15 @@ fn preview_note_after_move(
     let Some(note) = midi.notes.iter().find(|note| note.id == note_id) else {
         return;
     };
-    let seconds = note.length.as_f64() * 60.0 / tempo_bpm.max(1.0);
-    state
-        .preview_highlights
-        .insert(note.pitch, now + seconds.max(0.08));
+    state.preview_highlights.insert(
+        note.pitch,
+        now + preview_highlight_seconds(note.length, tempo_bpm),
+    );
     ui.emit(UiIntent::PreviewNote {
         track_id,
         note_id,
         pitch: note.pitch,
         velocity: note.velocity.0,
-        length_mus: Some(note.length),
+        length_mus: Some(capped_preview_length(note.length, tempo_bpm)),
     });
 }

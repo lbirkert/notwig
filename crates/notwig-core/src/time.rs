@@ -188,6 +188,46 @@ impl fmt::Display for Rational {
 
 pub type TimeMus = Rational;
 
+/// An exact musical time signature.
+///
+/// `TimeMus` counts quarter notes, so the beat length is `4 / denominator`
+/// and the bar length is `numerator * 4 / denominator`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TimeSignature {
+    pub numerator: u8,
+    pub denominator: u8,
+}
+
+impl TimeSignature {
+    pub const COMMON_TIME: Self = Self {
+        numerator: 4,
+        denominator: 4,
+    };
+
+    #[must_use]
+    pub const fn new(numerator: u8, denominator: u8) -> Self {
+        Self {
+            numerator,
+            denominator,
+        }
+    }
+
+    /// Length of one notated beat in quarter-note beats.
+    #[must_use]
+    pub fn beat_length(self) -> TimeMus {
+        TimeMus::new(4, u32::from(self.denominator.max(1)))
+    }
+
+    /// Length of one complete bar in quarter-note beats.
+    #[must_use]
+    pub fn bar_length(self) -> TimeMus {
+        TimeMus::new(
+            4 * i64::from(self.numerator),
+            u32::from(self.denominator.max(1)),
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TimeAudio(pub u64);
 

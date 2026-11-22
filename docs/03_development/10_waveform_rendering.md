@@ -51,26 +51,32 @@ that is no larger than the number of source samples covered by one screen pixel.
 Each pixel then reads at most two buckets, so the per-frame cost is bounded by
 the number of visible pixels, not by the zoom level.
 
-When fewer than 64 samples map to a pixel, the renderer derives each pixel
-column's signed extents from the decoded samples instead of the baseline bucket.
-The work is bounded by the visible span (at most 64 samples per pixel column),
-and the envelope gains detail continuously as the user zooms in.
+When fewer than 64 samples map to a pixel, the renderer switches to the sample
+graph instead of deriving a finer per-pixel envelope from the decoded samples.
+The envelope and the sample graph therefore meet directly at the baseline bucket;
+there is no intermediate level-of-detail stage between them.
 
 ## 4. Two render modes
 
 Both modes draw a black signed area with a black line:
 
-- **Area envelope** (farther zoom). For each pixel column, read the signed
-  `min` and `max` from the selected pyramid level, or from the decoded samples
-  below the baseline bucket, and fill the area between them. This is a single
-  triangle mesh per waveform, not one shape per column, and it preserves
-  asymmetry around zero.
-- **Sample graph** (eight samples per pixel or fewer, capped at 8,192 visible
-  points). Walk the actual sample points across the visible range, fill the area
-  between the graph and the zero axis, and draw a one-pixel line. Segments that
-  cross zero are split at the crossing so the fill is two triangles rather than
-  a self-intersecting polygon. This is the Bitwig-style close-up detail where
-  the individual waveform cycles and sample values are visible.
+- **Area envelope** (64 or more samples per pixel). For each pixel column, read
+  the signed `min` and `max` from the selected pyramid level and fill the area
+  between them. This is a single triangle mesh per waveform, not one shape per
+  column, and it preserves asymmetry around zero.
+- **Sample graph** (fewer than 64 samples per pixel). Walk the actual sample
+  points across the visible range, fill the area between the graph and the zero
+  axis, and draw a one-pixel line. Segments that cross zero are split at the
+  crossing so the fill is two triangles rather than a self-intersecting polygon.
+  This is the Bitwig-style close-up detail where the individual waveform cycles
+  and sample values are visible. This mode starts as soon as the pyramid envelope
+  would no longer be sufficient, so zooming in goes straight from the envelope to
+  individual samples.
+
+`waveform_mode(samples_per_pixel)` makes the choice: it returns the sample graph
+when one pixel covers at most 64 samples (the baseline bucket) and the area
+envelope otherwise. The sample-graph span is bounded by the zoom itself: at 64
+samples per pixel it draws at most 64 points per visible pixel column.
 
 Both modes clip against the painter's visible rectangle before building any
 geometry. A long clip that extends far off-screen therefore contributes only the
@@ -92,6 +98,7 @@ share the same zoom and navigation gestures.
 - Source ranges and sample indices are clamped to the asset buffer.
 - Min/max values stay signed; do not collapse them to absolute peaks.
 - Drawing cost scales with visible pixels, not with clip length or zoom.
-- `crates/notwig-ui/tests/waveform.rs` covers downmixing, signed min/max, and
-  pyramid level selection. `crates/notwig-ui/tests/timeline.rs` covers the
-  visible source-window mapping.
+- `crates/notwig-ui/tests/waveform.rs` covers downmixing, signed min/max, pyramid
+  level selection, and the render-mode thresholds.
+  `crates/notwig-ui/tests/timeline.rs` covers the visible source-window mapping
+  and minimum clip geometry at low zoom.

@@ -1,12 +1,79 @@
 use egui::{Pos2, Rect};
 use notwig_core::edit::Edge;
-use notwig_core::{RangeMus, TimeMus};
+use notwig_core::ids::{Clip, DeviceChain, Track};
+use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData};
+use notwig_core::{ClipEntity, Id, Meta, ProjectDoc, RangeMus, SampleRate, TimeMus};
 use notwig_ui::test_api::timeline::TimelineGrid;
+use notwig_ui::test_api::timeline::clip::clip_visual_rects;
 use notwig_ui::test_api::timeline::{
-    navigation_update, pointer_delta, resize_loop_edge, selection_range, snapped_delta, trim_range,
+    navigation_update, pointer_delta, resize_loop_edge, selection_range, snapped_shift,
+    snapped_start, trim_range,
 };
 use notwig_ui::test_api::waveform::waveform_region;
-use notwig_ui::{SnapLevel, SnapSettings, Viewport};
+use notwig_ui::{SnapLevel, SnapSettings, Viewport, WaveformCache};
+use uuid::Uuid;
+
+fn id<T>(n: u128) -> Id<T> {
+    Id::from_uuid(Uuid::from_u128(n))
+}
+
+fn empty_doc() -> ProjectDoc {
+    ProjectDoc::new_template(
+        Meta {
+            name: "Timeline".into(),
+            created_utc: 0,
+            modified_utc: 0,
+            sample_rate: SampleRate::DEFAULT,
+            tempo_bpm: 120.0,
+            time_sig_num: 4,
+            time_sig_den: 4,
+        },
+        id::<Track>(1),
+        id::<DeviceChain>(100),
+    )
+    .unwrap()
+}
+
+fn midi_clip(n: u128, track: u128, start: TimeMus, end: TimeMus) -> ClipEntity {
+    ClipEntity {
+        id: id::<Clip>(n),
+        track_id: id::<Track>(track),
+        kind: ClipKind::Midi,
+        range: RangeMus::new(start, end).unwrap(),
+        name: None,
+        color: None,
+        muted: false,
+        payload: ClipPayload::Midi(MidiClipData {
+            length: end - start,
+            content_start: TimeMus::zero(),
+            notes: Vec::new(),
+        }),
+    }
+}
+
+fn render_clip_visual(
+    clip: &ClipEntity,
+    lane_rect: Rect,
+    grid: TimelineGrid,
+) -> Option<(Rect, Rect)> {
+    let doc = empty_doc();
+    let waveforms = WaveformCache::default();
+    let ctx = egui::Context::default();
+    let mut visual = None;
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(lane_rect),
+            ..Default::default()
+        },
+        |ctx| {
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), lane_rect);
+            visual = clip_visual_rects(
+                &painter, &doc, clip, clip.range, lane_rect, grid, &waveforms, false, false,
+            );
+        },
+    );
+    visual
+}
 
 #[test]
 fn coordinates_round_trip_and_snap() {
@@ -15,7 +82,13 @@ fn coordinates_round_trip_and_snap() {
         adaptive: false,
         level: SnapLevel::new(1, 8),
     };
-    let grid = TimelineGrid::new(TimeMus::zero(), 64.0, 4, snap);
+    let grid = TimelineGrid::new(
+        TimeMus::zero(),
+        64.0,
+        TimeMus::new(4, 1),
+        TimeMus::new(1, 1),
+        snap,
+    );
     let x = grid.x_for_beat(TimeMus::new(2, 1), 10.0);
     assert!((x - 138.0).abs() < 0.01);
     assert_eq!(grid.beat_for_x(x, 10.0), TimeMus::new(2, 1));
@@ -65,10 +138,25 @@ fn pointer_delta_tracks_the_press_origin() {
 }
 
 #[test]
-fn snapped_delta_rounds_to_the_grid() {
+fn snapped_start_and_shift_use_the_absolute_anchor() {
     let anchor = TimeMus::new(1, 1);
-    let delta = snapped_delta(anchor, 0.13, TimeMus::new(1, 4), false);
-    assert_eq!(delta, TimeMus::new(1, 4));
+    let start = snapped_start(anchor, 0.13, TimeMus::new(1, 4), false);
+    assert_eq!(start, TimeMus::new(5, 4));
+    let shift = snapped_shift(anchor, 0.13, TimeMus::new(1, 4), false);
+    assert_eq!(shift, TimeMus::new(1, 4));
+}
+
+#[test]
+fn the_grid_paints_and_snaps_with_the_same_step() {
+    let snap = SnapSettings {
+        enabled: true,
+        adaptive: false,
+        level: SnapLevel::new(1, 8),
+    };
+    let bar_length = TimeMus::new(4, 1);
+    let grid = TimelineGrid::new(TimeMus::zero(), 64.0, bar_length, TimeMus::new(1, 1), snap);
+    assert_eq!(grid.step, snap.step(64.0, bar_length));
+    assert_eq!(grid.snap(TimeMus::new(9, 32), false), TimeMus::new(1, 2));
 }
 
 #[test]
@@ -166,4 +254,62 @@ fn navigation_zoom_keeps_the_beat_under_the_pointer() {
     );
     let after = viewport.start.as_f64() + f64::from((pointer - left) / viewport.pixels_per_beat);
     assert!((before - after).abs() < 1e-6);
+}
+
+#[test]
+fn sub_pixel_clip_still_gets_a_visible_hit_rect() {
+    let lane_rect = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 100.0));
+    let grid = TimelineGrid::new(
+        TimeMus::zero(),
+        1.0,
+        TimeMus::new(4, 1),
+        TimeMus::new(1, 1),
+        SnapSettings::default(),
+    );
+    let clip = midi_clip(10, 2, TimeMus::zero(), TimeMus::new(1, 1_000));
+    let (clip_rect, name_rect) =
+        render_clip_visual(&clip, lane_rect, grid).expect("narrow clips must not be culled");
+    assert!(
+        clip_rect.width() >= 2.0,
+        "clip body must keep a visible width, got {}",
+        clip_rect.width()
+    );
+    assert!(
+        name_rect.width() >= 2.0,
+        "the clip hit target must stay usable, got {}",
+        name_rect.width()
+    );
+    assert!(clip_rect.intersects(lane_rect));
+    assert!(name_rect.intersects(lane_rect));
+}
+
+#[test]
+fn normal_width_clip_keeps_its_musical_width() {
+    let lane_rect = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 100.0));
+    let grid = TimelineGrid::new(
+        TimeMus::zero(),
+        100.0,
+        TimeMus::new(4, 1),
+        TimeMus::new(1, 1),
+        SnapSettings::default(),
+    );
+    let clip = midi_clip(11, 2, TimeMus::zero(), TimeMus::new(2, 1));
+    let (clip_rect, _) = render_clip_visual(&clip, lane_rect, grid).unwrap();
+    assert!((clip_rect.width() - 200.0).abs() < 0.01);
+}
+
+#[test]
+fn clips_outside_the_lane_are_culled() {
+    let lane_rect = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(400.0, 100.0));
+    let grid = TimelineGrid::new(
+        TimeMus::zero(),
+        100.0,
+        TimeMus::new(4, 1),
+        TimeMus::new(1, 1),
+        SnapSettings::default(),
+    );
+    let left = midi_clip(12, 2, TimeMus::new(-10, 1), TimeMus::new(-19, 2));
+    assert!(render_clip_visual(&left, lane_rect, grid).is_none());
+    let right = midi_clip(13, 2, TimeMus::new(10, 1), TimeMus::new(11, 1));
+    assert!(render_clip_visual(&right, lane_rect, grid).is_none());
 }

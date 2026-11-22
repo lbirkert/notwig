@@ -3,7 +3,9 @@ use std::sync::Arc;
 use egui::{Rect, pos2};
 use notwig_core::AudioAssetBuffer;
 use notwig_ui::AudioWaveform;
-use notwig_ui::test_api::waveform::{draw_waveform, level_for, min_max, min_max_at, sample};
+use notwig_ui::test_api::waveform::{
+    draw_waveform, level_for, min_max, min_max_at, sample, uses_sample_graph,
+};
 
 #[test]
 fn raw_min_max_keeps_signed_samples() {
@@ -41,6 +43,42 @@ fn pyramid_levels_match_exact_ranges_at_their_bucket_size() {
     assert_eq!(
         min_max_at(&waveform, 0, 1024, 1024.0),
         min_max(&waveform, 0, 1024)
+    );
+}
+
+#[test]
+fn waveform_mode_uses_envelope_above_the_baseline_bucket() {
+    assert!(
+        !uses_sample_graph(64.1),
+        "more than one baseline bucket per pixel should use the pyramid envelope"
+    );
+    assert!(
+        !uses_sample_graph(128.0),
+        "coarser zoom should stay on the pyramid envelope"
+    );
+    assert!(
+        !uses_sample_graph(1_000.0),
+        "very coarse zoom should stay on the pyramid envelope"
+    );
+}
+
+#[test]
+fn waveform_mode_starts_the_sample_graph_at_the_baseline_bucket() {
+    assert!(
+        uses_sample_graph(0.5),
+        "sub-pixel sample spacing should show individual samples"
+    );
+    assert!(
+        uses_sample_graph(8.0),
+        "the intermediate envelope stage is gone below the baseline bucket"
+    );
+    assert!(
+        uses_sample_graph(63.9),
+        "just below the baseline bucket still uses the sample graph"
+    );
+    assert!(
+        uses_sample_graph(64.0),
+        "the sample-graph boundary is inclusive"
     );
 }
 

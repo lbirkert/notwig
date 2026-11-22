@@ -7,8 +7,8 @@ use notwig_core::sequencer::{ClipKind, ClipPayload, MidiClipData, NoteEntity};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
 use notwig_ui::test_api::midi_editor::{
-    MidiModel, NoteSelection, Pitch, ROW_HEIGHT, RULER_H, default_note_end, insert_note_clearing,
-    lower_note_plan,
+    MidiModel, NoteSelection, Pitch, ROW_HEIGHT, RULER_H, absolute_offset, default_note_end,
+    insert_note_clearing, lower_note_plan, snapped_shift,
 };
 use notwig_ui::{EditFocus, MidiEditorState, NotwigUi, OpenedEditor, RuntimeView, UiIntent};
 use uuid::Uuid;
@@ -141,11 +141,19 @@ fn run_ui_at(
     time: Option<f64>,
 ) -> Vec<UiIntent> {
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let modifiers = events
+        .iter()
+        .find_map(|event| match event {
+            egui::Event::Key { modifiers, .. } => Some(*modifiers),
+            _ => None,
+        })
+        .unwrap_or_default();
     let mut intents = Vec::new();
     let _ = ctx.run(
         egui::RawInput {
             screen_rect: Some(screen),
             time,
+            modifiers,
             events,
             ..Default::default()
         },
@@ -154,6 +162,67 @@ fn run_ui_at(
         },
     );
     intents
+}
+
+fn run_ui_with_output(
+    ctx: &egui::Context,
+    ui: &mut NotwigUi,
+    doc: &ProjectDoc,
+    runtime: &RuntimeView,
+    events: Vec<egui::Event>,
+) -> (Vec<UiIntent>, egui::FullOutput) {
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let mut intents = Vec::new();
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, doc, runtime);
+        },
+    );
+    (intents, output)
+}
+
+fn assert_no_black_editor_frame(
+    output: &egui::FullOutput,
+    content: egui::Rect,
+    screen: egui::Rect,
+) {
+    let region = egui::Rect::from_min_max(
+        egui::pos2(screen.left(), content.top() + 1.0),
+        egui::pos2(screen.right(), screen.bottom()),
+    );
+    for clipped in &output.shapes {
+        if let egui::Shape::Rect(shape) = &clipped.shape
+            && shape.fill == egui::Color32::BLACK
+            && shape.rect.width() > 150.0
+            && shape.rect.height() > 60.0
+            && shape.rect.intersects(region)
+        {
+            panic!("editor is surrounded by a black frame: {:?}", shape.rect);
+        }
+    }
+}
+
+fn editor_scrollbar_strip(output: &egui::FullOutput, content: egui::Rect) -> egui::Rect {
+    let panel_light = egui::Color32::from_rgb(31, 33, 39);
+    for clipped in &output.shapes {
+        if let egui::Shape::Rect(shape) = &clipped.shape {
+            let rect = shape.rect;
+            if shape.fill == panel_light
+                && rect.width() > 300.0
+                && (rect.top() - content.bottom()).abs() < 6.0
+                && rect.height() > 0.0
+                && rect.height() < 30.0
+            {
+                return rect;
+            }
+        }
+    }
+    panic!("editor scrollbar strip not found");
 }
 
 fn double_click(
@@ -247,6 +316,27 @@ fn opening_a_midi_clip_uses_the_midi_editor() {
 }
 
 #[test]
+fn midi_editor_layout_has_no_black_frame_and_flush_scrollbar() {
+    let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    let (_, output) = run_ui_with_output(&ctx, &mut ui, &doc, &runtime, Vec::new());
+
+    let content = ui.midi_editor_content_rect;
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    assert_no_black_editor_frame(&output, content, screen);
+
+    let bar = editor_scrollbar_strip(&output, content);
+    assert!(
+        (bar.top() - content.bottom()).abs() < 0.5,
+        "scrollbar should sit flush under the timeline: bar {bar:?}, content {content:?}"
+    );
+    assert!(bar.bottom() > bar.top());
+    assert!(bar.bottom() <= screen.bottom() + 0.5);
+}
+
+#[test]
 fn double_clicking_an_empty_row_creates_a_note() {
     let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
     let runtime = RuntimeView::default();
@@ -270,6 +360,33 @@ fn double_clicking_an_empty_row_creates_a_note() {
         ui.midi_editor
             .as_ref()
             .is_some_and(|state| state.selected_contains(created.id))
+    );
+}
+
+#[test]
+fn creating_a_note_sets_the_local_time_selection_to_its_span() {
+    let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1)]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    let content = ui.midi_editor_content_rect;
+    let pos = egui::pos2(note_x(&ui, content, 3.0), note_y(&ui, content, 64));
+    let intents = double_click(&ctx, &mut ui, &doc, &runtime, pos);
+    let created = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::CreateMidiNote { note, .. } => Some(note.clone()),
+            _ => None,
+        })
+        .expect("double click should create a note");
+
+    let state = ui.midi_editor.as_ref().expect("MIDI editor open");
+    let expected =
+        RangeMus::new(created.start, created.start + created.length).expect("created note span");
+    assert_eq!(
+        state.time_selection(),
+        Some(expected),
+        "creating a note should update the local time selection to its span"
     );
 }
 
@@ -628,6 +745,33 @@ fn deleting_a_selected_note_emits_a_removal() {
         })
         .expect("delete should emit a note edit");
     assert_eq!(removed, vec![note_id]);
+}
+
+#[test]
+fn note_move_snaps_to_the_absolute_grid_with_nonzero_content_start() {
+    let clip_start = TimeMus::new(3, 10);
+    let content_start = TimeMus::new(1, 10);
+    let offset = absolute_offset(clip_start, content_start);
+    let anchor = TimeMus::new(1, 1);
+    let shift = snapped_shift(anchor, offset, 0.68, TimeMus::new(1, 4), false);
+    assert_eq!(anchor + shift, TimeMus::new(9, 5));
+    assert_eq!(offset + anchor + shift, TimeMus::new(2, 1));
+}
+
+#[test]
+fn note_resize_start_snaps_to_the_absolute_grid_with_nonzero_content_start() {
+    let offset = absolute_offset(TimeMus::new(3, 10), TimeMus::new(1, 10));
+    let anchor = TimeMus::new(1, 1);
+    let shift = snapped_shift(anchor, offset, 0.68, TimeMus::new(1, 4), false);
+    assert_eq!(offset + anchor + shift, TimeMus::new(2, 1));
+}
+
+#[test]
+fn note_resize_end_snaps_to_the_absolute_grid_with_nonzero_content_start() {
+    let offset = absolute_offset(TimeMus::new(3, 10), TimeMus::new(1, 10));
+    let anchor = TimeMus::new(3, 1);
+    let shift = snapped_shift(anchor, offset, 0.68, TimeMus::new(1, 4), false);
+    assert_eq!(offset + anchor + shift, TimeMus::new(4, 1));
 }
 
 #[test]
@@ -1255,7 +1399,7 @@ fn notes_can_be_created_beyond_the_clip_range() {
 }
 
 #[test]
-fn clicking_a_note_previews_it_for_its_duration() {
+fn clicking_a_note_previews_a_capped_duration() {
     let (doc, clip) = midi_doc(vec![note(30, 60, 1, 2)]);
     let runtime = RuntimeView::default();
     let mut ui = NotwigUi::default();
@@ -1289,7 +1433,58 @@ fn clicking_a_note_previews_it_for_its_duration() {
         } => Some((*pitch, *length_mus)),
         _ => None,
     });
-    assert_eq!(preview, Some((60, Some(Rational::new(2, 1)))));
+    assert_eq!(
+        preview,
+        Some((60, Some(Rational::new(1, 2)))),
+        "a click should audition a short capped preview, not the full note"
+    );
+}
+
+#[test]
+fn clicking_a_long_note_does_not_audition_its_full_length() {
+    let long = note(30, 60, 1, 4);
+    let (doc, clip) = midi_doc(vec![long.clone()]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    let content = ui.midi_editor_content_rect;
+    let pos = egui::pos2(note_x(&ui, content, 1.5), note_y(&ui, content, 60));
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::PointerMoved(pos)],
+    );
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(pos, true)],
+    );
+    let intents = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(pos, false)],
+    );
+    let length = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::PreviewNote {
+                pitch, length_mus, ..
+            } if *pitch == 60 => *length_mus,
+            _ => None,
+        })
+        .expect("clicking a note should preview it");
+    assert!(
+        length < long.length,
+        "the audition length {length:?} should be capped below the stored length {:?}",
+        long.length
+    );
+    assert_eq!(length, Rational::new(1, 2));
 }
 
 #[test]
@@ -1399,4 +1594,83 @@ fn copying_notes_also_sets_the_platform_clipboard_text() {
             .any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
         "copy should also set the platform clipboard text"
     );
+}
+
+#[test]
+fn command_a_selects_all_notes() {
+    let (doc, clip) = midi_doc(vec![note(30, 60, 1, 1), note(31, 64, 3, 1)]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    let modifiers = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let _ = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+    );
+    let state = ui.midi_editor.as_ref().expect("MIDI editor");
+    assert_eq!(state.selected_ids().len(), 2);
+    assert_eq!(state.time_selection(), Some(span(1, 4)));
+}
+
+#[test]
+fn deleting_a_zero_width_time_selection_splits_every_crossing_note() {
+    let (doc, clip) = midi_doc(vec![note(30, 60, 1, 3), note(31, 64, 1, 3)]);
+    let runtime = RuntimeView::default();
+    let mut ui = NotwigUi::default();
+    let ctx = open(&mut ui, &doc, &runtime, clip);
+    ui.midi_editor
+        .as_mut()
+        .expect("MIDI editor")
+        .select_time(span(2, 2));
+    let intents = run_ui(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::Key {
+            key: egui::Key::Delete,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        }],
+    );
+    let (notes, removed) = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::EditMidiNotes { notes, removed, .. } => {
+                Some((notes.clone(), removed.clone()))
+            }
+            _ => None,
+        })
+        .expect("delete should emit a note edit");
+    assert_eq!(removed.len(), 0);
+    assert_eq!(notes.len(), 4);
+    for (pitch, left_id) in [(60, id::<Note>(30)), (64, id::<Note>(31))] {
+        let left = notes
+            .iter()
+            .find(|note| note.id == left_id)
+            .expect("left half keeps its id");
+        assert_eq!(left.pitch, pitch);
+        assert_eq!(left.start, Rational::new(1, 1));
+        assert_eq!(left.length, Rational::new(1, 1));
+        let right = notes
+            .iter()
+            .find(|note| note.pitch == pitch && note.id != left_id)
+            .expect("right half is created");
+        assert_eq!(right.start, Rational::new(2, 1));
+        assert_eq!(right.length, Rational::new(2, 1));
+    }
 }

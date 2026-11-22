@@ -648,8 +648,31 @@ impl NotwigUi {
         {
             self.emit(UiIntent::CreateTrack(TrackKind::Audio));
         }
+        if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll) {
+            let clips: Vec<_> = doc
+                .arranger
+                .clips
+                .values()
+                .map(|clip| (clip.id, clip.track_id))
+                .collect();
+            self.state.selection.select_clips(&clips);
+        }
         if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::JoinClips) {
-            let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
+            let mut clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
+            if clips.len() < 2
+                && let Some((range, tracks)) = &time
+                && !range.is_empty()
+            {
+                clips = doc
+                    .arranger
+                    .clips
+                    .values()
+                    .filter(|clip| tracks.contains(&clip.track_id))
+                    .filter(|clip| clip.range.intersects(*range))
+                    .map(|clip| clip.id)
+                    .collect();
+                clips.sort_unstable();
+            }
             if clips.len() >= 2 {
                 self.emit(UiIntent::JoinClips { clips });
             }
@@ -1094,7 +1117,8 @@ impl NotwigUi {
                                                     ui.label(
                                                         RichText::new(format_position_bars(
                                                             runtime.playhead,
-                                                            doc.meta.time_sig_num,
+                                                            doc.meta.bar_length(),
+                                                            doc.meta.beat_length(),
                                                         ))
                                                         .monospace()
                                                         .size(TOP_BAR_READOUT_FONT)
@@ -1491,7 +1515,7 @@ impl NotwigUi {
                 .viewport
                 .x_to_beat(pointer.x, self.clip_editor_content_rect.left()),
             ppb,
-            doc.meta.time_sig_num,
+            doc.meta.bar_length(),
             false,
         );
         let at = absolute - clip.range.start;
@@ -1541,7 +1565,7 @@ impl NotwigUi {
             let at = snap.snap(
                 self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
                 self.state.viewport.pixels_per_beat,
-                doc.meta.time_sig_num,
+                doc.meta.bar_length(),
                 false,
             );
             (target, at)
@@ -1696,7 +1720,7 @@ impl NotwigUi {
             let at = snap.snap(
                 self.state.viewport.x_to_beat(pointer.x, self.timeline_left),
                 self.state.viewport.pixels_per_beat,
-                doc.meta.time_sig_num,
+                doc.meta.bar_length(),
                 false,
             );
             Some((target, at))
@@ -1836,15 +1860,20 @@ fn record_button(ui: &mut egui::Ui) {
     response.on_hover_text("Record (not implemented)");
 }
 
-fn format_position_bars(time: notwig_core::TimeMus, beats_per_bar: u8) -> String {
+fn format_position_bars(
+    time: notwig_core::TimeMus,
+    bar_length: notwig_core::TimeMus,
+    beat_length: notwig_core::TimeMus,
+) -> String {
     let beats = time.as_f64().max(0.0);
-    let bar_len = f64::from(beats_per_bar.max(1));
+    let bar_len = bar_length.as_f64().max(f64::EPSILON);
+    let beat_len = beat_length.as_f64().max(f64::EPSILON);
     let bar = (beats / bar_len).floor() as u64 + 1;
     let beat_pos = beats % bar_len;
-    let beat = beat_pos.floor() as u64 + 1;
-    let sixteenth_pos = beat_pos.fract() * 4.0;
-    let sixteenth = sixteenth_pos.floor() as u64 + 1;
-    let tick = (sixteenth_pos.fract() * 100.0).floor() as u64;
+    let beat = (beat_pos / beat_len).floor() as u64 + 1;
+    let sub_beat = (beat_pos % beat_len) / beat_len;
+    let sixteenth = (sub_beat * 4.0).floor() as u64 + 1;
+    let tick = ((sub_beat * 4.0).fract() * 100.0).floor() as u64;
     format!("{bar}.{beat}.{sixteenth}.{tick:02}")
 }
 

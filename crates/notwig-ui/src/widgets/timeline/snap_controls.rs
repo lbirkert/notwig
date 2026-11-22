@@ -1,5 +1,6 @@
 use egui::Align2;
 use egui::{Align, Color32, FontId, Id, Layout, Rect, Response, RichText, Sense, Ui, Vec2};
+use notwig_core::TimeMus;
 
 use crate::icons::Icon;
 use crate::theme;
@@ -24,7 +25,7 @@ pub fn show(
     id_salt: &'static str,
     snap: &mut SnapSettings,
     pixels_per_beat: f32,
-    beats_per_bar: u8,
+    bar_length: TimeMus,
 ) -> SnapControlsRects {
     let height = CONTROL_HEIGHT.min(rect.height()).max(14.0);
     let top = rect.center().y - height * 0.5;
@@ -49,12 +50,12 @@ pub fn show(
         snap.enabled = !snap.enabled;
     }
 
-    let label = snap_step_label(snap.step(pixels_per_beat, beats_per_bar), beats_per_bar);
+    let label = snap_step_label(snap.step(pixels_per_beat, bar_length), bar_length);
     let grid_response = text_control(ui, grid_rect, &label, false, "Grid settings", id_salt);
     egui::Popup::from_toggle_button_response(&grid_response)
         .align(egui::RectAlign::TOP_END)
         .gap(4.0)
-        .show(|ui| grid_popup(ui, id_salt, snap, pixels_per_beat, beats_per_bar));
+        .show(|ui| grid_popup(ui, id_salt, snap, pixels_per_beat, bar_length));
 
     SnapControlsRects {
         snap: snap_rect,
@@ -67,7 +68,7 @@ fn grid_popup(
     id_salt: &'static str,
     snap: &mut SnapSettings,
     pixels_per_beat: f32,
-    beats_per_bar: u8,
+    bar_length: TimeMus,
 ) {
     ui.set_min_width(176.0);
     ui.spacing_mut().item_spacing = Vec2::new(4.0, 5.0);
@@ -83,9 +84,9 @@ fn grid_popup(
             snap.adaptive = !snap.adaptive;
         }
         if snap.adaptive {
-            let step = snap.step(pixels_per_beat, beats_per_bar);
+            let step = snap.step(pixels_per_beat, bar_length);
             ui.label(
-                RichText::new(snap_step_label(step, beats_per_bar))
+                RichText::new(snap_step_label(step, bar_length))
                     .monospace()
                     .size(15.0)
                     .color(theme::ACCENT),

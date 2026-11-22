@@ -11,12 +11,26 @@ pub(crate) fn pointer_delta(start: Pos2, current: Pos2, ppb: f32) -> f64 {
     f64::from(current.x - start.x) / f64::from(ppb)
 }
 
-pub(crate) fn snapped_delta(anchor: TimeMus, delta: f64, grid: TimeMus, bypass: bool) -> TimeMus {
+pub(crate) fn snapped_start(
+    absolute_anchor: TimeMus,
+    delta: f64,
+    grid: TimeMus,
+    bypass: bool,
+) -> TimeMus {
     let beat = TimeMus::new(
-        ((anchor.as_f64() + delta) * 1_000_000.0).round() as i64,
+        ((absolute_anchor.as_f64() + delta) * 1_000_000.0).round() as i64,
         1_000_000,
     );
-    crate::widgets::snap_time(beat, grid, bypass) - anchor
+    crate::widgets::snap_time(beat, grid, bypass)
+}
+
+pub(crate) fn snapped_shift(
+    absolute_anchor: TimeMus,
+    delta: f64,
+    grid: TimeMus,
+    bypass: bool,
+) -> TimeMus {
+    snapped_start(absolute_anchor, delta, grid, bypass) - absolute_anchor
 }
 
 pub(crate) fn selection_range(anchor: TimeMus, current: TimeMus) -> Option<RangeMus> {

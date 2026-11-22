@@ -55,8 +55,21 @@ pub(super) fn clamp_time_shift(
     }
 }
 
-pub(super) fn snapped_shift(anchor: TimeMus, delta: f64, grid: TimeMus, bypass: bool) -> TimeMus {
-    crate::timeline::interaction::snapped_delta(anchor, delta, grid, bypass)
+pub(super) fn snapped_shift(
+    anchor: TimeMus,
+    absolute_offset: TimeMus,
+    delta: f64,
+    grid: TimeMus,
+    bypass: bool,
+) -> TimeMus {
+    let absolute_anchor = absolute_offset + anchor;
+    let absolute_start =
+        crate::timeline::interaction::snapped_start(absolute_anchor, delta, grid, bypass);
+    absolute_start - absolute_offset - anchor
+}
+
+pub(super) fn absolute_offset(clip_start: TimeMus, content_start: TimeMus) -> TimeMus {
+    clip_start - content_start
 }
 
 pub(super) fn content_time_from_beat(

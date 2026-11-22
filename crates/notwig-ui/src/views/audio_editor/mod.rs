@@ -3,7 +3,7 @@ use notwig_core::{RangeMus, SliceId, TempoMap, TimeMus};
 
 use crate::shell::NotwigUi;
 
-const SCROLLBAR_H: f32 = 14.0;
+pub(super) const SCROLLBAR_H: f32 = 18.0;
 
 pub(crate) mod actions;
 pub(crate) mod geometry;
@@ -75,12 +75,15 @@ pub mod test_api {
     pub fn group_move_shift(
         drag: SliceDrag,
         delta_mus: f64,
+        clip_start: TimeMus,
         grid: TimeMus,
         bypass: bool,
         min_start: TimeMus,
         starts: &[TimeMus],
     ) -> TimeMus {
-        super::geometry::group_move_shift(drag, delta_mus, grid, bypass, min_start, starts)
+        super::geometry::group_move_shift(
+            drag, delta_mus, clip_start, grid, bypass, min_start, starts,
+        )
     }
 
     pub fn clamp_slice_start(start: TimeMus, min_start: TimeMus) -> TimeMus {
@@ -104,13 +107,14 @@ pub mod test_api {
         delta_mus: f64,
         move_shift: TimeMus,
         map: &TempoMap,
+        clip_start: TimeMus,
         grid: TimeMus,
         bypass: bool,
         min_start: TimeMus,
         selected: bool,
     ) -> SliceGeometry {
         super::geometry::slice_geometry(
-            slice, drag, delta_mus, move_shift, map, grid, bypass, min_start, selected,
+            slice, drag, delta_mus, move_shift, map, clip_start, grid, bypass, min_start, selected,
         )
     }
 

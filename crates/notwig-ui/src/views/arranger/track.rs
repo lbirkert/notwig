@@ -566,7 +566,13 @@ impl NotwigUi {
         {
             crate::timeline::draw_time_selection_fill(
                 &painter,
-                TimelineGrid::new(start, ppb, doc.meta.time_sig_num.max(1), snap),
+                TimelineGrid::new(
+                    start,
+                    ppb,
+                    doc.meta.bar_length(),
+                    doc.meta.beat_length(),
+                    snap,
+                ),
                 lane_rect.left(),
                 lane_rect,
                 time.range,

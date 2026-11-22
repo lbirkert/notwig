@@ -2,20 +2,21 @@ use crate::clock::{Duration, Instant};
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
+#[cfg(target_arch = "wasm32")]
+use crate::audio::AudioService;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::engine_process::{EngineClient, EngineEvent};
 use eframe::egui;
 #[cfg(not(target_arch = "wasm32"))]
 use mouse_position::mouse_position::Mouse;
 use notwig_core::protocol::CommandPayload;
 use notwig_core::{AssetId, DeviceId, DeviceKind, ProjectDoc, Rational, TimeMus, TrackKind};
-#[cfg(not(target_arch = "wasm32"))]
-use notwig_plugins::NativePluginWindow;
 #[cfg(target_arch = "wasm32")]
 use notwig_ui::ProjectPickerAction;
 use notwig_ui::{
     DropAudioTarget, NotificationKind, NotwigUi, RecentProjectView, RuntimeView, UiIntent,
 };
 
-use crate::audio::AudioService;
 #[cfg(target_arch = "wasm32")]
 use crate::web::storage::{FilePurpose, ProjectHandle, StorageEvent};
 use crate::workspace::{RenderSession, Workspace};
@@ -106,10 +107,24 @@ fn audio_import_notification_tag(asset_id: AssetId) -> String {
     format!("audio-import:{asset_id}")
 }
 
+fn available_audio_options() -> Vec<notwig_ui::AudioDriverView> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        EngineClient::available_options()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        AudioService::available_options()
+    }
+}
+
 pub struct NotwigApp {
     workspace: Workspace,
     ui: NotwigUi,
     extensions: crate::extensions::ExtensionManager,
+    #[cfg(not(target_arch = "wasm32"))]
+    audio: Option<EngineClient>,
+    #[cfg(target_arch = "wasm32")]
     audio: Option<AudioService>,
     audio_settings: crate::audio::AudioSettings,
     audio_options: Vec<notwig_ui::AudioDriverView>,
@@ -119,7 +134,7 @@ pub struct NotwigApp {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pending_drops: Vec<(PathBuf, DropAudioTarget, TimeMus)>,
     #[cfg(not(target_arch = "wasm32"))]
-    plugin_editors: Vec<(DeviceId, NativePluginWindow)>,
+    open_plugin_editors: std::collections::BTreeSet<DeviceId>,
     recovery_error: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     recovery_selection: Option<PathBuf>,
@@ -167,7 +182,7 @@ impl NotwigApp {
             workspace.load_startup_recovery_candidates();
         }
         let fallback_playhead = workspace.doc.transport.playhead.as_f64();
-        let audio_options = AudioService::available_options();
+        let audio_options = available_audio_options();
         let mut audio_settings =
             crate::audio_config::validated(crate::audio_config::load(), &audio_options);
         if audio_settings.block_size == 0 {
@@ -227,7 +242,7 @@ impl NotwigApp {
             dialog_rx: None,
             pending_drops: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
-            plugin_editors: Vec::new(),
+            open_plugin_editors: std::collections::BTreeSet::new(),
             recovery_error: None,
             #[cfg(not(target_arch = "wasm32"))]
             recovery_selection: None,
@@ -620,6 +635,8 @@ impl NotwigApp {
     fn sync_extensions(&mut self) {
         self.workspace
             .set_extension_devices(self.extensions.specs(), self.extensions.factory());
+        self.workspace
+            .set_extension_engine_runtime(self.extensions.engine_runtime());
         self.ui.set_device_panel_host(self.extensions.panel_host());
     }
 
@@ -627,6 +644,26 @@ impl NotwigApp {
         self.recent_projects = load_recent_projects();
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restart_audio(&mut self) {
+        self.audio = None;
+        let rate = self.workspace.doc.meta.sample_rate.value();
+        match EngineClient::start(rate, &self.audio_settings) {
+            Ok(audio) => {
+                self.workspace.set_engine_process(Some(audio.handle()));
+                self.audio = Some(audio);
+                self.workspace.engine_audio_restarted();
+            }
+            Err(err) => {
+                self.workspace.set_engine_process(None);
+                self.workspace.error = Some(err.clone());
+                self.workspace.status = Some(err.clone());
+                self.notify_error(format!("Could not start the audio engine: {err}"));
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
     fn restart_audio(&mut self) {
         self.audio = None;
         let rate = self.workspace.doc.meta.sample_rate.value();
@@ -647,6 +684,15 @@ impl NotwigApp {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn audio_snapshot(&self) -> crate::audio::AudioSnapshot {
+        self.audio
+            .as_ref()
+            .map(EngineClient::snapshot)
+            .unwrap_or_default()
+    }
+
+    #[cfg(target_arch = "wasm32")]
     fn audio_snapshot(&self) -> crate::audio::AudioSnapshot {
         self.audio
             .as_ref()
@@ -948,7 +994,7 @@ impl NotwigApp {
     fn sync_playhead(&mut self) {
         let snapshot = self.audio_snapshot();
         let playhead = self.current_playhead(&snapshot);
-        let _ = self.workspace.set_playhead(playhead);
+        let _ = self.workspace.sync_playhead_for_save(playhead);
         self.fallback_playhead = playhead.as_f64();
     }
 
@@ -1119,33 +1165,31 @@ impl NotwigApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn open_plugin_window(&mut self, device_id: DeviceId) {
-        if let Some((_, window)) = self.plugin_editors.iter().find(|(id, _)| *id == device_id) {
-            window.focus();
-            return;
-        }
         let Some(descriptor) = self.workspace.plugin_descriptor(device_id) else {
             self.notify_error("Plugin is not installed or was not found.".into());
             return;
         };
+        let Some(audio) = &self.audio else {
+            self.notify_error("Audio engine is not running.".into());
+            return;
+        };
         let sample_rate = self.workspace.doc.meta.sample_rate.value();
-        let monitor = self.workspace.monitor(device_id);
-        match NativePluginWindow::open(&descriptor, sample_rate, Some(monitor)) {
-            Ok(mut window) => {
-                if let Some(state) = self.workspace.plugin_state(device_id) {
-                    let _ = window.load_state(state);
-                }
-                if let Some(device) = self.workspace.doc.devices.get(&device_id) {
-                    for (param_id, value) in &device.param_values {
-                        if let Some(value) = value.as_f64() {
-                            window.set_parameter((*param_id).into_uuid().as_u128() as u32, value);
-                        }
-                    }
-                }
-                self.plugin_editors.push((device_id, window));
-            }
-            Err(err) => {
-                self.notify_error(format!("Could not open plugin window: {err}"));
-            }
+        let state = self.workspace.plugin_state(device_id).cloned();
+        let params = self
+            .workspace
+            .doc
+            .devices
+            .get(&device_id)
+            .map(|device| {
+                device
+                    .param_values
+                    .iter()
+                    .filter_map(|(param_id, value)| value.as_f64().map(|value| (*param_id, value)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Err(err) = audio.open_editor(device_id, descriptor, sample_rate, state, params) {
+            self.notify_error(format!("Could not open plugin window: {err}"));
         }
     }
 
@@ -1585,7 +1629,9 @@ impl NotwigApp {
                     .apply(CommandPayload::RemoveDevice { device_id });
                 if result.is_ok() {
                     #[cfg(not(target_arch = "wasm32"))]
-                    self.plugin_editors.retain(|(id, _)| *id != device_id);
+                    if let Some(audio) = &self.audio {
+                        audio.close_editor(device_id);
+                    }
                 }
                 let _ = self.report(result);
             }
@@ -1611,12 +1657,9 @@ impl NotwigApp {
                 let _ = self.report(result);
                 #[cfg(not(target_arch = "wasm32"))]
                 if let Some(value) = raw_value
-                    && let Some((_, window)) = self
-                        .plugin_editors
-                        .iter_mut()
-                        .find(|(id, _)| *id == device_id)
+                    && let Some(audio) = &self.audio
                 {
-                    window.set_parameter(param_id.into_uuid().as_u128() as u32, value);
+                    audio.set_editor_param(device_id, param_id, value);
                 }
                 #[cfg(target_arch = "wasm32")]
                 let _ = raw_value;
@@ -1653,7 +1696,7 @@ impl NotwigApp {
                 };
                 self.workspace.audio_block_size = if block_size == 0 { 512 } else { block_size };
                 self.workspace.request_engine_rebuild();
-                self.audio_options = AudioService::available_options();
+                self.audio_options = available_audio_options();
                 self.restart_audio();
                 if let Err(err) = crate::audio_config::save(&self.audio_settings) {
                     self.notify_error(format!("Audio settings applied but not saved: {err}"));
@@ -2097,9 +2140,36 @@ impl NotwigApp {
 impl Drop for NotwigApp {
     fn drop(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
-        for (device_id, window) in &mut self.plugin_editors {
-            if let Ok(state) = window.save_state() {
-                self.workspace.store_plugin_state(*device_id, state);
+        {
+            let Some(audio) = &self.audio else {
+                return;
+            };
+            for device_id in self.open_plugin_editors.iter().copied() {
+                audio.close_editor(device_id);
+            }
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline && !self.open_plugin_editors.is_empty() {
+                let events = audio.poll();
+                for event in events {
+                    if let EngineEvent::EditorClosed {
+                        device_id,
+                        state,
+                        error,
+                    } = event
+                    {
+                        self.open_plugin_editors.remove(&device_id);
+                        if let Some(error) = error {
+                            tracing::warn!(%error, "plugin editor closed with error during shutdown");
+                        }
+                        if let Some(state) = state {
+                            self.workspace.store_plugin_state(device_id, state);
+                        }
+                    }
+                }
+                if self.open_plugin_editors.is_empty() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
             }
         }
     }
@@ -2140,23 +2210,46 @@ impl eframe::App for NotwigApp {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let events = self
+                .audio
+                .as_ref()
+                .map(EngineClient::poll)
+                .unwrap_or_default();
             let mut editor_changes = Vec::new();
             let mut closed_states = Vec::new();
             let mut playback_toggle = false;
-            self.plugin_editors.retain_mut(|(device_id, window)| {
-                window.pump();
-                playback_toggle |= window.take_playback_toggle();
-                if !window.is_open() {
-                    if let Ok(state) = window.save_state() {
-                        closed_states.push((*device_id, state));
+            let mut build_results = Vec::new();
+            for event in events {
+                match event {
+                    EngineEvent::BuildFinished(result) => build_results.push(result),
+                    EngineEvent::EditorOpened { device_id } => {
+                        self.open_plugin_editors.insert(device_id);
                     }
-                    return false;
+                    EngineEvent::EditorClosed {
+                        device_id,
+                        state,
+                        error,
+                    } => {
+                        if let Some(error) = error {
+                            self.notify_error(error);
+                        }
+                        self.open_plugin_editors.remove(&device_id);
+                        if let Some(state) = state {
+                            closed_states.push((device_id, state));
+                        }
+                    }
+                    EngineEvent::EditorParam {
+                        device_id,
+                        param_id,
+                        value,
+                    } => editor_changes.push((device_id, param_id, value)),
+                    EngineEvent::EditorTransportToggle => playback_toggle = true,
+                    EngineEvent::Error(error) => self.notify_error(error),
                 }
-                for (param_id, value) in window.poll_changes() {
-                    editor_changes.push((*device_id, param_id, value));
-                }
-                true
-            });
+            }
+            for result in build_results {
+                self.workspace.engine_process_build_finished(result);
+            }
             if playback_toggle {
                 let intent = if self.workspace.doc.transport.playing {
                     UiIntent::Stop
@@ -2168,9 +2261,7 @@ impl eframe::App for NotwigApp {
             for (device_id, state) in closed_states {
                 self.workspace.set_plugin_state(device_id, state);
             }
-            for (device_id, raw_id, value) in editor_changes {
-                let param_id =
-                    notwig_core::ParamId::from_uuid(uuid::Uuid::from_u128(u128::from(raw_id)));
+            for (device_id, param_id, value) in editor_changes {
                 self.ui.last_touched_param.insert(device_id, param_id);
                 let result = self.workspace.apply(CommandPayload::SetParam {
                     device_id,
@@ -2192,6 +2283,9 @@ impl eframe::App for NotwigApp {
             document.set_title(&title);
         }
         let snapshot = self.audio_snapshot();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.workspace
+            .set_engine_playhead_samples(snapshot.playhead_samples);
         if snapshot.crashed && !self.engine_crash_reported {
             self.engine_crash_reported = true;
             self.notify_error(

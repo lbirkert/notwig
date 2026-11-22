@@ -154,6 +154,7 @@ pub struct ActivePlan {
     active_notes: BTreeMap<TrackId, BTreeMap<NoteId, (u8, f32)>>,
     preview_pool: [Option<PreviewSlot>; PREVIEW_POOL_CAPACITY],
     panic_pending: bool,
+    prime_at_sample: Option<u64>,
     tempo_bpm: f64,
     sample_rate: u32,
     route_scratch: Vec<f32>,
@@ -221,6 +222,7 @@ impl ActivePlan {
             active_notes: BTreeMap::new(),
             preview_pool: [None; PREVIEW_POOL_CAPACITY],
             panic_pending: false,
+            prime_at_sample: None,
             tempo_bpm: plan.config.tempo_bpm,
             sample_rate: plan.config.sample_rate,
             route_scratch: vec![0.0; config.max_block_size.max(1) * 2],
@@ -236,6 +238,7 @@ impl ActivePlan {
         self.active_notes.clear();
         self.preview_pool = [None; PREVIEW_POOL_CAPACITY];
         self.panic_pending = false;
+        self.prime_at_sample = None;
         for track in self.tracks.values_mut() {
             track.reset();
         }
@@ -292,6 +295,16 @@ impl ActivePlan {
 
     pub fn initiate_all_notes_off(&mut self) {
         self.panic_pending = true;
+    }
+
+    /// Re-emit note-ons for notes that are already sounding at `start_sample`.
+    ///
+    /// A freshly built runtime has empty note state, and a seek moves the
+    /// playhead away from the note-on that originally started a sustained note.
+    /// The next rendered block emits these note-ons at offset zero so held notes
+    /// do not disappear.
+    pub(crate) fn prime_notes_at(&mut self, start_sample: u64) {
+        self.prime_at_sample = Some(start_sample);
     }
 
     pub fn emit_all_notes_off(&mut self) {
@@ -621,6 +634,9 @@ impl ActivePlan {
         }
         let block_end = start_sample + frames as u64;
         if include_clips {
+            if let Some(prime_sample) = self.prime_at_sample.take() {
+                self.prime_notes_covering(prime_sample, &mut events);
+            }
             for (track_id, clips) in &self.schedule.tracks {
                 if !self
                     .tracks
@@ -737,6 +753,68 @@ impl ActivePlan {
             });
         }
         events
+    }
+
+    /// Add note-ons for notes whose span covers `start_sample` but that started
+    /// before it. Notes that are already active are left alone so an ordinary
+    /// control publish cannot retrigger them.
+    fn prime_notes_covering(
+        &mut self,
+        start_sample: u64,
+        events: &mut BTreeMap<TrackId, Vec<NoteEvent>>,
+    ) {
+        let map = notwig_core::TempoMap {
+            tempo_bpm: self.tempo_bpm,
+            sample_rate: notwig_core::SampleRate(self.sample_rate),
+        };
+        for (track_id, clips) in &self.schedule.tracks {
+            if !self
+                .tracks
+                .get(track_id)
+                .is_some_and(|track| track.plan.active)
+            {
+                continue;
+            }
+            for clip in clips {
+                let ClipPayload::Midi(midi) = &clip.payload else {
+                    continue;
+                };
+                let clip_start = map.mus_to_samples(clip.range.start);
+                let clip_end = map.mus_to_samples(clip.range.end);
+                if start_sample < clip_start || start_sample >= clip_end {
+                    continue;
+                }
+                for note in &midi.notes {
+                    if note.start < midi.content_start {
+                        continue;
+                    }
+                    let relative_start = note.start - midi.content_start;
+                    let absolute_start_mus = clip.range.start + relative_start;
+                    if absolute_start_mus >= clip.range.end {
+                        continue;
+                    }
+                    let absolute_end_mus = (absolute_start_mus + note.length).min(clip.range.end);
+                    let note_start = map.mus_to_samples(absolute_start_mus);
+                    let note_end = map.mus_to_samples(absolute_end_mus);
+                    if note_start >= start_sample || note_end <= start_sample {
+                        continue;
+                    }
+                    let active = self.active_notes.entry(*track_id).or_default();
+                    if active.contains_key(&note.id) {
+                        continue;
+                    }
+                    let velocity = note.velocity.0.clamp(0.0, 1.0);
+                    active.insert(note.id, (note.pitch, velocity));
+                    events.entry(*track_id).or_default().push(NoteEvent {
+                        sample_offset: 0,
+                        kind: NoteKind::On,
+                        note_id: note.id,
+                        pitch: note.pitch,
+                        velocity,
+                    });
+                }
+            }
+        }
     }
 
     fn apply_track_gain_and_pan(&mut self, id: TrackId, frames: usize, apply_pan: bool) {

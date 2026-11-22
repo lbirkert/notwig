@@ -10,6 +10,15 @@ use notwig_engine::{ControlHandle, Engine, EngineConfig};
 use notwig_ext_api::DeviceMeterSnapshot;
 use notwig_ui::MeterValues;
 
+/// Synthetic device id that always resolves to the host's default output
+/// device. It is selectable in Settings instead of relying on an empty device
+/// string to imply the system default.
+pub const SYSTEM_OUT_DEVICE_ID: &str = "system-out";
+
+const SYSTEM_OUT_LABEL: &str = "System Out";
+const SYSTEM_OUT_WARNING: &str = "System Out follows the operating system's default output device.";
+const COMMON_SAMPLE_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AudioSettings {
     pub driver: String,
@@ -94,6 +103,11 @@ pub fn settings_view(
     settings: &AudioSettings,
     error: Option<String>,
 ) -> notwig_ui::AudioSettingsView {
+    let warning = if settings.device == SYSTEM_OUT_DEVICE_ID {
+        Some(SYSTEM_OUT_WARNING.to_string())
+    } else {
+        None
+    };
     notwig_ui::AudioSettingsView {
         drivers,
         current: notwig_ui::AudioSettingsValue {
@@ -105,7 +119,7 @@ pub fn settings_view(
             block_size: settings.block_size,
         },
         error,
-        warning: None,
+        warning,
     }
 }
 
@@ -137,9 +151,15 @@ impl AudioService {
             .map_err(|err| format!("output config: {err}"))?;
         let sample_format = default.sample_format();
         let rate = settings.sample_rate.unwrap_or(project_rate);
-        let mut config = choose_config(&device, rate).ok_or_else(|| {
-            format!("output device does not support {rate} Hz; playback is unavailable")
-        })?;
+        let mut config = choose_config(&device, rate).unwrap_or_else(|| {
+            tracing::warn!(
+                requested = rate,
+                fallback = default.sample_rate(),
+                "output device does not support the requested sample rate; using its default"
+            );
+            let config: StreamConfig = default.into();
+            config
+        });
         config.buffer_size = if settings.block_size > 0 {
             cpal::BufferSize::Fixed(settings.block_size)
         } else {
@@ -205,33 +225,21 @@ impl AudioService {
             let Ok(host) = cpal::host_from_id(host_id) else {
                 continue;
             };
-            let Ok(devices) = host.output_devices() else {
-                continue;
-            };
             let mut device_views = Vec::new();
-            for device in devices {
-                let Ok(description) = device.description() else {
-                    continue;
-                };
-                let name = description.name().to_string();
-                let mut rates = std::collections::BTreeSet::new();
-                if let Ok(configs) = device.supported_output_configs() {
-                    for range in configs {
-                        rates.insert(range.min_sample_rate());
-                        rates.insert(range.max_sample_rate());
-                        for rate in [44_100, 48_000, 88_200, 96_000, 176_400, 192_000] {
-                            if range.min_sample_rate() <= rate && rate <= range.max_sample_rate() {
-                                rates.insert(rate);
-                            }
-                        }
-                    }
+            if let Ok(devices) = host.output_devices() {
+                for device in devices {
+                    let Ok(description) = device.description() else {
+                        continue;
+                    };
+                    let name = description.name().to_string();
+                    device_views.push(notwig_ui::AudioDeviceView {
+                        id: name.clone(),
+                        label: name,
+                        sample_rates: supported_sample_rates(&device),
+                    });
                 }
-                device_views.push(notwig_ui::AudioDeviceView {
-                    id: name.clone(),
-                    label: name,
-                    sample_rates: rates.into_iter().collect(),
-                });
             }
+            device_views.push(system_out_device(&host));
             drivers.push(notwig_ui::AudioDriverView {
                 id: host_id.name().to_string(),
                 label: host_id.name().to_string(),
@@ -240,6 +248,58 @@ impl AudioService {
         }
         drivers
     }
+}
+
+fn supported_sample_rates(device: &cpal::Device) -> Vec<u32> {
+    let mut rates = std::collections::BTreeSet::new();
+    if let Ok(configs) = device.supported_output_configs() {
+        for range in configs {
+            rates.insert(range.min_sample_rate());
+            rates.insert(range.max_sample_rate());
+            for rate in COMMON_SAMPLE_RATES {
+                if range.min_sample_rate() <= rate && rate <= range.max_sample_rate() {
+                    rates.insert(rate);
+                }
+            }
+        }
+    }
+    if rates.is_empty()
+        && let Ok(default) = device.default_output_config()
+    {
+        rates.insert(default.sample_rate());
+    }
+    rates.into_iter().collect()
+}
+
+fn system_out_device(host: &cpal::Host) -> notwig_ui::AudioDeviceView {
+    let sample_rates = host.default_output_device().map_or_else(
+        || COMMON_SAMPLE_RATES.to_vec(),
+        |device| {
+            let rates = supported_sample_rates(&device);
+            if rates.is_empty() {
+                COMMON_SAMPLE_RATES.to_vec()
+            } else {
+                rates
+            }
+        },
+    );
+    notwig_ui::AudioDeviceView {
+        id: SYSTEM_OUT_DEVICE_ID.to_string(),
+        label: SYSTEM_OUT_LABEL.to_string(),
+        sample_rates,
+    }
+}
+
+/// Resolve an output selection to a hardware device description. `SYSTEM_OUT`
+/// and the legacy empty string both use the host's default output device.
+#[doc(hidden)]
+pub fn resolve_output_device_name(driver: &str, name: &str) -> Result<String, String> {
+    let host = resolve_host(driver)?;
+    let device = resolve_device(&host, name)?;
+    device
+        .description()
+        .map(|description| description.name().to_string())
+        .map_err(|err| format!("output device description: {err}"))
 }
 
 fn resolve_host(driver: &str) -> Result<cpal::Host, String> {
@@ -254,7 +314,7 @@ fn resolve_host(driver: &str) -> Result<cpal::Host, String> {
 }
 
 fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
-    if name.is_empty() {
+    if name.is_empty() || name == SYSTEM_OUT_DEVICE_ID {
         return host
             .default_output_device()
             .ok_or_else(|| "no default output device".to_string());
