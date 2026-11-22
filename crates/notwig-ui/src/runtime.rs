@@ -25,12 +25,85 @@ pub struct PluginEntry {
     pub kind: DeviceKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum AudioChannelDirection {
+    #[default]
+    Input,
+    Output,
+}
+
+impl AudioChannelDirection {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Input => "Input",
+            Self::Output => "Output",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum AudioChannelFormat {
+    #[default]
+    Mono,
+    Stereo,
+}
+
+impl AudioChannelFormat {
+    #[must_use]
+    pub fn channel_count(self) -> u16 {
+        match self {
+            Self::Mono => 1,
+            Self::Stereo => 2,
+        }
+    }
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mono => "Mono",
+            Self::Stereo => "Stereo",
+        }
+    }
+}
+
+/// A user-named input or output mapped to physical channels on an audio device.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct AudioChannelConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub direction: AudioChannelDirection,
+    #[serde(default)]
+    pub format: AudioChannelFormat,
+    #[serde(default)]
+    pub driver: String,
+    #[serde(default)]
+    pub device: String,
+    #[serde(default)]
+    pub first_channel: u16,
+}
+
+impl AudioChannelConfig {
+    #[must_use]
+    pub fn channel_count(&self) -> u16 {
+        self.format.channel_count()
+    }
+
+    #[must_use]
+    pub fn kind_label(&self) -> String {
+        format!("{} {}", self.format.label(), self.direction.label())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AudioSettingsValue {
     pub driver: String,
     pub device: String,
     pub sample_rate: String,
     pub block_size: u32,
+    pub channels: Vec<AudioChannelConfig>,
+    pub master_output: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -45,6 +118,7 @@ pub struct AudioInputView {
 pub struct AudioDeviceView {
     pub id: String,
     pub label: String,
+    pub channels: u16,
     pub sample_rates: Vec<u32>,
 }
 

@@ -48,6 +48,10 @@ pub struct AudioSettings {
     pub device: String,
     pub sample_rate: Option<u32>,
     pub block_size: u32,
+    #[serde(default)]
+    pub channels: Vec<notwig_ui::AudioChannelConfig>,
+    #[serde(default)]
+    pub master_output: Option<String>,
 }
 
 const DSP_HISTORY: usize = 200;
@@ -153,6 +157,8 @@ pub fn settings_view(
                 .sample_rate
                 .map_or_else(|| "auto".into(), |rate| rate.to_string()),
             block_size: settings.block_size,
+            channels: settings.channels.clone(),
+            master_output: settings.master_output.clone(),
         },
         error,
         warning,
@@ -226,6 +232,7 @@ impl AudioService {
             ..AudioSnapshot::default()
         }));
         let input_hub = InputHub::new(config.sample_rate);
+        let output_route = output_route(settings, config.channels);
         let mut engine = Engine::new(EngineConfig::new(
             config.sample_rate,
             settings.block_size.max(16) as usize,
@@ -233,10 +240,18 @@ impl AudioService {
         engine.attach_control(control);
         engine.attach_input_bus(input_hub.bus());
         let stream = match sample_format {
-            SampleFormat::F32 => build::<f32>(&device, config, engine, Arc::clone(&snapshot)),
-            SampleFormat::I16 => build::<i16>(&device, config, engine, Arc::clone(&snapshot)),
-            SampleFormat::U16 => build::<u16>(&device, config, engine, Arc::clone(&snapshot)),
-            SampleFormat::I32 => build::<i32>(&device, config, engine, Arc::clone(&snapshot)),
+            SampleFormat::F32 => {
+                build::<f32>(&device, config, engine, Arc::clone(&snapshot), output_route)
+            }
+            SampleFormat::I16 => {
+                build::<i16>(&device, config, engine, Arc::clone(&snapshot), output_route)
+            }
+            SampleFormat::U16 => {
+                build::<u16>(&device, config, engine, Arc::clone(&snapshot), output_route)
+            }
+            SampleFormat::I32 => {
+                build::<i32>(&device, config, engine, Arc::clone(&snapshot), output_route)
+            }
             other => Err(format!("unsupported sample format {other}")),
         }?;
         stream.play().map_err(|err| format!("start audio: {err}"))?;
@@ -304,19 +319,50 @@ impl AudioService {
                     device_views.push(notwig_ui::AudioDeviceView {
                         id: name.clone(),
                         label: name,
+                        channels: output_channel_count(&device),
                         sample_rates: supported_sample_rates(&device),
                     });
                 }
             }
             device_views.push(system_out_device(&host));
+            let label = if cfg!(target_arch = "wasm32") && host_id.name() == "WebAudio" {
+                "Web Audio".to_string()
+            } else {
+                host_id.name().to_string()
+            };
             drivers.push(notwig_ui::AudioDriverView {
                 id: host_id.name().to_string(),
-                label: host_id.name().to_string(),
+                label,
                 devices: device_views,
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        if drivers.is_empty() {
+            // Some browsers do not expose the WebAudio host until an
+            // AudioContext exists, but the host itself still works. Keep a
+            // synthetic entry so the settings page can open the driver.
+            drivers.push(notwig_ui::AudioDriverView {
+                id: "WebAudio".into(),
+                label: "Web Audio".into(),
+                devices: vec![notwig_ui::AudioDeviceView {
+                    id: "Default Device".into(),
+                    label: "Default Output".into(),
+                    channels: 2,
+                    sample_rates: COMMON_SAMPLE_RATES.to_vec(),
+                }],
             });
         }
         drivers
     }
+}
+
+fn output_channel_count(device: &cpal::Device) -> u16 {
+    device
+        .supported_output_configs()
+        .map_or(2, |configs| {
+            configs.map(|config| config.channels()).max().unwrap_or(2)
+        })
+        .max(1)
 }
 
 fn supported_sample_rates(device: &cpal::Device) -> Vec<u32> {
@@ -341,20 +387,22 @@ fn supported_sample_rates(device: &cpal::Device) -> Vec<u32> {
 }
 
 fn system_out_device(host: &cpal::Host) -> notwig_ui::AudioDeviceView {
-    let sample_rates = host.default_output_device().map_or_else(
-        || COMMON_SAMPLE_RATES.to_vec(),
+    let (channels, sample_rates) = host.default_output_device().map_or_else(
+        || (2, COMMON_SAMPLE_RATES.to_vec()),
         |device| {
             let rates = supported_sample_rates(&device);
-            if rates.is_empty() {
+            let rates = if rates.is_empty() {
                 COMMON_SAMPLE_RATES.to_vec()
             } else {
                 rates
-            }
+            };
+            (output_channel_count(&device), rates)
         },
     );
     notwig_ui::AudioDeviceView {
         id: SYSTEM_OUT_DEVICE_ID.to_string(),
         label: SYSTEM_OUT_LABEL.to_string(),
+        channels,
         sample_rates,
     }
 }
@@ -401,6 +449,7 @@ fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String>
         .ok_or_else(|| format!("audio device not found: {name}"))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn resolve_input_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
     if name.is_empty() {
         return host
@@ -447,11 +496,35 @@ fn choose_config(device: &cpal::Device, project_rate: u32) -> Option<StreamConfi
     candidate
 }
 
+fn output_route(settings: &AudioSettings, stream_channels: u16) -> (usize, usize) {
+    let default_first = 0;
+    let default_channels = usize::from(stream_channels.clamp(1, 2));
+    let Some(id) = settings.master_output.as_deref() else {
+        return (default_first, default_channels);
+    };
+    let Some(channel) = settings.channels.iter().find(|channel| {
+        channel.id == id
+            && channel.direction == notwig_ui::AudioChannelDirection::Output
+            && channel.driver == settings.driver
+            && channel.device == settings.device
+    }) else {
+        return (default_first, default_channels);
+    };
+    let first = usize::from(channel.first_channel);
+    if first >= usize::from(stream_channels.max(1)) {
+        return (default_first, default_channels);
+    }
+    let requested = usize::from(channel.channel_count());
+    let available = usize::from(stream_channels) - first;
+    (first, requested.min(available))
+}
+
 fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
     mut engine: Engine,
     snapshot: Arc<Mutex<AudioSnapshot>>,
+    output_route: (usize, usize),
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
@@ -543,10 +616,16 @@ where
                         0.0
                     };
                     for (channel_index, sample) in frame.iter_mut().enumerate() {
-                        let value = match channel_index {
-                            0 => left,
-                            1 => right,
-                            _ => 0.0,
+                        let value = if channel_index >= output_route.0
+                            && channel_index < output_route.0 + output_route.1
+                        {
+                            match channel_index - output_route.0 {
+                                0 => left,
+                                1 => right,
+                                _ => 0.0,
+                            }
+                        } else {
+                            0.0
                         };
                         *sample = T::from_sample(value);
                     }

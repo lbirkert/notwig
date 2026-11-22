@@ -79,6 +79,12 @@ pub struct AudioInputRef {
     pub driver: String,
     pub device: String,
     pub channel: u16,
+    #[serde(default = "default_input_channels")]
+    pub channels: u16,
+}
+
+const fn default_input_channels() -> u16 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -298,6 +298,8 @@ pub enum UiIntent {
         device: String,
         sample_rate: Option<u32>,
         block_size: u32,
+        channels: Vec<crate::runtime::AudioChannelConfig>,
+        master_output: Option<String>,
     },
 }
 

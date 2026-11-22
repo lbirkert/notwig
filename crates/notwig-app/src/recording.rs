@@ -92,7 +92,7 @@ impl RecordingSession {
                 track_id,
                 AudioAssetBuffer {
                     sample_rate: self.sample_rate,
-                    channels: 1,
+                    channels: 2,
                     samples,
                 },
             );

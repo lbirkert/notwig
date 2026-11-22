@@ -1307,7 +1307,10 @@ fn clip_editor_event_body_moves_outside_the_clip() {
 
 #[test]
 fn settings_page_renders_audio_options() {
-    use notwig_ui::{AudioDeviceView, AudioDriverView, AudioSettingsValue, AudioSettingsView};
+    use notwig_ui::{
+        AudioChannelConfig, AudioChannelDirection, AudioChannelFormat, AudioDeviceView,
+        AudioDriverView, AudioSettingsValue, AudioSettingsView,
+    };
     let runtime = RuntimeView {
         audio_settings: AudioSettingsView {
             drivers: vec![AudioDriverView {
@@ -1316,6 +1319,7 @@ fn settings_page_renders_audio_options() {
                 devices: vec![AudioDeviceView {
                     id: "System Out".into(),
                     label: "System Out".into(),
+                    channels: 2,
                     sample_rates: vec![44_100, 48_000, 96_000],
                 }],
             }],
@@ -1324,6 +1328,27 @@ fn settings_page_renders_audio_options() {
                 device: "System Out".into(),
                 sample_rate: "auto".into(),
                 block_size: 512,
+                channels: vec![
+                    AudioChannelConfig {
+                        id: "voice".into(),
+                        name: "Voice".into(),
+                        direction: AudioChannelDirection::Input,
+                        format: AudioChannelFormat::Mono,
+                        driver: "macOS Audio".into(),
+                        device: "System Out".into(),
+                        first_channel: 0,
+                    },
+                    AudioChannelConfig {
+                        id: "main".into(),
+                        name: "Main Out".into(),
+                        direction: AudioChannelDirection::Output,
+                        format: AudioChannelFormat::Stereo,
+                        driver: "macOS Audio".into(),
+                        device: "System Out".into(),
+                        first_channel: 0,
+                    },
+                ],
+                master_output: Some("main".into()),
             },
             error: None,
             warning: None,

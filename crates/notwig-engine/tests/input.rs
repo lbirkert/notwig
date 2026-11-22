@@ -85,3 +85,14 @@ fn monitor_input_is_mixed_through_the_track_chain() {
         "monitored input should reach the master output: {output:?}"
     );
 }
+
+#[test]
+fn recording_captures_interleaved_stereo_input() {
+    let bus = InputBus::new(48_000);
+    bus.set_recording(0, true);
+    bus.push_stereo(0, 0.25, -0.5);
+    bus.push(0, 0.75);
+    let mut recorded = Vec::new();
+    assert!(bus.drain_recording_into(0, &mut recorded));
+    assert_eq!(recorded, vec![0.25, -0.5, 0.75, 0.75]);
+}

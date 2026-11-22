@@ -326,7 +326,7 @@ impl NotwigApp {
                 block_size: 512,
                 ..crate::audio::AudioSettings::default()
             },
-            audio_options: Vec::new(),
+            audio_options: available_audio_options(),
             audio_inputs: AudioService::available_input_options(),
             recording: None,
             pending_recording_start: None,
@@ -368,6 +368,8 @@ impl NotwigApp {
     }
 
     pub fn enable_audio(&mut self) {
+        self.audio_options = available_audio_options();
+        self.audio_inputs = AudioService::available_input_options();
         self.restart_audio();
     }
 
@@ -739,6 +741,8 @@ impl NotwigApp {
                 self.audio_start_failed(err);
             }
         }
+        self.audio_options = available_audio_options();
+        self.audio_inputs = AudioService::available_input_options();
     }
 
     fn audio_start_failed(&mut self, err: String) {
@@ -2116,6 +2120,8 @@ impl NotwigApp {
                 device,
                 sample_rate,
                 block_size,
+                channels,
+                master_output,
             } => {
                 if let Some(rate) = sample_rate
                     && rate != self.workspace.doc.meta.sample_rate.value()
@@ -2129,6 +2135,8 @@ impl NotwigApp {
                     device,
                     sample_rate,
                     block_size,
+                    channels,
+                    master_output,
                 };
                 self.workspace.audio_block_size = if block_size == 0 { 512 } else { block_size };
                 self.workspace.request_engine_rebuild();

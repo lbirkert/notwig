@@ -23,10 +23,12 @@ bar. Its on/off state is stored in the project.
 
 Recording is linear and audio-only in the current implementation.
 
-1. Select an audio track and choose its input driver, device, and channel in the
-   info panel.
-2. Arm the track with **R** in the track header or info panel.
-3. Press **Record** in the top bar or **Cmd+R**.
+1. Optionally name inputs in **Settings > Audio > Inputs & Outputs**. Named
+   inputs appear first in the track input picker.
+2. Select an audio track and choose an input in the info panel. Mono and stereo
+   inputs are supported.
+3. Arm the track with **R** in the track header or info panel.
+4. Press **Record** in the top bar or **Cmd+R**.
 
 While a track is armed, its input is monitored through the track's device chain,
 mixer, pan, and routing. The transport starts playing when recording begins.
@@ -42,8 +44,9 @@ Finishing a take:
 
 If the project has not been saved yet, the take is staged in a temporary
 directory until the project is saved. Input devices must support the project
-sample rate. Browser recording also requires microphone permission and a user
-gesture.
+sample rate. Browser recording uses the **Web Audio** driver, asks for
+microphone permission when an armed track first opens its input, and needs a
+user gesture to start the audio engine.
 
 ## Play start versus playhead
 
@@ -113,8 +116,8 @@ cargo run -p notwig-app -- info path/to/project.notwig
 ## What is not implemented
 
 MIDI recording, loop recording, punch in and out, count-in, take lanes, and
-comping are not available. Audio recording is mono-input per track and
-monitoring is tied to record arm. See the
+comping are not available. Audio recording captures one mono or stereo input
+per track and monitoring is tied to record arm. See the
 [Roadmap](../03_development/06_roadmap.md) for the current status.
 
 Next: [Settings and Shortcuts](09_settings_and_shortcuts.md).

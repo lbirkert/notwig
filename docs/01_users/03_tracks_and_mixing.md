@@ -49,14 +49,16 @@ The info panel exposes the same controls and adds:
 - an editable name;
 - a color picker;
 - a comment field;
-- an input device and channel picker for audio tracks;
+- an input picker for audio tracks, including named mono and stereo inputs from
+  the audio settings;
 - the active-state power button;
 - pan and volume with a peak hold readout;
 - the track's device list.
 
-Audio tracks record one selected input channel. Per-track input selection uses a
-driver, device, and channel, so an interface's inputs can be assigned to
-different tracks.
+Audio tracks record one selected mono or stereo input. Per-track input selection
+uses a driver, device, and channel (or channel pair), so an interface's inputs
+can be assigned to different tracks. Named inputs configured in
+**Settings > Audio** are listed before the raw hardware channels.
 
 Click a peak readout to reset its held value.
 
@@ -92,8 +94,8 @@ Mix with volume, pan, mute, solo, and the device chain.
 
 ## Audio format
 
-The engine and asset pipeline are stereo. Mono files and single-channel
-recordings are converted into the stereo path. More than two channels is not a
-supported track format yet.
+The engine and asset pipeline are stereo. Mono files and mono recordings are
+converted into the stereo path, while stereo inputs are recorded as stereo. More
+than two channels is not a supported track format yet.
 
 Next: [Arranger](04_arranger.md).

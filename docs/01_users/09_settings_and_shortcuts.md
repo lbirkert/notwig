@@ -17,14 +17,35 @@ The Audio page selects the output system:
 - **Revert** restores the last applied values.
 
 The page shows the block size in samples and the resulting latency in
-milliseconds. Driver, device, and block size persist per user in
-`audio.json`. The sample rate is project-scoped; if the selected device does not
-support the project rate, Notwig uses the device's default rate. If the saved
-driver or device is unavailable, Notwig falls back to an available option and
-reports the problem on the page.
+milliseconds. Driver, device, block size, named channels, and the master output
+persist per user in `audio.json`. The sample rate is project-scoped; if the
+selected device does not support the project rate, Notwig uses the device's
+default rate. If the saved driver or device is unavailable, Notwig falls back
+to an available option and reports the problem on the page.
+
+On the browser build the driver list includes **Web Audio**. It plays through
+the browser's default output and records from the browser's microphones after
+permission is granted.
 
 All audio settings are applied through the apply action. Changing the device
 while a project is open can interrupt playback.
+
+### Inputs and outputs
+
+The **Inputs & Outputs** section names the interface channels used by tracks:
+
+- **Add mono input**, **Add stereo input**, **Add mono output**, and
+  **Add stereo output** create a named channel.
+- Each row names the channel, selects its driver and device, and selects the
+  physical channel or channel pair.
+- **Remove** deletes a named channel. Tracks keep their physical channel
+  selection, so remove a channel only when its tracks have been reassigned.
+- **Master output** chooses which named output carries the stereo mix. The
+  default output uses the first two channels of the selected device.
+
+Named inputs appear at the top of the audio track input picker. A stereo input
+records both of its channels; a mono input records one channel into both sides
+of the stereo asset.
 
 ## Shortcuts
 

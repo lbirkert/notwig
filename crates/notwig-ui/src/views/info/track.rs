@@ -67,36 +67,103 @@ impl NotwigUi {
 
     fn track_input_editor(&mut self, ui: &mut egui::Ui, track: &Track, runtime: &RuntimeView) {
         let selected = track.io.audio_input.clone();
+        let named_inputs: Vec<(String, notwig_core::AudioInputRef)> = runtime
+            .audio_settings
+            .current
+            .channels
+            .iter()
+            .filter(|channel| channel.direction == crate::runtime::AudioChannelDirection::Input)
+            .map(|channel| {
+                (
+                    channel.name.clone(),
+                    notwig_core::AudioInputRef {
+                        driver: channel.driver.clone(),
+                        device: channel.device.clone(),
+                        channel: channel.first_channel,
+                        channels: channel.channel_count(),
+                    },
+                )
+            })
+            .collect();
         let label = selected.as_ref().map_or_else(
             || "No input".to_string(),
-            |input| format!("{} · Input {}", input.device, input.channel + 1),
+            |input| {
+                if let Some((name, _)) = named_inputs.iter().find(|(_, named)| named == input) {
+                    return name.clone();
+                }
+                if input.channels >= 2 {
+                    format!(
+                        "{} · Inputs {}-{}",
+                        input.device,
+                        input.channel + 1,
+                        input.channel + 2
+                    )
+                } else {
+                    format!("{} · Input {}", input.device, input.channel + 1)
+                }
+            },
         );
         egui::ComboBox::from_id_salt(("track-input", track.id))
             .selected_text(label)
             .width(ui.available_width().min(280.0))
             .show_ui(ui, |ui| {
-                if runtime.audio_inputs.is_empty() {
-                    ui.label("No audio inputs available.");
-                }
-                for device in &runtime.audio_inputs {
-                    for channel in 0..device.channels {
-                        let option = notwig_core::AudioInputRef {
-                            driver: device.driver.clone(),
-                            device: device.device.clone(),
-                            channel,
+                if !named_inputs.is_empty() {
+                    ui.label(
+                        RichText::new("Named inputs")
+                            .small()
+                            .color(theme::TEXT_MUTED),
+                    );
+                    for (name, option) in &named_inputs {
+                        let label = if option.channels >= 2 {
+                            format!("{name} · Stereo")
+                        } else {
+                            format!("{name} · Mono")
                         };
                         if ui
-                            .selectable_label(
-                                selected.as_ref() == Some(&option),
-                                format!("{} — Input {}", device.label, channel + 1),
-                            )
+                            .selectable_label(selected.as_ref() == Some(option), label)
                             .clicked()
                         {
                             self.emit(UiIntent::SetTrackInput {
                                 track_id: track.id,
-                                input: Some(option),
+                                input: Some(option.clone()),
                             });
                             ui.close();
+                        }
+                    }
+                }
+                if runtime.audio_inputs.is_empty() && named_inputs.is_empty() {
+                    ui.label("No audio inputs available.");
+                }
+                if !runtime.audio_inputs.is_empty() {
+                    if !named_inputs.is_empty() {
+                        ui.separator();
+                        ui.label(
+                            RichText::new("Hardware inputs")
+                                .small()
+                                .color(theme::TEXT_MUTED),
+                        );
+                    }
+                    for device in &runtime.audio_inputs {
+                        for channel in 0..device.channels {
+                            let option = notwig_core::AudioInputRef {
+                                driver: device.driver.clone(),
+                                device: device.device.clone(),
+                                channel,
+                                channels: 1,
+                            };
+                            if ui
+                                .selectable_label(
+                                    selected.as_ref() == Some(&option),
+                                    format!("{} — Input {}", device.label, channel + 1),
+                                )
+                                .clicked()
+                            {
+                                self.emit(UiIntent::SetTrackInput {
+                                    track_id: track.id,
+                                    input: Some(option),
+                                });
+                                ui.close();
+                            }
                         }
                     }
                 }

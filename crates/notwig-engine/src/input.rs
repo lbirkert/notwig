@@ -10,8 +10,10 @@ pub const MAX_INPUT_TRACKS: usize = 16;
 const INPUT_QUEUE_SECONDS: usize = 2;
 
 struct InputSlot {
-    monitor: ArrayQueue<f32>,
-    record: ArrayQueue<f32>,
+    monitor_left: ArrayQueue<f32>,
+    monitor_right: ArrayQueue<f32>,
+    record_left: ArrayQueue<f32>,
+    record_right: ArrayQueue<f32>,
     recording: AtomicBool,
     overflow: AtomicBool,
 }
@@ -19,11 +21,36 @@ struct InputSlot {
 impl InputSlot {
     fn new(capacity: usize) -> Self {
         Self {
-            monitor: ArrayQueue::new(capacity),
-            record: ArrayQueue::new(capacity),
+            monitor_left: ArrayQueue::new(capacity),
+            monitor_right: ArrayQueue::new(capacity),
+            record_left: ArrayQueue::new(capacity),
+            record_right: ArrayQueue::new(capacity),
             recording: AtomicBool::new(false),
             overflow: AtomicBool::new(false),
         }
+    }
+
+    fn clear_record(&self) {
+        while self.record_left.pop().is_some() {}
+        while self.record_right.pop().is_some() {}
+    }
+}
+
+fn push_frame(
+    left_queue: &ArrayQueue<f32>,
+    right_queue: &ArrayQueue<f32>,
+    left: f32,
+    right: f32,
+    overflow: &AtomicBool,
+) {
+    if left_queue.push(left).is_err() {
+        overflow.store(true, Ordering::Relaxed);
+        return;
+    }
+    if right_queue.push(right).is_err() {
+        // Keep both channels aligned: remove the left sample we just queued.
+        let _ = left_queue.pop();
+        overflow.store(true, Ordering::Relaxed);
     }
 }
 
@@ -51,17 +78,34 @@ impl InputBus {
         self.slots.len()
     }
 
-    /// Push one selected input sample for a slot. Called from the audio input
-    /// callback and therefore allocation-free.
+    /// Push one mono input sample for a slot. The sample is mirrored to both
+    /// monitor channels. Called from the audio input callback and therefore
+    /// allocation-free.
     pub fn push(&self, slot: u16, sample: f32) {
+        self.push_stereo(slot, sample, sample);
+    }
+
+    /// Push one stereo input frame for a slot. Called from the audio input
+    /// callback and therefore allocation-free.
+    pub fn push_stereo(&self, slot: u16, left: f32, right: f32) {
         let Some(slot) = self.slots.get(usize::from(slot)) else {
             return;
         };
-        if slot.monitor.push(sample).is_err() {
-            slot.overflow.store(true, Ordering::Relaxed);
-        }
-        if slot.recording.load(Ordering::Relaxed) && slot.record.push(sample).is_err() {
-            slot.overflow.store(true, Ordering::Relaxed);
+        push_frame(
+            &slot.monitor_left,
+            &slot.monitor_right,
+            left,
+            right,
+            &slot.overflow,
+        );
+        if slot.recording.load(Ordering::Relaxed) {
+            push_frame(
+                &slot.record_left,
+                &slot.record_right,
+                left,
+                right,
+                &slot.overflow,
+            );
         }
     }
 
@@ -69,14 +113,14 @@ impl InputBus {
         if let Some(slot) = self.slots.get(usize::from(slot)) {
             slot.recording.store(recording, Ordering::Relaxed);
             if !recording {
-                while slot.record.pop().is_some() {}
+                slot.clear_record();
             }
         }
     }
 
     pub fn clear_recording(&self, slot: u16) {
         if let Some(slot) = self.slots.get(usize::from(slot)) {
-            while slot.record.pop().is_some() {}
+            slot.clear_record();
         }
     }
 
@@ -92,11 +136,12 @@ impl InputBus {
             return;
         };
         for frame in 0..frames.min(dest.len() / 2) {
-            let Some(sample) = slot.monitor.pop() else {
+            let (Some(left), Some(right)) = (slot.monitor_left.pop(), slot.monitor_right.pop())
+            else {
                 break;
             };
-            dest[frame * 2] += sample;
-            dest[frame * 2 + 1] += sample;
+            dest[frame * 2] += left;
+            dest[frame * 2 + 1] += right;
         }
     }
 
@@ -105,8 +150,9 @@ impl InputBus {
             return false;
         };
         let mut drained = false;
-        while let Some(sample) = slot.record.pop() {
-            dest.push(sample);
+        while let (Some(left), Some(right)) = (slot.record_left.pop(), slot.record_right.pop()) {
+            dest.push(left);
+            dest.push(right);
             drained = true;
         }
         drained

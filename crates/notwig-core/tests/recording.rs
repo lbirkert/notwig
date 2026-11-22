@@ -49,6 +49,7 @@ fn audio_tracks_arm_and_select_a_single_input_channel() {
         driver: "CoreAudio".into(),
         device: "Interface".into(),
         channel: 1,
+        channels: 1,
     };
     apply_payload(
         &mut doc,
@@ -103,6 +104,7 @@ fn only_audio_tracks_can_arm_or_select_input() {
                 driver: "CoreAudio".into(),
                 device: "Interface".into(),
                 channel: 0,
+                channels: 1,
             }),
         }),
     );

@@ -4,7 +4,9 @@ use notwig_app::audio::{
     AudioSettings, SYSTEM_OUT_DEVICE_ID, resolve_output_device_name, settings_view,
 };
 use notwig_app::audio_config::{load_from_path, save_to_path, validated};
-use notwig_ui::{AudioDeviceView, AudioDriverView};
+use notwig_ui::{
+    AudioChannelConfig, AudioChannelDirection, AudioChannelFormat, AudioDeviceView, AudioDriverView,
+};
 use uuid::Uuid;
 
 fn temp_path() -> PathBuf {
@@ -19,6 +21,8 @@ fn settings(driver: &str, device: &str, block_size: u32) -> AudioSettings {
         device: device.into(),
         sample_rate: Some(48_000),
         block_size,
+        channels: Vec::new(),
+        master_output: None,
     }
 }
 
@@ -29,6 +33,7 @@ fn options() -> Vec<AudioDriverView> {
         devices: vec![AudioDeviceView {
             id: "Speakers".into(),
             label: "Speakers".into(),
+            channels: 2,
             sample_rates: vec![44_100, 48_000],
         }],
     }]
@@ -174,4 +179,64 @@ fn validation_drops_missing_driver_or_device() {
 
     let zero_block = validated(settings("CoreAudio", "Speakers", 0), &options);
     assert_eq!(zero_block.block_size, 512);
+}
+
+fn named_channel() -> AudioChannelConfig {
+    AudioChannelConfig {
+        id: "vocals".into(),
+        name: "Vocals".into(),
+        direction: AudioChannelDirection::Input,
+        format: AudioChannelFormat::Mono,
+        driver: "CoreAudio".into(),
+        device: "Interface".into(),
+        first_channel: 2,
+    }
+}
+
+#[test]
+fn audio_config_round_trip_persists_named_channels() {
+    let path = temp_path();
+    let mut saved = settings("CoreAudio", "Speakers", 256);
+    saved.channels = vec![
+        named_channel(),
+        AudioChannelConfig {
+            id: "main-out".into(),
+            name: "Main Out".into(),
+            direction: AudioChannelDirection::Output,
+            format: AudioChannelFormat::Stereo,
+            driver: "CoreAudio".into(),
+            device: "Speakers".into(),
+            first_channel: 0,
+        },
+    ];
+    saved.master_output = Some("main-out".into());
+    save_to_path(&path, &saved).unwrap();
+
+    let loaded = load_from_path(&path);
+    assert_eq!(loaded.channels, saved.channels);
+    assert_eq!(loaded.master_output.as_deref(), Some("main-out"));
+
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn validation_drops_missing_master_output() {
+    let mut configured = settings("CoreAudio", "Speakers", 256);
+    configured.master_output = Some("missing".into());
+    let without_output = validated(configured, &options());
+    assert_eq!(without_output.master_output, None);
+
+    let mut mono_output = settings("CoreAudio", "Speakers", 256);
+    mono_output.channels = vec![AudioChannelConfig {
+        id: "main-out".into(),
+        name: "Main Out".into(),
+        direction: AudioChannelDirection::Output,
+        format: AudioChannelFormat::Mono,
+        driver: "CoreAudio".into(),
+        device: "Speakers".into(),
+        first_channel: 1,
+    }];
+    mono_output.master_output = Some("main-out".into());
+    let with_output = validated(mono_output, &options());
+    assert_eq!(with_output.master_output.as_deref(), Some("main-out"));
 }

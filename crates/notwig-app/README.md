@@ -26,7 +26,10 @@ domain or DSP logic belongs in lower crates, not here.
   plugin editor hosting, and crash/restart handling.
 - Async engine build queue, poll, install, and transport preservation.
 - CPAL audio stream, device options, snapshots, DSP timing, and xruns.
-- Per-user persistence of audio driver, device, and block size.
+- Per-user persistence of audio driver, device, block size, named input/output
+  channels, and master output.
+- Browser microphone capture through Web Audio with the same input-bus and
+  recording path as native CPAL input.
 - Plugin catalog: scan subprocess, cache loading, crash-isolated metadata probe,
   and workspace descriptors.
 - Extension manager: config/index sources, target selection, hash-verified ZIP
@@ -59,7 +62,10 @@ domain or DSP logic belongs in lower crates, not here.
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `engine_build.rs` | Async engine build lifecycle |
 | `audio.rs` | CPAL stream, options, snapshot, DSP timing |
-| `audio_config.rs` | Persisted audio driver/device/block-size config |
+| `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |
+| `audio_input/mod.rs` | Shared input requests and platform input-hub selection |
+| `audio_input/native.rs` | CPAL input streams and hardware input enumeration |
+| `audio_input/web.rs` | Web Audio microphone capture and browser input enumeration |
 | `plugins/mod.rs` | Target-selected plugin catalog exports |
 | `plugins/native.rs` | Plugin catalog, scan subprocess, and cache glue |
 | `plugins/web.rs` | Empty browser plugin catalog |

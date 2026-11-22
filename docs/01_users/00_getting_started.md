@@ -2,8 +2,8 @@
 
 ## Before you start
 
-Notwig is under active development. It can arrange, edit, mix, and render
-existing audio and MIDI, but it cannot record or monitor live input yet.
+Notwig is under active development. It can arrange, edit, mix, record, and
+render audio and MIDI.
 
 There are two ways to run it:
 

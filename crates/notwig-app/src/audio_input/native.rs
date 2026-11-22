@@ -3,18 +3,13 @@ use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample, StreamConfig};
-use notwig_core::{AudioInputRef, TrackId};
+use notwig_core::TrackId;
 use notwig_engine::{InputBus, MAX_INPUT_TRACKS};
 
+use super::InputRequest;
 use crate::audio::{resolve_host, resolve_input_device};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InputRequest {
-    pub track_id: TrackId,
-    pub input: AudioInputRef,
-}
-
-type DeviceTargets = BTreeMap<(String, String), Vec<(TrackId, u16, u16)>>;
+type DeviceTargets = BTreeMap<(String, String), Vec<(TrackId, u16, u16, u16)>>;
 
 pub(crate) struct InputHub {
     bus: Arc<InputBus>,
@@ -55,7 +50,7 @@ impl InputHub {
             by_device
                 .entry((input.driver.clone(), input.device.clone()))
                 .or_default()
-                .push((request.track_id, slot, input.channel));
+                .push((request.track_id, slot, input.channel, input.channels.max(1)));
         }
 
         let mut streams = self
@@ -84,21 +79,21 @@ impl InputHub {
         &self,
         driver: &str,
         device_name: &str,
-        targets: &[(TrackId, u16, u16)],
+        targets: &[(TrackId, u16, u16, u16)],
     ) -> Result<cpal::Stream, String> {
         let host = resolve_host(driver)?;
         let device = resolve_input_device(&host, device_name)?;
         let max_channel = targets
             .iter()
-            .map(|(_, _, channel)| usize::from(*channel))
+            .map(|(_, _, channel, channels)| usize::from(*channel) + usize::from(*channels) - 1)
             .max()
             .unwrap_or(0);
         let (config, sample_format) =
             choose_input_config(&device, self.sample_rate, max_channel)
                 .ok_or_else(|| format!("input device does not support {} Hz", self.sample_rate))?;
-        let targets: Vec<(u16, u16)> = targets
+        let targets: Vec<(u16, u16, u16)> = targets
             .iter()
-            .map(|(_, slot, channel)| (*slot, *channel))
+            .map(|(_, slot, channel, channels)| (*slot, *channel, *channels))
             .collect();
         let bus = Arc::clone(&self.bus);
         let error = Arc::clone(&self.error);
@@ -144,7 +139,7 @@ fn build_input<T>(
     device: &cpal::Device,
     config: StreamConfig,
     bus: Arc<InputBus>,
-    targets: Vec<(u16, u16)>,
+    targets: Vec<(u16, u16, u16)>,
     error: Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, String>
 where
@@ -162,10 +157,21 @@ where
                 }
                 let frames = data.len() / channels;
                 for frame in 0..frames {
-                    for (slot, channel) in &targets {
-                        let index = frame * channels + usize::from(*channel);
-                        if let Some(sample) = data.get(index) {
-                            bus.push(*slot, f32::from_sample(*sample));
+                    for (slot, channel, input_channels) in &targets {
+                        let left_index = frame * channels + usize::from(*channel);
+                        let Some(left) = data.get(left_index) else {
+                            continue;
+                        };
+                        if *input_channels >= 2 {
+                            let right_index = left_index + 1;
+                            let right = data.get(right_index).copied().unwrap_or(*left);
+                            bus.push_stereo(
+                                *slot,
+                                f32::from_sample(*left),
+                                f32::from_sample(right),
+                            );
+                        } else {
+                            bus.push(*slot, f32::from_sample(*left));
                         }
                     }
                 }

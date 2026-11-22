@@ -192,12 +192,12 @@ Dependencies worth planning around:
 | Warp markers and transient detection | 📋 Planned | ⭐⭐⭐⭐⭐ |  |
 | Pitch shift | 📋 Planned | ⭐⭐⭐ |  |
 | Audio quantize and groove | 📋 Planned | ⭐⭐⭐ |  |
-| Audio recording | 🧪 Partial | ⭐⭐⭐⭐⭐ | Linear mono-input recording with destination replacement. Loop/punch recording and takes are planned. |
+| Audio recording | 🧪 Partial | ⭐⭐⭐⭐⭐ | Linear mono or stereo input recording with destination replacement and browser microphone capture. Loop/punch recording and takes are planned. |
 | Loop and punch recording | 📋 Planned | ⭐⭐⭐⭐ | Linear recording is implemented first. |
 | Take lanes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Input monitoring | 🧪 Partial | ⭐⭐⭐⭐⭐ | Armed tracks monitor through the track chain. Monitoring modes are planned. |
-| Input routing | 🧪 Partial | ⭐⭐⭐⭐⭐ | Per-track driver, device, and single-channel input. Stereo-pair and multi-channel input are planned. |
+| Input routing | 🧪 Partial | ⭐⭐⭐⭐⭐ | Named mono and stereo inputs, per-track driver, device, and mono/stereo channel selection, plus named output and master-output selection. Multi-channel input is planned. |
 | Mono and stereo track formats | 📋 Planned | ⭐⭐⭐⭐ | Engine and assets are stereo today. |
 | Surround and multi-channel | 🚫 Not Planned | ⭐ |  |
 | Sample-rate conversion on rate change | 📋 Planned | ⭐⭐⭐ | The app warns that existing assets are not resampled. |

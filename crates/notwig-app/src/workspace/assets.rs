@@ -27,11 +27,16 @@ impl Workspace {
         if captured.samples.is_empty() {
             return Err("recording produced no audio".into());
         }
-        let mut samples = Vec::with_capacity(captured.samples.len() * 2);
-        for sample in &captured.samples {
-            samples.push(*sample);
-            samples.push(*sample);
-        }
+        let samples = if captured.channels == 2 {
+            captured.samples.clone()
+        } else {
+            let mut stereo = Vec::with_capacity(captured.samples.len() * 2);
+            for sample in &captured.samples {
+                stereo.push(*sample);
+                stereo.push(*sample);
+            }
+            stereo
+        };
         let buffer = AudioAssetBuffer {
             sample_rate: captured.sample_rate,
             channels: 2,

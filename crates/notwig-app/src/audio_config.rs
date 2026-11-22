@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::audio::AudioSettings;
 
-const CONFIG_VERSION: u32 = 1;
+const CONFIG_VERSION: u32 = 2;
 const DEFAULT_BLOCK_SIZE: u32 = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,6 +18,10 @@ struct PersistedAudioSettings {
     device: String,
     #[serde(default = "default_block_size")]
     block_size: u32,
+    #[serde(default)]
+    channels: Vec<notwig_ui::AudioChannelConfig>,
+    #[serde(default)]
+    master_output: Option<String>,
 }
 
 impl Default for PersistedAudioSettings {
@@ -27,6 +31,8 @@ impl Default for PersistedAudioSettings {
             driver: String::new(),
             device: String::new(),
             block_size: DEFAULT_BLOCK_SIZE,
+            channels: Vec::new(),
+            master_output: None,
         }
     }
 }
@@ -46,6 +52,8 @@ impl From<&AudioSettings> for PersistedAudioSettings {
             driver: settings.driver.clone(),
             device: settings.device.clone(),
             block_size: settings.block_size,
+            channels: settings.channels.clone(),
+            master_output: settings.master_output.clone(),
         }
     }
 }
@@ -62,6 +70,8 @@ impl From<PersistedAudioSettings> for AudioSettings {
             device: settings.device,
             sample_rate: None,
             block_size,
+            channels: settings.channels,
+            master_output: settings.master_output,
         }
     }
 }
@@ -144,6 +154,13 @@ pub fn validated(
     }
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
+    }
+    if settings.master_output.as_ref().is_some_and(|id| {
+        !settings.channels.iter().any(|channel| {
+            channel.direction == notwig_ui::AudioChannelDirection::Output && channel.id == *id
+        })
+    }) {
+        settings.master_output = None;
     }
     settings
 }

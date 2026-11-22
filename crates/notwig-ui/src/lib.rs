@@ -38,9 +38,10 @@ pub use commands::{KeyChord, ShortcutCommand, Shortcuts};
 pub use intent::{DropAudioTarget, ExportBitDepth, ExportFormat, ExportOptions, UiIntent};
 #[cfg(feature = "app")]
 pub use runtime::{
-    AudioDeviceView, AudioDriverView, AudioInputView, AudioSettingsValue, AudioSettingsView,
-    DspAnalysisView, MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView,
-    RecentProjectView, RuntimeView,
+    AudioChannelConfig, AudioChannelDirection, AudioChannelFormat, AudioDeviceView,
+    AudioDriverView, AudioInputView, AudioSettingsValue, AudioSettingsView, DspAnalysisView,
+    MeterValues, PluginEntry, ProjectPickerAction, ProjectPickerView, RecentProjectView,
+    RuntimeView,
 };
 #[cfg(feature = "app")]
 pub use shell::NotwigUi;

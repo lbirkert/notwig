@@ -224,9 +224,9 @@ ABI v3 makes the guest egui panel the only panel path. Extensions run a private
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle; native wire-build preparation |
 | `engine_process/` | Native engine child process, IPC protocol, parent client, and editor hosting |
 | `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
-| `audio_input.rs` | Input device enumeration, per-device CPAL input streams, and input queue routing |
+| `audio_input/` | Shared input requests, CPAL input streams on native, Web Audio microphone capture in the browser, and input queue routing |
 | `recording.rs` | Recording-session writer and capture-buffer lifecycle |
-| `audio_config.rs` | Persisted audio driver/device/block-size config |
+| `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |
 | `plugins/mod.rs` | Target-selected plugin catalog exports |
 | `plugins/native.rs` | Plugin catalog, scan subprocess, crash-isolated load probe, and cache glue |
 | `plugins/web.rs` | Empty browser plugin catalog |

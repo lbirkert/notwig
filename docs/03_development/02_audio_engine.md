@@ -210,11 +210,13 @@ the audio callback.
 ## 9. Input monitoring and recording capture
 
 Recording reuses the control exchange boundary. The app opens one input stream
-per selected device. Each armed track gets a preallocated slot in
-`notwig-engine::InputBus`:
+per selected device. Named mono or stereo inputs are aliases for a device and
+channel pair; the track still stores a physical `AudioInputRef`, so renaming or
+removing a named input does not rewrite existing tracks. Each armed track gets a
+preallocated slot in `notwig-engine::InputBus`:
 
-- the input callback selects the configured channel and pushes samples into a
-  bounded monitoring queue and, while a take is active, a recording queue;
+- the input callback selects the configured mono channel or stereo pair and
+  pushes interleaved samples into bounded monitoring and recording queues;
 - the audio thread drains the monitoring queue into the armed track's input
   buffer before the track's device chain runs, so monitoring follows devices,
   mixer, pan, mute/solo, and routing;
@@ -228,6 +230,11 @@ Native recording runs in the engine process. The UI process sends input
 configuration, start, and stop requests over IPC, and the engine process returns
 the captured buffers for finalization. Browser recording keeps the input hub and
 engine in the same process and drains capture queues from the UI event loop.
+The browser has no CPAL input backend, so `audio_input::web` opens a
+`getUserMedia` microphone stream, routes it through a `ScriptProcessorNode`, and
+pushes the same interleaved samples into `InputBus`. Named output channels are
+applied when the output stream is built by mapping the stereo master to the
+selected physical channel pair.
 
 Finalization writes a float WAV asset, builds its waveform, registers the asset,
 clears the destination range, and creates the recorded clip in one batch.
