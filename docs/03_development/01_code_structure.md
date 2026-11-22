@@ -19,8 +19,8 @@ and test layer before editing.
   plan/                      scratch/planning notes (not part of the stable docs)
   crates/
     notwig-core/
+      src/dsp/              device contracts, plan compilation, stock devices
     notwig-project/
-    notwig-dsp/
     notwig-ext-api/
     notwig-ext-macros/
     notwig-ext/
@@ -42,18 +42,17 @@ workspace enforces `#![forbid(unsafe_code)]` and a strict Clippy policy.
 ```text
 notwig-web -> notwig-app (wasm target only)
 notwig-app -> notwig-ui, notwig-core, notwig-project,
-              notwig-engine, notwig-plugins, notwig-dsp,
+              notwig-engine, notwig-plugins,
               notwig-ext, notwig-ext-api
-notwig-ui -> notwig-core, notwig-project, notwig-dsp, notwig-ext-api
-notwig-ext -> notwig-core, notwig-dsp, notwig-ext-api
-notwig-ext-api -> notwig-core, notwig-dsp, notwig-ext-macros
+notwig-ui -> notwig-core, notwig-project, notwig-ext-api
+notwig-ext -> notwig-core, notwig-ext-api
+notwig-ext-api -> notwig-core, notwig-ext-macros
 notwig-ext-macros -> proc-macro support only
-notwig-ext-devices -> notwig-core, notwig-dsp, notwig-ext-api
-                          (core/dsp without default features)
-notwig-engine -> notwig-core, notwig-dsp, notwig-plugins
-notwig-plugins -> notwig-dsp, notwig-core
+notwig-ext-devices -> notwig-core, notwig-ui, notwig-ext-api
+                          (core/ui without default features)
+notwig-engine -> notwig-core, notwig-plugins
+notwig-plugins -> notwig-core
 notwig-project -> notwig-core
-notwig-dsp -> notwig-core
 notwig-core -> (no workspace dependencies)
 ```
 
@@ -74,6 +73,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `protocol.rs` | `CommandPayload`, `EngineMsg`, `RtEvent`, schedules, plan handles |
 | `apply.rs` | Pure-ish command application: document in, document + engine messages out |
 | `edit/` | Editor-agnostic editing algebra and arranger adapter |
+| `dsp/` | Device contracts, parameters, registry, plan compilation, stock devices, factories, monitoring |
 
 ### `notwig-project` — persistence and assets
 
@@ -88,7 +88,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `fsutil.rs` | Atomic file/JSON writes and directory creation |
 | `error.rs` | `ProjectError` |
 
-### `notwig-dsp` — device contracts and plan compilation
+### `notwig-core::dsp` — device contracts and plan compilation
 
 | Module | Responsibility |
 |---|---|
@@ -101,30 +101,26 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `monitor.rs` | Lock-free per-device audio monitor ring for plugin editor meters |
 | `smoothing.rs` | Parameter smoothing primitives |
 
-### `notwig-ext-api` — extension SDK and render-neutral drawing
+### `notwig-ext-api` — extension SDK and egui panel transport
 
-ABI v2 replaces the static `panel()` output with a dynamic `draw(&mut UiContext)`
-frame that carries input and returns draw commands plus host actions.
+ABI v3 makes the guest egui panel the only panel path. Extensions run a private
+`egui::Context` and return validated meshes, texture deltas, and host actions.
 
 | Module | Responsibility |
 |---|---|
-| `geometry.rs` | `Point`, `Rect`, `Color`, `Stroke`, text alignment |
-| `draw.rs` | `DrawList`/`DrawCommand` and validation limits |
-| `panel.rs` | `PanelDraw`/`PanelCommand`, `PanelAction`, `DevicePanelHost` |
-| `context.rs` | `DeviceDrawContext` (including `UiInput` and device meters) and theme snapshot |
-| `ui/mod.rs` | `UiContext`, layout, `Sense`/`Response`, `UiInput`, `UiMemory`, `RecordUi` |
-| `ui/drawer.rs` | `Drawer` primitive painter, `Font`, `Align` |
-| `ui/record.rs` | `RecordDrawer` command buffering for the WASM boundary |
-| `ui/widgets.rs` | Shared `button`/`knob`/`toggle`/`dropdown`/`label`/`section`/`divider`/meter widgets and `paint_*` helpers |
+| `geometry.rs` | Renderer-neutral `Color` used by theme snapshots |
+| `cursor.rs` | Neutral cursor request enum |
+| `panel.rs` | `PanelAction`, `DevicePanelHost` |
+| `context.rs` | `DeviceDrawContext` (egui input and device meters) and theme snapshot |
 | `manifest.rs` | extension manifest, ordered entrypoints, capability/device declarations |
 | `target.rs` | canonical target names, aliases, and host support checks |
 | `status.rs` | `ExtensionStatus`, `ExtensionInfo`, settings |
 | `config.rs` | Versioned user config, default index URL, legacy migration |
 | `index.rs` | Extension index entry/device/url types and validation |
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
-| `egui_panel/` | Guest-owned egui wire types, validation, and optional `egui` bridge |
-| `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device draw dispatch |
-| `abi.rs` | ABI version (`2`), status codes, pointer/length packing, helper re-exports |
+| `egui_panel/` | Guest egui wire types, validation, frame runner, and theme bridge |
+| `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device egui draw dispatch |
+| `abi.rs` | ABI version (`3`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -156,10 +152,11 @@ frame that carries input and returns draw commands plus host actions.
 
 | Module | Responsibility |
 |---|---|
-| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
-| `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
+| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, egui panel, meters, parameter IDs |
+| `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, egui panel, meters, parameter IDs |
 | `synth.rs` | Polyphonic synth `DeviceExtension` impl: oscillator, ADSR, note handling |
-| `dynamics.rs` | Shared 50-frame peak/gain history and history-graph painter |
+| `gain.rs` | Small guest-egui gain example using shared `notwig-ui` controls |
+| `dynamics.rs` | Shared 50-frame peak/gain history and egui history-graph painter |
 | `lib.rs` | `#[notwig_extension]` entrypoint registering all devices |
 
 ### `notwig-engine` — real-time execution
@@ -193,13 +190,15 @@ frame that carries input and returns draw commands plus host actions.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; extension panel adapter (`EguiUi`/`EguiDrawer`) for `UiContext` interaction and `DrawCommand` replay; `egui_render.rs` for guest egui texture/mesh compositing and input bridging |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; `extension.rs` builds the draw context, and `egui_render.rs` composites guest egui textures/meshes and bridges input |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
-| `widgets/` | Knobs, faders, draggable numbers, form helpers, brand assets, icons, theme |
+| `components/` | Extension-facing knobs, faders, meters, labels, sections, toggles, dropdowns, and formatters |
+| `palette.rs` | Shared color constants for the app and guest components |
+| `widgets/` | App-only draggable numbers, form helpers, brand assets, icons, theme |
 | `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
 | `widgets/timeline/` | Shared beat strip, clip visuals, grid, snap controls, selection, drop preview, interaction math |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
@@ -262,19 +261,17 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Project bundles, autosave, and recovery | `crates/notwig-project/tests/bundle.rs` |
 | Audio probing, export, hashing, resampling | `crates/notwig-project/tests/probe.rs`, `export.rs`, `import_hash.rs`, `resample.rs` |
 | Browser bundle/files and byte audio I/O | `crates/notwig-project/tests/browser_io.rs` |
-| DSP plans and stock devices | `crates/notwig-dsp/tests/graph.rs`, `stock.rs` |
+| DSP plans and stock devices | `crates/notwig-core/tests/dsp_graph.rs`, `dsp_stock.rs` |
 | Extension ABI, WASM devices, panels | `crates/notwig-ext/tests/abi.rs` |
-| Extension draw/panel validation | `crates/notwig-ext-api/tests/draw_validation.rs` |
 | Egui panel wire validation | `crates/notwig-ext-api/tests/egui_wire.rs` |
 | Guest egui bridge | `crates/notwig-ext-api/tests/egui_bridge.rs` |
 | Extension ABI helpers | `crates/notwig-ext-api/tests/abi_helpers.rs` |
-| Shared UI widgets and context | `crates/notwig-ext-api/tests/ui_context.rs` |
-| Limiter, gate, and synth example devices | `crates/notwig-ext-devices/tests/` |
+| Limiter, gate, synth, and gain example devices | `crates/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext-api/tests/index_config.rs` |
 | Extension ZIP install | `crates/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |
 | Built limiter/synth load through the host | `crates/notwig-ext/tests/limiter_extension.rs` |
-| Egui frame transport | `crates/notwig-ext/tests/abi.rs` |
+| Extension panel transport | `crates/notwig-ext/tests/abi.rs` |
 | Engine playback/rendering | `crates/notwig-engine/tests/render.rs` |
 | Control exchange and prepared runtimes | `crates/notwig-engine/tests/control.rs` |
 | MIDI preview note-offs | `crates/notwig-engine/tests/preview.rs` |
@@ -289,7 +286,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Widget math | `crates/notwig-ui/tests/widgets.rs` |
 | Waveform pyramid | `crates/notwig-ui/tests/waveform.rs` |
 | Device browser | `crates/notwig-ui/tests/device_browser.rs` |
-| Extension device panels, including guest egui frames | `crates/notwig-ui/tests/extension_panel.rs` |
+| Extension device panel compositing | `crates/notwig-ui/tests/extension_panel.rs` |
 | MIDI editor interaction | `crates/notwig-ui/tests/midi_editor.rs` |
 | Peak hold and reset | `crates/notwig-ui/tests/track_info.rs` |
 | Shortcut bindings and settings page | `crates/notwig-ui/tests/shortcuts.rs` |
@@ -318,11 +315,11 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 ### Add a stock device
 
-1. Define the spec and processor in `notwig-dsp/src/stock.rs`.
+1. Define the spec and processor in `notwig-core/src/dsp/stock.rs`.
 2. Register it in `stock_registry`.
 3. Add parameters with sensible ranges/defaults and smoothing.
 4. Add UI-specific presentation only if the generic device panel is insufficient.
-5. Add DSP rendering tests in `crates/notwig-dsp/tests/stock.rs`.
+5. Add DSP rendering tests in `crates/notwig-core/tests/dsp_stock.rs`.
 
 ### Add a keyboard shortcut
 
@@ -344,30 +341,31 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 ### Add an extension device
 
-1. Depend on `notwig-ext-api`; use `notwig-core` and `notwig-dsp` without
+1. Depend on `notwig-ext-api`; use `notwig-core` and `notwig-ui` without
    default features and build the crate as a `cdylib` for
    `wasm32-unknown-unknown`.
 2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
-   `draw(&mut UiContext)`, keep DSP in `process` over interleaved `f32` audio,
-   and handle `note_event` if the device declares a note input. Register the
-   type with `#[notwig_extension]`.
-3. In `draw`, use the shared widgets or `UiContext::painter`, keep IDs stable
-   with `ui.id("...")`, and emit parameter changes through
-   `set_param_normalized`/`set_param_value`. The host validates the resulting
-   `PanelAction`s against the device spec.
-4. Ship `extension.json` with `api_version: 2`, an ordered `entrypoints` list
-   (native and/or `wasm` targets), and the `device`/`ui.draw` capabilities. Set
+   `draw_egui`, keep DSP in `process` over interleaved `f32` audio, and handle
+   `note_event` if the device declares a note input. Register the type with
+   `#[notwig_extension]`.
+3. In `draw_egui`, use the shared `notwig-ui` components (`knob`, meters,
+   sections, dropdowns), keep IDs stable with `ui.make_persistent_id(...)`, and
+   emit parameter changes through `egui_panel::set_param_normalized` /
+   `set_param_value`. The host validates the resulting `PanelAction`s against
+   the device spec.
+4. Ship `extension.json` with `api_version: 3`, an ordered `entrypoints` list
+   (native and/or `wasm` targets), and the `device`/`ui.egui` capabilities. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer.
-5. Add interaction tests in `crates/notwig-ext-api/tests/`, a device test in
-   `crates/notwig-ext-devices/tests/`, and a headless panel test in
-   `crates/notwig-ui/tests/`. See [Extension Overview](../02_extensions/00_overview.md) for the full
-   package and drawing guide.
+5. Add frame tests in `crates/notwig-ext-devices/tests/` and a host compositing
+   test in `crates/notwig-ui/tests/`. See
+   [Extension Overview](../02_extensions/00_overview.md) for the full package
+   and panel guide.
 
 ### Add an audio feature
 
 1. Decide whether it belongs to asset import, engine execution, or app audio I/O.
 2. Keep file decoding and resampling in `notwig-project`.
-3. Keep real-time processing in `notwig-engine`/`notwig-dsp`.
+3. Keep real-time processing in `notwig-engine` and device contracts in `notwig-core::dsp`.
 4. Keep device/stream selection and snapshots in `notwig-app/src/audio.rs`.
 5. Follow the real-time rules in `AGENTS.md` and [`Architecture`](00_architecture.md).
 

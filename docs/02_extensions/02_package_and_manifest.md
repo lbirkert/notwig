@@ -29,7 +29,7 @@ order that the host can run is used.
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 2,
+  "api_version": 3,
   "entrypoints": [
     {
       "entrypoint": "my_gain.dylib",
@@ -40,7 +40,7 @@ order that the host can run is used.
       "target": "wasm"
     }
   ],
-  "capabilities": ["device", "ui.draw"],
+  "capabilities": ["device", "ui.egui"],
   "devices": [
     {
       "name": "Example Gain",
@@ -58,7 +58,7 @@ order that the host can run is used.
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
 | `version` | yes | Package version string. |
-| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `2`. |
+| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `3`. |
 | `entrypoints` | yes | Ordered target builds. The first supported entry wins. |
 | `capabilities` | no | Host services the package needs. |
 | `devices` | yes | Devices registered by the package. |
@@ -81,12 +81,10 @@ order that the host can run is used.
 | Capability | Grants |
 | --- | --- |
 | `device` | Device registration and DSP. |
-| `ui.draw` | Custom panel rendering with the command IR. |
-| `ui.egui` | Guest-owned egui panels (requires the SDK `egui` feature). |
+| `ui.egui` | Guest-owned egui panels. |
 
-An extension without `ui.draw` or `ui.egui` still appears in the device browser
-and uses the generic parameter view. `ui.egui` is opt-in per device through
-`DeviceExtension::SUPPORTS_EGUI`; see the
+An extension without `ui.egui` still appears in the device browser and uses the
+generic parameter view. See the
 [development design page](../03_development/12_egui_extension_panels.md).
 
 ### Entrypoints and targets

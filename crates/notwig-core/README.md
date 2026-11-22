@@ -21,6 +21,8 @@ or commands uses the types in this crate.
 - `apply(doc, command)`, which returns the new document, a delta, and engine
   messages.
 - The shared editing algebra in `edit/`.
+- Device contracts, parameter definitions, plan compilation, stock devices,
+  factories, and editor monitoring in `dsp/`.
 
 ## Does not own
 
@@ -28,6 +30,7 @@ or commands uses the types in this crate.
 - UI or `egui` state (see `notwig-ui`).
 - Real-time audio execution (see `notwig-engine`).
 - Plugin loading (see `notwig-plugins`).
+- Device UI layout (see `notwig-ui`).
 - ID allocation or randomness. Callers supply stable IDs for created entities.
 
 ## Features
@@ -48,6 +51,14 @@ or commands uses the types in this crate.
 | `protocol.rs` | Commands, engine messages, RT events, schedules |
 | `apply.rs` | Command application and validation |
 | `edit/` | Editor-agnostic edit algebra and arranger adapter |
+| `dsp/devices.rs` | Device/processor traits, ports, process context |
+| `dsp/params.rs` | Parameter specs, ranges, smoothing, normalized mapping |
+| `dsp/registry.rs` | Type ID resolution |
+| `dsp/graph.rs` | `compile` and `CompiledPlan` |
+| `dsp/stock.rs` | EQ/Tool/Chain specs and processors |
+| `dsp/factory.rs` | `DeviceFactory`, stock factory, and composite factory |
+| `dsp/monitor.rs` | Lock-free audio monitor ring for plugin editor instances |
+| `dsp/smoothing.rs` | Smoothing primitives |
 
 ## Public surface
 
@@ -63,6 +74,17 @@ Integration tests live in `tests/`:
 - `domain_flow.rs` — command application and document flows.
 - `midi_notes.rs` — MIDI note command validation and editing.
 - `schedule_emission.rs` — playback schedule extraction from the document.
+- `dsp_stock.rs` — stock device behavior and plan compilation.
+- `dsp_graph.rs` — bypass, nested-chain, and inactive-track latency.
 - `time.rs`, `ids.rs` — time and identity behavior.
+
+## Benchmarks
+
+`benches/dsp.rs` uses Criterion to measure Tool, EQ, Chain, plan compilation, EQ
+magnitude response, and pan gains:
+
+```sh
+cargo bench -p notwig-core
+```
 
 See [`docs/03_development/03_editing.md`](../../docs/03_development/03_editing.md) for the editing contract.

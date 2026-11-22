@@ -32,9 +32,6 @@ const MAX_RELEASE_SECONDS: f64 = 4.0;
 const MAX_VOICES: usize = 16;
 const MAX_EVENTS: usize = 256;
 const VOICE_GAIN: f32 = 0.22;
-const KNOB_HEIGHT: f32 = 58.0;
-const KNOB_GAP: f32 = 2.0;
-const DROPDOWN_HEIGHT: f32 = 22.0;
 
 const OSCILLATOR_OPTIONS: [&str; 4] = ["Sine", "Square", "Saw", "Triangle"];
 
@@ -218,7 +215,6 @@ pub struct SynthDevice {
     pending: [NoteEvent; MAX_EVENTS],
     pending_len: usize,
     next_voice: usize,
-    oscillator_open: bool,
 }
 
 impl Default for SynthDevice {
@@ -240,7 +236,6 @@ impl Default for SynthDevice {
             }; MAX_EVENTS],
             pending_len: 0,
             next_voice: 0,
-            oscillator_open: false,
         }
     }
 }
@@ -371,11 +366,7 @@ impl DeviceExtension for SynthDevice {
             &OSCILLATOR_OPTIONS,
         ) {
             self.oscillator = OscillatorMode::from_index(index as u32);
-            egui_panel::set_param_value(
-                ui,
-                oscillator_id(),
-                ParamValue::EnumIndex(index as u32),
-            );
+            egui_panel::set_param_value(ui, oscillator_id(), ParamValue::EnumIndex(index as u32));
         }
 
         ui.add_space(4.0);
@@ -403,10 +394,8 @@ impl DeviceExtension for SynthDevice {
             ];
             let mut changes = [None; 4];
             for (index, (label, value, default)) in cells.into_iter().enumerate() {
-                let (rect, _) = ui.allocate_exact_size(
-                    Vec2::new(knob_width, knob_height),
-                    Sense::hover(),
-                );
+                let (rect, _) =
+                    ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
                 changes[index] = knob(
                     ui,
                     ui.make_persistent_id(("ext-synth", index)),

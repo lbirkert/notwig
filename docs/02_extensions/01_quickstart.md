@@ -26,23 +26,28 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 notwig-core = { path = "/path/to/notwig/crates/notwig-core", default-features = false }
-notwig-dsp = { path = "/path/to/notwig/crates/notwig-dsp", default-features = false }
-notwig-ext-api = { path = "/path/to/notwig/crates/notwig-ext-api", default-features = false }
+notwig-ui = { path = "/path/to/notwig/crates/notwig-ui", default-features = false }
+notwig-ext-api = { path = "/path/to/notwig/crates/notwig-ext-api" }
 uuid = "1"
 ```
 
-Use `default-features = false` for `notwig-core` and `notwig-dsp`. That keeps
-UUID randomness and its JavaScript requirements out of the wasm module. Param
-IDs are constructed from fixed UUID integers instead.
+Use `default-features = false` for `notwig-core` and `notwig-ui`. That keeps
+UUID randomness, the app shell, and its file I/O out of the wasm module. The
+`notwig-ui` components still provide the shared knobs, meters, labels, and
+palette. Param IDs are constructed from fixed UUID integers instead of random
+values.
 
 ## 2. Implement the device
 
 `src/lib.rs`:
 
 ```rust
+use notwig_core::dsp::{
+    DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit,
+};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
-use notwig_ext_api::{DeviceExtension, Extension, UiContext, knob, notwig_extension, section};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, Extension, egui, egui_panel, notwig_extension};
+use notwig_ui::{knob, section};
 use uuid::Uuid;
 
 pub const TYPE_ID: &str = "com.example.gain";
@@ -121,12 +126,12 @@ impl DeviceExtension for GainDevice {
         }
     }
 
-    fn draw(&mut self, ui: &mut UiContext<'_>) {
+    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "My Gain");
-        let rect = ui.allocate(ui.style().knob_size);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hover());
         if let Some(norm) = knob(
             ui,
-            ui.id("gain"),
+            ui.make_persistent_id("gain"),
             rect,
             gain_norm(self.gain_db),
             gain_norm(DEFAULT_DB),
@@ -135,7 +140,7 @@ impl DeviceExtension for GainDevice {
         ) {
             self.gain_db = -24.0 + f64::from(norm) * 48.0;
             self.update_gain();
-            ui.set_param_normalized(gain_id(), norm);
+            egui_panel::set_param_normalized(ui, gain_id(), norm);
         }
     }
 
@@ -170,14 +175,14 @@ ABI on desktop targets. The device implements only the Rust surface.
   "name": "My Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 2,
+  "api_version": 3,
   "entrypoints": [
     {
       "entrypoint": "my_gain.wasm",
       "target": "wasm"
     }
   ],
-  "capabilities": ["device", "ui.draw"],
+  "capabilities": ["device", "ui.egui"],
   "devices": [
     {
       "name": "My Gain",

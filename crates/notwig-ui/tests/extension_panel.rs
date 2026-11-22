@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_core::ids::{Device, DeviceChain, Param, Track};
 use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
-use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_ext_api::{
     DeviceDrawContext, DeviceMeterSnapshot, DevicePanelHost, EguiFrame, EguiImage, EguiMesh,
     EguiPrimitive, EguiTextureDelta, EguiTextureOptions, EguiVertex, PanelAction,

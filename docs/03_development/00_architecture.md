@@ -14,7 +14,7 @@ notwig-app
 notwig-ui          notwig-engine
   |  egui views      |  real-time execution
   v                  v
-notwig-dsp  <-----  notwig-plugins
+notwig-core::dsp <-- notwig-plugins
   |  device plans    |  hosted instruments/effects
   v                  v
 notwig-core  <-----  notwig-project
@@ -25,11 +25,13 @@ Dependency direction is inward:
 
 - `notwig-core` has no workspace dependencies.
 - `notwig-project` depends on core.
-- `notwig-dsp` depends on core.
-- `notwig-plugins` depends on core and DSP contracts.
-- `notwig-engine` depends on core, DSP, and plugins.
-- `notwig-ui` depends on core, project, DSP, and the extension API; it does not
-  depend on engine internals.
+- Device contracts, plan compilation, and stock devices live in
+  `notwig-core::dsp`; core stays free of I/O, UI, and real-time execution.
+- `notwig-plugins` depends on core (including DSP contracts).
+- `notwig-engine` depends on core and plugins.
+- `notwig-ui` depends on core, project, and the extension API; it does not
+  depend on engine internals. Its dependency-light `components` module is shared
+  with extension devices.
 - `notwig-app` composes everything and owns process-level concerns.
 
 ## State model
@@ -165,16 +167,15 @@ under `/app/` beside the mdBook documentation.
 
 | Crate | Owns | Must not |
 |---|---|---|
-| `notwig-core` | Domain types, IDs, time, tracks, sequencer, command protocol, edit algebra | I/O, UI, real-time processing, ID allocation |
+| `notwig-core` | Domain types, IDs, time, tracks, sequencer, command protocol, edit algebra, DSP contracts/plans/stock devices | I/O, UI, real-time execution, ID allocation |
 | `notwig-project` | Bundle read/write, autosave/recovery, audio probe/import/decode/resample/export | UI, real-time processing |
-| `notwig-dsp` | Device/parameter contracts, registry, factories, graph compilation, stock devices, editor monitoring | Audio callback, persisted instance state |
-| `notwig-ext-api` | Extension SDK, render-neutral draw/panel commands, note-event wire types, manifests, targets, ABI helpers | `egui`, `wasmtime`, `libloading`, I/O, canonical state |
+| `notwig-ext-api` | Extension SDK, guest egui panel wire types/runner, note-event wire types, manifests, targets, ABI helpers | `wasmtime`, `libloading`, I/O, canonical state |
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Runtime host behavior |
 | `notwig-ext` | Extension discovery, target selection, native wasmtime/WASM and shared-library hosts, device DSP, panel host | UI layout, canonical state, audio-callback compilation |
-| `notwig-ext-devices` | Example and stock extension devices built against the SDK | Host behavior or UI code |
+| `notwig-ext-devices` | Example and stock extension devices built against the SDK and shared `notwig-ui` components | Host behavior or app UI code |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
-| `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection | Canonical state, engine internals, blocking work |
+| `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection, shared extension components, guest egui compositing | Canonical state, engine internals, blocking work |
 | `notwig-app` | Composition, workspace policy, audio I/O, thread wiring, dialogs, history | Reusable domain/DSP logic |
 | `notwig-web` | Browser entry point, wasm-bindgen handle, WebRunner startup | UI/domain/DSP behavior |
 | `notwig-rack` | Vendored VST3/VST2/CLAP/LV2/AU/AU3 wrapper crates outside the workspace | Notwig domain or UI behavior |
@@ -213,21 +214,21 @@ under `/app/` beside the mdBook documentation.
 
 - **Commands**: add a `CommandPayload` variant, implement its application in
   `notwig-core::apply`, and lower it from the app/UI.
-- **Devices**: add a `DeviceSpec`/processor in `notwig-dsp`, register it, then
-  add UI metadata if the generic parameter view is not enough.
+- **Devices**: add a `DeviceSpec`/processor in `notwig-core::dsp`, register it,
+  then add UI metadata if the generic parameter view is not enough.
 - **Editors**: implement an `EditModel` adapter and a lowering path; reuse the
   shared algebra and clipboard.
 - **Panels/windows**: keep view code in `notwig-ui`, emit `UiIntent` values, and
   implement the behavior in `notwig-app::Workspace` or `gui`.
 - **Plugin formats**: implement a `HostAdapter` in `notwig-plugins`; keep
   format-specific types inside that crate.
-- **Extensions**: add host behavior in `notwig-ext` and shared ABI/draw types in
-  `notwig-ext-api`. Device specs/panels/DSP come from the extension; Notwig owns
-  validation, resource limits, and rendering. Command-IR panels (`ui.draw`) are
-  the default. Opt-in `ui.egui` panels run a private guest egui context and send
+- **Extensions**: add host behavior in `notwig-ext` and shared ABI/panel types
+  in `notwig-ext-api`. Device specs, DSP, and panels come from the extension;
+  Notwig owns validation, resource limits, and rendering. `ui.egui` panels run a
+  private guest egui context, use shared `notwig-ui` components, and send
   validated meshes/texture deltas for the host to composite, as described in
   [`egui Extension Panels`](12_egui_extension_panels.md). General clip/track
-  drawing hooks are planned on the same command IR.
+  drawing hooks remain future work.
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted
   by `notwig-app`.

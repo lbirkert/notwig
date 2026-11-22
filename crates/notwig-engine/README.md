@@ -30,7 +30,7 @@ events. The document is never mutated here.
 
 - `ProjectDoc` mutation or project persistence.
 - The OS audio stream (see `notwig-app/src/audio.rs`).
-- Device specifications or graph compilation (see `notwig-dsp`).
+- Device specifications or graph compilation (see `notwig-core::dsp`).
 - Plugin scanning or loading policy (see `notwig-plugins`).
 - UI state or meters rendering.
 

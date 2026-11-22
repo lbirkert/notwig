@@ -8,49 +8,55 @@ Most extension behavior can be tested without the wasm host:
   ranges, defaults, and UI hint.
 - `process()` is a DSP test: feed synthetic buffers and assert limiting, gain,
   filtering, latency, and silence.
-- `draw()` is a headless UI test: construct a `UiInput`, a `UiMemory`, a
-  `RecordUi`, and a `UiContext`, call `draw`, then inspect the returned
-  `PanelDraw`.
+- `draw_egui()` is a headless UI test: run the guest egui frame with
+  `egui_panel::run_frame`, then validate the returned `EguiFrame`.
 
 The `notwig-ext-devices` limiter and gate are the reference projects:
 
-- `crates/notwig-ext-api/tests/ui_context.rs` covers click, drag, clipping,
-  stereo-meter painting, dropdown selection, and action output through
-  `RecordUi`.
+- `crates/notwig-ext-api/tests/egui_bridge.rs` covers guest frame generation and
+  action output.
+- `crates/notwig-ext-api/tests/egui_wire.rs` covers frame validation and limits.
 - `crates/notwig-ext-api/tests/note_events.rs` covers the note-event wire format.
-- `crates/notwig-ext-api/tests/draw_validation.rs` covers command and geometry
-  limits.
-- `crates/notwig-ext-devices/tests/limiter.rs` exercises the limiter spec, panel
-  output, threshold limiting, release recovery, and parameter rejection.
-- `crates/notwig-ext-devices/tests/gate.rs` exercises the gate spec, panel
+- `crates/notwig-ext-devices/tests/limiter.rs` exercises the limiter spec, egui
+  frame output, threshold limiting, release recovery, and parameter rejection.
+- `crates/notwig-ext-devices/tests/gate.rs` exercises the gate spec, egui frame
   output, open/close behavior, and parameter rejection.
-- `crates/notwig-ext-devices/tests/synth.rs` exercises the synth spec, panel,
-  oscillator modes, note on/off, ADSR release, and parameter rejection.
+- `crates/notwig-ext-devices/tests/synth.rs` exercises the synth spec, egui
+  frame output, oscillator modes, note on/off, ADSR release, and parameter
+  rejection.
+- `crates/notwig-ext-devices/tests/egui_device.rs` exercises the gain device.
 - `crates/notwig-ext/tests/limiter_extension.rs` loads the built extension
   through the real wasm host when the module is present, including synth note
   playback.
-- `crates/notwig-ui/tests/extension_panel.rs` covers host-side panel replay and
-  invalid-command fallback.
+- `crates/notwig-ui/tests/extension_panel.rs` covers host-side compositing,
+  meter delivery, and invalid-frame handling.
 
 A headless draw test looks like this:
 
 ```rust
-let input = UiInput::default();
-let mut memory = UiMemory::default();
-let mut ui_backend = RecordUi::new(&input, &mut memory);
-let mut ui = UiContext::new(&mut ui_backend, Style::default(), target_rect);
-
-device.draw(&mut ui);
-let panel = ui_backend.into_panel();
-panel.validate().unwrap();
-assert!(panel.commands.iter().any(|command| matches!(
-    command,
-    PanelCommand::Draw(_)
-)));
+let context = notwig_ext_api::egui::Context::default();
+let input = notwig_ext_api::EguiInput {
+    width: 260.0,
+    height: 200.0,
+    pixels_per_point: 1.0,
+    time: Some(0.0),
+    focused: true,
+    max_texture_side: 4096,
+    modifiers: notwig_ext_api::EguiModifiers::default(),
+    events: Vec::new(),
+};
+let frame = notwig_ext_api::egui_panel::run_frame(
+    &context,
+    input,
+    &notwig_ext_api::ThemeSnapshot::default(),
+    |ui| device.draw_egui(ui, notwig_ext_api::DeviceMeterSnapshot::default()),
+);
+frame.validate().unwrap();
+assert_ne!(frame.primitives.len(), 0);
 ```
 
-Drive clicks and drags by filling `UiInput` with pointer positions, button
-state, modifiers, and frame time. The same input produces deterministic output.
+Drive clicks and drags by filling the `EguiInput` event list with pointer and
+keyboard events. The same input produces deterministic output.
 
 ## Test the full host path
 
@@ -136,8 +142,8 @@ An index entry looks like:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 2,
-  "capabilities": ["device", "ui.draw"],
+  "api_version": 3,
+  "capabilities": ["device", "ui.egui"],
   "devices": [
     { "name": "Example Gain", "type_id": "com.example.gain.fx" }
   ],
@@ -178,7 +184,7 @@ Extension index settings are stored in browser local storage.
 2. Build every published target in release mode.
 3. Run the SDK, device, host, and UI tests.
 4. Package each target ZIP and verify that it contains one valid
-   `extension.json` with the right target.
+   `extension.json` with the right target and `api_version: 3`.
 5. Install the ZIPs through the extension explorer and insert the device.
 6. Save, reopen, and render a project that uses the device.
 7. Publish the ZIPs, fill or verify the hashes in `docs/extensions.csv`, and

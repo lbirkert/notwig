@@ -12,9 +12,8 @@ pub fn extension(extension: &mut Extension) {
 }
 ```
 
-To opt into guest-owned egui panels, enable `notwig-ext-api/egui`, use
-`#[notwig_extension(egui)]`, set `SUPPORTS_EGUI = true`, and implement
-`draw_egui(&mut egui::Ui)`. See
+Panels use the guest egui API. Implement `draw_egui` with the shared
+`notwig-ui` components; see
 [egui extension panels](../03_development/12_egui_extension_panels.md).
 
 The full trait is:
@@ -22,11 +21,12 @@ The full trait is:
 ```rust
 pub trait DeviceExtension: Send + Sized + 'static {
     fn new() -> Self;
-    fn spec() -> notwig_dsp::DeviceSpec;
-    fn draw(&mut self, ui: &mut notwig_ext_api::UiContext<'_>);
-    const SUPPORTS_EGUI: bool = false;
-    // feature = "egui"
-    fn draw_egui(&mut self, _ui: &mut egui::Ui) {}
+    fn spec() -> notwig_core::dsp::DeviceSpec;
+    fn draw_egui(
+        &mut self,
+        ui: &mut notwig_ext_api::egui::Ui,
+        meter: notwig_ext_api::DeviceMeterSnapshot,
+    );
     fn prepare(&mut self, _sample_rate: u32, _channels: u16) {}
     fn set_param(&mut self, _param_id: notwig_core::ParamId, _value: f64) -> bool {
         false
@@ -50,13 +50,13 @@ pub trait DeviceExtension: Send + Sized + 'static {
 5. `note_event(event)` is called for each note event before the block is
    processed. Events are ordered by block sample offset.
 6. `process(samples)` runs in the audio callback.
-7. `draw(ui)` runs once per UI frame while the panel is visible. With
-   `SUPPORTS_EGUI`, the host calls `draw_egui` instead and composites the
-   returned frame.
+7. `draw_egui(ui, meter)` runs once per UI frame while the panel is visible.
+   The host composites the returned egui frame.
 8. `latency()` is queried by the engine for delay compensation.
 
-The host keeps one `UiMemory` per instance. Device state that is not a parameter
-belongs in the device struct and is rebuilt if the engine rebuilds instances.
+The extension runtime keeps one guest egui context per UI instance. Device state
+that is not a parameter belongs in the device struct and is rebuilt if the
+engine rebuilds instances.
 
 ## Device spec
 
@@ -111,7 +111,7 @@ fn spec() -> DeviceSpec {
 
 ## Parameters
 
-Declare parameters with the constructors in `notwig_dsp::ParamSpec`:
+Declare parameters with the constructors in `notwig_core::dsp::ParamSpec`:
 
 ```rust
 ParamSpec::continuous(gain_id(), "Gain", Unit::Decibels, -24.0, 24.0, 0.0)
@@ -125,7 +125,7 @@ ParamSpec::enumeration(mode_id(), "Mode", 4, 0)
 Rules:
 
 - Parameter IDs must be stable across versions and sessions.
-- The same `ParamId` must be used in `spec`, `set_param`, and `draw`.
+- The same `ParamId` must be used in `spec`, `set_param`, and `draw_egui`.
 - Parameter values are physical values in `set_param`, not normalized values.
 - Normalized values are always in `0..=1` at the panel boundary.
 - Clamp values in `set_param`; the host validates the action, not the DSP
@@ -175,9 +175,9 @@ fn prepare(&mut self, sample_rate: u32, channels: u16) {
 
 ## Metering
 
-The engine measures the signal before and after every device and exposes it to
-the panel as a `DeviceMeterSnapshot` through `UiContext::device_meter()`. The
-four fields are linear peak amplitudes:
+The engine measures the signal before and after every device and passes a
+`DeviceMeterSnapshot` to `draw_egui`. The four fields are linear peak
+amplitudes:
 
 - `input_peak_l`, `input_peak_r`
 - `output_peak_l`, `output_peak_r`
@@ -185,7 +185,8 @@ four fields are linear peak amplitudes:
 Use the ratio of output to input to display device gain reduction. The panel is
 a separate extension instance from the audio processor, so display state must
 come from this snapshot rather than from fields updated in `process`. Values are
-zero while playback is stopped.
+zero while playback is stopped. Draw the snapshot with the shared
+`notwig_ui::draw_stereo_meter_with_peak` helper.
 
 ## Latency
 

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use notwig_core::dsp::DeviceSpec;
 use notwig_core::ParamId;
+use notwig_core::dsp::DeviceSpec;
 
 use crate::abi::{
     AbiStatus, DeviceStore, pack_ptr_len, packed_pointer, with_audio_frames, with_audio_frames_ptr,
@@ -16,7 +16,7 @@ use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 /// parameter, process, and panel draw calls through the ABI.
 ///
 /// Implement [`draw_egui`](Self::draw_egui) with the guest egui API and the
-/// shared components in [`notwig_ui`]. The extension runtime owns the private
+/// shared components in `notwig_ui`. The extension runtime owns the private
 /// egui context, so implementations only need to keep their own view state on
 /// the device.
 pub trait DeviceExtension: Send + Sized + 'static {

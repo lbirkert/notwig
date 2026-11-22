@@ -32,6 +32,6 @@
       "type_id": "notwig.ext.devices.egui-gain"
     }
   ],
-  "description": "Stereo-linked limiter, gate, and a simple polyphonic synthesizer.",
+  "description": "Stereo-linked limiter, gate, a simple polyphonic synthesizer, and an egui gain example.",
   "image": "icon.png"
 }

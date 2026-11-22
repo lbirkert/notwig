@@ -64,7 +64,10 @@ impl DeviceExtension for EguiGainDevice {
 
     fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "Egui Gain");
-        label(ui, "This panel uses notwig-ui components inside the guest egui context.");
+        label(
+            ui,
+            "This panel uses notwig-ui components inside the guest egui context.",
+        );
         ui.add_space(6.0);
 
         let width = ui.available_width().min(78.0);
@@ -78,8 +81,7 @@ impl DeviceExtension for EguiGainDevice {
             true,
             "Gain (dB)",
         ) {
-            let gain_db =
-                MIN_GAIN_DB + f64::from(norm) * (MAX_GAIN_DB - MIN_GAIN_DB);
+            let gain_db = MIN_GAIN_DB + f64::from(norm) * (MAX_GAIN_DB - MIN_GAIN_DB);
             self.gain_db = gain_db;
             self.gain = 10.0_f32.powf((gain_db / 20.0) as f32);
             egui_panel::set_param_value(ui, gain_id(), ParamValue::F64(gain_db));

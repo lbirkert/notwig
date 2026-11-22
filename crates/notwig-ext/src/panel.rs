@@ -38,6 +38,12 @@ impl DevicePanelHost for ExtensionPanelHost {
         context: &DeviceDrawContext,
     ) -> Option<EguiFrame> {
         let extension = self.loaded.find_type(type_id)?;
+        if !extension
+            .manifest
+            .has_capability(ExtensionCapability::UiEgui)
+        {
+            return None;
+        }
         let runtime = extension.runtime.as_ref()?;
         let device_key = context.device_id.as_str();
         if !self.instances.contains_key(device_key) {
@@ -57,17 +63,9 @@ impl DevicePanelHost for ExtensionPanelHost {
                 error
             })
             .ok()?;
-            if !extension
-                .manifest
-                .has_capability(ExtensionCapability::UiEgui)
-            {
-                return None;
-            }
             let handle = instance.create_device(type_id).ok()?;
-            self.instances.insert(
-                context.device_id.clone(),
-                UiInstance { instance, handle },
-            );
+            self.instances
+                .insert(context.device_id.clone(), UiInstance { instance, handle });
         }
         let result = {
             let ui = self.instances.get_mut(device_key)?;

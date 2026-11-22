@@ -39,14 +39,14 @@ cargo test --workspace
 cargo test -p notwig-core
 cargo test -p notwig-engine --test render
 cargo test -p notwig-ui --test audio_editor
-cargo bench -p notwig-dsp
+cargo bench -p notwig-core
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
 The suite lives under `crates/*/tests/`. There is one inline unit-test module
-(`notwig-dsp/src/monitor.rs`), one Criterion benchmark harness
-(`crates/notwig-dsp/benches/dsp.rs`), and no `cargo fuzz` target yet. Rows in the
+(`notwig-core/src/dsp/monitor.rs`), one Criterion benchmark harness
+(`crates/notwig-core/benches/dsp.rs`), and no `cargo fuzz` target yet. Rows in the
 tables below summarize test groups. One row can cover several test functions.
 
 ## End-to-end tests
@@ -110,12 +110,12 @@ tables below summarize test groups. One row can cover several test functions.
 | Tool gain and polarity | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Graph compilation order | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Unknown plugin resolution | ✅ Implemented | ⭐⭐⭐ | |
-| Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/abi.rs` covers describe, panel output, DSP, and latency with inline WAT modules; `limiter_extension.rs` covers the built WASM and native targets. |
-| Extension draw validation | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/draw_validation.rs` covers finite geometry, rects, path limits, text limits, and command caps. |
+| Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/abi.rs` covers describe, egui panel output, DSP, and latency with inline WAT modules; `limiter_extension.rs` covers the built WASM and native targets. |
+| Extension egui frame validation | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/egui_wire.rs` covers mesh, texture, clip, and action limits. |
 | Extension ABI helpers | ✅ Implemented | ⭐⭐⭐ | `notwig-ext-api/tests/abi_helpers.rs` covers the const `DeviceStore` and handle lifecycle. |
 | Extension index and config | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-api/tests/index_config.rs` covers index parsing/validation and legacy config migration. |
 | Extension ZIP install | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext/tests/install.rs` covers root/nested layouts, unsafe paths, ID mismatch, replacement, and uninstall. |
-| Limiter, gate, and synth example devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the limiter spec, panel draw list, lookahead transient catching, threshold limiting, and release recovery. `notwig-ext-devices/tests/gate.rs` covers the gate spec, panel draw list, and open/close behavior. `notwig-ext-devices/tests/synth.rs` covers the synth spec, panel, oscillator modes, note on/off, and ADSR release. `notwig-ext-api/tests/ui_context.rs` covers the shared stereo meter and dropdown. `notwig-ext-api/tests/note_events.rs` covers note-event wire encoding. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports and synth note playback. |
+| Limiter, gate, and synth example devices | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ext-devices/tests/limiter.rs` covers the limiter spec, egui frame, lookahead transient catching, threshold limiting, and release recovery. `notwig-ext-devices/tests/gate.rs` covers the gate spec, egui frame, and open/close behavior. `notwig-ext-devices/tests/synth.rs` covers the synth spec, egui frame, oscillator modes, note on/off, and ADSR release. `notwig-ext-api/tests/egui_bridge.rs` covers guest frame generation and actions. `notwig-ext-api/tests/note_events.rs` covers note-event wire encoding. `notwig-ext/tests/limiter_extension.rs` loads the built wasm through the real host when present, covering the generated `#[notwig_extension]` ABI exports and synth note playback. |
 | Edit lowering ID remap | 🧪 Partial | ⭐⭐⭐⭐⭐ | Covered through app tests, not isolated unit tests. |
 | Snap and grid math | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Waveform peak mapping | ✅ Implemented | ⭐⭐⭐ | |
@@ -150,7 +150,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Audio file hover preview | ✅ Implemented | ⭐⭐⭐ | |
 | Device info panel selection | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Settings page render | ✅ Implemented | ⭐⭐⭐⭐ | |
-| Extension device panel | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/extension_panel.rs` covers panel-host dispatch and invalid-command fallback. |
+| Extension device panel | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/extension_panel.rs` covers egui frame compositing, meter delivery, and invalid-frame handling. |
 | Extension explorer | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/extension_settings.rs` covers index/installed rendering and ZIP drop-to-install intents. |
 | Shortcut settings page | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Shortcut focus and routing | ✅ Implemented | ⭐⭐⭐⭐ | |

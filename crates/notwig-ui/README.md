@@ -1,12 +1,17 @@
 # notwig-ui
 
-Reusable `egui` views, interaction, and runtime projections.
+Reusable `egui` views, interaction, extension components, and runtime
+projections.
 
 ## Purpose
 
 `notwig-ui` renders the application and translates user gestures into
 `UiIntent` values. It owns view state but never canonical project state. It does
 not depend on engine internals; it reads a `RuntimeView` prepared by the app.
+
+The `components` and `palette` modules are dependency-light and also used by
+extension devices inside their guest egui context. Disable default features
+(`default-features = false`) to compile only those modules without the app shell.
 
 ## Owns
 
@@ -17,6 +22,8 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 - Device browser and parameter/EQ views.
 - Settings, render mixdown, and DSP load windows.
 - Reusable widgets, timeline primitives, theme, icons, and formatting helpers.
+- Shared extension-facing components: knobs, faders, stereo meters, labels,
+  sections, toggles, dropdowns, and parameter formatting.
 - `UiIntent` and drag/drop target types.
 - `RuntimeView`, meters, audio settings, and DSP analysis view types.
 - Pure view state: selection, viewport, open editor, notifications.
@@ -28,12 +35,14 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 - `ProjectDoc` mutation or command application (see `notwig-app::Workspace`).
 - Audio device I/O or engine lifecycle (see `notwig-app`).
 - Domain types or command semantics (see `notwig-core`).
-- DSP compilation or device processing (see `notwig-dsp`/`notwig-engine`).
+- DSP compilation or device processing (see `notwig-core::dsp`/`notwig-engine`).
 
 ## Module map
 
 | Module | Contents |
 |---|---|
+| `components/` | Extension-facing egui controls, meters, and formatters |
+| `palette.rs` | Shared color constants used by the app and guest components |
 | `views/shell.rs` | App shell, app bar, transport/status bars, layout, shortcuts |
 | `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
 | `views/dsp.rs` | DSP load analysis window |
@@ -41,12 +50,12 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter views, EQ, renderer dispatch, extension panel adapter, guest egui compositor |
+| `views/device_editor/` | Device panel, browser, parameter views, EQ, renderer dispatch, guest egui compositor |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
 | `commands.rs` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
-| `widgets/` | Knobs, faders, draggable numbers, form helpers, brand assets, icons, theme |
+| `widgets/` | App-only knobs, faders, draggable numbers, form helpers, brand assets, icons, timeline |
 | `widgets/timeline/` | Beat strip, clip visuals, grid, selection, drop preview, interaction math |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, and sample-level drawing |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
@@ -56,8 +65,9 @@ not depend on engine internals; it reads a `RuntimeView` prepared by the app.
 ## Tests
 
 Headless `egui` tests live in `tests/`. They cover rendering, selection,
-shortcuts, gestures, timeline math, widgets, MIDI editor editing, and headless
-window layouts. Use `notwig_ui::test_api` only from tests.
+shortcuts, gestures, timeline math, widgets, extension panel compositing, MIDI
+editor editing, and headless window layouts. Use `notwig_ui::test_api` only from
+tests.
 
 See [`docs/03_development/00_architecture.md`](../../docs/03_development/00_architecture.md) for the UI's place in
 the data flow.

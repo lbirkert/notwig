@@ -1,5 +1,5 @@
-use notwig_ext_api::egui;
 use egui::{Color32, CornerRadius, Rect, Stroke, StrokeKind};
+use notwig_ext_api::egui;
 use notwig_ui::palette;
 
 /// Number of frames retained by [`History`].
@@ -166,10 +166,7 @@ pub fn paint_history_graph(
             signal_fill(),
         );
     }
-    painter.add(egui::Shape::line(
-        peak,
-        Stroke::new(1.5_f32, SIGNAL_STROKE),
-    ));
+    painter.add(egui::Shape::line(peak, Stroke::new(1.5_f32, SIGNAL_STROKE)));
 
     let threshold: Vec<egui::Pos2> = samples
         .iter()

@@ -1,86 +1,28 @@
 # notwig-ext
 
-Extension host for Notwig. This crate owns the runtime side of the extension
-system; extension authors depend on `notwig-ext-api` instead.
+Extension discovery, loading, and runtime hosting.
 
-## Responsibilities
+## Purpose
 
-- Discover extensions from a user-provided directory, validate manifests, and
-  select the first supported entrypoint in manifest order.
-- Validate and extract ZIP packages through a shared archive reader with path,
-  size, and manifest checks used by both native installs and the browser.
-- Compile core wasm modules with `wasmtime` (Cranelift JIT), run them through
-  the browser `WebAssembly` API on the web, or load native shared libraries with
-  `libloading` on desktop.
-- Always run WASM with a memory limit and per-call fuel metering. Native
-  libraries run trusted inside the process; there is no native sandbox.
-- Describe extension devices and register their `DeviceSpec`s.
-- Create WASM- or native-backed `DeviceProcessor`s through
-  `ExtensionDeviceFactory`.
-- Host extension device panels through `ExtensionPanelHost`, returning either
-  command IR (`PanelDraw`) or a validated guest egui frame for the UI to
-  composite.
-- Provide ABI helpers: allocation, JSON snapshots, pointer/length results,
-  native pointer validation, and memory-bounds checks.
+`notwig-ext` scans the user extensions directory (and browser packages), loads
+WASM or trusted native extension modules, caches compiled modules, and exposes
+device specs, DSP processors, and panel hosts to the app. It never renders UI
+and never depends on `notwig-ui`.
 
-## Boundaries
+## Owns
 
-- No `egui` and no UI code. Panel output is render-neutral
-  `notwig_ext_api::PanelDraw` or a validated `EguiFrame`; the UI owns texture
-  upload and painting.
-- No project mutation. Extensions see snapshots and return draw/audio data; the
-  app validates and applies state changes.
-- WASM modules get no filesystem, network, threads, or WASI imports. The native
-  loader is explicitly trusted and deliberately not sandboxed.
-- The audio callback never compiles, loads, or instantiates modules. DSP
-  instances are created on the engine build thread and only call prepared
-  exports.
+- Manifest discovery and target selection.
+- WASM module compilation/cache and native shared-library loading.
+- Extension ABI calls: describe, create, prepare, set parameter, process, note
+  events, latency, and egui panel frames.
+- Trust/limits, budgets, and host imports.
+- `ExtensionPanelHost`, which owns one UI-side extension instance per device and
+  returns a validated `EguiFrame` for the UI to composite.
 
-## Module map
+## Does not own
 
-| Module | Responsibility |
-|---|---|
-| `abi.rs` | wasmtime engines/stores, host imports, memory helpers, typed exports |
-| `archive.rs` | shared ZIP/file-tree validation and extraction with safety limits |
-| `compiled.rs` | loaded extension records, runtime kind, and type-indexed lookup |
-| `native.rs` | `libloading` loader and native shared-library instance |
-| `instance.rs` | WASM/native instance enum with common device calls |
-| `device.rs` | `ExtensionDeviceFactory`, WASM and native `DeviceProcessor`s |
-| `discovery.rs` | user-directory scan, manifest parse/validate, first supported entrypoint |
-| `error.rs` | `ExtensionError` |
-| `host.rs` | `ExtensionHost`: discovery + compile + specs + factory + panel host |
-| `install.rs` | filesystem install/replace and uninstall using validated archives |
-| `panel.rs` | UI-side instance cache implementing `DevicePanelHost`; selects egui or command panels |
-| `web/` | Browser WebAssembly host, ZIP package parsing, DSP, and panels |
+- Device UI drawing or texture/mesh compositing (see `notwig-ui`).
+- Project state or command application (see `notwig-app`/`notwig-core`).
 
-## ABI overview
-
-The WASM ABI requires `notwig_abi_version`, `notwig_alloc`, `notwig_free`, and
-the `notwig_device_*` family (`describe`, `create`, `destroy`, `prepare`,
-`set_param`, `process`, `latency`, `draw`). Egui-capable extensions also export
-`notwig_device_supports_egui` and `notwig_device_draw_egui`; those frames use a
-compact `postcard` envelope and are validated before compositing. Metadata,
-parameter values, and command-panel output cross the boundary as JSON; audio
-crosses as interleaved `f32` samples and note events cross as fixed-size
-`NoteEvent` records passed to `process` when the device declares a note input.
-WASM host imports are limited to `notwig.host.log` and `notwig.host.notify`.
-
-The native ABI exports the same function names with pointer-sized arguments.
-Inputs are ordinary process pointers, stored JSON outputs are returned as a
-two-word pointer/length struct, and `process` receives the host audio buffer
-directly. There is no WASM heap or copy on the native path.
-
-## Sandboxing
-
-| Target | DSP | UI | Limits |
-|---|---|---|---|
-| WASM | yes | yes | 64 MiB memory, per-call fuel |
-| Native | yes | yes | none; runs trusted |
-
-## Testing
-
-`tests/abi.rs` builds tiny WAT modules inline with the `wat` crate, so the test
-suite does not require a wasm toolchain. It covers device description, panel
-draw output, audio processing, dynamic latency, and ABI mismatch handling. The
-`limiter_extension` test also loads the built WASM module and native shared
-library when present.
+See [`docs/02_extensions/`](../../docs/02_extensions/) for authoring and
+packaging.

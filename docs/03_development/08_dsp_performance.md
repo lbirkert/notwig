@@ -4,11 +4,11 @@ Status: implemented DSP, benchmark harness added.
 
 Related: [`Audio Engine`](02_audio_engine.md),
 [`Code Structure`](01_code_structure.md), and
-`crates/notwig-dsp/README.md`.
+`crates/notwig-core/README.md`.
 
-## 1. What `notwig-dsp` does
+## 1. What `notwig-core::dsp` does
 
-`notwig-dsp` is the boundary between the editable document and the real-time
+`notwig-core::dsp` is the boundary between the editable document and the real-time
 engine. It does not own the audio callback. It owns four things:
 
 1. **Device contracts.** `DeviceSpec`, ports, signal types, `DeviceProcessor`,
@@ -85,17 +85,17 @@ latency is the sum of its children's latency.
 
 ## 4. Benchmark methodology
 
-The benchmark lives in `crates/notwig-dsp/benches/dsp.rs` and uses Criterion.
+The benchmark lives in `crates/notwig-core/benches/dsp.rs` and uses Criterion.
 Run it with:
 
 ```sh
-cargo bench -p notwig-dsp
+cargo bench -p notwig-core
 ```
 
 For a faster local pass:
 
 ```sh
-cargo bench -p notwig-dsp -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
+cargo bench -p notwig-core -- --warm-up-time 0.5 --measurement-time 1.5 --sample-size 20
 ```
 
 Groups:
@@ -254,6 +254,6 @@ happens.
 3. Skip settled disabled EQ bands.
 4. Replace EQ's `BTreeMap` with fixed storage.
 5. Add denormal handling and a sanitization test with silence.
-6. Re-run `cargo bench -p notwig-dsp` and record the new numbers on this page.
+6. Re-run `cargo bench -p notwig-core` and record the new numbers on this page.
 7. Evaluate `f32` EQ state and block-rate smoothing only after the structural
    wins, with listening and behavior tests.

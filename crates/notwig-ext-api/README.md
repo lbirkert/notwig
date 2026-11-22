@@ -1,32 +1,35 @@
 # notwig-ext-api
 
-Author-facing SDK and shared, render-neutral boundary types for Notwig
-extensions and the UI:
+Author-facing SDK and shared boundary types for Notwig extensions.
 
-- immediate-mode panel UI: `UiContext`, `UiInput`, `UiMemory`, `Sense`,
-  `Response`, and the shared `button`, `knob`, `toggle`, `dropdown`, `label`,
-  `section`, `divider`, and stereo-meter widgets;
-- render-neutral painting: the `Drawer` primitive trait, `RecordDrawer`,
-  `DrawCommand`/`DrawList`, and `paint_*` widget helpers;
-- device panel frames (`PanelDraw`, `PanelCommand`, `PanelAction`,
-  `DevicePanelFrame`) and `DevicePanelHost`;
-- device panel draw context and theme tokens (`DeviceDrawContext` includes the
-  per-frame `UiInput` and engine-measured device peaks);
+## Purpose
+
+`notwig-ext-api` defines the stable device-extension contract: device specs,
+guest egui panel transport, note events, manifests, target matching, ABI
+constants, and the reusable ABI helpers generated into extension modules. The
+host uses the same wire types to validate and composite extension panels.
+
+## Owns
+
+- Guest egui panel frames (`EguiFrame`, `EguiInput`, meshes, texture deltas) and
+  their limits/validation.
+- the `#[notwig_extension]` ABI generator, re-exported from
+  `notwig-ext-macros`;
+- `DeviceExtension` and `Extension` for registering device implementations and
+  delivering note events before each processed block;
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
 - extension manifest types, ordered entrypoints, target matching, and ABI
   constants;
 - reusable ABI helpers: a stable bump heap, handle-keyed `DeviceStore` with
-  per-instance locks, and safe WASM-offset and native-pointer wrappers;
-- `DeviceExtension` and `Extension` for registering device implementations and
-  delivering note events before each processed block;
-- the `#[notwig_extension]` attribute macro, re-exported from
-  `notwig-ext-macros`.
+  per-instance locks, and safe WASM-offset and native-pointer wrappers.
 
-This crate has no `wasmtime` and no I/O. Its default build has no `egui`; the
-optional `egui` feature adds the guest-owned panel runner and re-exports `egui`.
-`notwig-ui` adapts the shared UI through `EguiUi`/`EguiDrawer`; extension code
-records the same API through `RecordUi`/`RecordDrawer`. Keep wire-format changes
-versioned through `notwig_ext_api::ABI_VERSION` (currently `2`).
+Panel rendering is egui-only. The guest runs a private `egui::Context`; the
+host only receives validated, tessellated meshes and texture deltas. There is
+no render-neutral command IR. Extension panels should use the shared components
+from `notwig-ui` for knobs, meters, labels, sections, toggles, and dropdowns.
+
+This crate has no `wasmtime` and no I/O. Keep wire-format changes versioned
+through `notwig_ext_api::ABI_VERSION` (currently `3`).
 
 Device authors implement `DeviceExtension` for their device type and register it
 from the entrypoint:
@@ -40,41 +43,46 @@ pub fn extension(extension: &mut Extension) {
 }
 ```
 
-The macro generates the WASM ABI exports when compiling for
+The macro generates the WASM ABI when compiling for
 `wasm32-unknown-unknown` and a native shared-library ABI on desktop targets.
 Cargo requires the proc macro to live in a separate crate, so
 `notwig-ext-macros` is an implementation detail re-exported here; authors only
 depend on `notwig-ext-api`.
 
-Panels are dynamic: the host calls `DeviceExtension::draw` once per frame with a
-`UiContext`. Use shared widgets or `UiContext::interact`, keep IDs stable across
-frames, and queue parameter changes through the context so the host can validate
-them:
+Panels are dynamic: the host calls `DeviceExtension::draw_egui` once per frame
+with the guest egui `Ui` and the latest engine-measured device peaks. Queue
+parameter changes through the egui panel helpers so the host can validate them:
 
 ```rust
-use notwig_ext_api::{DeviceExtension, UiContext, button, knob, section};
+use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ui::{knob, section};
 
 impl DeviceExtension for MyDevice {
     fn new() -> Self {
         Self { gain: 0.5 }
     }
 
-    fn spec() -> notwig_dsp::DeviceSpec {
+    fn spec() -> DeviceSpec {
         gain_spec()
     }
 
-    fn draw(&mut self, ui: &mut UiContext<'_>) {
+    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "Gain");
 
-        let rect = ui.allocate(ui.style().knob_size);
-        if let Some(norm) = knob(ui, ui.id("gain"), rect, self.gain, 0.5, false, "Gain") {
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hover());
+        if let Some(norm) = knob(
+            ui,
+            ui.make_persistent_id("gain"),
+            rect,
+            self.gain,
+            0.5,
+            false,
+            "Gain",
+        ) {
             self.gain = norm;
-            ui.set_param_normalized(gain_id(), norm);
-        }
-
-        if button(ui, "Reset").clicked() {
-            self.gain = 0.5;
-            ui.set_param_normalized(gain_id(), 0.5);
+            egui_panel::set_param_normalized(ui, gain_id(), norm);
         }
     }
 
@@ -82,47 +90,28 @@ impl DeviceExtension for MyDevice {
 }
 ```
 
-For guest-owned egui panels, enable the `egui` feature, use
-`#[notwig_extension(egui)]`, set `DeviceExtension::SUPPORTS_EGUI = true`, and
-implement `draw_egui`. Parameter changes go through
-`egui_panel::set_param_normalized` and `egui_panel::set_param_value`. The wire
-types live in `egui_panel` and stay independent of egui's private serialization
-format.
-
-Interaction uses `Sense` (`hover`, `click`, `drag`, `click_and_drag`) and a
-`Response` (`hovered`, `clicked`, `double_clicked`, `dragged`, `drag_started`,
-`drag_stopped`, `drag_delta`, `contains_pointer`). The extension runtime owns one
-`UiMemory` per device instance, so hover, focus, and drag state do not need to be
-stored by the device.
+Interaction uses normal egui widgets and the shared `notwig-ui` controls. The
+extension runtime owns the guest `egui::Context`, so the device only keeps its
+own parameter values and view state.
 
 Parameter and UI changes are emitted as `PanelAction` values
 (`SetParamNormalized`, `SetParamValue`, `SetCursor`, `RequestRepaint`) and
-returned in `PanelDraw::actions`. The host validates them against the device
+returned inside `EguiFrame::actions`. The host validates them against the device
 spec before applying them: parameters must exist, values must be finite, and
-normalized values are clamped. The validation helpers in `DrawList::validate`
-and `PanelDraw::validate` enforce finite geometry, command/action counts, path
-point counts, and text size limits. Hosts must call them before rendering
-extension output.
-
-For custom drawing, `UiContext::painter()` returns a `&mut dyn Drawer` with
-`fill_rect`, `stroke_rect`, `line`, `circle_filled`, `circle_stroke`, `text`,
-`path`, and clip push/pop. `RecordDrawer` buffers these as `DrawCommand`s for the
-wasm boundary; `notwig-ui` replays them on the host. The `paint_*` functions
-draw those same primitives into an existing rect when building custom widgets.
+normalized values are clamped.
 
 The `abi` module provides the boilerplate every extension needs:
 
 - `abi::alloc` / `abi::free` / `abi::packed_pointer` for stable host inputs and
-  extension-owned JSON outputs;
+  extension-owned outputs;
 - `abi::DeviceStore<T>` for handle-keyed device instances with a const
   constructor suitable for `static` use;
 - `abi::read_param_id`, `abi::with_str`, `abi::with_bytes`, and
   `abi::with_audio_frames` for safe reads from extension linear memory.
 
 For `wasm32-unknown-unknown` extensions, depend on `notwig-core` and
-`notwig-dsp` with `default-features = false`. This keeps the UUID `v4` feature
-(and its JS/getrandom requirements) out of the wasm module. Native builds use
-the same crate and do not need a special feature. See
-`notwig-ext-devices` for a working example, and
+`notwig-ui` with `default-features = false`. This keeps UUID `v4` and the app
+shell out of the wasm module. Native builds use the same crate and do not need a
+special feature. See `notwig-ext-devices` for working examples, and
 [`docs/02_extensions/`](../../docs/02_extensions/) for the package, build, and
 install workflow.

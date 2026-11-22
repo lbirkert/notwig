@@ -2,7 +2,7 @@
 
 Example extension devices for Notwig, built against the `notwig-ext-api`
 contract. The same crate produces a portable WASM module and a native shared
-library.
+library. All panels use the guest egui API and shared `notwig-ui` components.
 
 ## Devices
 
@@ -47,26 +47,24 @@ A simple polyphonic synthesizer:
 - 16 voices with pitch-matched note on/off handling and a fixed per-voice gain.
 - Receives note events through the extension note-event ABI.
 
-The panel uses the shared `dropdown` widget for the oscillator and four knobs
-for the ADSR. The dropdown list is drawn last so it overlays the rest of the
-panel and closes when clicking outside it.
+The panel uses the shared `notwig_ui::dropdown` component for the oscillator and
+four shared knobs for the ADSR.
 
-### Egui Gain (optional)
+### Egui Gain
 
-Enabled with `--features egui`, this device demonstrates the guest-owned egui
-panel path. It implements `draw_egui` with a real `egui::Slider`, sets
-`SUPPORTS_EGUI = true`, and reports parameter changes through
-`egui_panel::set_param_value`. The crate uses `#[notwig_extension(egui)]` only
-when that feature is enabled. An egui-capable package must also declare
-`"ui.egui"` in its manifest capabilities.
+`notwig.ext.devices.egui-gain`
 
-All command-API panels are drawn dynamically each frame with `DeviceExtension::draw` and
+A small gain device that demonstrates the guest egui panel path:
+
+- draws a shared `notwig-ui` knob and labels;
+- reports parameter changes through `egui_panel::set_param_value`;
+- is registered with the same `#[notwig_extension]` entrypoint as the others.
+
+All devices draw dynamically each frame with `DeviceExtension::draw_egui` and
 request repaint so they animate while visible. Meter and history data come from
-the engine-measured `DeviceMeterSnapshot` exposed through
-`UiContext::device_meter()`, because the panel runs in a separate extension
-instance from the audio processor. The shared stereo meter painter lives in
-`notwig_ext_api::ui`, so other extension devices can reuse it. The graph and
-history ring are local to this crate and shared by the limiter and gate.
+the engine-measured `DeviceMeterSnapshot` passed to `draw_egui`, because the
+panel runs in a separate extension instance from the audio processor. The graph
+and history ring are local to this crate and shared by the limiter and gate.
 
 The devices are implemented with the SDK trait and registered from the macro
 entrypoint:
@@ -79,14 +77,15 @@ pub fn extension(extension: &mut Extension) {
     extension.register_device::<LimiterDevice>();
     extension.register_device::<GateDevice>();
     extension.register_device::<SynthDevice>();
+    extension.register_device::<EguiGainDevice>();
 }
 ```
 
-Each device implements `DeviceExtension`, providing `spec`, `draw`, `prepare`,
-`set_param`, `process`, and `latency`. Interaction state is retained by the
-extension runtime and the host widget renderer; the devices keep only their own
-parameter values and display state. The generated ABI exports and all
-heap/store/pointer plumbing come from `notwig-ext-api`.
+Each device implements `DeviceExtension`, providing `spec`, `draw_egui`,
+`prepare`, `set_param`, `process`, and `latency`. The extension runtime retains
+the guest egui context; the devices keep only their own parameter values and
+display state. The generated ABI exports and all heap/store/pointer plumbing
+come from `notwig-ext-api`.
 
 ## Build
 
@@ -136,10 +135,11 @@ manifest and target binary into a directory under the user extensions directory:
 ```
 
 Then open **Settings > Extensions** and press **Reload extensions**. The
-Limiter, Gate, and Synth appear under **Extensions** in the Add Device browser.
+devices appear under **Extensions** in the Add Device browser.
 
-The manifest template uses `"api_version": 2` and `$$TARGET` / `$$ENTRYPOINT`
-placeholders that the packaging script replaces for each target.
+The manifest template uses `"api_version": 3`, the `ui.egui` capability, and
+`$$TARGET` / `$$ENTRYPOINT` placeholders that the packaging script replaces for
+each target.
 
 ## Notes
 
@@ -156,10 +156,11 @@ placeholders that the packaging script replaces for each target.
 
 ## Tests
 
-`tests/limiter.rs` covers the limiter spec, panel draw list, lookahead,
+`tests/limiter.rs` covers the limiter spec, egui frame generation, lookahead,
 threshold limiting, release recovery, and parameter rejection. `tests/gate.rs`
-covers the gate spec, panel draw list, opening/closing behavior, and parameter
-rejection. `tests/synth.rs` covers the synth spec, panel, oscillator modes,
-note on/off, ADSR release, and parameter rejection. `notwig-ext/tests` also
-loads the built WASM module and native shared library and checks the devices
-through the real ABIs.
+covers the gate spec, frame generation, opening/closing behavior, and parameter
+rejection. `tests/synth.rs` covers the synth spec, frame generation, oscillator
+modes, note on/off, ADSR release, and parameter rejection.
+`tests/egui_device.rs` covers the gain device frame and parameter behavior.
+`notwig-ext/tests` also loads the built WASM module and native shared library
+and checks the devices through the real ABIs.

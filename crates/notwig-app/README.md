@@ -39,7 +39,7 @@ domain or DSP logic belongs in lower crates, not here.
 
 - Domain types, validation, or command semantics (see `notwig-core`).
 - Bundle format or audio decoding (see `notwig-project`).
-- Device contracts or graph compilation (see `notwig-dsp`).
+- Device contracts or graph compilation (see `notwig-core::dsp`).
 - Real-time processing (see `notwig-engine`).
 - Plugin format adapters (see `notwig-plugins`).
 - Reusable views or widgets (see `notwig-ui`).

@@ -26,11 +26,6 @@ const MAX_THRESHOLD_DB: f64 = 0.0;
 const MIN_RELEASE_SECONDS: f64 = 0.01;
 const MAX_RELEASE_SECONDS: f64 = 0.5;
 
-const METER_WIDTH: f32 = 40.0;
-const GRAPH_HEIGHT: f32 = 116.0;
-const KNOB_WIDTH: f32 = 78.0;
-const KNOB_HEIGHT: f32 = 58.0;
-
 fn knob_label(ui: &egui::Ui, rect: egui::Rect, label: &str) {
     ui.painter().with_clip_rect(rect).text(
         egui::pos2(rect.center().x, rect.bottom() + 8.0),

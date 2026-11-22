@@ -1,13 +1,10 @@
 # egui extension panels
 
-This page defines the opt-in `ui.egui` extension capability. It lets a device
-extension author implement its panel with the real `egui` API while the host
-keeps the sandbox, validation, focus policy, and rendering ownership.
+This page defines the extension panel path. Device extensions implement their
+panel with the real `egui` API inside their own context; the host keeps the
+sandbox, validation, focus policy, and rendering ownership.
 
-The default `ui.draw` command IR stays in place. `ui.egui` is an additional
-capability, not a replacement.
-
-Status: the device-card MVP is implemented (wire validation, guest runner,
+Status: implemented for device cards (wire validation, guest runner,
 WASM/native/browser transport, texture remapping, mesh compositing, pointer and
 keyboard input, focus, actions, cursor, and repaint). IME, guest accessibility
 trees, overlay windows, clipboard completeness, and host-font sharing remain
@@ -25,21 +22,23 @@ not sound:
 - WASM extensions have separate linear memory, so a host pointer is meaningless
   inside the guest anyway.
 
-Instead, a `ui.egui` extension runs a private `egui::Context` in its own
-instance, tessellates the frame, and returns a validated display payload:
-triangle meshes, texture deltas, host actions, and focus/repaint hints. The
-host composites the meshes into the device card and routes input back through a
-serializable input snapshot.
+Instead, an extension runs a private `egui::Context` in its own instance,
+tessellates the frame, and returns a validated display payload: triangle meshes,
+texture deltas, host actions, and focus/repaint hints. The host composites the
+meshes into the device card and routes input back through a serializable input
+snapshot.
 
-This is Option A in the extension research notes. It gives authors the real
-egui API inside their panel. It does not give them the host widget tree, host
-focus order, or arbitrary host windows.
+This gives authors the real egui API inside their panel. It does not give them
+the host widget tree, host focus order, or arbitrary host windows. The
+`notwig-ui` crate exposes a small shared component set (`knob`, `volume_fader`,
+stereo meters, labels, sections, toggles, dropdowns, and palette colors) so
+extension panels look and behave like the host.
 
 ## Architecture
 
 ```text
 extension instance (WASM or native)
-  draw_egui(ui: &mut egui::Ui)
+  draw_egui(ui: &mut egui::Ui, meter: DeviceMeterSnapshot)
     -> private egui::Context::run
     -> Context::tessellate
     -> EguiFrame { meshes, textures, actions, focus, repaint }
@@ -62,52 +61,64 @@ host pointer. Only the serialized frame and input snapshot cross the boundary.
 ## Capability and ABI
 
 - Manifest capability: `ui.egui`.
-- SDK feature: `notwig-ext-api/egui` enables the guest runner and `egui` types.
-- Macro opt-in: `#[notwig_extension(egui)]`.
-- New exports:
-  - `notwig_device_supports_egui(type_ptr, type_len) -> i32`
+- Macro: `#[notwig_extension]` always generates the egui panel export. The
+  optional `egui` attribute is accepted for source compatibility.
+- Exports:
   - `notwig_device_draw_egui(handle, context_ptr, context_len) -> pointer/len`
-- The command-panel exports are unchanged. An extension may expose both; each
-  device declares whether it uses egui through `DeviceExtension::SUPPORTS_EGUI`.
-- Frames use `postcard`, not JSON. A first frame can include a ~1 MiB font
-  atlas and mesh data; JSON would inflate both.
+- The former command-panel export (`notwig_device_draw`) and the
+  `supports_egui` query were removed in ABI version 3.
+
+Frames use `postcard`, not JSON. A first frame can include a ~1 MiB font atlas
+and mesh data; JSON would inflate both.
 
 `EguiFrame` is validated before the host uses any of it:
 
-- command/action/mesh/texture counts and bytes are capped;
+- action/mesh/texture counts and bytes are capped;
 - clip rects and vertex positions must be finite;
 - indices are in range and a multiple of three;
-- texture dimensions, pixels-per-texel and total texture bytes are capped;
+- texture dimensions and total texture texels are capped;
 - callbacks and `TextureId::User` are rejected;
 - texture ids are panel-local and remapped by the host;
 - frame bytes are read through the existing packed-pointer ABI with a separate
-  `ui.egui` size budget.
+  egui size budget.
 
 ## Guest API
 
 ```rust
-use notwig_ext_api::{notwig_extension, DeviceExtension, DeviceSpec, UiContext};
+use notwig_core::dsp::DeviceSpec;
+use notwig_ext_api::{
+    notwig_extension, DeviceExtension, DeviceMeterSnapshot, egui, egui_panel,
+};
+use notwig_ui::{knob, section};
 
-struct MyDevice;
+struct MyDevice { gain: f32 }
 
 impl DeviceExtension for MyDevice {
-    const SUPPORTS_EGUI: bool = true;
-
-    fn new() -> Self { Self }
+    fn new() -> Self { Self { gain: 0.5 } }
     fn spec() -> DeviceSpec { /* ... */ }
-    fn draw(&mut self, _ui: &mut UiContext<'_>) {}
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("My device");
-        if ui.button("Reset").clicked() {
-            notwig_ext_api::egui_panel::set_param_normalized(ui, my_param_id(), 0.5);
+    fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
+        section(ui, "My device");
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hover());
+        if let Some(norm) = knob(
+            ui,
+            ui.make_persistent_id("gain"),
+            rect,
+            self.gain,
+            0.5,
+            false,
+            "Gain",
+        ) {
+            self.gain = norm;
+            egui_panel::set_param_normalized(ui, my_param_id(), norm);
         }
+        let _ = meter;
     }
 
     fn process(&mut self, _samples: &mut [f32]) {}
 }
 
-#[notwig_extension(egui)]
+#[notwig_extension]
 pub fn extension(extension: &mut notwig_ext_api::Extension) {
     extension.register_device::<MyDevice>();
 }
@@ -119,8 +130,8 @@ of that executes inside the guest. It must not rely on host windows, host
 clipboards, or host accessibility.
 
 Parameter changes must go through `set_param_normalized` / `set_param_value`.
-The host validates the `ParamId` and value against the device spec, exactly like
-the command-IR path. The guest cannot invent parameters.
+The host validates the `ParamId` and value against the device spec. The guest
+cannot invent parameters.
 
 The guest runner supplies a Notwig-derived `egui::Visuals` from
 `DeviceDrawContext::theme` so panels visually match the host. Text fonts are the
@@ -171,8 +182,8 @@ meters.
   clipped to the card; a future overlay protocol can lift that.
 - IME composition. Text input works, but CJK/IME needs `PlatformOutput.ime`
   translation and `Event::Ime` forwarding.
-- Guest accessibility trees. Host-owned `ui.draw` controls remain the
-  accessible path until a tree protocol exists.
+- Guest accessibility trees. Host-owned generic parameter controls remain the
+  accessible fallback until a tree protocol exists.
 - Arbitrary host UI. Extensions cannot add widgets to host layouts or host
   focus order.
 - Host font sharing. Guest panels use egui's default fonts; sending the host
@@ -197,49 +208,49 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 `notwig-ext-api`:
 
 - `src/egui_panel/mod.rs`: wire types, limits, validation.
-- `src/egui_panel/bridge.rs` (feature `egui`): `EguiInput -> RawInput`,
-  `FullOutput -> EguiFrame`, theme mapping, parameter-action helpers.
-- `src/extension.rs`: `DeviceExtension::draw_egui`, `SUPPORTS_EGUI`, per-slot
-  egui context and frame buffer.
+- `src/egui_panel/bridge.rs`: `EguiInput -> RawInput`, `FullOutput ->
+  EguiFrame`, theme mapping, parameter-action helpers.
+- `src/extension.rs`: `DeviceExtension::draw_egui`, per-slot egui context and
+  frame buffer.
 - `src/manifest.rs`: `ui.egui` capability.
-- `src/abi.rs`: ABI version and new export names.
+- `src/abi.rs`: ABI version and export names.
 
 `notwig-ext-macros`:
 
-- parse `#[notwig_extension(egui)]`;
-- generate `notwig_device_supports_egui` and `notwig_device_draw_egui` for WASM
-  and native targets.
+- generate `notwig_device_draw_egui` for WASM and native targets.
 
 `notwig-ext`:
 
-- `abi.rs`, `native.rs`, `web/instance.rs`: optional egui exports, frame budget,
-  decode and validation.
-- `instance.rs`, `panel.rs`, `web/panel.rs`: route egui-capable panels through
-  the new path and fall back cleanly for command panels.
+- `abi.rs`, `native.rs`, `web/instance.rs`: egui exports, frame budget, decode
+  and validation.
+- `instance.rs`, `panel.rs`, `web/panel.rs`: route capable extensions through
+  the egui panel path.
 
 `notwig-ui`:
 
-- `views/device_editor/egui.rs`: input snapshot, focus, texture namespace,
-  mesh compositing, actions.
-- `views/device_editor/extension.rs`: choose the egui path when the host says
-  the device supports it.
+- `components/`: shared controls and meters used by both the app and guests.
+- `views/device_editor/egui_render.rs`: input snapshot, focus, texture
+  namespace, mesh compositing, actions.
+- `views/device_editor/extension.rs`: build the draw context and composite the
+  returned frame.
 
 ## Tests
 
 - Wire round-trip and limits in `notwig-ext-api/tests/egui_wire.rs`.
-- Guest frame generation with a headless `egui::Context` and interaction
-  assertions (feature `egui`).
-- Host compositing test in `notwig-ui/tests/extension_egui.rs`: feed a frame
-  with a foreign mesh and texture, assert the remapped texture and clip survive
-  tessellation.
-- Transport tests cover a frame that fails validation and a command-panel
-  extension that keeps using `ui.draw`.
+- Guest frame generation and action assertions in
+  `notwig-ext-api/tests/egui_bridge.rs`.
+- Device-level frames in `notwig-ext-devices/tests/`.
+- Host compositing, meter delivery, and invalid-frame handling in
+  `notwig-ui/tests/extension_panel.rs`.
+- WASM host transport in `notwig-ext/tests/abi.rs` and
+  `notwig-ext/tests/limiter_extension.rs`.
 
 ## Rollout
 
 1. Wire types, validation, and capability.
 2. Guest runner and macro export.
 3. Host transport and UI compositing for device cards.
-4. Tests and documentation.
-5. Follow-ups: IME, clipboard completeness, accessibility tree, overlay
+4. Shared `notwig-ui` components for extension panels.
+5. Tests and documentation.
+6. Follow-ups: IME, clipboard completeness, accessibility tree, overlay
    windows, and per-frame performance budgets on `wasmtime`.

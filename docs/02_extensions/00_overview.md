@@ -7,11 +7,12 @@ provide:
 
 - device metadata and parameters through a `DeviceSpec`;
 - real-time DSP through the `DeviceExtension` trait;
-- a custom immediate-mode panel drawn with Notwig's own UI API.
+- a custom panel drawn with the guest egui API and shared `notwig-ui`
+  components.
 
-Extensions never receive `egui::Context`, host pointers to application state, or
-the project document. The host sends a serialized input frame and receives
-validated draw commands plus parameter actions.
+Extensions never receive the host `egui::Context`, host pointers to application
+state, or the project document. The extension runs a private egui context and
+returns validated tessellated meshes, texture deltas, and parameter actions.
 
 ## Architecture
 
@@ -20,11 +21,11 @@ extension (wasm or native)      notwig-ext host              notwig-ui
 ──────────────────────────      ────────────────              ─────────
 DeviceExtension::spec  ──────►  DeviceSpec validation  ───►  device chain
 DeviceExtension::process ────►  audio buffers          ───►  engine
-DeviceExtension::draw  ──────►  PanelDraw + actions    ───►  panels
+DeviceExtension::draw_egui ──►  EguiFrame + actions    ───►  panels
 ```
 
-- `notwig-ext-api` is the author-facing SDK. It has no `egui`, `wasmtime`,
-  `libloading`, or I/O.
+- `notwig-ext-api` is the author-facing SDK. It has no `wasmtime`, `libloading`,
+  or I/O. It exposes the guest egui runner and wire types.
 - `notwig-ext` is the host. It discovers packages, selects the first supported
   entrypoint, runs WASM with `wasmtime` on native or the browser `WebAssembly`
   API in the browser build, and loads native shared libraries with `libloading`
@@ -32,11 +33,12 @@ DeviceExtension::draw  ──────►  PanelDraw + actions    ───�
   The browser build loads WASM entrypoints only, discovers them from extracted
   packages in OPFS, and installs packages from the same JSON index as the native
   app.
-- `notwig-ui` replays the draw commands and applies validated parameter
-  actions.
+- `notwig-ui` composites the returned egui frame and applies validated
+  parameter actions. Extension panels use its shared knobs, meters, labels,
+  sections, toggles, and dropdowns.
 
 The extension ABI is versioned separately from the package manifest. The current
-version is `2`. The WASM and native ABIs are different transport layers around
+version is `3`. The WASM and native ABIs are different transport layers around
 the same Rust API.
 
 ## What an extension can do
@@ -47,7 +49,8 @@ An extension can:
 - read and write interleaved `f32` audio;
 - declare continuous, boolean, enum, and discrete parameters;
 - report processing latency;
-- draw a custom panel using layout, widgets, primitives, text, and input;
+- draw a custom panel with the real egui API inside its own context;
+- use shared `notwig-ui` controls and the shared color palette;
 - request a repaint or a cursor change.
 
 A sandboxed WASM extension cannot:
@@ -55,7 +58,7 @@ A sandboxed WASM extension cannot:
 - access the filesystem, network, threads, or wall clock;
 - read or mutate the project document;
 - load native plugins;
-- create tabs, windows, or arbitrary host UI;
+- create host tabs, windows, or arbitrary host UI;
 - allocate unbounded memory or run without fuel limits.
 
 A native extension is not sandboxed and runs with the application's privileges.
@@ -68,7 +71,8 @@ Install native extensions only from trusted sources.
    layout and target selection.
 3. [Device API](03_device_api.md) covers `DeviceExtension`, parameters, ports,
    DSP, and latency.
-4. [Panel API](04_panel_api.md) covers layout, widgets, input, actions, and
-   custom drawing.
+4. [Panel API](04_panel_api.md) covers the guest egui panel, shared components,
+   input, and actions.
 5. [Testing and Distribution](05_testing_and_distribution.md) covers tests,
-   the example limiter, gate, and synth, packaging, and index publishing.
+   the example limiter, gate, synth, and gain devices, packaging, and index
+   publishing.
