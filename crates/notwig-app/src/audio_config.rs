@@ -65,9 +65,19 @@ impl From<PersistedAudioSettings> for AudioSettings {
         } else {
             settings.block_size
         };
+        let driver = if settings.driver.is_empty() {
+            crate::audio::default_driver_name()
+        } else {
+            settings.driver
+        };
+        let device = if settings.device.is_empty() {
+            crate::audio::SYSTEM_OUT_DEVICE_ID.to_string()
+        } else {
+            settings.device
+        };
         Self {
-            driver: settings.driver,
-            device: settings.device,
+            driver,
+            device,
             sample_rate: None,
             block_size,
             channels: settings.channels,
@@ -121,7 +131,12 @@ pub fn validated(
     options: &[notwig_ui::AudioDriverView],
 ) -> AudioSettings {
     settings.sample_rate = None;
+    let default_driver = crate::audio::default_driver_name();
+    let default_driver_available = options.iter().any(|driver| driver.id == default_driver);
     let system_out = settings.device == crate::audio::SYSTEM_OUT_DEVICE_ID;
+    if settings.driver.is_empty() && default_driver_available {
+        settings.driver.clone_from(&default_driver);
+    }
     if !settings.driver.is_empty() {
         if let Some(driver) = options.iter().find(|driver| driver.id == settings.driver) {
             if !settings.device.is_empty()
@@ -136,9 +151,17 @@ pub fn validated(
         } else if system_out {
             // System Out still resolves through the default host when device
             // enumeration is temporarily unavailable.
-            settings.driver.clear();
+            settings.driver = if default_driver_available {
+                default_driver
+            } else {
+                String::new()
+            };
         } else {
-            settings.driver.clear();
+            settings.driver = if default_driver_available {
+                default_driver
+            } else {
+                String::new()
+            };
             settings.device.clear();
         }
     } else if !settings.device.is_empty()
@@ -152,6 +175,9 @@ pub fn validated(
     {
         settings.device.clear();
     }
+    if settings.device.is_empty() {
+        settings.device = crate::audio::SYSTEM_OUT_DEVICE_ID.to_string();
+    }
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
     }
@@ -164,7 +190,6 @@ pub fn validated(
     }
     settings
 }
-
 #[cfg(not(target_arch = "wasm32"))]
 #[doc(hidden)]
 #[must_use]

@@ -241,7 +241,10 @@ impl EngineWorker {
                 Ok(WorkerCommand::ConfigureInputs { requests }) => self.configure_inputs(requests),
                 Ok(WorkerCommand::StartRecording) => self.start_recording(),
                 Ok(WorkerCommand::StopRecording) => self.stop_recording(),
-                Ok(WorkerCommand::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Ok(WorkerCommand::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    self.stop_recording_silent();
+                    break;
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
             if let Some(service) = &self.service {
@@ -267,7 +270,7 @@ impl EngineWorker {
     }
 
     fn open_device(&mut self, project_rate: u32, settings: &AudioSettings) {
-        self.stop_recording();
+        self.stop_recording_silent();
         self.service = None;
         self.input_routes.clear();
         self.control.data_mut().clear();
@@ -364,6 +367,12 @@ impl EngineWorker {
         }
         let sample_rate = service.snapshot().sample_rate;
         self.recording = Some(service.begin_recording(self.input_routes.clone(), sample_rate));
+    }
+
+    fn stop_recording_silent(&mut self) {
+        if let Some(session) = self.recording.take() {
+            let _ = session.finish();
+        }
     }
 
     fn stop_recording(&mut self) {

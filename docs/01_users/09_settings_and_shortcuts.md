@@ -10,7 +10,8 @@ The Audio page selects the output system:
 - **Driver**: the available audio backends.
 - **Device**: the output device for the selected driver. **System Out** follows
   the operating system's default output device, so it keeps working when the
-  default changes.
+  default changes. On first launch, the default driver and **System Out** are
+  selected automatically.
 - **Sample rate**: automatic or a rate reported by the device.
 - **Block size**: 16 to 2048 samples, in steps of 16.
 - **Apply** opens the selected device and rebuilds the engine.

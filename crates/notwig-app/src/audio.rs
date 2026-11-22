@@ -42,7 +42,7 @@ pub fn is_device_change_error(kind: cpal::ErrorKind) -> bool {
     kind == cpal::ErrorKind::DeviceChanged
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AudioSettings {
     pub driver: String,
     pub device: String,
@@ -52,6 +52,24 @@ pub struct AudioSettings {
     pub channels: Vec<notwig_ui::AudioChannelConfig>,
     #[serde(default)]
     pub master_output: Option<String>,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            driver: default_driver_name(),
+            device: SYSTEM_OUT_DEVICE_ID.into(),
+            sample_rate: None,
+            block_size: 0,
+            channels: Vec::new(),
+            master_output: None,
+        }
+    }
+}
+
+#[must_use]
+pub(crate) fn default_driver_name() -> String {
+    cpal::default_host().id().name().to_string()
 }
 
 const DSP_HISTORY: usize = 200;

@@ -56,18 +56,19 @@ fn audio_config_round_trip_persists_driver_device_and_block_size() {
 
 #[test]
 fn missing_or_malformed_config_falls_back_to_defaults() {
+    let defaults = AudioSettings::default();
     let missing = temp_path();
     let loaded = load_from_path(&missing);
-    assert_eq!(loaded.driver, "");
-    assert_eq!(loaded.device, "");
+    assert_eq!(loaded.driver, defaults.driver);
+    assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(loaded.block_size, 512);
 
     let malformed = temp_path();
     std::fs::create_dir_all(malformed.parent().unwrap()).unwrap();
     std::fs::write(&malformed, b"{not json").unwrap();
     let loaded = load_from_path(&malformed);
-    assert_eq!(loaded.driver, "");
-    assert_eq!(loaded.device, "");
+    assert_eq!(loaded.driver, defaults.driver);
+    assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(loaded.block_size, 512);
 
     std::fs::remove_dir_all(malformed.parent().unwrap()).unwrap();
@@ -85,7 +86,7 @@ fn config_tolerates_missing_and_extra_fields() {
 
     let loaded = load_from_path(&path);
     assert_eq!(loaded.driver, "CoreAudio");
-    assert_eq!(loaded.device, "");
+    assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(loaded.block_size, 128);
 
     std::fs::write(&path, br#"{"driver":"CoreAudio","device":"Speakers"}"#).unwrap();
@@ -165,13 +166,16 @@ fn validation_drops_missing_driver_or_device() {
     let options = options();
 
     let missing_driver = validated(settings("Missing", "Speakers", 256), &options);
-    assert_eq!(missing_driver.driver, "");
-    assert_eq!(missing_driver.device, "");
+    assert!(
+        missing_driver.driver.is_empty()
+            || missing_driver.driver == AudioSettings::default().driver
+    );
+    assert_eq!(missing_driver.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(missing_driver.block_size, 256);
 
     let missing_device = validated(settings("CoreAudio", "Missing", 256), &options);
     assert_eq!(missing_device.driver, "CoreAudio");
-    assert_eq!(missing_device.device, "");
+    assert_eq!(missing_device.device, SYSTEM_OUT_DEVICE_ID);
 
     let available = validated(settings("CoreAudio", "Speakers", 256), &options);
     assert_eq!(available.driver, "CoreAudio");
