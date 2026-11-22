@@ -1329,6 +1329,7 @@ fn settings_page_renders_audio_options() {
                 device: "System Out".into(),
                 sample_rate: "auto".into(),
                 block_size: 512,
+                low_latency_block_size: 16,
                 channels: vec![
                     AudioChannelConfig {
                         id: "voice".into(),

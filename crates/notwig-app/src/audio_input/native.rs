@@ -14,15 +14,17 @@ type DeviceTargets = BTreeMap<(String, String), Vec<(TrackId, u16, u16, Option<u
 pub(crate) struct InputHub {
     bus: Arc<InputBus>,
     sample_rate: u32,
+    block_size: u32,
     streams: Mutex<BTreeMap<(String, String), cpal::Stream>>,
     error: Arc<Mutex<Option<String>>>,
 }
 
 impl InputHub {
-    pub(crate) fn new(sample_rate: u32) -> Self {
+    pub(crate) fn new(sample_rate: u32, block_size: u32) -> Self {
         Self {
             bus: Arc::new(InputBus::new(sample_rate)),
             sample_rate,
+            block_size: block_size.max(1),
             streams: Mutex::new(BTreeMap::new()),
             error: Arc::new(Mutex::new(None)),
         }
@@ -96,7 +98,7 @@ impl InputHub {
         let (mut config, sample_format) =
             choose_input_config(&device, self.sample_rate, max_channel)
                 .ok_or_else(|| format!("input device does not support {} Hz", self.sample_rate))?;
-        config.buffer_size = cpal::BufferSize::Fixed(crate::audio::LOW_LATENCY_DEVICE_BLOCK);
+        config.buffer_size = cpal::BufferSize::Fixed(self.block_size);
         let targets: Vec<(u16, u16, Option<u16>)> = targets
             .iter()
             .map(|(_, slot, left, right)| (*slot, *left, *right))

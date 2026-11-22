@@ -21,9 +21,10 @@ pub const SYSTEM_OUT_DEVICE_ID: &str = "system-out";
 const SYSTEM_OUT_LABEL: &str = "System Out";
 const SYSTEM_OUT_WARNING: &str = "System Out follows the operating system's default output device.";
 const COMMON_SAMPLE_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
-/// Device callback block used for the low-latency output path. The project is
-/// rendered in larger chunks and streamed into this small device buffer.
-pub(crate) const LOW_LATENCY_DEVICE_BLOCK: u32 = 16;
+/// Default device callback block used for the low-latency output path. The
+/// project is rendered in larger chunks and streamed into this small device
+/// buffer.
+pub(crate) const DEFAULT_LOW_LATENCY_BLOCK_SIZE: u32 = 16;
 
 /// Errors that mean the current output stream cannot continue and the app must
 /// reopen the configured device. `DeviceChanged` is handled separately because
@@ -51,6 +52,8 @@ pub struct AudioSettings {
     pub device: String,
     pub sample_rate: Option<u32>,
     pub block_size: u32,
+    #[serde(default = "default_low_latency_block_size")]
+    pub low_latency_block_size: u32,
     #[serde(default)]
     pub channels: Vec<notwig_ui::AudioChannelConfig>,
     #[serde(default)]
@@ -64,10 +67,15 @@ impl Default for AudioSettings {
             device: SYSTEM_OUT_DEVICE_ID.into(),
             sample_rate: None,
             block_size: 0,
+            low_latency_block_size: DEFAULT_LOW_LATENCY_BLOCK_SIZE,
             channels: Vec::new(),
             master_output: None,
         }
     }
+}
+
+const fn default_low_latency_block_size() -> u32 {
+    DEFAULT_LOW_LATENCY_BLOCK_SIZE
 }
 
 #[must_use]
@@ -178,6 +186,7 @@ pub fn settings_view(
                 .sample_rate
                 .map_or_else(|| "auto".into(), |rate| rate.to_string()),
             block_size: settings.block_size,
+            low_latency_block_size: settings.low_latency_block_size,
             channels: settings.channels.clone(),
             master_output: settings.master_output.clone(),
         },
@@ -224,9 +233,10 @@ impl AudioService {
             config
         });
         let project_frames = usize::try_from(settings.block_size.max(16)).unwrap_or(512);
-        let device_block = LOW_LATENCY_DEVICE_BLOCK
-            .min(u32::try_from(project_frames).unwrap_or(LOW_LATENCY_DEVICE_BLOCK))
-            .max(1);
+        let device_block = settings
+            .low_latency_block_size
+            .max(1)
+            .min(u32::try_from(project_frames).unwrap_or(u32::MAX));
         config.buffer_size = cpal::BufferSize::Fixed(device_block);
         let deadline_ms = device_block as f32 / config.sample_rate as f32 * 1000.0;
         let snapshot = Arc::new(Mutex::new(AudioSnapshot {
@@ -248,7 +258,7 @@ impl AudioService {
             jitter_history: Vec::with_capacity(DSP_HISTORY),
             ..AudioSnapshot::default()
         }));
-        let input_hub = InputHub::new(config.sample_rate);
+        let input_hub = InputHub::new(config.sample_rate, device_block);
         let output_route = output_route(settings, config.channels);
         let mut engine = Engine::new(EngineConfig::new(config.sample_rate, project_frames));
         engine.attach_control(control);

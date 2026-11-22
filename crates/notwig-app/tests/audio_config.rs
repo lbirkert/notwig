@@ -21,6 +21,7 @@ fn settings(driver: &str, device: &str, block_size: u32) -> AudioSettings {
         device: device.into(),
         sample_rate: Some(48_000),
         block_size,
+        low_latency_block_size: 16,
         channels: Vec::new(),
         master_output: None,
     }
@@ -43,13 +44,15 @@ fn options() -> Vec<AudioDriverView> {
 #[test]
 fn audio_config_round_trip_persists_driver_device_and_block_size() {
     let path = temp_path();
-    let saved = settings("CoreAudio", "Speakers", 256);
+    let mut saved = settings("CoreAudio", "Speakers", 256);
+    saved.low_latency_block_size = 64;
     save_to_path(&path, &saved).unwrap();
 
     let loaded = load_from_path(&path);
     assert_eq!(loaded.driver, "CoreAudio");
     assert_eq!(loaded.device, "Speakers");
     assert_eq!(loaded.block_size, 256);
+    assert_eq!(loaded.low_latency_block_size, 64);
     assert_eq!(loaded.sample_rate, None);
 
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();

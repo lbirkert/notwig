@@ -7,6 +7,7 @@ use crate::audio::AudioSettings;
 
 const CONFIG_VERSION: u32 = 2;
 const DEFAULT_BLOCK_SIZE: u32 = 512;
+const DEFAULT_LOW_LATENCY_BLOCK_SIZE: u32 = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct PersistedAudioSettings {
@@ -18,6 +19,8 @@ struct PersistedAudioSettings {
     device: String,
     #[serde(default = "default_block_size")]
     block_size: u32,
+    #[serde(default = "default_low_latency_block_size")]
+    low_latency_block_size: u32,
     #[serde(default)]
     channels: Vec<notwig_ui::AudioChannelConfig>,
     #[serde(default)]
@@ -31,6 +34,7 @@ impl Default for PersistedAudioSettings {
             driver: String::new(),
             device: String::new(),
             block_size: DEFAULT_BLOCK_SIZE,
+            low_latency_block_size: DEFAULT_LOW_LATENCY_BLOCK_SIZE,
             channels: Vec::new(),
             master_output: None,
         }
@@ -45,6 +49,10 @@ const fn default_block_size() -> u32 {
     DEFAULT_BLOCK_SIZE
 }
 
+const fn default_low_latency_block_size() -> u32 {
+    DEFAULT_LOW_LATENCY_BLOCK_SIZE
+}
+
 impl From<&AudioSettings> for PersistedAudioSettings {
     fn from(settings: &AudioSettings) -> Self {
         Self {
@@ -52,6 +60,7 @@ impl From<&AudioSettings> for PersistedAudioSettings {
             driver: settings.driver.clone(),
             device: settings.device.clone(),
             block_size: settings.block_size,
+            low_latency_block_size: settings.low_latency_block_size,
             channels: settings.channels.clone(),
             master_output: settings.master_output.clone(),
         }
@@ -65,6 +74,10 @@ impl From<PersistedAudioSettings> for AudioSettings {
         } else {
             settings.block_size
         };
+        let low_latency_block_size = settings
+            .low_latency_block_size
+            .clamp(1, block_size)
+            .max(DEFAULT_LOW_LATENCY_BLOCK_SIZE.min(block_size));
         let driver = if settings.driver.is_empty() {
             crate::audio::default_driver_name()
         } else {
@@ -80,6 +93,7 @@ impl From<PersistedAudioSettings> for AudioSettings {
             device,
             sample_rate: None,
             block_size,
+            low_latency_block_size,
             channels: settings.channels,
             master_output: settings.master_output,
         }
@@ -222,6 +236,10 @@ pub fn validated(
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
     }
+    settings.low_latency_block_size = settings
+        .low_latency_block_size
+        .clamp(1, settings.block_size)
+        .max(DEFAULT_LOW_LATENCY_BLOCK_SIZE.min(settings.block_size));
     if settings.master_output.as_ref().is_some_and(|id| {
         !settings.channels.iter().any(|channel| {
             channel.direction == notwig_ui::AudioChannelDirection::Output && channel.id == *id

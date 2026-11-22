@@ -112,6 +112,7 @@ pub struct AudioSettingsValue {
     pub device: String,
     pub sample_rate: String,
     pub block_size: u32,
+    pub low_latency_block_size: u32,
     pub channels: Vec<AudioChannelConfig>,
     pub master_output: Option<String>,
 }

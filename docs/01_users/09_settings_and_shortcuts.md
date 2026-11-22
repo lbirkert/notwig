@@ -14,13 +14,15 @@ The Audio page selects the output system:
   the default changes. On first launch, the default driver and **System Out** are
   selected automatically.
 - **Sample rate**: automatic or a rate reported by the device.
-- **Block size**: 16 to 2048 samples, in steps of 16.
+- **Block size**: the project render block, 16 to 2048 samples in steps of 16.
+- **Low latency buffer**: the output device callback block used for Low Latency
+  monitoring, from 16 samples up to the project block size.
 - **Apply** opens the selected device and rebuilds the engine.
 - **Revert** restores the last applied values.
 
-The page shows the block size in samples and the resulting latency in
-milliseconds. Driver, device, block size, named channels, and the master output
-persist per user in `audio.json`. The sample rate is project-scoped; if the
+The page shows both buffer sizes in samples and their resulting latency in
+milliseconds. Driver, device, both buffer sizes, named channels, and the master
+output persist per user in `audio.json`. The sample rate is project-scoped; if the
 selected device does not support the project rate, Notwig uses the device's
 default rate. If the saved driver or device is unavailable, Notwig falls back
 to an available option and reports the problem on the page.

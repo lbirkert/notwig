@@ -62,7 +62,7 @@ pub(crate) struct InputHub {
 }
 
 impl InputHub {
-    pub(crate) fn new(sample_rate: u32) -> Self {
+    pub(crate) fn new(sample_rate: u32, _block_size: u32) -> Self {
         Self {
             bus: Arc::new(InputBus::new(sample_rate)),
             sample_rate,

@@ -104,6 +104,31 @@ fn a_control_publish_preserves_a_pending_transport_update() {
 }
 
 #[test]
+fn consumed_transport_is_not_reapplied_by_a_later_control_publish() {
+    let doc = empty_doc();
+    let mut engine = Engine::new(EngineConfig::new(48_000, 128));
+    engine.set_control_sync_frames(1);
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+
+    producer.data_mut().set_prepared_runtime(prepare(&doc));
+    producer.data_mut().set_transport(transport(0));
+    producer.flush();
+
+    let mut output = vec![0.0_f32; 128 * 2];
+    engine.process(&mut output, 128).unwrap();
+    assert_eq!(engine.transport().playhead_samples, 128.0);
+
+    producer
+        .data_mut()
+        .set_input_routes(Vec::<InputRoute>::new());
+    producer.flush();
+    engine.process(&mut output, 128).unwrap();
+
+    assert_eq!(engine.transport().playhead_samples, 256.0);
+}
+
+#[test]
 fn control_transport_updates_enable_the_metronome() {
     let doc = empty_doc();
     let mut engine = Engine::new(EngineConfig::new(48_000, 128));

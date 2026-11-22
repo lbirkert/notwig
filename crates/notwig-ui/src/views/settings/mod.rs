@@ -616,6 +616,7 @@ impl NotwigUi {
             self.audio_draft
                 .master_output
                 .clone_from(&current.master_output);
+            self.audio_draft.low_latency_block_size = current.low_latency_block_size;
             if self.audio_draft.block_size == 0 {
                 self.audio_draft.block_size = current.block_size.max(256);
             }
@@ -686,33 +687,66 @@ impl NotwigUi {
             rates,
         );
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Block size").size(13.0));
-            if self.audio_draft.block_size == 0 {
-                self.audio_draft.block_size = 512;
-            }
-            ui.add(
-                egui::Slider::new(&mut self.audio_draft.block_size, 16..=2048)
-                    .step_by(16.0)
-                    .show_value(false),
-            );
-            let rate = self
-                .audio_draft
-                .sample_rate
-                .parse::<u32>()
-                .ok()
-                .or_else(|| current.sample_rate.parse::<u32>().ok())
-                .unwrap_or(48_000);
-            let latency_ms = f64::from(self.audio_draft.block_size) / f64::from(rate) * 1000.0;
-            ui.label(
-                RichText::new(format!(
-                    "{} samples / {:.2} ms",
-                    self.audio_draft.block_size, latency_ms
-                ))
-                .monospace()
-                .color(theme::ACCENT),
-            );
-        });
+        if self.audio_draft.block_size == 0 {
+            self.audio_draft.block_size = 512;
+        }
+        self.audio_draft.block_size = self.audio_draft.block_size.clamp(16, 2048);
+        if self.audio_draft.low_latency_block_size == 0 {
+            self.audio_draft.low_latency_block_size = 16;
+        }
+        self.audio_draft.low_latency_block_size = self
+            .audio_draft
+            .low_latency_block_size
+            .clamp(16, self.audio_draft.block_size);
+        let rate = self
+            .audio_draft
+            .sample_rate
+            .parse::<u32>()
+            .ok()
+            .or_else(|| current.sample_rate.parse::<u32>().ok())
+            .unwrap_or(48_000);
+        let latency_ms = |samples: u32| f64::from(samples) / f64::from(rate) * 1000.0;
+
+        ui.label(RichText::new("Block size").size(13.0));
+        ui.add_sized(
+            [ui.available_width(), 18.0],
+            egui::Slider::new(&mut self.audio_draft.block_size, 16..=2048)
+                .step_by(16.0)
+                .show_value(false),
+        );
+        self.audio_draft.low_latency_block_size = self
+            .audio_draft
+            .low_latency_block_size
+            .min(self.audio_draft.block_size);
+        ui.label(
+            RichText::new(format!(
+                "{} samples / {:.2} ms",
+                self.audio_draft.block_size,
+                latency_ms(self.audio_draft.block_size)
+            ))
+            .monospace()
+            .color(theme::ACCENT),
+        );
+        ui.add_space(8.0);
+        ui.label(RichText::new("Low latency buffer").size(13.0));
+        ui.add_sized(
+            [ui.available_width(), 18.0],
+            egui::Slider::new(
+                &mut self.audio_draft.low_latency_block_size,
+                16..=self.audio_draft.block_size,
+            )
+            .step_by(16.0)
+            .show_value(false),
+        );
+        ui.label(
+            RichText::new(format!(
+                "{} samples / {:.2} ms",
+                self.audio_draft.low_latency_block_size,
+                latency_ms(self.audio_draft.low_latency_block_size)
+            ))
+            .monospace()
+            .color(theme::ACCENT),
+        );
         ui.add_space(14.0);
         self.audio_io_settings(ui, runtime);
         ui.add_space(14.0);
@@ -735,6 +769,7 @@ impl NotwigUi {
                     device,
                     sample_rate,
                     block_size: self.audio_draft.block_size,
+                    low_latency_block_size: self.audio_draft.low_latency_block_size,
                     channels: self.audio_draft.channels.clone(),
                     master_output: self.audio_draft.master_output.clone(),
                 });

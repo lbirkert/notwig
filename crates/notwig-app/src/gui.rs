@@ -2312,6 +2312,7 @@ impl NotwigApp {
                 device,
                 sample_rate,
                 block_size,
+                low_latency_block_size,
                 channels,
                 master_output,
             } => {
@@ -2327,6 +2328,7 @@ impl NotwigApp {
                     device,
                     sample_rate,
                     block_size,
+                    low_latency_block_size,
                     channels,
                     master_output,
                 };

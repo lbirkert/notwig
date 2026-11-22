@@ -475,7 +475,7 @@ impl Engine {
             }
         }
 
-        if let Some(transport) = self.control_data.transport {
+        if let Some(transport) = self.control_data.transport.take() {
             self.transport_generation = self.transport_generation.wrapping_add(1);
             let jumped = (self.transport.playhead_samples as u64) != transport.playhead_samples;
             self.transport.playing = transport.playing;
