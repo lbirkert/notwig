@@ -30,7 +30,7 @@ mod rack;
 mod types;
 
 pub use cache::{PluginCache, ScanRecord};
-pub use host::{HostAdapter, PluginHost, UnavailableAdapter};
+pub use host::{HostAdapter, PluginHost, PluginProbe, UnavailableAdapter};
 #[cfg(any(
     feature = "vst3",
     feature = "vst2",
@@ -39,7 +39,8 @@ pub use host::{HostAdapter, PluginHost, UnavailableAdapter};
     feature = "clap",
     feature = "lv2"
 ))]
-pub use native_editor::NativePluginWindow;
+pub use native_editor::{NativePluginWindow, prepare_window_host, pump_window_host};
 pub use types::{
-    PluginCapabilities, PluginDescriptor, PluginError, PluginFormat, PluginInstance, PluginState,
+    PLUGIN_METADATA_PREFIX, PluginCapabilities, PluginDescriptor, PluginError, PluginFormat,
+    PluginInstance, PluginMetadata, PluginState,
 };

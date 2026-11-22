@@ -34,6 +34,12 @@ Box<EngineData> engine_data                   Box<EngineData> control_data
 Mutex<(Option<Box<EngineData>>, updated: bool)> ------+
 ```
 
+On the native desktop app the exchange runs inside the **engine process**:
+`EngineControl` lives in the child, `ControlHandle` is attached to the child's
+audio engine, and the parent UI publishes serialized `EngineControlUpdate`
+messages instead of touching the shared box directly. The browser and offline
+render paths keep the in-process exchange below.
+
 The shared slot is a mutex around an optional box and an `updated` flag.
 `EngineControl` owns the app-side box. `ControlHandle` is the shared handle the
 audio engine reads.
@@ -67,7 +73,31 @@ At a fixed frame interval:
 The swap itself is pointer moves. No box, buffer, map, or plan is allocated or
 freed while the callback holds the audio data.
 
-## 3. Cadence
+## 3. Native process boundary
+
+```text
+UI process                                  engine process
+Workspace / EngineControl remote sink  ───►  IPC request writer
+        │                                       │
+        │  EngineClient                         ▼
+        │                                  EngineControl -> local exchange -> audio thread
+        │                                       │
+        ◄──── snapshots / editor events ────────┘
+```
+
+- The UI process sends `Build`, `Control`, and editor commands over a
+  length-prefixed `postcard` protocol on the child's stdin/stdout.
+- The engine process owns CPAL, the engine, plugin DSP instances, extension
+  devices, and plugin editor windows.
+- The UI process receives `AudioSnapshot` updates, build results, editor
+  parameter changes, and editor close/state events.
+- If the child exits, the UI marks the audio snapshot crashed and shows the
+  restart overlay. Restarting rebuilds the child from the canonical
+  `ProjectDoc` in the UI process.
+- Web keeps the in-process exchange because browsers cannot spawn OS processes
+  and do not host native plugins.
+
+## 4. Cadence
 
 The audio thread accumulates processed frames and checks the slot once per
 `DEFAULT_CONTROL_SYNC_FRAMES` (256 frames by default). The interval is measured
@@ -77,7 +107,7 @@ scheduler jitter. `Engine::set_control_sync_frames` overrides it.
 A sync point is skipped, not retried immediately, if the slot is contended. The
 next interval tries again.
 
-## 4. `EngineData`
+## 5. `EngineData`
 
 `EngineData` is the app-owned control payload. It carries:
 
@@ -110,7 +140,7 @@ Asset updates carry the full asset map as an `Arc<BTreeMap<...>>`. The audio
 thread swaps the `Arc`, so importing or relinking audio does not rebuild the DSP
 plan or load plugins.
 
-## 5. Structural changes and the plugin loader
+## 6. Structural changes and the plugin loader
 
 Structural changes (new tracks, devices, routing, plugin instances, tempo, sample
 rate) need new processors and buffers. They are never built on the audio thread.
@@ -130,7 +160,7 @@ the app thread for disposal.
 This separation also means a slow plugin load delays a rebuild, but never blocks
 the audio callback.
 
-## 6. Ownership summary
+## 7. Ownership summary
 
 | Value | Built on | Consumed on | Freed on |
 | --- | --- | --- | --- |
@@ -141,7 +171,7 @@ the audio callback.
 | asset map / buffers | app or loader | audio swap | app (retired asset map) |
 | DSP buffers | loader thread | audio render | app (retired runtime) |
 
-## 7. Invariants
+## 8. Invariants
 
 1. The audio callback never calls `lock`, `prepare`, plugin loading, file I/O, or
    an unbounded loop over document data.
@@ -158,7 +188,7 @@ the audio callback.
    samples are replaced with silence. This protects speakers from runaway plugin
    output when a plugin is enabled, disabled, or reloaded.
 
-## 8. Tests
+## 9. Tests
 
 - `notwig-engine/tests/control.rs` covers the exchange, interval gating,
   prepared-runtime installation, transport application, and playhead

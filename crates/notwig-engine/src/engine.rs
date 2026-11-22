@@ -18,7 +18,7 @@ pub const DEFAULT_CONTROL_SYNC_FRAMES: u64 = 256;
 /// spikes away from speakers while leaving normal material untouched.
 const SAFETY_CLIP_CEILING: f32 = 3.162_277_7;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EngineConfig {
     pub sample_rate: u32,
     pub max_block_size: usize,

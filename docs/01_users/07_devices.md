@@ -80,6 +80,10 @@ Add Device browser, with a **VST3**, **VST**, **CLAP**, **LV2**, **AU**, or
 
 Plugin scanning, blacklisting, and editor behavior are macOS-first. LV2
 discovery requires the system `lilv` library (for example `brew install lilv`).
+On desktop, the audio engine, plugin DSP, and plugin editor windows run in a
+separate engine process. If a plugin crashes, the engine process exits and the
+app shows a restart notice with a **Restart engine** button; the project and UI
+stay alive. Plugin metadata is also probed in a child process before loading.
 Real plugin load and process are not covered by the automated test suite yet.
 
 ## Extension devices

@@ -17,10 +17,10 @@ phase.
   recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
   event editing, a MIDI editor, device chains with stock EQ/Tool/Chain,
   VST3/VST2/CLAP/LV2/AU hosting, WASM and native extension devices and panels
-  with ordered target selection, an extension explorer with index/ZIP installs
-  and hash-verified downloads,
-  render mixdown, persisted audio settings, customizable keyboard shortcuts,
-  and DSP load analysis.
+  with ordered target selection, a supervised native audio-engine process with
+  plugin DSP and editor hosting, an extension explorer with index/ZIP installs
+  and hash-verified downloads, render mixdown, persisted audio settings,
+  customizable keyboard shortcuts, and DSP load analysis.
 - **Not implemented yet:** audio/MIDI recording, live input/monitoring,
   automation editing, general extension drawing hooks, Clip Launcher/scenes,
   comping/takes, warping, tempo/time-signature automation, modulation/macros

@@ -7,7 +7,9 @@ Pure Rust on top of `clap-sys`.
 Implements scan, load, audio and MIDI processing, state, parameters, and the
 CLAP GUI extension behind the format-agnostic `notwig-rack-core` traits.
 Host transport from `ProcessContext::transport` is passed through as a
-`clap_event_transport`.
+`clap_event_transport`. Every plugin receives a real `clap_host` with the
+standard host-extension surface, which plugins such as nih-plug require during
+construction.
 
 ## Usage
 

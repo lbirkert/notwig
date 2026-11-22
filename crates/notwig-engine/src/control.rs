@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
 use notwig_core::protocol::{MetronomeState, RampSpec};
 use notwig_core::{
     AssetId, AudioAssetBuffer, Db, DeviceId, NoteId, Pan, ParamId, ParamValue, PlaybackSchedule,
@@ -20,7 +22,7 @@ pub struct PreparedRuntime {
     pub(crate) runtime: ActivePlan,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TransportUpdate {
     pub playing: bool,
     pub playhead_samples: u64,
@@ -31,7 +33,7 @@ pub struct TransportUpdate {
     pub metronome: Option<MetronomeState>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParamUpdate {
     pub device_id: DeviceId,
     pub param_id: ParamId,
@@ -39,7 +41,7 @@ pub struct ParamUpdate {
     pub ramp: Option<RampSpec>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TrackStateUpdate {
     pub track_id: TrackId,
     pub mute: bool,
@@ -50,7 +52,7 @@ pub struct TrackStateUpdate {
 
 /// A short UI-triggered note preview. Pending previews are staged on the app
 /// thread and copied into a fixed-size pool on the audio thread.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PreviewNote {
     pub track_id: TrackId,
     pub note_id: NoteId,
@@ -59,6 +61,20 @@ pub struct PreviewNote {
     /// `None` holds the note until an explicit release; `Some(length)` schedules
     /// an automatic note-off.
     pub length_mus: Option<TimeMus>,
+}
+
+/// Serializable subset of [`EngineData`] sent to an out-of-process engine.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EngineControlUpdate {
+    pub schedule: Option<Arc<PlaybackSchedule>>,
+    pub assets: Option<Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>>,
+    pub track_states: Vec<TrackStateUpdate>,
+    pub params: Vec<ParamUpdate>,
+    pub preview_notes: Vec<PreviewNote>,
+    pub preview_offs: Vec<(TrackId, NoteId)>,
+    pub transport: Option<TransportUpdate>,
+    pub metronome: Option<MetronomeState>,
+    pub all_notes_off: bool,
 }
 
 /// Control data produced by the app thread and consumed by the audio thread.
@@ -79,6 +95,7 @@ pub struct EngineData {
     pub(crate) preview_notes: Vec<PreviewNote>,
     pub(crate) preview_offs: Vec<(TrackId, NoteId)>,
     pub(crate) transport: Option<TransportUpdate>,
+    pub(crate) metronome: Option<MetronomeState>,
     pub(crate) all_notes_off: bool,
 }
 
@@ -99,6 +116,11 @@ impl EngineData {
         self.transport = Some(transport);
     }
 
+    /// Update only the metronome without touching the transport or playhead.
+    pub fn set_metronome(&mut self, metronome: MetronomeState) {
+        self.metronome = Some(metronome);
+    }
+
     pub fn request_all_notes_off(&mut self) {
         self.all_notes_off = true;
     }
@@ -117,6 +139,22 @@ impl EngineData {
 
     pub fn push_preview_off(&mut self, track_id: TrackId, note_id: NoteId) {
         self.preview_offs.push((track_id, note_id));
+    }
+
+    /// Removes and returns the fields that can cross a process boundary.
+    #[must_use]
+    pub fn drain_control_update(&mut self) -> EngineControlUpdate {
+        EngineControlUpdate {
+            schedule: self.schedule.take(),
+            assets: self.assets.take(),
+            track_states: std::mem::take(&mut self.track_states),
+            params: std::mem::take(&mut self.params),
+            preview_notes: std::mem::take(&mut self.preview_notes),
+            preview_offs: std::mem::take(&mut self.preview_offs),
+            transport: self.transport.take(),
+            metronome: self.metronome.take(),
+            all_notes_off: std::mem::replace(&mut self.all_notes_off, false),
+        }
     }
 
     pub fn clear(&mut self) {
@@ -179,6 +217,7 @@ impl Default for ControlHandle {
 pub struct EngineControl {
     handle: ControlHandle,
     data: Box<EngineData>,
+    remote: Option<Box<dyn Fn(EngineControlUpdate) + Send>>,
 }
 
 impl EngineControl {
@@ -187,6 +226,7 @@ impl EngineControl {
         Self {
             handle: ControlHandle::new(),
             data: Box::default(),
+            remote: None,
         }
     }
 
@@ -199,13 +239,37 @@ impl EngineControl {
         &mut self.data
     }
 
+    /// Routes [`Self::flush`] to an out-of-process engine instead of the local
+    /// shared exchange.
+    pub fn set_remote_sink(&mut self, sink: Option<Box<dyn Fn(EngineControlUpdate) + Send>>) {
+        self.remote = sink;
+    }
+
     /// Publish the app-side box and take back the previous box from the slot.
     /// The returned box is cleared so it can be reused for the next update.
     pub fn flush(&mut self) {
+        if let Some(sink) = &self.remote {
+            let update = self.data.drain_control_update();
+            sink(update);
+            return;
+        }
         let Ok(mut exchange) = self.handle.exchange.lock() else {
             return;
         };
-        let outgoing = std::mem::take(&mut self.data);
+        let mut outgoing = std::mem::take(&mut self.data);
+        // A prepared runtime is the one control value that must never be
+        // discarded by a later non-prepared publish. If the audio thread has
+        // not consumed the previous box yet, carry its pending runtime into the
+        // outgoing box so the structural change still lands. Superseding it with
+        // a new prepared runtime is fine; the app thread drops the older one.
+        if outgoing.prepared.is_none()
+            && let Some(pending) = exchange
+                .data
+                .as_mut()
+                .and_then(|previous| previous.prepared.take())
+        {
+            outgoing.prepared = Some(pending);
+        }
         let previous = exchange.data.replace(outgoing);
         exchange.updated = true;
         drop(exchange);

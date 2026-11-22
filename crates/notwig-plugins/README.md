@@ -13,6 +13,8 @@ crate.
 ## Owns
 
 - `PluginHost` and the `HostAdapter` boundary.
+- `PluginProbe`: an opt-in crash-isolating metadata probe that runs before any
+  plugin code executes in the host process.
 - VST3/VST2/CLAP/LV2/AU/AU3 adapters (feature-gated) backed by the vendored
   `notwig-rack` crates under `crates/notwig-rack/`.
 - Plugin scan cache read/write. Cache persistence is best-effort and not part of
@@ -22,7 +24,9 @@ crate.
   `PluginState`, capabilities, formats, and `PluginError`.
 - Native plugin editor window lifecycle.
 - Instantiation, parameter descriptions, state save/restore, and latency
-  reporting through the format-agnostic API. The vendored `notwig-rack` wrappers
+  reporting through the format-agnostic API. When a probe is installed,
+  metadata is loaded in a child process first; a crash there only fails the
+  plugin instead of the application. The vendored `notwig-rack` wrappers
   query VST3 `getLatencySamples`, VST2 `AEffect::initial_delay`, and AU
   `kAudioUnitProperty_Latency`, so the adapter publishes real latency with
   `reports_latency: true`.
@@ -54,7 +58,7 @@ native macOS builds.
 
 | Module | Contents |
 |---|---|
-| `host.rs` | `PluginHost`, `HostAdapter`, unavailable adapter |
+| `host.rs` | `PluginHost`, `HostAdapter`, `PluginProbe`, unavailable adapter |
 | `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 implementations |
 | `cache.rs` | `PluginCache`, scan records |
 | `types.rs` | Format-agnostic descriptors/state/errors |
@@ -63,5 +67,6 @@ native macOS builds.
 
 ## Tests
 
-`tests/` covers cache and descriptor behavior. Plugin loading is platform- and
-installation-dependent; avoid tests that require a specific third-party plugin.
+`tests/` covers cache, descriptor, probe-ordering, and probe-failure behavior.
+Plugin loading is platform- and installation-dependent; avoid tests that require
+a specific third-party plugin.

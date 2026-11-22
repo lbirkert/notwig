@@ -99,9 +99,6 @@ mod imp {
                 editor.size().filter(|(w, h)| *w > 0 && *h > 0),
                 editor.is_resizable(),
             );
-            if let Some((width, height)) = plugin_size {
-                let _ = editor.set_size(width, height);
-            }
             editor.show();
             let window_size = plugin_size.unwrap_or((760, 560));
             unsafe {
@@ -312,6 +309,39 @@ mod imp {
         }
     }
 
+    pub fn prepare_window_host() {
+        let Some(app_class) = AnyClass::get(c"NSApplication") else {
+            return;
+        };
+        unsafe {
+            let app: *mut AnyObject = msg_send![app_class, sharedApplication];
+            if app.is_null() {
+                return;
+            }
+            // Accessory keeps the helper out of the Dock while still allowing
+            // plugin windows to become key and receive events.
+            let _: bool = msg_send![app, setActivationPolicy: 1isize];
+            let _: () = msg_send![app, finishLaunching];
+        }
+    }
+
+    pub fn pump_window_host() {
+        let Some(run_loop_class) = AnyClass::get(c"NSRunLoop") else {
+            return;
+        };
+        let Some(date_class) = AnyClass::get(c"NSDate") else {
+            return;
+        };
+        unsafe {
+            let run_loop: *mut AnyObject = msg_send![run_loop_class, currentRunLoop];
+            let date: *mut AnyObject =
+                msg_send![date_class, dateWithTimeIntervalSinceNow: 0.008_f64];
+            if !run_loop.is_null() && !date.is_null() {
+                let _: () = msg_send![run_loop, runUntilDate: date];
+            }
+        }
+    }
+
     const SPACE_KEY_CODE: u16 = 49;
 
     fn register_plugin_window(window: *mut AnyObject) {
@@ -481,7 +511,13 @@ mod imp {
 }
 
 #[cfg(target_os = "macos")]
-pub use imp::NativePluginWindow;
+pub use imp::{NativePluginWindow, prepare_window_host, pump_window_host};
+
+#[cfg(not(target_os = "macos"))]
+pub fn prepare_window_host() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn pump_window_host() {}
 
 #[cfg(not(target_os = "macos"))]
 pub struct NativePluginWindow;

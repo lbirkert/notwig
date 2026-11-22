@@ -151,3 +151,28 @@ fn flushing_twice_without_new_data_does_not_reapply_old_updates() {
     engine.process(&mut output, 128).unwrap();
     assert_eq!(engine.transport().playhead_samples, 384.0);
 }
+
+#[test]
+fn remote_sink_receives_serializable_control_updates() {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut producer = EngineControl::new();
+    producer.set_remote_sink(Some(Box::new(move |update| {
+        let _ = sender.send(update);
+    })));
+
+    producer.data_mut().set_transport(TransportUpdate {
+        playing: true,
+        playhead_samples: 512,
+        loop_enabled: false,
+        loop_start_samples: None,
+        loop_end_samples: None,
+        stop: false,
+        metronome: None,
+    });
+    producer.flush();
+
+    let update = receiver.recv().expect("remote control update");
+    let transport = update.transport.expect("transport update");
+    assert!(transport.playing);
+    assert_eq!(transport.playhead_samples, 512);
+}

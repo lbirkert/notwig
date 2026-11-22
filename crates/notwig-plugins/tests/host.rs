@@ -79,3 +79,114 @@ fn capabilities_default_to_no_latency_report() {
     assert!(!capabilities.reports_latency);
     assert_eq!(capabilities.latency_samples, 0);
 }
+
+#[test]
+fn probe_runs_before_in_process_load_and_is_cached() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingAdapter {
+        loads: Arc<AtomicUsize>,
+    }
+    impl HostAdapter for CountingAdapter {
+        fn format(&self) -> PluginFormat {
+            PluginFormat::Vst3
+        }
+        fn scan(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Result<Vec<PluginDescriptor>, PluginError> {
+            Ok(Vec::new())
+        }
+        fn load(
+            &self,
+            _descriptor: &PluginDescriptor,
+        ) -> Result<Box<dyn PluginInstance>, PluginError> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            Err(PluginError::BackendUnavailable(PluginFormat::Vst3))
+        }
+    }
+    struct CountingProbe {
+        calls: Arc<AtomicUsize>,
+    }
+    impl notwig_plugins::PluginProbe for CountingProbe {
+        fn probe(
+            &self,
+            _descriptor: &PluginDescriptor,
+        ) -> Result<notwig_plugins::PluginMetadata, PluginError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(notwig_plugins::PluginMetadata {
+                capabilities: PluginCapabilities::default(),
+                params: Vec::new(),
+            })
+        }
+    }
+
+    let loads = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut host = PluginHost::empty();
+    host.register_adapter(Box::new(CountingAdapter {
+        loads: Arc::clone(&loads),
+    }));
+    host.set_probe(Arc::new(CountingProbe {
+        calls: Arc::clone(&calls),
+    }));
+
+    let metadata = host.probe_metadata(&descriptor()).unwrap();
+    assert_eq!(metadata.params.len(), 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let _ = host.load(&descriptor());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(loads.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn failed_probe_prevents_in_process_load() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct PanicAdapter {
+        loads: Arc<AtomicUsize>,
+    }
+    impl HostAdapter for PanicAdapter {
+        fn format(&self) -> PluginFormat {
+            PluginFormat::Vst3
+        }
+        fn scan(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Result<Vec<PluginDescriptor>, PluginError> {
+            Ok(Vec::new())
+        }
+        fn load(
+            &self,
+            _descriptor: &PluginDescriptor,
+        ) -> Result<Box<dyn PluginInstance>, PluginError> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            panic!("this adapter must not run after a failed probe");
+        }
+    }
+    struct FailingProbe;
+    impl notwig_plugins::PluginProbe for FailingProbe {
+        fn probe(
+            &self,
+            _descriptor: &PluginDescriptor,
+        ) -> Result<notwig_plugins::PluginMetadata, PluginError> {
+            Err(PluginError::Load("probe crashed".into()))
+        }
+    }
+
+    let loads = Arc::new(AtomicUsize::new(0));
+    let mut host = PluginHost::empty();
+    host.register_adapter(Box::new(PanicAdapter {
+        loads: Arc::clone(&loads),
+    }));
+    host.set_probe(Arc::new(FailingProbe));
+
+    assert!(matches!(
+        host.load(&descriptor()),
+        Err(PluginError::Load(_))
+    ));
+    assert_eq!(loads.load(Ordering::SeqCst), 0);
+}

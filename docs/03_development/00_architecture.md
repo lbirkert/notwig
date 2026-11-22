@@ -181,12 +181,24 @@ under `/app/` beside the mdBook documentation.
 
 ## Threads and processes
 
-- **UI thread**: `eframe`/`egui` event loop, workspace mutations, dialogs.
-- **Audio callback**: CPAL-owned real-time thread.
-- **Engine build thread**: plan compilation and engine construction.
+- **UI process/thread**: `eframe`/`egui` event loop, canonical `ProjectDoc`,
+  workspace mutations, dialogs, plugin catalog, and extension panels.
+- **Engine process**: native child process started with `notwig engine-host`.
+  It owns CPAL, the `Engine`, plan/runtime construction, native plugin DSP,
+  extension devices, and native plugin editor windows. It receives serialized
+  build/control messages and returns snapshots and editor events.
+- **Engine thread (inside the engine process)**: CPAL-owned real-time callback.
+- **Engine build thread (inside the engine process)**: runtime construction and
+  plugin instantiation.
 - **Plugin scan process**: separate `notwig scan-plugins <cache>` process, with
   plugin metadata cached for the next launch.
-- **Plugin GUI**: native plugin editor windows on macOS.
+- **Plugin load probe**: `PluginHost` runs `notwig load-plugin` in a child
+  process before loading a plugin in the app, so a crashing plugin fails
+  metadata loading instead of taking down the UI or engine process.
+- **Plugin GUI**: native plugin editor windows are owned by the engine process
+  on macOS. The UI process controls them over IPC.
+- **Web**: the browser build keeps the in-process engine; it has no native
+  plugins or OS process isolation.
 
 ## Error handling
 

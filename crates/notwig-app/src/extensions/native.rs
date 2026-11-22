@@ -138,6 +138,13 @@ impl ExtensionManager {
         self.host.as_ref().map(ExtensionHost::panel_host)
     }
 
+    pub(crate) fn engine_runtime(&self) -> Option<crate::engine_build::EngineExtensionRuntime> {
+        Some(crate::engine_build::EngineExtensionRuntime {
+            root: extensions_dir()?,
+            settings: self.config.settings.clone(),
+        })
+    }
+
     pub(crate) fn infos(&self) -> Vec<ExtensionInfo> {
         self.infos.clone()
     }

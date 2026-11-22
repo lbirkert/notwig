@@ -110,6 +110,18 @@ pub struct PluginState {
     pub blob: Vec<u8>,
 }
 
+/// Prefix for the JSON metadata line printed by the `load-plugin` probe
+/// command.
+pub const PLUGIN_METADATA_PREFIX: &str = "NOTWIG_PLUGIN_METADATA:";
+
+/// Loaded plugin metadata used by the host process before an instance is
+/// created.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginMetadata {
+    pub capabilities: PluginCapabilities,
+    pub params: Vec<notwig_dsp::ParamSpec>,
+}
+
 pub trait PluginInstance: DeviceProcessor {
     fn capabilities(&self) -> PluginCapabilities;
     fn save_state(&mut self) -> Result<PluginState, PluginError>;

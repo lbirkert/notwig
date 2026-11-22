@@ -30,6 +30,8 @@ use notwig_ui::{Clipboard, PluginEntry, WaveformCache};
 use uuid::Uuid;
 
 use crate::edit_lowering::lower_arranger;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::engine_process::EngineClientHandle;
 use notwig_core::edit::{self, ArrangerModel, ClipContent, SelectionInfo};
 
 mod assets;
@@ -53,6 +55,7 @@ pub struct Workspace {
     plugin_states: BTreeMap<DeviceId, PluginState>,
     engine_control: EngineControl,
     engine_ready: bool,
+    engine_playhead_samples: u64,
     pub plugins: Vec<PluginEntry>,
     plugin_descriptors: Vec<PluginDescriptor>,
     plugin_specs: BTreeMap<String, DeviceSpec>,
@@ -70,6 +73,11 @@ pub struct Workspace {
     clipboard: Clipboard,
     history: History,
     engine_build: EngineBuild,
+    #[cfg(not(target_arch = "wasm32"))]
+    engine_process: Option<EngineClientHandle>,
+    #[cfg(not(target_arch = "wasm32"))]
+    engine_process_build: crate::engine_build::EngineProcessBuild,
+    extension_runtime: Option<crate::engine_build::EngineExtensionRuntime>,
 }
 
 impl Workspace {
@@ -127,6 +135,7 @@ impl Workspace {
             plugin_states: BTreeMap::new(),
             engine_control,
             engine_ready: false,
+            engine_playhead_samples: 0,
             plugins,
             plugin_descriptors,
             plugin_specs: BTreeMap::new(),
@@ -144,6 +153,11 @@ impl Workspace {
             clipboard: Clipboard::default(),
             history: History::default(),
             engine_build: EngineBuild::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            engine_process: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            engine_process_build: crate::engine_build::EngineProcessBuild::default(),
+            extension_runtime: None,
         };
         workspace.refresh_plugin_specs();
         workspace.load_assets();
@@ -162,13 +176,24 @@ impl Workspace {
     }
 
     fn preserved_playhead_samples(&self) -> u64 {
-        let engine_playhead = self.engine_control.handle().playhead_samples();
+        let engine_playhead = self
+            .engine_control
+            .handle()
+            .playhead_samples()
+            .max(self.engine_playhead_samples);
         if engine_playhead > 0 {
             engine_playhead
         } else {
             self.doc
                 .tempo_map()
                 .mus_to_samples(self.doc.transport.playhead)
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn set_engine_playhead_samples(&mut self, samples: u64) {
+        if samples > 0 {
+            self.engine_playhead_samples = samples;
         }
     }
 
@@ -219,19 +244,64 @@ impl Workspace {
             sample_rate,
             max_block_size,
             monitors: Arc::clone(&self.monitors),
+            extension_runtime: self.extension_runtime.clone(),
         }
     }
 
     pub fn request_engine_rebuild(&mut self) {
         self.status = Some("Loading instruments and effects…".into());
         let request = self.engine_build_request(self.live_block_size());
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.engine_process.is_some() {
+            if let Err(err) = self.engine_process_build.request(request) {
+                self.error = Some(err.clone());
+                self.status = Some(err);
+            }
+            return;
+        }
         if let Err(err) = self.engine_build.request(request) {
             self.error = Some(err.clone());
             self.status = Some(err);
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn set_engine_process(&mut self, handle: Option<EngineClientHandle>) {
+        self.engine_process.clone_from(&handle);
+        let sink = handle.map(|handle| {
+            Box::new(move |update| {
+                let _ = handle.send_control(update);
+            }) as Box<dyn Fn(notwig_engine::EngineControlUpdate) + Send>
+        });
+        self.engine_control.set_remote_sink(sink);
+    }
+
+    pub(crate) fn set_extension_engine_runtime(
+        &mut self,
+        runtime: Option<crate::engine_build::EngineExtensionRuntime>,
+    ) {
+        self.extension_runtime = runtime;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn engine_process_build_finished(&mut self, result: Result<(), String>) {
+        match result {
+            Ok(()) => {
+                self.engine_ready = true;
+                self.status = Some("Instruments and effects loaded.".into());
+            }
+            Err(error) => {
+                self.error = Some(error.clone());
+                self.status = Some(format!("Failed to load instruments and effects: {error}"));
+            }
+        }
+    }
+
     pub fn engine_building(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.engine_process_build.building() {
+            return true;
+        }
         self.engine_build.building()
     }
 
@@ -247,6 +317,24 @@ impl Workspace {
     }
 
     pub fn poll_engine_build(&mut self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(outcome) = self.engine_process_build.poll() {
+            match outcome {
+                Ok(build) => {
+                    if let Some(handle) = &self.engine_process {
+                        if let Err(error) = handle.send_build(build) {
+                            self.error = Some(error.clone());
+                            self.status = Some(format!("Failed to send the engine build: {error}"));
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.error = Some(err.clone());
+                    self.status = Some(format!("Failed to load instruments and effects: {err}"));
+                }
+            }
+            return true;
+        }
         let Some(outcome) = self.engine_build.poll() else {
             return false;
         };
@@ -1256,11 +1344,11 @@ impl Workspace {
             return;
         };
         let mut host = new_plugin_host();
-        let Ok(instance) = host.load(&descriptor) else {
+        let Ok(metadata) = host.probe_metadata(&descriptor) else {
             return;
         };
-        let params = instance.describe_parameters();
-        let capabilities = instance.capabilities();
+        let params = metadata.params;
+        let capabilities = metadata.capabilities;
         tracing::info!(
             plugin = %descriptor.name,
             params = params.len(),

@@ -22,10 +22,13 @@ domain or DSP logic belongs in lower crates, not here.
   devices, transport, and project lifecycle policy.
 - Asset import/relink/preparation for the engine.
 - Session lock lifecycle and the startup autosave recovery flow.
+- Native engine child process (`engine-host`), IPC protocol, snapshots,
+  plugin editor hosting, and crash/restart handling.
 - Async engine build queue, poll, install, and transport preservation.
 - CPAL audio stream, device options, snapshots, DSP timing, and xruns.
 - Per-user persistence of audio driver, device, and block size.
-- Plugin catalog: scan subprocess, cache loading, and workspace descriptors.
+- Plugin catalog: scan subprocess, cache loading, crash-isolated metadata probe,
+  and workspace descriptors.
 - Extension manager: config/index sources, target selection, hash-verified ZIP
   install/uninstall, host lifecycle, and app synchronization.
 - Edit-plan lowering into commands.

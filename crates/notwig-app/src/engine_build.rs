@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc;
@@ -9,9 +10,19 @@ use notwig_dsp::{
     CompiledPlan, CompositeDeviceFactory, DeviceFactory, EngineCaps, StockDeviceFactory,
 };
 use notwig_engine::{Engine, EngineConfig, PluginDeviceFactory, PreparedRuntime, TransportRuntime};
+use notwig_ext_api::ExtensionSettings;
 use notwig_plugins::{PluginDescriptor, PluginState};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::engine_process::WireBuild;
 use crate::plugins::new_plugin_host;
+
+#[derive(Debug, Clone)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(crate) struct EngineExtensionRuntime {
+    pub(crate) root: PathBuf,
+    pub(crate) settings: BTreeMap<String, ExtensionSettings>,
+}
 
 pub(crate) struct EngineBuildRequest {
     pub(crate) doc: ProjectDoc,
@@ -24,6 +35,8 @@ pub(crate) struct EngineBuildRequest {
     pub(crate) sample_rate: u32,
     pub(crate) max_block_size: usize,
     pub(crate) monitors: Arc<notwig_dsp::MonitorRegistry>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) extension_runtime: Option<EngineExtensionRuntime>,
 }
 
 type BuildParts = (
@@ -47,6 +60,7 @@ impl EngineBuildRequest {
             sample_rate,
             max_block_size,
             monitors,
+            extension_runtime: _,
         } = self;
         let plan =
             Arc::new(notwig_dsp::compile(&doc, &registry, caps).map_err(|err| err.to_string())?);
@@ -65,6 +79,39 @@ impl EngineBuildRequest {
         factories.push(plugin_factory);
         let factory: Arc<dyn DeviceFactory> = Arc::new(CompositeDeviceFactory::new(factories));
         Ok((config, factory, plan, schedule, assets))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn prepare_wire(self) -> Result<WireBuild, String> {
+        let Self {
+            doc,
+            caps,
+            registry,
+            extension_factory: _,
+            plugin_descriptors,
+            plugin_states,
+            assets,
+            sample_rate,
+            max_block_size,
+            monitors: _,
+            extension_runtime,
+        } = self;
+        let plan = notwig_dsp::compile(&doc, &registry, caps).map_err(|error| error.to_string())?;
+        let schedule = PlaybackSchedule::from_doc(&doc);
+        let (extension_root, extension_settings) = extension_runtime.map_or_else(
+            || (None, BTreeMap::new()),
+            |runtime| (Some(runtime.root), runtime.settings),
+        );
+        Ok(WireBuild {
+            config: EngineConfig::new(sample_rate, max_block_size),
+            plan,
+            schedule,
+            assets,
+            plugin_descriptors,
+            plugin_states,
+            extension_root,
+            extension_settings,
+        })
     }
 
     pub(crate) fn build(self) -> Result<Engine, String> {
@@ -90,6 +137,66 @@ impl EngineBuildRequest {
         let (config, factory, plan, schedule, assets) = self.parts()?;
         Engine::prepare_runtime(config, factory, plan, schedule, Arc::new(assets))
             .map_err(|err| err.to_string())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+pub(crate) struct EngineProcessBuild {
+    receiver: Option<mpsc::Receiver<(u64, Result<WireBuild, String>)>>,
+    queued_request: Option<EngineBuildRequest>,
+    requests: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl EngineProcessBuild {
+    pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
+        self.requests = self.requests.saturating_add(1);
+        if self.receiver.is_some() {
+            self.queued_request = Some(request);
+            return Ok(());
+        }
+        self.spawn(request)
+    }
+
+    pub(crate) fn poll(&mut self) -> Option<Result<WireBuild, String>> {
+        let receiver = self.receiver.as_ref()?;
+        match receiver.try_recv() {
+            Ok((generation, outcome)) => {
+                self.receiver = None;
+                if generation < self.requests {
+                    if let Some(request) = self.queued_request.take()
+                        && let Err(error) = self.spawn(request)
+                    {
+                        return Some(Err(error));
+                    }
+                    return None;
+                }
+                Some(outcome)
+            }
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.receiver = None;
+                Some(Err("Engine build thread disconnected.".into()))
+            }
+        }
+    }
+
+    pub(crate) fn building(&self) -> bool {
+        self.receiver.is_some() || self.queued_request.is_some()
+    }
+
+    fn spawn(&mut self, request: EngineBuildRequest) -> Result<(), String> {
+        let generation = self.requests;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("notwig-engine-build".into())
+            .spawn(move || {
+                let _ = sender.send((generation, request.prepare_wire()));
+            })
+            .map_err(|error| format!("Could not start engine build: {error}"))?;
+        self.receiver = Some(receiver);
+        Ok(())
     }
 }
 

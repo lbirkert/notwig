@@ -10,7 +10,7 @@ use notwig_engine::{ControlHandle, Engine, EngineConfig};
 use notwig_ext_api::DeviceMeterSnapshot;
 use notwig_ui::MeterValues;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AudioSettings {
     pub driver: String,
     pub device: String,
@@ -20,7 +20,7 @@ pub struct AudioSettings {
 
 const DSP_HISTORY: usize = 200;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AudioSnapshot {
     pub running: bool,
     pub driver: String,
@@ -29,7 +29,13 @@ pub struct AudioSnapshot {
     pub channels: u16,
     pub block_size: u32,
     pub playhead_samples: u64,
+    #[serde(skip)]
     pub playhead_updated: Option<Instant>,
+    /// Age of `playhead_samples` at the time the engine process serialized the
+    /// snapshot. Used by the UI process to preserve the audio callback's
+    /// timestamp across IPC instead of re-timestamping a delayed snapshot.
+    #[serde(default)]
+    pub playhead_age_nanos: u64,
     pub playing: bool,
     pub meters: BTreeMap<TrackId, MeterValues>,
     pub device_meters: BTreeMap<DeviceId, DeviceMeterSnapshot>,
@@ -38,8 +44,8 @@ pub struct AudioSnapshot {
     pub error: Option<String>,
     pub crashed: bool,
     pub dsp: notwig_ui::DspAnalysisView,
-    load_ms_history: Vec<f32>,
-    jitter_history: Vec<f32>,
+    pub(crate) load_ms_history: Vec<f32>,
+    pub(crate) jitter_history: Vec<f32>,
 }
 
 impl AudioSnapshot {

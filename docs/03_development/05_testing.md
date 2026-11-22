@@ -354,7 +354,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Plugin latency query | ✅ Implemented | ⭐⭐⭐⭐⭐ | VST3, VST2, and AU wrappers expose latency to the adapter. |
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | |
 | Sidechain and multi-out | 📋 Planned | ⭐⭐⭐⭐ | |
-| Out-of-process crash isolation | 📋 Planned | ⭐⭐⭐⭐⭐ | |
+| Out-of-process crash isolation | ✅ Implemented | ⭐⭐⭐⭐⭐ | Native audio, plugin DSP, and plugin editor windows run in a supervised `engine-host` child process. Killing the child leaves the UI alive and shows the restart overlay. `notwig-plugins/tests/host.rs` covers metadata probe ordering and failure blocking; protocol framing and remote-control tests cover the new boundary. Per-plugin process isolation settings remain planned. |
 | CLAP hosting | 🧪 Partial | ⭐⭐⭐⭐ | The adapter is enabled on native macOS builds; no real-plugin integration test. |
 | LV2 hosting | 🧪 Partial | ⭐⭐⭐ | The adapter is enabled on native macOS builds with system `lilv`; no real-plugin integration test. |
 | AU v3 hosting | 🧪 Partial | ⭐⭐⭐ | Registry scan/load is enabled on macOS; no real-plugin integration test. |

@@ -53,6 +53,21 @@ pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> notwig_rack
 pub(crate) fn load_plugin(
     descriptor: &PluginDescriptor,
 ) -> Result<Box<dyn notwig_rack::core::Plugin<f32>>, PluginError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        load_plugin_inner(descriptor)
+    })) {
+        Ok(result) => result,
+        Err(payload) => Err(PluginError::Load(format!(
+            "plugin load panicked: {}",
+            panic_message(&payload)
+        ))),
+    }
+}
+
+#[allow(unreachable_patterns)]
+fn load_plugin_inner(
+    descriptor: &PluginDescriptor,
+) -> Result<Box<dyn notwig_rack::core::Plugin<f32>>, PluginError> {
     match descriptor.format {
         #[cfg(feature = "vst3")]
         PluginFormat::Vst3 => {
@@ -164,13 +179,32 @@ where
     S: notwig_rack::core::scanner::PluginScanner,
     S::Plugin: notwig_rack::core::Plugin<f32> + 'static,
 {
-    let plugin = scanner
-        .load(&info_from_descriptor(descriptor))
-        .map_err(|err| PluginError::Load(err.to_string()))?;
-    Ok(Box::new(RackPluginInstance::new(
-        Box::new(plugin),
-        descriptor.clone(),
-    )))
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let plugin = scanner
+            .load(&info_from_descriptor(descriptor))
+            .map_err(|err| PluginError::Load(err.to_string()))?;
+        Ok::<_, PluginError>(Box::new(RackPluginInstance::new(
+            Box::new(plugin),
+            descriptor.clone(),
+        )) as Box<dyn PluginInstance>)
+    }));
+    match result {
+        Ok(result) => result,
+        Err(payload) => Err(PluginError::Load(format!(
+            "plugin load panicked: {}",
+            panic_message(&payload)
+        ))),
+    }
+}
+
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> &str {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        message
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.as_str()
+    } else {
+        "<non-string panic payload>"
+    }
 }
 
 #[cfg(feature = "vst3")]

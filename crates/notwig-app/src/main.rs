@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -57,6 +58,9 @@ fn run(args: &[String]) -> Result<(), AppError> {
                 .ok_or_else(|| AppError::Usage("scan-plugins <cache.json>".into()))?;
             scan_plugins(Path::new(path))
         }
+        "engine-host" => notwig_app::engine_process::run_engine_host().map_err(AppError::Gui),
+        "load-plugin" => load_plugin_probe(false),
+        "probe-plugin" => load_plugin_probe(true),
         "ui" => {
             let initial = args.get(1).map(PathBuf::from);
             gui::run(initial).map_err(AppError::Gui)
@@ -307,6 +311,34 @@ fn scan_plugins(cache_path: &Path) -> Result<(), AppError> {
     let _ = host.scan(&plugin_scan_paths());
     host.save_cache(cache_path)
         .map_err(|err| AppError::Gui(err.to_string()))
+}
+
+fn load_plugin_probe(use_probe: bool) -> Result<(), AppError> {
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .map_err(AppError::Io)?;
+    let descriptor: notwig_plugins::PluginDescriptor =
+        serde_json::from_str(&text).map_err(|err| AppError::Argument(err.to_string()))?;
+    let metadata = if use_probe {
+        notwig_app::probe_plugin_metadata(&descriptor)
+            .map_err(|err| AppError::Gui(err.to_string()))?
+    } else {
+        let mut host = notwig_plugins::PluginHost::new();
+        let instance = host
+            .load(&descriptor)
+            .map_err(|err| AppError::Gui(err.to_string()))?;
+        notwig_plugins::PluginMetadata {
+            capabilities: instance.capabilities(),
+            params: instance.describe_parameters(),
+        }
+    };
+    println!(
+        "{}{}",
+        notwig_plugins::PLUGIN_METADATA_PREFIX,
+        serde_json::to_string(&metadata).map_err(|err| AppError::Argument(err.to_string()))?
+    );
+    Ok(())
 }
 
 fn plugin_scan_paths() -> Vec<PathBuf> {

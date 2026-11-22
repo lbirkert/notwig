@@ -179,6 +179,10 @@ impl ExtensionManager {
         self.host.as_ref().map(WebExtensionHost::panel_host)
     }
 
+    pub(crate) fn engine_runtime(&self) -> Option<crate::engine_build::EngineExtensionRuntime> {
+        None
+    }
+
     pub(crate) fn infos(&self) -> Vec<ExtensionInfo> {
         self.infos.clone()
     }

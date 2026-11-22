@@ -39,26 +39,36 @@ use clap_sys::events::{
     clap_event_param_value, clap_event_transport, clap_input_events, clap_output_events,
     clap_transport_flags,
 };
+use clap_sys::ext::audio_ports::{CLAP_EXT_AUDIO_PORTS, clap_host_audio_ports};
 use clap_sys::ext::gui::{
-    CLAP_EXT_GUI, CLAP_WINDOW_API_COCOA, CLAP_WINDOW_API_WIN32, CLAP_WINDOW_API_X11,
+    CLAP_EXT_GUI, CLAP_WINDOW_API_COCOA, CLAP_WINDOW_API_WIN32, CLAP_WINDOW_API_X11, clap_host_gui,
     clap_plugin_gui, clap_window, clap_window_handle,
+};
+use clap_sys::ext::latency::{CLAP_EXT_LATENCY, clap_host_latency};
+use clap_sys::ext::note_ports::{
+    CLAP_EXT_NOTE_PORTS, CLAP_NOTE_DIALECT_CLAP, clap_host_note_ports,
 };
 use clap_sys::ext::params::{
     CLAP_EXT_PARAMS, CLAP_PARAM_IS_AUTOMATABLE, CLAP_PARAM_IS_BYPASS, CLAP_PARAM_IS_ENUM,
-    CLAP_PARAM_IS_HIDDEN, CLAP_PARAM_IS_READONLY, CLAP_PARAM_IS_STEPPED, clap_param_info,
-    clap_plugin_params,
+    CLAP_PARAM_IS_HIDDEN, CLAP_PARAM_IS_READONLY, CLAP_PARAM_IS_STEPPED, clap_host_params,
+    clap_param_info, clap_plugin_params,
 };
-use clap_sys::ext::state::{CLAP_EXT_STATE, clap_plugin_state};
+use clap_sys::ext::remote_controls::{CLAP_EXT_REMOTE_CONTROLS, clap_host_remote_controls};
+use clap_sys::ext::state::{CLAP_EXT_STATE, clap_host_state, clap_plugin_state};
+use clap_sys::ext::tail::{CLAP_EXT_TAIL, clap_host_tail};
+use clap_sys::ext::voice_info::{CLAP_EXT_VOICE_INFO, clap_host_voice_info};
 use clap_sys::factory::plugin_factory::{CLAP_PLUGIN_FACTORY_ID, clap_plugin_factory};
 use clap_sys::fixedpoint::{CLAP_BEATTIME_FACTOR, CLAP_SECTIME_FACTOR};
+use clap_sys::host::clap_host;
 use clap_sys::plugin::{clap_plugin, clap_plugin_descriptor};
 use clap_sys::process::{
     CLAP_PROCESS_CONTINUE, CLAP_PROCESS_CONTINUE_IF_NOT_QUIET, CLAP_PROCESS_ERROR,
     CLAP_PROCESS_SLEEP, CLAP_PROCESS_TAIL, clap_process,
 };
 use clap_sys::stream::{clap_istream, clap_ostream};
+use clap_sys::version::CLAP_VERSION;
 
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::path::{Path, PathBuf};
 use std::ptr;
 
@@ -437,6 +447,179 @@ impl EntryRef<'_> {
     }
 }
 
+/// Minimal CLAP host object passed to `clap_plugin_factory::create_plugin`.
+///
+/// CLAP requires a non-null host and some plugins (notably nih-plug) assert on
+/// it during construction. The host stays alive for the plugin instance and
+/// advertises the safe, no-op extension surface the host currently supports.
+#[allow(dead_code)]
+struct HostState {
+    host: clap_host,
+    params: clap_host_params,
+    latency: clap_host_latency,
+    gui: clap_host_gui,
+    voice_info: clap_host_voice_info,
+    audio_ports: clap_host_audio_ports,
+    note_ports: clap_host_note_ports,
+    state_ext: clap_host_state,
+    tail: clap_host_tail,
+    remote_controls: clap_host_remote_controls,
+    name: CString,
+    vendor: CString,
+    url: CString,
+    version: CString,
+}
+
+impl HostState {
+    fn new() -> Box<Self> {
+        let name = CString::new("Notwig").unwrap_or_default();
+        let vendor = CString::new("Notwig").unwrap_or_default();
+        let url = CString::new("https://notwig.lbirkert.com").unwrap_or_default();
+        let version = CString::new(env!("CARGO_PKG_VERSION")).unwrap_or_default();
+        let mut state = Box::new(Self {
+            host: clap_host {
+                clap_version: CLAP_VERSION,
+                host_data: ptr::null_mut(),
+                name: name.as_ptr(),
+                vendor: vendor.as_ptr(),
+                url: url.as_ptr(),
+                version: version.as_ptr(),
+                get_extension: Some(host_get_extension),
+                request_restart: Some(host_request_restart),
+                request_process: Some(host_request_process),
+                request_callback: Some(host_request_callback),
+            },
+            params: clap_host_params {
+                rescan: Some(params_rescan),
+                clear: Some(params_clear),
+                request_flush: Some(params_request_flush),
+            },
+            latency: clap_host_latency {
+                changed: Some(latency_changed),
+            },
+            gui: clap_host_gui {
+                resize_hints_changed: Some(gui_resize_hints_changed),
+                request_resize: Some(gui_request_resize),
+                request_show: Some(gui_request_show),
+                request_hide: Some(gui_request_hide),
+                closed: Some(gui_closed),
+            },
+            voice_info: clap_host_voice_info {
+                changed: Some(voice_info_changed),
+            },
+            audio_ports: clap_host_audio_ports {
+                is_rescan_flag_supported: Some(audio_ports_is_rescan_flag_supported),
+                rescan: Some(audio_ports_rescan),
+            },
+            note_ports: clap_host_note_ports {
+                supported_dialects: Some(note_ports_supported_dialects),
+                rescan: Some(note_ports_rescan),
+            },
+            state_ext: clap_host_state {
+                mark_dirty: Some(state_mark_dirty),
+            },
+            tail: clap_host_tail {
+                changed: Some(tail_changed),
+            },
+            remote_controls: clap_host_remote_controls {
+                changed: Some(remote_controls_changed),
+                suggest_page: Some(remote_controls_suggest_page),
+            },
+            name,
+            vendor,
+            url,
+            version,
+        });
+        state.host.host_data = (&raw mut *state).cast();
+        state
+    }
+}
+
+unsafe fn host_state<'a>(host: *const clap_host) -> Option<&'a HostState> {
+    if host.is_null() {
+        return None;
+    }
+    let data = unsafe { (*host).host_data as *const HostState };
+    if data.is_null() {
+        None
+    } else {
+        Some(unsafe { &*data })
+    }
+}
+
+unsafe extern "C" fn host_get_extension(
+    host: *const clap_host,
+    id: *const c_char,
+) -> *const c_void {
+    let Some(state) = (unsafe { host_state(host) }) else {
+        return ptr::null();
+    };
+    if id.is_null() {
+        return ptr::null();
+    }
+    let id = unsafe { CStr::from_ptr(id) };
+    if id == CLAP_EXT_PARAMS {
+        (&raw const state.params).cast()
+    } else if id == CLAP_EXT_LATENCY {
+        (&raw const state.latency).cast()
+    } else if id == CLAP_EXT_GUI {
+        (&raw const state.gui).cast()
+    } else if id == CLAP_EXT_VOICE_INFO {
+        (&raw const state.voice_info).cast()
+    } else if id == CLAP_EXT_AUDIO_PORTS {
+        (&raw const state.audio_ports).cast()
+    } else if id == CLAP_EXT_NOTE_PORTS {
+        (&raw const state.note_ports).cast()
+    } else if id == CLAP_EXT_STATE {
+        (&raw const state.state_ext).cast()
+    } else if id == CLAP_EXT_TAIL {
+        (&raw const state.tail).cast()
+    } else if id == CLAP_EXT_REMOTE_CONTROLS {
+        (&raw const state.remote_controls).cast()
+    } else {
+        ptr::null()
+    }
+}
+
+unsafe extern "C" fn host_request_restart(_host: *const clap_host) {}
+unsafe extern "C" fn host_request_process(_host: *const clap_host) {}
+unsafe extern "C" fn host_request_callback(_host: *const clap_host) {}
+unsafe extern "C" fn params_rescan(_host: *const clap_host, _flags: u32) {}
+unsafe extern "C" fn params_clear(_host: *const clap_host, _param_id: u32, _flags: u32) {}
+unsafe extern "C" fn params_request_flush(_host: *const clap_host) {}
+unsafe extern "C" fn latency_changed(_host: *const clap_host) {}
+unsafe extern "C" fn gui_resize_hints_changed(_host: *const clap_host) {}
+unsafe extern "C" fn gui_request_resize(
+    _host: *const clap_host,
+    _width: u32,
+    _height: u32,
+) -> bool {
+    false
+}
+unsafe extern "C" fn gui_request_show(_host: *const clap_host) -> bool {
+    false
+}
+unsafe extern "C" fn gui_request_hide(_host: *const clap_host) -> bool {
+    false
+}
+unsafe extern "C" fn gui_closed(_host: *const clap_host, _was_destroyed: bool) {}
+unsafe extern "C" fn voice_info_changed(_host: *const clap_host) {}
+unsafe extern "C" fn audio_ports_is_rescan_flag_supported(
+    _host: *const clap_host,
+    _flag: u32,
+) -> bool {
+    false
+}
+unsafe extern "C" fn audio_ports_rescan(_host: *const clap_host, _flags: u32) {}
+unsafe extern "C" fn note_ports_supported_dialects(_host: *const clap_host) -> u32 {
+    CLAP_NOTE_DIALECT_CLAP
+}
+unsafe extern "C" fn note_ports_rescan(_host: *const clap_host, _flags: u32) {}
+unsafe extern "C" fn state_mark_dirty(_host: *const clap_host) {}
+unsafe extern "C" fn tail_changed(_host: *const clap_host) {}
+unsafe extern "C" fn remote_controls_changed(_host: *const clap_host) {}
+unsafe extern "C" fn remote_controls_suggest_page(_host: *const clap_host, _page_id: u32) {}
+
 /// One loaded CLAP plugin instance.
 ///
 /// Holds the raw `*const clap_plugin` pointer plus the metadata
@@ -447,6 +630,7 @@ pub struct ClapPlugin {
     layouts: Vec<BusLayout>,
     active_layout: Option<BusLayout>,
     plugin: *const clap_plugin,
+    _host: Box<HostState>,
     library: LoadedLibrary,
     bundle_path: PathBuf,
     started_processing: bool,
@@ -500,8 +684,8 @@ impl ClapPlugin {
             path: bundle_path.clone(),
             reason: format!("plugin id is not a valid C string: {e}"),
         })?;
-        let host = ptr::null(); // TODO(notwig-rack): supply a real clap_host.
-        let plugin = unsafe { create(factory, host, id_cstring.as_ptr()) };
+        let host = HostState::new();
+        let plugin = unsafe { create(factory, &raw const host.host, id_cstring.as_ptr()) };
         if plugin.is_null() {
             unsafe { entry.deinit() };
             return Err(Error::LoadFailed {
@@ -535,6 +719,7 @@ impl ClapPlugin {
             layouts: vec![BusLayout::stereo()],
             active_layout: None,
             plugin,
+            _host: host,
             library,
             bundle_path,
             started_processing: false,
@@ -910,6 +1095,11 @@ impl notwig_rack_core::editor::PluginEditor for ClapPlugin {
 
     fn set_size(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
         if !self.gui_open {
+            return None;
+        }
+        if let Some(can_resize) = unsafe { (*self.gui_ext).can_resize }
+            && !unsafe { can_resize(self.plugin) }
+        {
             return None;
         }
         let mut w = width;
@@ -1571,5 +1761,25 @@ mod tests {
         assert!(!p.exists() || p.starts_with("/tmp/MyPlugin.clap"));
         #[cfg(not(target_os = "macos"))]
         assert_eq!(p, Path::new("/tmp/MyPlugin.clap"));
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::*;
+
+    #[test]
+    fn host_object_exposes_core_extensions() {
+        let host = HostState::new();
+        let get = host.host.get_extension.expect("host callback");
+        unsafe {
+            assert!(!get(&raw const host.host, CLAP_EXT_PARAMS.as_ptr()).is_null());
+            assert!(!get(&raw const host.host, CLAP_EXT_LATENCY.as_ptr()).is_null());
+            assert!(!get(&raw const host.host, CLAP_EXT_GUI.as_ptr()).is_null());
+            assert!(!get(&raw const host.host, CLAP_EXT_AUDIO_PORTS.as_ptr()).is_null());
+            assert!(!get(&raw const host.host, CLAP_EXT_NOTE_PORTS.as_ptr()).is_null());
+            let unknown = CString::new("clap.unknown").unwrap();
+            assert!(get(&raw const host.host, unknown.as_ptr()).is_null());
+        }
     }
 }

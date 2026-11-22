@@ -254,8 +254,8 @@ Dependencies worth planning around:
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | Output events are collected and discarded. |
 | Sidechain and multi-out buses | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Plugin latency compensation | ✅ Implemented | ⭐⭐⭐⭐⭐ | The plan and engine compensate non-zero device latency, including latency queried from vendored VST3/VST2/AU wrappers. |
-| Out-of-process hosting | 📋 Planned | ⭐⭐⭐⭐ | Crash isolation and sandboxing. |
-| Plugin crash recovery | 📋 Planned | ⭐⭐⭐⭐ |  |
+| Out-of-process hosting | 🧪 Partial | ⭐⭐⭐⭐ | Native audio, plugin DSP, and plugin editor windows run in one supervised engine child process. Per-plugin/per-vendor sandbox settings remain planned. |
+| Plugin crash recovery | ✅ Implemented | ⭐⭐⭐⭐ | A child crash leaves the UI running, shows the restart overlay with a Restart button, and rebuilds from the canonical project. Per-plugin restart remains planned. |
 | Plugin preset management | 📋 Planned | ⭐⭐⭐ |  |
 
 ## Extensions

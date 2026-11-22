@@ -8,7 +8,7 @@ use notwig_ext_api::{DeviceMeterSnapshot, ExtensionIndexEntry, ExtensionInfo};
 use crate::clipboard::Clipboard;
 use crate::waveform::{AudioWaveform, WaveformCache};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MeterValues {
     pub peak_l: f32,
     pub peak_r: f32,
@@ -55,7 +55,7 @@ pub struct AudioSettingsView {
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DspAnalysisView {
     pub history: Vec<f32>,
     pub block_size: u32,

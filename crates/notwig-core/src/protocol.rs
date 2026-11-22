@@ -379,7 +379,7 @@ impl PlaybackSchedule {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetronomeState {
     pub enabled: bool,
     pub beats_per_bar: u8,

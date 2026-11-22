@@ -174,10 +174,10 @@ frame that carries input and returns draw commands plus host actions.
 
 | Module | Responsibility |
 |---|---|
-| `host.rs` | `PluginHost` and `HostAdapter` boundary |
+| `host.rs` | `PluginHost`, `HostAdapter`, and crash-isolating `PluginProbe` boundary |
 | `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 adapters built on vendored `notwig-rack` |
 | `cache.rs` | Persisted plugin scan cache |
-| `types.rs` | Format-agnostic descriptors, states, capabilities, errors |
+| `types.rs` | Format-agnostic descriptors, metadata, states, capabilities, errors |
 | `native_editor.rs` | Native plugin editor window lifecycle |
 | `rack.rs` | Vendored `notwig-rack` integration details and latency reporting |
 
