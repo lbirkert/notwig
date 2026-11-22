@@ -9,14 +9,20 @@ use notwig_ext::ExtensionHost;
 
 const LOOKAHEAD_SAMPLES: u32 = 64;
 
-fn manifest_template() -> Option<String> {
+fn manifest_for(entrypoint: &str, target: &str) -> Option<String> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    std::fs::read_to_string(
+    let text = std::fs::read_to_string(
         manifest_dir
             .parent()?
             .join("notwig-ext-devices/extension.json"),
     )
-    .ok()
+    .ok()?;
+    let mut manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+    manifest["entrypoints"] = serde_json::json!([{
+        "entrypoint": entrypoint,
+        "target": target,
+    }]);
+    serde_json::to_string_pretty(&manifest).ok()
 }
 
 fn load_host() -> Option<(ExtensionHost, PathBuf)> {
@@ -26,9 +32,7 @@ fn load_host() -> Option<(ExtensionHost, PathBuf)> {
         workspace.join("target/wasm32-unknown-unknown/release/notwig_ext_devices.wasm"),
     )
     .ok()?;
-    let manifest = manifest_template()?
-        .replace("$$ENTRYPOINT", "notwig_ext_devices.wasm")
-        .replace("$$TARGET", "wasm");
+    let manifest = manifest_for("notwig_ext_devices.wasm", "wasm")?;
     let root = std::env::temp_dir().join(format!("notwig-ext-{}", uuid::Uuid::new_v4()));
     let package = root.join("notwig.ext.devices");
     std::fs::create_dir_all(&package).ok()?;
@@ -51,9 +55,10 @@ fn load_native_host() -> Option<(ExtensionHost, PathBuf)> {
     let library = candidates
         .iter()
         .find_map(|path| std::fs::read(path).ok())?;
-    let manifest = manifest_template()?
-        .replace("$$ENTRYPOINT", "notwig_ext_devices.dylib")
-        .replace("$$TARGET", notwig_ext_api::target::MACOS_AARCH64);
+    let manifest = manifest_for(
+        "notwig_ext_devices.dylib",
+        notwig_ext_api::target::MACOS_AARCH64,
+    )?;
     let root = std::env::temp_dir().join(format!("notwig-ext-native-{}", uuid::Uuid::new_v4()));
     let package = root.join("notwig.ext.devices");
     std::fs::create_dir_all(&package).ok()?;

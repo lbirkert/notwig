@@ -72,36 +72,38 @@ cargo test -p notwig-ui --test extension_panel
 
 `limiter_extension.rs` tests both the WASM host and the native host when the
 corresponding binaries are present. Inline WAT modules in
-`notwig-ext/tests/abi.rs` cover the WASM ABI without a wasm toolchain. Use them
+`crates/notwig-ext/notwig-ext/tests/abi.rs` cover the WASM ABI without a wasm toolchain. Use them
 as a model when testing error paths and ABI version mismatches.
 
 ## Package the extension
 
-The repository script builds one target and writes a ZIP:
+The CLI builds one target, transforms the source manifest, and writes a ZIP:
+
+```sh
+notwig-ext-cli build wasm
+notwig-ext-cli build macos-aarch64 --out-dir docs/extensions --name ext-devices-macos-arm64
+```
+
+Without `--name`, the ZIP is named `<extension-id>-<target>.zip`. Each ZIP
+contains:
+
+```text
+extension.json             # includes removed, entrypoints added
+notwig_ext_devices.wasm    # or .dylib/.so/.dll for a native target
+icon.png                   # included by default
+```
+
+The repository keeps `scripts/package-extension.sh` as a thin wrapper around the
+CLI for the stock extension:
 
 ```sh
 ./scripts/package-extension.sh wasm
 ./scripts/package-extension.sh macos-aarch64
 ```
 
-It reads the `crates/notwig-ext/notwig-ext-devices/extension.json` template, builds the
-crate for the requested target, substitutes `$$TARGET` and `$$ENTRYPOINT` in the
-manifest, and writes `docs/extensions/ext-devices-<target>.zip`. Each ZIP
-contains:
-
-```text
-extension.json
-notwig_ext_devices.wasm   # or .dylib/.so/.dll for a native target
-icon.png
-```
-
 With no argument the script builds WASM, plus the macOS Apple Silicon build on an
-Apple Silicon host. The target-to-cargo mapping is a `case` statement, so adding
-Windows or Linux builds is a small local change; add the same target to the CI
-matrix when you are ready to publish it.
-
-For your own extension, copy the script and replace the crate name, manifest
-path, output paths, and manifest placeholders. Keep the ZIP root layout valid.
+Apple Silicon host. Add new targets to the CLI target table and to the CI matrix
+when you are ready to publish them.
 
 ## Publish an index
 
@@ -128,6 +130,8 @@ against the ZIP. Blank lines and lines starting with `#` are ignored. The script
 - finds the single `extension.json`;
 - validates `id`, `name`, `version`, and `api_version`;
 - reads the manifest `entrypoints` and preserves their target order;
+- copies the package icon to `docs/extensions/<id>.png` and points the index
+  entry at `extensions/<id>.png`;
 - collects device names and type IDs;
 - merges rows with the same extension `id` into one entry with several
   `urls`;
@@ -148,7 +152,7 @@ An index entry looks like:
     { "name": "Example Gain", "type_id": "com.example.gain.fx" }
   ],
   "description": "A minimal gain device.",
-  "image": "icon.png",
+  "image": "extensions/com.example.gain.png",
   "urls": [
     {
       "url": "extensions/example-gain-macos-arm64.zip",

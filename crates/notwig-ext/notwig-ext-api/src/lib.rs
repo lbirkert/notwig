@@ -27,7 +27,8 @@ pub use extension::{DeviceExtension, Extension};
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
 pub use manifest::{
-    ExtensionCapability, ExtensionDeviceDecl, ExtensionEntryPoint, ExtensionManifest, ManifestError,
+    ExtensionCapability, ExtensionDeviceDecl, ExtensionEntryPoint, ExtensionInclude,
+    ExtensionManifest, ManifestError,
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
 pub use notwig_ext_macros::notwig_extension;

@@ -32,7 +32,6 @@ notwig-ext-macros = { path = "crates/notwig-ext/notwig-ext-macros" }
 notwig-engine = { path = "crates/notwig-engine" }
 notwig-plugins = { path = "crates/notwig-plugins" }
 notwig-ext = { path = "crates/notwig-ext/notwig-ext" }
-notwig-ext-cli = { path = "crates/notwig-ext/notwig-ext-cli" }
 notwig-ui = { path = "crates/notwig-ui" }
 notwig-app = { path = "crates/notwig-app" }
 notwig-web = { path = "crates/notwig-web" }

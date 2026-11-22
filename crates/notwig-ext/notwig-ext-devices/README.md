@@ -114,8 +114,15 @@ The shared library is written to:
 target/aarch64-apple-darwin/release/libnotwig_ext_devices.dylib
 ```
 
-The repository packaging script substitutes the manifest placeholders and writes
-target-specific ZIPs:
+`notwig-ext-cli` reads the source manifest, adds the selected entrypoint,
+and writes a target-specific ZIP:
+
+```sh
+cargo run -p notwig-ext-cli -- build wasm --path crates/notwig-ext/notwig-ext-devices
+cargo run -p notwig-ext-cli -- build macos-aarch64 --path crates/notwig-ext/notwig-ext-devices
+```
+
+The repository wrapper builds the stock package into `docs/extensions/`:
 
 ```sh
 ./scripts/package-extension.sh wasm
@@ -124,22 +131,23 @@ target-specific ZIPs:
 
 ## Install
 
-Install the generated ZIP from **Settings > Extensions > Add .ZIP**, or copy the
-manifest and target binary into a directory under the user extensions directory:
+Install the generated ZIP from **Settings > Extensions > Add .ZIP**. The host
+can also load a manually unpacked package from the user extensions directory:
 
 ```text
 ~/Library/Application Support/notwig/extensions/notwig.ext.devices/
-  extension.json
+  extension.json             # packaged manifest with entrypoints
   notwig_ext_devices.dylib   # native target, optional
   notwig_ext_devices.wasm
+  icon.png
 ```
 
 Then open **Settings > Extensions** and press **Reload extensions**. The
 devices appear under **Extensions** in the Add Device browser.
 
-The manifest template uses `"api_version": 3`, the `ui.egui` capability, and
-`$$TARGET` / `$$ENTRYPOINT` placeholders that the packaging script replaces for
-each target.
+The source manifest uses `"api_version": 3` and the `ui.egui` capability. It
+omits `entrypoints`; the CLI adds the selected target entrypoint to the packaged
+manifest.
 
 ## Notes
 
@@ -162,5 +170,5 @@ covers the gate spec, frame generation, opening/closing behavior, and parameter
 rejection. `tests/synth.rs` covers the synth spec, frame generation, oscillator
 modes, note on/off, ADSR release, and parameter rejection.
 `tests/egui_device.rs` covers the gain device frame and parameter behavior.
-`notwig-ext/tests` also loads the built WASM module and native shared library
+`crates/notwig-ext/notwig-ext/tests` also loads the built WASM module and native shared library
 and checks the devices through the real ABIs.

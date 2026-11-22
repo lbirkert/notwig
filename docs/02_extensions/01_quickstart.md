@@ -41,7 +41,7 @@ crate-type = ["cdylib", "rlib"]
 notwig-core = { path = "/path/to/notwig/crates/notwig-core", default-features = false }
 notwig-ui = { path = "/path/to/notwig/crates/notwig-ui", default-features = false }
 notwig-ext-api = { path = "/path/to/notwig/crates/notwig-ext/notwig-ext-api" }
-uuid = "1"
+uuid = { version = "1", default-features = false, features = ["serde", "std"] }
 ```
 
 Use `default-features = false` for `notwig-core` and `notwig-ui`. That keeps

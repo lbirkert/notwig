@@ -279,11 +279,9 @@ pub fn package_extension(
     }
     if let Some(image) = &manifest.image {
         let path = safe_relative(image)?;
-        if path != DEFAULT_ICON {
-            let source = source_dir.join(&path);
-            let bytes = fs::read(&source).map_err(|error| Error::io(&source, error))?;
-            entries.insert(path, bytes);
-        }
+        let source = source_dir.join(&path);
+        let bytes = fs::read(&source).map_err(|error| Error::io(&source, error))?;
+        entries.insert(path, bytes);
     }
 
     for include in includes {

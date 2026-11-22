@@ -205,7 +205,7 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 
 ## Implementation map
 
-`notwig-ext-api`:
+`crates/notwig-ext/notwig-ext-api`:
 
 - `src/egui_panel/mod.rs`: wire types, limits, validation.
 - `src/egui_panel/bridge.rs`: `EguiInput -> RawInput`, `FullOutput ->
@@ -215,18 +215,18 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 - `src/manifest.rs`: `ui.egui` capability.
 - `src/abi.rs`: ABI version and export names.
 
-`notwig-ext-macros`:
+`crates/notwig-ext/notwig-ext-macros`:
 
 - generate `notwig_device_draw_egui` for WASM and native targets.
 
-`notwig-ext`:
+`crates/notwig-ext/notwig-ext`:
 
 - `abi.rs`, `native.rs`, `web/instance.rs`: egui exports, frame budget, decode
   and validation.
 - `instance.rs`, `panel.rs`, `web/panel.rs`: route capable extensions through
   the egui panel path.
 
-`notwig-ui`:
+`crates/notwig-ui`:
 
 - `components/`: shared controls and meters used by both the app and guests.
 - `views/device_editor/egui_render.rs`: input snapshot, focus, texture
@@ -236,14 +236,14 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 
 ## Tests
 
-- Wire round-trip and limits in `notwig-ext-api/tests/egui_wire.rs`.
+- Wire round-trip and limits in `crates/notwig-ext/notwig-ext-api/tests/egui_wire.rs`.
 - Guest frame generation and action assertions in
-  `notwig-ext-api/tests/egui_bridge.rs`.
-- Device-level frames in `notwig-ext-devices/tests/`.
+  `crates/notwig-ext/notwig-ext-api/tests/egui_bridge.rs`.
+- Device-level frames in `crates/notwig-ext/notwig-ext-devices/tests/`.
 - Host compositing, meter delivery, and invalid-frame handling in
   `notwig-ui/tests/extension_panel.rs`.
-- WASM host transport in `notwig-ext/tests/abi.rs` and
-  `notwig-ext/tests/limiter_extension.rs`.
+- WASM host transport in `crates/notwig-ext/notwig-ext/tests/abi.rs` and
+  `crates/notwig-ext/notwig-ext/tests/limiter_extension.rs`.
 
 ## Rollout
 

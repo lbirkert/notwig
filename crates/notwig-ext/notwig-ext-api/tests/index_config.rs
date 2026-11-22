@@ -140,6 +140,23 @@ fn manifest_rejects_legacy_entry_fields() {
 }
 
 #[test]
+fn source_manifests_omit_entrypoints_and_accept_includes() {
+    let manifest: ExtensionManifest = serde_json::from_str(
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"includes":[{"path":"assets/a.bin"},{"path":"assets/b.bin","target":"wasm"}]}"#,
+    )
+    .unwrap();
+    manifest.validate_source().unwrap();
+    assert!(manifest.validate().is_err());
+    assert_eq!(manifest.includes.len(), 2);
+
+    let invalid: ExtensionManifest = serde_json::from_str(
+        r#"{"id":"com.test","name":"Test","version":"0.1.0","api_version":3,"includes":[{"path":"../escape","target":"wasm"}]}"#,
+    )
+    .unwrap();
+    assert!(invalid.validate_source().is_err());
+}
+
+#[test]
 fn config_round_trips_new_format() {
     let mut settings = BTreeMap::new();
     settings.insert(

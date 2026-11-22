@@ -1137,6 +1137,7 @@ fn extension_cards(runtime: &RuntimeView) -> Vec<ExtensionCard> {
         if seen.contains(&entry.id) {
             continue;
         }
+        let icon = runtime.extension_icons.get(&entry.id).cloned();
         cards.push(ExtensionCard {
             id: entry.id.clone(),
             name: entry.name.clone(),
@@ -1144,7 +1145,7 @@ fn extension_cards(runtime: &RuntimeView) -> Vec<ExtensionCard> {
             version: entry.version.clone(),
             description: entry.description.clone(),
             image_path: None,
-            icon: None,
+            icon,
             installed: None,
             index_entry: Some(entry),
         });

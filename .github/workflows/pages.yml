@@ -96,6 +96,7 @@ jobs:
           mkdir -p book/extensions
           cp docs/extensions.json book/extensions.json
           cp docs/extensions/*.zip book/extensions/
+          cp docs/extensions/*.png book/extensions/
 
       - name: Add Pages metadata
         run: |

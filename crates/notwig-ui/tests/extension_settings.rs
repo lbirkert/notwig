@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use notwig_core::ids::{DeviceChain, Track};
 use notwig_core::*;
@@ -90,6 +91,24 @@ fn extension_explorer_renders_index_and_installed_entries() {
     let runtime = runtime();
     let mut ui = NotwigUi::default();
     ui.state.selection.select_track(id::<Track>(1), false);
+    ui.settings_open = true;
+    ui.settings_category = SettingsCategory::Extensions;
+    render(&mut ui, &doc, &runtime);
+}
+
+#[test]
+fn extension_index_cards_render_hosted_icons() {
+    let doc = doc();
+    let mut runtime = runtime();
+    runtime.extensions.clear();
+    let icon = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../notwig-ext/notwig-ext-devices/icon.png"),
+    )
+    .unwrap();
+    runtime
+        .extension_icons
+        .insert("notwig.ext.devices".into(), Arc::new(icon));
+    let mut ui = NotwigUi::default();
     ui.settings_open = true;
     ui.settings_category = SettingsCategory::Extensions;
     render(&mut ui, &doc, &runtime);

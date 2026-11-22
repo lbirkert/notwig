@@ -21,10 +21,12 @@ and test layer before editing.
     notwig-core/
       src/dsp/              device contracts, plan compilation, stock devices
     notwig-project/
-    notwig-ext-api/
-    notwig-ext-macros/
     notwig-ext/
-    notwig-ext-devices/
+      notwig-ext-api/
+      notwig-ext-macros/
+      notwig-ext/              host runtime
+      notwig-ext-devices/
+      notwig-ext-cli/
     notwig-engine/
     notwig-plugins/
     notwig-ui/
@@ -50,11 +52,16 @@ notwig-ext-api -> notwig-core, notwig-ext-macros
 notwig-ext-macros -> proc-macro support only
 notwig-ext-devices -> notwig-core, notwig-ui, notwig-ext-api
                           (core/ui without default features)
+notwig-ext-cli -> notwig-ext-api
 notwig-engine -> notwig-core, notwig-plugins
 notwig-plugins -> notwig-core
 notwig-project -> notwig-core
 notwig-core -> (no workspace dependencies)
 ```
+
+`crates/notwig-ext/` groups the extension SDK, host, examples, and CLI like
+`crates/notwig-rack/` groups the plugin-host crates. The group folder has its own
+README but is not a crate.
 
 The graph must stay acyclic. Shared boundary types belong in the lowest crate
 that needs them; most cross-layer types live in `notwig-core`.
@@ -147,6 +154,18 @@ ABI v3 makes the guest egui panel the only panel path. Extensions run a private
 | `panel.rs` | cached UI instance implementing `DevicePanelHost` |
 | `web/` | browser host, package loading, WASM DSP, and panels |
 | `error.rs` | `ExtensionError` |
+
+### `notwig-ext-cli` — extension scaffolding and packaging
+
+| Module | Responsibility |
+|---|---|
+| `build.rs` | Locate `extension.json`, run cargo for one target, transform the manifest, filter includes, and write the ZIP |
+| `scaffold.rs` | `new`/`init`: Cargo.toml, `src/lib.rs`, source manifest, default icon |
+| `target.rs` | Canonical target to Rust triple, artifact suffix, and entrypoint naming |
+| `error.rs` | CLI errors |
+
+The parent [`crates/notwig-ext/README.md`](../../crates/notwig-ext/README.md)
+describes the extension subsystem and crate boundaries.
 
 ### `notwig-ext-devices` — example extension devices
 
@@ -341,9 +360,9 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 ### Add an extension device
 
-1. Depend on `notwig-ext-api`; use `notwig-core` and `notwig-ui` without
-   default features and build the crate as a `cdylib` for
-   `wasm32-unknown-unknown`.
+1. Scaffold with `notwig-ext-cli new <path>` or `init`, or depend on
+   `notwig-ext-api` directly; use `notwig-core` and `notwig-ui` without default
+   features and build the crate as a `cdylib`/`rlib`.
 2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
    `draw_egui`, keep DSP in `process` over interleaved `f32` audio, and handle
    `note_event` if the device declares a note input. Register the type with
@@ -353,9 +372,10 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    emit parameter changes through `egui_panel::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship `extension.json` with `api_version: 3`, an ordered `entrypoints` list
-   (native and/or `wasm` targets), and the `device`/`ui.egui` capabilities. Set
-   `DeviceUiSpec::custom` to route the panel to the extension renderer.
+4. Ship a source `extension.json` with `api_version: 3`, no `entrypoints`, the
+   `device`/`ui.egui` capabilities, and optional target-gated `includes`. Set
+   `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
+   with `notwig-ext-cli build <target>`, which adds the entrypoint.
 5. Add frame tests in `crates/notwig-ext/notwig-ext-devices/tests/` and a host compositing
    test in `crates/notwig-ui/tests/`. See
    [Extension Overview](../02_extensions/00_overview.md) for the full package

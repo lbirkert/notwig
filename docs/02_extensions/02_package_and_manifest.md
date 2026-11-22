@@ -75,7 +75,7 @@ manually; the CLI builds one target per ZIP.
 | `capabilities` | no | Host services the package needs. |
 | `devices` | yes | Devices registered by the package. |
 | `description` | no | Short text shown in the explorer. |
-| `image` | no | Relative icon path shown in the explorer. |
+| `image` | no | Relative icon path in the package. The index copies it to `extensions/<id>.png` for the explorer. |
 
 ### Identity rules
 

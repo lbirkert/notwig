@@ -173,6 +173,7 @@ under `/app/` beside the mdBook documentation.
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Runtime host behavior |
 | `notwig-ext` | Extension discovery, target selection, native wasmtime/WASM and shared-library hosts, device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-ext-devices` | Example and stock extension devices built against the SDK and shared `notwig-ui` components | Host behavior or app UI code |
+| `notwig-ext-cli` | Scaffolding and target-specific extension ZIP packaging | UI or runtime host behavior |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection, shared extension components, guest egui compositing | Canonical state, engine internals, blocking work |
@@ -222,8 +223,10 @@ under `/app/` beside the mdBook documentation.
   implement the behavior in `notwig-app::Workspace` or `gui`.
 - **Plugin formats**: implement a `HostAdapter` in `notwig-plugins`; keep
   format-specific types inside that crate.
-- **Extensions**: add host behavior in `notwig-ext` and shared ABI/panel types
-  in `notwig-ext-api`. Device specs, DSP, and panels come from the extension;
+- **Extensions**: add host behavior in `crates/notwig-ext/notwig-ext` and
+  shared ABI/panel types in `notwig-ext-api`. Source manifests omit
+  `entrypoints`; `notwig-ext-cli` adds the built target entrypoint and filters
+  `includes`. Device specs, DSP, and panels come from the extension;
   Notwig owns validation, resource limits, and rendering. `ui.egui` panels run a
   private guest egui context, use shared `notwig-ui` components, and send
   validated meshes/texture deltas for the host to composite, as described in

@@ -36,6 +36,10 @@ DeviceExtension::draw_egui ──►  EguiFrame + actions    ───►  panel
 - `notwig-ui` composites the returned egui frame and applies validated
   parameter actions. Extension panels use its shared knobs, meters, labels,
   sections, toggles, and dropdowns.
+- `notwig-ext-cli` scaffolds extensions and builds target-specific ZIPs. It
+  reads a source `extension.json` without `entrypoints`, adds the selected
+  entrypoint, filters `includes` by target, removes `includes`, and bundles the
+  artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
 version is `3`. The WASM and native ABIs are different transport layers around
