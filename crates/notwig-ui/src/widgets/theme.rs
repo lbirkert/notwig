@@ -6,7 +6,7 @@ use egui::{
 pub use crate::palette::*;
 
 pub const HEADING_SIZE: f32 = 11.0;
-pub const APP_TITLE_SIZE: f32 = 16.0;
+pub const APP_TITLE_SIZE: f32 = 14.0;
 
 const GEIST_FAMILIES: [(&str, &str); 5] = [
     ("geist_regular", "Geist"),

@@ -891,11 +891,11 @@ impl NotwigUi {
                 let dirty = if runtime.dirty { "*" } else { "" };
                 let project_name = project_display_name(doc, runtime);
                 let project_label = format!("{project_name}{dirty}");
-                let card_font = theme::custom_font(ctx, "Geist Medium", 11.5);
+                let card_font = theme::custom_font(ctx, "Geist Medium", 10.5);
                 let card_galley =
                     painter.layout_no_wrap(project_label, card_font, theme::TEXT_PRIMARY);
-                let card_height = 22.0;
-                let card_width = (card_galley.size().x + 18.0).clamp(80.0, 240.0);
+                let card_height = 18.0;
+                let card_width = (card_galley.size().x + 12.0).clamp(64.0, 220.0);
                 let card_left = if cfg!(all(target_os = "macos", not(target_arch = "wasm32"))) {
                     78.0
                 } else {
@@ -912,7 +912,7 @@ impl NotwigUi {
                 );
                 painter.rect(
                     card_rect,
-                    egui::CornerRadius::same(7),
+                    egui::CornerRadius::same(5),
                     if card.hovered() {
                         Color32::from_rgb(47, 51, 62)
                     } else {
@@ -922,10 +922,10 @@ impl NotwigUi {
                     egui::StrokeKind::Inside,
                 );
                 painter
-                    .with_clip_rect(card_rect.shrink2(egui::vec2(8.0, 0.0)))
+                    .with_clip_rect(card_rect.shrink2(egui::vec2(5.0, 0.0)))
                     .galley(
                         egui::pos2(
-                            card_rect.left() + 9.0,
+                            card_rect.left() + 6.0,
                             card_rect.center().y - card_galley.size().y * 0.5,
                         ),
                         card_galley,
@@ -936,7 +936,7 @@ impl NotwigUi {
                 }
 
                 let brand = crate::widgets::brand::icon(ctx, true);
-                let icon_height = 16.0;
+                let icon_height = 14.0;
                 let brand_size = brand.size_vec2();
                 let icon_width = icon_height * (brand_size.x / brand_size.y.max(1.0));
                 let title = painter.layout_no_wrap(
@@ -944,7 +944,7 @@ impl NotwigUi {
                     theme::app_title_font(ctx, theme::APP_TITLE_SIZE),
                     theme::TEXT_PRIMARY,
                 );
-                let gap = 8.0;
+                let gap = 6.0;
                 let content_width = icon_width + gap + title.size().x;
                 let start_x = rect.center().x - content_width * 0.5;
                 let icon_rect = Rect::from_center_size(
