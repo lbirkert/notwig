@@ -25,11 +25,15 @@ impl WebExtensionHost {
         let mut infos = Vec::new();
         let mut errors = Vec::new();
         for package in packages {
+            let installed_hash = config
+                .settings
+                .get(package.id())
+                .and_then(|settings| settings.installed_hash.clone());
             if !config.is_enabled(package.id()) {
-                infos.push(disabled_info(&package));
+                infos.push(disabled_info(&package, installed_hash));
                 continue;
             }
-            match load_package(&package) {
+            match load_package(&package, installed_hash) {
                 Ok(extension) => {
                     let extension = Arc::new(extension);
                     infos.push(extension.info.clone());
@@ -47,7 +51,7 @@ impl WebExtensionHost {
                 }
                 Err(error) => {
                     errors.push(format!("{}: {error}", package.id()));
-                    infos.push(failed_info(&package, error));
+                    infos.push(failed_info(&package, error, config));
                 }
             }
         }
@@ -89,7 +93,10 @@ impl WebExtensionHost {
     }
 }
 
-fn load_package(package: &WebExtensionPackage) -> Result<WebLoadedExtension, ExtensionError> {
+fn load_package(
+    package: &WebExtensionPackage,
+    installed_hash: Option<String>,
+) -> Result<WebLoadedExtension, ExtensionError> {
     let wasm = js_sys::Uint8Array::from(package.wasm.as_slice());
     let module = js_sys::WebAssembly::Module::new(&wasm).map_err(js_error)?;
     let mut instance = WebExtensionInstance::instantiate(&module, &package.manifest.id)?;
@@ -118,6 +125,13 @@ fn load_package(package: &WebExtensionPackage) -> Result<WebLoadedExtension, Ext
         status: ExtensionStatus::Loaded,
         enabled: true,
         device_count: specs.len(),
+        targets: package
+            .manifest
+            .entrypoints
+            .iter()
+            .map(|entry| entry.target.clone())
+            .collect(),
+        installed_hash,
         error: None,
     };
     Ok(WebLoadedExtension {
@@ -128,7 +142,7 @@ fn load_package(package: &WebExtensionPackage) -> Result<WebLoadedExtension, Ext
     })
 }
 
-fn disabled_info(package: &WebExtensionPackage) -> ExtensionInfo {
+fn disabled_info(package: &WebExtensionPackage, installed_hash: Option<String>) -> ExtensionInfo {
     ExtensionInfo {
         id: package.manifest.id.clone(),
         name: package.manifest.name.clone(),
@@ -140,11 +154,22 @@ fn disabled_info(package: &WebExtensionPackage) -> ExtensionInfo {
         status: ExtensionStatus::Disabled,
         enabled: false,
         device_count: package.manifest.devices.len(),
+        targets: package
+            .manifest
+            .entrypoints
+            .iter()
+            .map(|entry| entry.target.clone())
+            .collect(),
+        installed_hash,
         error: None,
     }
 }
 
-fn failed_info(package: &WebExtensionPackage, error: ExtensionError) -> ExtensionInfo {
+fn failed_info(
+    package: &WebExtensionPackage,
+    error: ExtensionError,
+    config: &ExtensionConfig,
+) -> ExtensionInfo {
     ExtensionInfo {
         id: package.manifest.id.clone(),
         name: package.manifest.name.clone(),
@@ -156,6 +181,16 @@ fn failed_info(package: &WebExtensionPackage, error: ExtensionError) -> Extensio
         status: ExtensionStatus::Failed,
         enabled: true,
         device_count: package.manifest.devices.len(),
+        targets: package
+            .manifest
+            .entrypoints
+            .iter()
+            .map(|entry| entry.target.clone())
+            .collect(),
+        installed_hash: config
+            .settings
+            .get(package.id())
+            .and_then(|settings| settings.installed_hash.clone()),
         error: Some(error.to_string()),
     }
 }

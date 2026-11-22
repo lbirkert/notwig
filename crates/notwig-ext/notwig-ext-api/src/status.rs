@@ -36,16 +36,28 @@ pub struct ExtensionInfo {
     pub status: ExtensionStatus,
     pub enabled: bool,
     pub device_count: usize,
+    /// Entrypoint targets advertised by the installed or indexed manifest.
+    #[serde(default)]
+    pub targets: Vec<String>,
+    /// SHA-256 of the ZIP that installed this extension, when known.
+    #[serde(default)]
+    pub installed_hash: Option<String>,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionSettings {
     pub enabled: bool,
+    /// SHA-256 of the ZIP last installed through Notwig.
+    #[serde(default)]
+    pub installed_hash: Option<String>,
 }
 
 impl Default for ExtensionSettings {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            installed_hash: None,
+        }
     }
 }

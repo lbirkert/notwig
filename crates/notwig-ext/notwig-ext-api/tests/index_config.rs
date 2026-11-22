@@ -161,7 +161,10 @@ fn config_round_trips_new_format() {
     let mut settings = BTreeMap::new();
     settings.insert(
         "notwig.ext.devices".into(),
-        ExtensionSettings { enabled: false },
+        ExtensionSettings {
+            enabled: false,
+            installed_hash: None,
+        },
     );
     let config = ExtensionConfig {
         version: CONFIG_VERSION,
@@ -190,11 +193,17 @@ fn config_enabled_defaults_to_true_and_honors_overrides() {
 
     config.settings.insert(
         "com.test.enabled".into(),
-        ExtensionSettings { enabled: true },
+        ExtensionSettings {
+            enabled: true,
+            installed_hash: None,
+        },
     );
     config.settings.insert(
         "com.test.disabled".into(),
-        ExtensionSettings { enabled: false },
+        ExtensionSettings {
+            enabled: false,
+            installed_hash: None,
+        },
     );
 
     assert!(config.is_enabled("com.test.enabled"));
@@ -208,7 +217,10 @@ fn disabled_settings_filter_the_package_load_set() {
     let mut config = ExtensionConfig::default();
     config.settings.insert(
         "com.test.disabled".into(),
-        ExtensionSettings { enabled: false },
+        ExtensionSettings {
+            enabled: false,
+            installed_hash: None,
+        },
     );
 
     let packages = ["com.test.enabled", "com.test.disabled"];
@@ -283,7 +295,10 @@ fn legacy_settings_map_migrates_to_default_index() {
     assert_eq!(config.indexes, vec![DEFAULT_INDEX_URL.to_string()]);
     assert_eq!(
         config.settings.get("notwig.ext.devices"),
-        Some(&ExtensionSettings { enabled: true })
+        Some(&ExtensionSettings {
+            enabled: true,
+            installed_hash: None
+        })
     );
 }
 

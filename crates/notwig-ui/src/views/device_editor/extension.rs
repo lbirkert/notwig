@@ -37,13 +37,22 @@ impl NotwigUi {
             panel_input,
             size,
         );
-        let frame = {
-            let Some(host) = self.device_panel_host.as_mut() else {
-                return false;
-            };
+        let key = device.id.to_string();
+        let frame = if let Some(host) = self.device_panel_host.as_mut() {
             host.draw_device_panel(&device.type_id, &context)
+        } else {
+            None
+        };
+        let frame = match frame {
+            Some(frame) if frame.validate().is_ok() => {
+                self.last_extension_frames
+                    .insert(key.clone(), frame.clone());
+                Some(frame)
+            }
+            _ => self.last_extension_frames.get(&key).cloned(),
         };
         let Some(frame) = frame else {
+            paint_panel_placeholder(ui, target);
             return false;
         };
         paint_panel_frame(self, ui, device, spec, &frame, target);

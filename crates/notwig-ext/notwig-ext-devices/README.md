@@ -114,19 +114,11 @@ The shared library is written to:
 target/aarch64-apple-darwin/release/libnotwig_ext_devices.dylib
 ```
 
-`notwig-ext-cli` reads the source manifest, adds the selected entrypoint,
-and writes a target-specific ZIP:
+To build and package the stock extension locally:
 
 ```sh
-cargo run -p notwig-ext-cli -- build wasm --path crates/notwig-ext/notwig-ext-devices
-cargo run -p notwig-ext-cli -- build macos-aarch64 --path crates/notwig-ext/notwig-ext-devices
-```
-
-The repository wrapper builds the stock package into `docs/extensions/`:
-
-```sh
-./scripts/package-extension.sh wasm
-./scripts/package-extension.sh macos-aarch64
+cargo run -p notwig-ext-cli -- build --entrypoint wasm --path crates/notwig-ext/notwig-ext-devices
+cargo run -p notwig-ext-cli -- build --package wasm --path crates/notwig-ext/notwig-ext-devices --out-dir docs/extensions --name ext-devices-wasm
 ```
 
 ## Install

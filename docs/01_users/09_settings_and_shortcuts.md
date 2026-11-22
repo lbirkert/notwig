@@ -109,9 +109,14 @@ The Extensions page installs and manages WASM and native extensions.
 - Dropping a `.zip` file onto the Extensions page also installs it.
 - **Manage Indices** adds or removes JSON index sources used for **Available**
   extensions.
+- Platform tags show which targets an extension supports: WASM, macOS,
+  Windows, and Linux.
+- Extensions without a build for the current platform are dimmed and cannot be
+  installed.
 - An available extension has **Install**.
 - An installed extension can be **Disabled**, **Enabled**, **Reinstalled**, or
-  **Uninstalled**.
+  **Uninstalled**. If its installed archive hash differs from the current index
+  hash, an **Update** button appears below **Uninstall**.
 
 Removing an extension removes its files and settings. Extension devices already
 placed in a project are unavailable until the extension is installed again.

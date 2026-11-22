@@ -95,17 +95,11 @@ contain several entrypoints; the host picks the first supported target. Missing
 Rust targets are installed with `rustup target add` for `--entrypoint` builds by
 default.
 
-The repository keeps `scripts/package-extension.sh` as a thin wrapper around the
-CLI for the stock extension:
-
-```sh
-./scripts/package-extension.sh wasm
-./scripts/package-extension.sh macos-aarch64
-```
-
-With no argument the script builds WASM, plus the macOS Apple Silicon build on an
-Apple Silicon host. Add new targets to the CLI target table and to the CI matrix
-when you are ready to publish them.
+The Pages workflow uses the same commands for the stock extension. It installs
+the CLI with `cargo install --path crates/notwig-ext/notwig-ext-cli --locked`,
+builds one target entrypoint on each runner, and packages that artifact into a
+ZIP. Add new targets to the CLI target table and to the CI matrix when you are
+ready to publish them.
 
 ## Publish an index
 

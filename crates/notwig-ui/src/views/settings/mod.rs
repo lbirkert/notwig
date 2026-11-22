@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use egui::{Align2, Color32, FontId, RichText, Vec2};
-use notwig_ext_api::{ExtensionIndexEntry, ExtensionInfo, ExtensionStatus};
+use notwig_ext_api::{ExtensionIndexEntry, ExtensionInfo, ExtensionStatus, target};
 
 use crate::form;
 use crate::intent::UiIntent;
@@ -248,13 +248,13 @@ impl NotwigUi {
     fn extension_card(&mut self, ui: &mut egui::Ui, card: &ExtensionCard) {
         let installed = card.installed.clone();
         let disabled = installed.as_ref().is_some_and(|info| !info.enabled);
-        let target_unavailable = installed.is_none()
-            && card
-                .index_entry
-                .as_ref()
-                .is_some_and(|entry| entry.download_for_host().is_none());
+        let target_tags = extension_target_labels(installed.as_ref(), card.index_entry.as_ref());
+        let target_unavailable =
+            !extension_target_supported(installed.as_ref(), card.index_entry.as_ref());
+        let update_available =
+            extension_update_available(installed.as_ref(), card.index_entry.as_ref());
         let inner = ui.scope(|ui| {
-            if disabled {
+            if disabled || target_unavailable {
                 ui.set_opacity(0.55);
             }
             egui::Frame::new()
@@ -313,14 +313,19 @@ impl NotwigUi {
                                     },
                                     |info| info.device_count,
                                 );
-                                ui.label(
-                                    RichText::new(format!(
-                                        "v{version} · {device_count} device{}",
-                                        if device_count == 1 { "" } else { "s" }
-                                    ))
-                                    .small()
-                                    .color(theme::TEXT_MUTED),
-                                );
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "v{version} · {device_count} device{}",
+                                            if device_count == 1 { "" } else { "s" }
+                                        ))
+                                        .small()
+                                        .color(theme::TEXT_MUTED),
+                                    );
+                                    for tag in &target_tags {
+                                        extension_target_tag_widget(ui, tag);
+                                    }
+                                });
                                 if target_unavailable {
                                     ui.label(
                                         RichText::new("Not available for this platform")
@@ -342,7 +347,7 @@ impl NotwigUi {
                                 }
                             },
                         );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
                             if installed.is_some() {
                                 let button = egui::Button::new(
                                     RichText::new("Uninstall").color(theme::ACCENT),
@@ -353,6 +358,18 @@ impl NotwigUi {
                                     self.emit(UiIntent::UninstallExtension {
                                         id: card.id.clone(),
                                     });
+                                }
+                                if update_available && !target_unavailable {
+                                    ui.add_space(4.0);
+                                    let update = egui::Button::new(
+                                        RichText::new("Update").color(theme::ACCENT),
+                                    )
+                                    .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT));
+                                    if ui.add_sized([96.0, 30.0], update).clicked() {
+                                        self.emit(UiIntent::InstallExtensionFromIndex {
+                                            id: card.id.clone(),
+                                        });
+                                    }
                                 }
                             } else if target_unavailable {
                                 ui.label(
@@ -1097,6 +1114,126 @@ fn add_audio_channel(
     });
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ExtensionTargetTag {
+    Wasm,
+    Macos,
+    Windows,
+    Linux,
+}
+
+impl ExtensionTargetTag {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Wasm => "WASM",
+            Self::Macos => "macOS",
+            Self::Windows => "Windows",
+            Self::Linux => "Linux",
+        }
+    }
+}
+
+fn extension_target_tag(raw: &str) -> Option<ExtensionTargetTag> {
+    let canonical = target::canonical(raw)?;
+    if canonical == target::WASM {
+        Some(ExtensionTargetTag::Wasm)
+    } else if canonical.starts_with("macos-") {
+        Some(ExtensionTargetTag::Macos)
+    } else if canonical.starts_with("windows-") {
+        Some(ExtensionTargetTag::Windows)
+    } else if canonical.starts_with("linux-") {
+        Some(ExtensionTargetTag::Linux)
+    } else {
+        None
+    }
+}
+
+pub fn extension_target_labels(
+    installed: Option<&ExtensionInfo>,
+    index_entry: Option<&ExtensionIndexEntry>,
+) -> Vec<&'static str> {
+    let mut tags = std::collections::BTreeSet::new();
+    if let Some(info) = installed {
+        for raw in &info.targets {
+            if let Some(tag) = extension_target_tag(raw) {
+                tags.insert(tag);
+            }
+        }
+    }
+    if let Some(entry) = index_entry {
+        for url in &entry.urls {
+            for raw in &url.targets {
+                if let Some(tag) = extension_target_tag(raw) {
+                    tags.insert(tag);
+                }
+            }
+        }
+    }
+    tags.into_iter().map(ExtensionTargetTag::label).collect()
+}
+
+pub fn extension_target_supported(
+    installed: Option<&ExtensionInfo>,
+    index_entry: Option<&ExtensionIndexEntry>,
+) -> bool {
+    if let Some(info) = installed
+        && !info.targets.is_empty()
+    {
+        return info.targets.iter().any(|raw| target::is_supported(raw));
+    }
+    if let Some(entry) = index_entry {
+        let mut saw_target = false;
+        for url in &entry.urls {
+            for raw in &url.targets {
+                saw_target = true;
+                if target::is_supported(raw) {
+                    return true;
+                }
+            }
+        }
+        if saw_target {
+            return false;
+        }
+    }
+    true
+}
+
+pub fn extension_update_available(
+    installed: Option<&ExtensionInfo>,
+    index_entry: Option<&ExtensionIndexEntry>,
+) -> bool {
+    let Some(info) = installed else {
+        return false;
+    };
+    let Some(hash) = info.installed_hash.as_deref() else {
+        return false;
+    };
+    let Some(entry) = index_entry else {
+        return false;
+    };
+    let mut saw_target = false;
+    for url in &entry.urls {
+        if url.targets.iter().any(|raw| target::is_supported(raw)) {
+            saw_target = true;
+            if url.hash.eq_ignore_ascii_case(hash) {
+                return false;
+            }
+        }
+    }
+    saw_target
+}
+
+fn extension_target_tag_widget(ui: &mut egui::Ui, label: &str) {
+    egui::Frame::new()
+        .fill(theme::PANEL_LIGHT)
+        .stroke(egui::Stroke::new(1.0_f32, theme::GRID))
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(5, 1))
+        .show(ui, |ui| {
+            ui.label(RichText::new(label).size(9.5).color(theme::TEXT_MUTED));
+        });
+}
+
 struct ExtensionCard {
     id: String,
     name: String,
@@ -1198,4 +1335,11 @@ fn extension_placeholder(ui: &mut egui::Ui, size: Vec2) {
         FontId::monospace(12.0),
         theme::TEXT_MUTED,
     );
+}
+
+#[doc(hidden)]
+pub mod test_api {
+    pub use super::{
+        extension_target_labels, extension_target_supported, extension_update_available,
+    };
 }

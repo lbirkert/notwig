@@ -20,7 +20,7 @@ use super::ExtensionEvent;
 use super::UninstalledExtensions;
 use super::index::{
     IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes, select_download,
-    verify_sha256,
+    sha256_hex, verify_sha256,
 };
 use crate::web::storage::OpfsEntryKind;
 
@@ -62,6 +62,7 @@ enum AdminEvent {
         id: String,
         name: String,
         version: String,
+        hash: String,
     },
     Removed {
         id: String,
@@ -191,11 +192,21 @@ impl ExtensionManager {
         };
         self.admin_rx = None;
         match result {
-            Ok(AdminEvent::Installed { id, name, version }) => {
+            Ok(AdminEvent::Installed {
+                id,
+                name,
+                version,
+                hash,
+            }) => {
                 if self.uninstalled.clear(&id) {
                     if let Err(error) = self.persist_uninstalled() {
                         events.push(ExtensionEvent::Error(error));
                     }
+                }
+                let settings = self.config.settings.entry(id).or_default();
+                settings.installed_hash = Some(hash);
+                if let Err(error) = self.persist_result() {
+                    events.push(ExtensionEvent::Error(error));
                 }
                 events.push(ExtensionEvent::Installed { name, version });
                 self.start_load();
@@ -321,6 +332,7 @@ impl ExtensionManager {
         let download = select_download(&entry)
             .cloned()
             .ok_or_else(|| format!("Extension {id} has no WASM package."))?;
+        let hash = download.hash.clone();
         let (sender, receiver) = mpsc::channel();
         self.admin_rx = Some(receiver);
         spawn_local(async move {
@@ -340,6 +352,7 @@ impl ExtensionManager {
                     id: entry.id,
                     name,
                     version,
+                    hash,
                 })
             }
             .await;
@@ -362,12 +375,18 @@ impl ExtensionManager {
         let id = package.id().to_owned();
         let name = package.name().to_owned();
         let version = package.version().to_owned();
+        let hash = sha256_hex(&bytes);
         let (sender, receiver) = mpsc::channel();
         self.admin_rx = Some(receiver);
         spawn_local(async move {
             let result = install_archive(&id, &archive)
                 .await
-                .map(|()| AdminEvent::Installed { id, name, version });
+                .map(|()| AdminEvent::Installed {
+                    id,
+                    name,
+                    version,
+                    hash,
+                });
             let _ = sender.send(result);
         });
         Ok(())
@@ -556,6 +575,8 @@ fn failed_extension_info(id: String, name: String, error: String) -> ExtensionIn
         status: ExtensionStatus::Failed,
         enabled: true,
         device_count: 0,
+        targets: Vec::new(),
+        installed_hash: None,
         error: Some(error),
     }
 }

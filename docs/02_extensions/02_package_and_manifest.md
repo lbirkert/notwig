@@ -236,14 +236,8 @@ arguments. Without `--name`, the ZIP is named `<extension-id>.zip` when it
 contains several entrypoints and `<extension-id>-<target>.zip` for one. There is
 no automatic native cross-compilation; build each binary on the target platform.
 
-The repository keeps a thin `scripts/package-extension.sh` wrapper for the stock
-`notwig-ext-devices` package:
-
-```sh
-./scripts/package-extension.sh wasm
-./scripts/package-extension.sh macos-aarch64
-```
-
-The CLI also provides `new` and `init` to scaffold a working extension with
+The Pages workflow is a complete build recipe: it installs the CLI from this
+workspace, builds one entrypoint on the matching runner, then packages it. The
+CLI also provides `new` and `init` to scaffold a working extension with
 `Cargo.toml`, `src/lib.rs`, `extension.json`, and a default `icon.png`. See
 [Testing and Distribution](05_testing_and_distribution.md).

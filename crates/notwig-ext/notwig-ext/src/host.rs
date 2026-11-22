@@ -31,7 +31,7 @@ impl ExtensionHost {
         let mut infos = Vec::new();
 
         for failure in report.failures {
-            infos.push(failure_info(failure));
+            infos.push(failure_info(failure, settings));
         }
 
         for discovered in report.extensions {
@@ -50,7 +50,7 @@ impl ExtensionHost {
                 }
             };
             let extension = Arc::new(extension);
-            infos.push(info_from(&extension));
+            infos.push(info_from(&extension, settings));
             if extension.status == ExtensionStatus::Loaded {
                 for spec in &extension.specs {
                     if by_type.contains_key(&spec.type_id) {
@@ -191,11 +191,17 @@ fn failed(
     }
 }
 
-fn info_from(extension: &LoadedExtension) -> ExtensionInfo {
+fn info_from(
+    extension: &LoadedExtension,
+    settings: &BTreeMap<String, ExtensionSettings>,
+) -> ExtensionInfo {
     let image_path = extension.manifest.image.as_ref().and_then(|image| {
         let path = extension.dir.join(image);
         path.is_file().then_some(path)
     });
+    let installed_hash = settings
+        .get(&extension.manifest.id)
+        .and_then(|settings| settings.installed_hash.clone());
     ExtensionInfo {
         id: extension.manifest.id.clone(),
         name: extension.manifest.name.clone(),
@@ -211,11 +217,26 @@ fn info_from(extension: &LoadedExtension) -> ExtensionInfo {
         } else {
             extension.specs.len()
         },
+        targets: extension
+            .manifest
+            .entrypoints
+            .iter()
+            .map(|entry| entry.target.clone())
+            .collect(),
+        installed_hash,
         error: extension.error.clone(),
     }
 }
 
-fn failure_info(failure: DiscoveryFailure) -> ExtensionInfo {
+fn failure_info(
+    failure: DiscoveryFailure,
+    settings: &BTreeMap<String, ExtensionSettings>,
+) -> ExtensionInfo {
+    let installed_hash = failure
+        .id
+        .as_ref()
+        .and_then(|id| settings.get(id))
+        .and_then(|settings| settings.installed_hash.clone());
     ExtensionInfo {
         id: failure.id.unwrap_or_else(|| failure.name.clone()),
         name: failure.name,
@@ -227,6 +248,8 @@ fn failure_info(failure: DiscoveryFailure) -> ExtensionInfo {
         status: ExtensionStatus::Failed,
         enabled: true,
         device_count: 0,
+        targets: Vec::new(),
+        installed_hash,
         error: Some(failure.error),
     }
 }

@@ -124,9 +124,9 @@ shared `notwig-ui` egui components.
 - **Panels** use the guest egui API. Extensions run a private egui context and
   return validated meshes, texture deltas, and parameter actions. The host
   composites the output and applies validated actions.
-- **Packaging** is produced by `notwig-ext-cli`. The repository's
-  `scripts/package-extension.sh` and the Pages workflow use the CLI to build
-  the stock extension.
+- **Packaging** is produced by `notwig-ext-cli`. The Pages workflow shows a
+  minimal CI recipe: install the CLI from this workspace, build one target
+  entrypoint on the matching runner, then package the artifacts into a ZIP.
 
 See [`docs/02_extensions/`](../../docs/02_extensions/) for author documentation
 and [`docs/03_development/`](../../docs/03_development/) for the runtime design.

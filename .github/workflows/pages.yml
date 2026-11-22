@@ -25,9 +25,11 @@ jobs:
         include:
           - os: ubuntu-latest
             target: wasm
+            slug: wasm
             rust_targets: wasm32-unknown-unknown
           - os: macos-15
             target: macos-aarch64
+            slug: macos-arm64
             rust_targets: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
@@ -39,8 +41,24 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # This job is also a minimal recipe for building an extension in CI:
+      # 1. install the packaging CLI from this workspace
+      # 2. build one target entrypoint on the matching runner
+      # 3. package the artifacts present in target/ into the publishable ZIP
+      - name: Install notwig-ext-cli
+        run: cargo install --path crates/notwig-ext/notwig-ext-cli --locked
+
+      - name: Build extension entrypoint
+        run: >-
+          notwig-ext-cli build --entrypoint "${{ matrix.target }}"
+          --path crates/notwig-ext/notwig-ext-devices
+
       - name: Package stock extension
-        run: ./scripts/package-extension.sh "${{ matrix.target }}"
+        run: >-
+          notwig-ext-cli build --package "${{ matrix.target }}"
+          --path crates/notwig-ext/notwig-ext-devices
+          --out-dir docs/extensions
+          --name "ext-devices-${{ matrix.slug }}"
 
       - uses: actions/upload-artifact@v4
         with:

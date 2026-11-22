@@ -68,7 +68,7 @@ pub(crate) fn verify_sha256(bytes: &[u8], expected: &str) -> Result<(), String> 
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(64);
     for byte in digest {
@@ -94,11 +94,13 @@ fn merge_entry(existing: &mut ExtensionIndexEntry, candidate: ExtensionIndexEntr
         Ordering::Greater => *existing = candidate,
         Ordering::Equal => {
             for download in candidate.urls {
-                if !existing
+                if let Some(current) = existing
                     .urls
-                    .iter()
-                    .any(|current| current.url == download.url && current.hash == download.hash)
+                    .iter_mut()
+                    .find(|current| current.url == download.url)
                 {
+                    *current = download;
+                } else {
                     existing.urls.push(download);
                 }
             }
@@ -215,6 +217,36 @@ mod tests {
             result.entries[0].image.as_deref(),
             Some("https://example.com/extensions/com.test.gain.png")
         );
+    }
+
+    #[test]
+    fn same_version_url_hash_updates_replace_the_previous_hash() {
+        let newer = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        let older = format!(
+            r#"[{{
+                "id": "com.test.gain",
+                "name": "Test Gain",
+                "vendor": "Test",
+                "version": "0.1.0",
+                "api_version": 4,
+                "urls": [{{ "url": "gain.zip", "hash": "{HASH}", "targets": ["wasm"] }}],
+                "devices": []
+            }}]"#
+        );
+        let updated = older.replace(HASH, newer);
+        let result = merge_indexes(vec![
+            (
+                "https://example.com/extensions.json".into(),
+                older.into_bytes(),
+            ),
+            (
+                "https://example.com/extensions.json".into(),
+                updated.into_bytes(),
+            ),
+        ]);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.entries[0].urls.len(), 1);
+        assert_eq!(result.entries[0].urls[0].hash, newer);
     }
 
     #[test]

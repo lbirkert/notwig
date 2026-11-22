@@ -5,21 +5,19 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use notwig_core::dsp::{DeviceFactory, DeviceSpec};
-use notwig_ext::{
-    ExtensionHost, InstalledExtension, install_zip_bytes, install_zip_file, uninstall,
-};
+use notwig_ext::{ExtensionHost, InstalledExtension, install_zip_bytes, uninstall};
 use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
 
 use super::ExtensionEvent;
 use super::index::{
     IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes, select_download,
-    verify_sha256,
+    sha256_hex, verify_sha256,
 };
 
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ICON_BYTES: usize = 4 * 1024 * 1024;
 
-type InstallResult = Result<InstalledExtension, String>;
+type InstallResult = Result<(InstalledExtension, String), String>;
 
 pub(crate) struct ExtensionManager {
     config: ExtensionConfig,
@@ -88,7 +86,14 @@ impl ExtensionManager {
             if let Some(result) = result {
                 self.install_rx = None;
                 match result {
-                    Ok(installed) => {
+                    Ok((installed, hash)) => {
+                        let settings = self
+                            .config
+                            .settings
+                            .entry(installed.manifest.id.clone())
+                            .or_default();
+                        settings.installed_hash = Some(hash);
+                        self.persist();
                         self.reload();
                         events.push(ExtensionEvent::Installed {
                             name: installed.manifest.name,
@@ -246,11 +251,14 @@ impl ExtensionManager {
         let Some(root) = extensions_dir() else {
             return Err("Could not locate the extensions directory.".into());
         };
+        let hash = download.hash.clone();
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
             let result = read_source_bytes(&download.url).and_then(|bytes| {
                 verify_sha256(&bytes, &download.hash)?;
-                install_zip_bytes(&root, &bytes, Some(&entry.id)).map_err(|error| error.to_string())
+                install_zip_bytes(&root, &bytes, Some(&entry.id))
+                    .map(|installed| (installed, hash))
+                    .map_err(|error| error.to_string())
             });
             let _ = sender.send(result);
         });
@@ -267,7 +275,14 @@ impl ExtensionManager {
         };
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = install_zip_file(&root, &path, None).map_err(|error| error.to_string());
+            let result = std::fs::read(&path)
+                .map_err(|error| format!("read {}: {error}", path.display()))
+                .and_then(|bytes| {
+                    let hash = sha256_hex(&bytes);
+                    install_zip_bytes(&root, &bytes, None)
+                        .map(|installed| (installed, hash))
+                        .map_err(|error| error.to_string())
+                });
             let _ = sender.send(result);
         });
         self.install_rx = Some(receiver);

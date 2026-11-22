@@ -7,6 +7,7 @@ use notwig_ext_api::{
     ExtensionCapability, ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl,
     ExtensionInfo, ExtensionStatus,
 };
+use notwig_ui::test_api::settings as settings_test;
 use notwig_ui::{NotwigUi, RuntimeView, SettingsCategory, UiIntent};
 use uuid::Uuid;
 
@@ -66,6 +67,8 @@ fn runtime() -> RuntimeView {
         status: ExtensionStatus::Loaded,
         enabled: true,
         device_count: 1,
+        targets: vec!["wasm".into(), "macos-aarch64".into()],
+        installed_hash: None,
         error: None,
     }];
     runtime
@@ -142,4 +145,82 @@ fn dropping_a_zip_on_the_extensions_page_emits_install() {
         intent,
         UiIntent::InstallExtensionZip { path } if path == &expected
     )));
+}
+
+fn installed_info(targets: &[&str], installed_hash: Option<&str>) -> ExtensionInfo {
+    ExtensionInfo {
+        id: "notwig.ext.devices".into(),
+        name: "Notwig Stock Devices".into(),
+        vendor: "Notwig".into(),
+        version: "0.1.0".into(),
+        description: None,
+        image_path: None,
+        capabilities: vec![ExtensionCapability::Device],
+        status: ExtensionStatus::Loaded,
+        enabled: true,
+        device_count: 1,
+        targets: targets.iter().map(|target| (*target).to_owned()).collect(),
+        installed_hash: installed_hash.map(ToOwned::to_owned),
+        error: None,
+    }
+}
+
+fn index_entry(hash: &str, targets: &[&str]) -> ExtensionIndexEntry {
+    ExtensionIndexEntry {
+        id: "notwig.ext.devices".into(),
+        name: "Notwig Stock Devices".into(),
+        vendor: "Notwig".into(),
+        version: "0.1.0".into(),
+        api_version: 4,
+        urls: vec![ExtensionIndexUrl {
+            url: "https://example.com/notwig.ext.devices.zip".into(),
+            hash: hash.into(),
+            targets: targets.iter().map(|target| (*target).to_owned()).collect(),
+        }],
+        capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiPanel],
+        devices: Vec::new(),
+        description: None,
+        image: None,
+    }
+}
+
+#[test]
+fn target_tags_group_platforms_and_deduplicate_architectures() {
+    let info = installed_info(
+        &["wasm", "macos-aarch64", "macos-x86_64", "windows-x86_64"],
+        None,
+    );
+    assert_eq!(
+        settings_test::extension_target_labels(Some(&info), None),
+        vec!["WASM", "macOS", "Windows"]
+    );
+}
+
+#[test]
+fn unsupported_targets_follow_the_host_target() {
+    let info = installed_info(&["windows-x86_64"], None);
+    assert_eq!(
+        settings_test::extension_target_supported(Some(&info), None),
+        notwig_ext_api::target::is_supported("windows-x86_64")
+    );
+    let wasm = installed_info(&["wasm"], None);
+    assert!(settings_test::extension_target_supported(Some(&wasm), None));
+}
+
+#[test]
+fn update_is_available_only_when_the_index_hash_changes() {
+    let installed = installed_info(&["wasm"], Some("abc123"));
+    assert!(settings_test::extension_update_available(
+        Some(&installed),
+        Some(&index_entry("def456", &["wasm"]))
+    ));
+    assert!(!settings_test::extension_update_available(
+        Some(&installed),
+        Some(&index_entry("ABC123", &["wasm"]))
+    ));
+    let unknown = installed_info(&["wasm"], None);
+    assert!(!settings_test::extension_update_available(
+        Some(&unknown),
+        Some(&index_entry("def456", &["wasm"]))
+    ));
 }
