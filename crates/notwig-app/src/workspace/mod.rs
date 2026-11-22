@@ -376,6 +376,8 @@ impl Workspace {
         let metronome = notwig_core::protocol::MetronomeState {
             enabled: self.doc.transport.metronome_enabled,
             beats_per_bar: self.doc.meta.time_sig_num,
+            beat_length: self.doc.meta.beat_length(),
+            bar_length: self.doc.meta.bar_length(),
         };
         self.engine_control.data_mut().set_metronome(metronome);
         self.engine_control.flush();
