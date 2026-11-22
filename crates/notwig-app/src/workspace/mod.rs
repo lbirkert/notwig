@@ -426,6 +426,7 @@ impl Workspace {
                 solo_effective: self.doc.effective_solo(track.id),
                 gain_db: track.mixer.volume_db,
                 pan: track.mixer.pan,
+                monitor: track.io.monitor,
             });
         }
         for device in self.doc.devices.values() {

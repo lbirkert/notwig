@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use notwig_core::dsp::CompiledPlan;
 use notwig_core::protocol::{MetronomeState, RampSpec};
 use notwig_core::{
-    AssetId, AudioAssetBuffer, Db, DeviceId, NoteId, Pan, ParamId, ParamValue, PlaybackSchedule,
-    TimeMus, TrackId,
+    AssetId, AudioAssetBuffer, Db, DeviceId, MonitorMode, NoteId, Pan, ParamId, ParamValue,
+    PlaybackSchedule, TimeMus, TrackId,
 };
 
 use crate::runtime::ActivePlan;
@@ -54,6 +54,7 @@ pub struct TrackStateUpdate {
     pub solo_effective: bool,
     pub gain_db: Db,
     pub pan: Pan,
+    pub monitor: MonitorMode,
 }
 
 /// A short UI-triggered note preview. Pending previews are staged on the app
@@ -275,13 +276,21 @@ impl EngineControl {
         // not consumed the previous box yet, carry its pending runtime into the
         // outgoing box so the structural change still lands. Superseding it with
         // a new prepared runtime is fine; the app thread drops the older one.
-        if outgoing.prepared.is_none()
-            && let Some(pending) = exchange
-                .data
-                .as_mut()
-                .and_then(|previous| previous.prepared.take())
-        {
-            outgoing.prepared = Some(pending);
+        if let Some(previous) = exchange.data.as_mut() {
+            if outgoing.prepared.is_none()
+                && let Some(pending) = previous.prepared.take()
+            {
+                outgoing.prepared = Some(pending);
+            }
+            // A transport publish can be immediately followed by a control
+            // publish (for example arming inputs after pressing Play). Carry a
+            // transport the audio thread has not consumed yet so the later
+            // publish cannot rewind or cancel it.
+            if outgoing.transport.is_none()
+                && let Some(pending) = previous.transport.take()
+            {
+                outgoing.transport = Some(pending);
+            }
         }
         let previous = exchange.data.replace(outgoing);
         exchange.updated = true;

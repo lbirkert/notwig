@@ -31,8 +31,8 @@ pub use time::{
     Semitones, TempoMap, TimeAudio, TimeMus,
 };
 pub use tracks::{
-    AudioInputRef, Connection, MixerState, RoutingGraph, Send as TrackSend, SignalType, Track,
-    TrackForest, TrackIO, TrackKind, TrackOutput,
+    AudioInputRef, Connection, MixerState, MonitorMode, RoutingGraph, Send as TrackSend,
+    SignalType, Track, TrackForest, TrackIO, TrackKind, TrackOutput,
 };
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]

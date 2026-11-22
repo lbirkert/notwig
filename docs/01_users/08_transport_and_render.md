@@ -36,8 +36,9 @@ its input. The clip starts at the playhead where capture began: at the play
 start if record mode was already enabled when playback begins, or at the current
 playhead if record mode is enabled during playback. Notwig compensates for one audio block of
 capture latency. The clip grows with the playhead and shows its waveform while
-recording. An armed track's input is monitored through the
-track's device chain, mixer, pan, and routing.
+recording. An armed track's monitoring mode controls whether its input is
+monitored through the track chain, monitored directly with low latency, or not
+monitored at all.
 
 Turning record mode off finalizes the clips at the current playhead and leaves
 playback running. Pause and Stop also finalize the current clips; record mode

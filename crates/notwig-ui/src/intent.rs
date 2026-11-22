@@ -155,6 +155,10 @@ pub enum UiIntent {
         track_id: TrackId,
         input: Option<notwig_core::AudioInputRef>,
     },
+    SetTrackMonitorMode {
+        track_id: TrackId,
+        mode: notwig_core::MonitorMode,
+    },
     GroupTracks {
         tracks: Vec<TrackId>,
     },

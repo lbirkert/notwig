@@ -188,7 +188,7 @@ async fn open_stream(
         .map_err(|_| "could not open the microphone stream".to_string())?;
     let processor = context
         .create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(
-            1024, 2, 2,
+            256, 2, 2,
         )
         .map_err(|_| "could not create a Web Audio input processor".to_string())?;
     let sink = context

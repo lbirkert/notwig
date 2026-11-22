@@ -52,7 +52,8 @@ audio engine reads.
 4. If the outgoing box has no prepared runtime but the box still in the slot
    does, move the pending `PreparedRuntime` into the outgoing box first. A
    non-prepared publish can therefore never discard a runtime the audio thread
-   has not consumed yet.
+   has not consumed yet. Do the same for a pending transport update, so a
+   control publish immediately after Play cannot cancel the new transport.
 5. Set `updated = true`.
 6. Unlock and keep the returned (previous) box.
 7. Clear the returned box on the app thread so it can be reused.
@@ -219,6 +220,9 @@ preallocated slot in `notwig-engine::InputBus`:
 - the input callback selects the configured mono channel or independent left and
   right channels and pushes interleaved samples into bounded monitoring and
   recording queues;
+- each armed track's monitoring mode decides whether its queued monitor signal is
+  injected into the track chain, discarded, or rendered through a dedicated
+  low-latency chain instance;
 - the app trims one audio block from the start of each new take to compensate
   for block-level capture latency;
 - the audio thread drains the monitoring queue into the armed track's input
@@ -243,6 +247,22 @@ selected physical channel pair.
 
 Finalization writes a float WAV asset, builds its waveform, registers the asset,
 clears the destination range, and creates the recorded clip in one batch.
+
+### High-latency project and low-latency monitoring
+
+The output device stream runs at a small fixed callback block
+(`LOW_LATENCY_DEVICE_BLOCK`, currently 16 frames). The project is still rendered
+in larger `block_size` chunks by the engine. A preallocated ring buffer carries
+project output into the device callback and is consumed in device-sized slices.
+
+Low-latency monitor tracks do not write into the project ring. They drain their
+input queues in the device callback, run through a second set of their track's
+device-chain processors prepared at the project block size, apply track
+gain/pan/mute/solo, and are mixed directly into the device slice. Their monitor
+path skips groups, sends, and the master chain. The second processor set is
+built during the structural rebuild triggered by changing a track's monitor
+mode. The high-latency path skips monitor injection for these tracks while still
+rendering their clips through the normal project graph.
 
 ## 10. Tests
 

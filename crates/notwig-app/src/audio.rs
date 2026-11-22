@@ -21,6 +21,9 @@ pub const SYSTEM_OUT_DEVICE_ID: &str = "system-out";
 const SYSTEM_OUT_LABEL: &str = "System Out";
 const SYSTEM_OUT_WARNING: &str = "System Out follows the operating system's default output device.";
 const COMMON_SAMPLE_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
+/// Device callback block used for the low-latency output path. The project is
+/// rendered in larger chunks and streamed into this small device buffer.
+pub(crate) const LOW_LATENCY_DEVICE_BLOCK: u32 = 16;
 
 /// Errors that mean the current output stream cannot continue and the app must
 /// reopen the configured device. `DeviceChanged` is handled separately because
@@ -220,16 +223,12 @@ impl AudioService {
             let config: StreamConfig = default.into();
             config
         });
-        config.buffer_size = if settings.block_size > 0 {
-            cpal::BufferSize::Fixed(settings.block_size)
-        } else {
-            cpal::BufferSize::Default
-        };
-        let deadline_ms = if settings.block_size > 0 {
-            settings.block_size as f32 / config.sample_rate as f32 * 1000.0
-        } else {
-            0.0
-        };
+        let project_frames = usize::try_from(settings.block_size.max(16)).unwrap_or(512);
+        let device_block = LOW_LATENCY_DEVICE_BLOCK
+            .min(u32::try_from(project_frames).unwrap_or(LOW_LATENCY_DEVICE_BLOCK))
+            .max(1);
+        config.buffer_size = cpal::BufferSize::Fixed(device_block);
+        let deadline_ms = device_block as f32 / config.sample_rate as f32 * 1000.0;
         let snapshot = Arc::new(Mutex::new(AudioSnapshot {
             running: false,
             driver: settings.driver.clone(),
@@ -251,25 +250,42 @@ impl AudioService {
         }));
         let input_hub = InputHub::new(config.sample_rate);
         let output_route = output_route(settings, config.channels);
-        let mut engine = Engine::new(EngineConfig::new(
-            config.sample_rate,
-            settings.block_size.max(16) as usize,
-        ));
+        let mut engine = Engine::new(EngineConfig::new(config.sample_rate, project_frames));
         engine.attach_control(control);
         engine.attach_input_bus(input_hub.bus());
         let stream = match sample_format {
-            SampleFormat::F32 => {
-                build::<f32>(&device, config, engine, Arc::clone(&snapshot), output_route)
-            }
-            SampleFormat::I16 => {
-                build::<i16>(&device, config, engine, Arc::clone(&snapshot), output_route)
-            }
-            SampleFormat::U16 => {
-                build::<u16>(&device, config, engine, Arc::clone(&snapshot), output_route)
-            }
-            SampleFormat::I32 => {
-                build::<i32>(&device, config, engine, Arc::clone(&snapshot), output_route)
-            }
+            SampleFormat::F32 => build::<f32>(
+                &device,
+                config,
+                engine,
+                Arc::clone(&snapshot),
+                output_route,
+                project_frames,
+            ),
+            SampleFormat::I16 => build::<i16>(
+                &device,
+                config,
+                engine,
+                Arc::clone(&snapshot),
+                output_route,
+                project_frames,
+            ),
+            SampleFormat::U16 => build::<u16>(
+                &device,
+                config,
+                engine,
+                Arc::clone(&snapshot),
+                output_route,
+                project_frames,
+            ),
+            SampleFormat::I32 => build::<i32>(
+                &device,
+                config,
+                engine,
+                Arc::clone(&snapshot),
+                output_route,
+                project_frames,
+            ),
             other => Err(format!("unsupported sample format {other}")),
         }?;
         stream.play().map_err(|err| format!("start audio: {err}"))?;
@@ -585,6 +601,7 @@ fn build<T>(
     mut engine: Engine,
     snapshot: Arc<Mutex<AudioSnapshot>>,
     output_route: (usize, Option<usize>),
+    project_frames: usize,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
@@ -595,7 +612,13 @@ where
         cpal::BufferSize::Fixed(frames) => usize::try_from(frames).unwrap_or(1024),
         cpal::BufferSize::Default => 1024,
     };
-    let mut scratch: Vec<f32> = vec![0.0; initial_frames.max(1) * 2];
+    let project_frames = project_frames.max(initial_frames.max(1));
+    let mut low_scratch: Vec<f32> = vec![0.0; initial_frames.max(1) * 2];
+    let mut project_scratch: Vec<f32> = vec![0.0; project_frames * 2];
+    let mut project_ring = std::collections::VecDeque::with_capacity(
+        project_frames.saturating_mul(4) + initial_frames.saturating_mul(2),
+    );
+    let mut project_generation = engine.transport_generation();
     let mut events = Vec::with_capacity(4096);
     let mut last_callback: Option<Instant> = None;
     let error_snapshot = Arc::clone(&snapshot);
@@ -607,41 +630,69 @@ where
                 if frames == 0 {
                     return;
                 }
-                if scratch.len() < frames * 2 {
-                    scratch.resize(frames * 2, 0.0);
+                if low_scratch.len() < frames * 2 {
+                    low_scratch.resize(frames * 2, 0.0);
                 }
                 let mut processed = false;
                 let started = Instant::now();
                 let period = last_callback.map(|previous| (started - previous).as_secs_f64());
                 last_callback = Some(started);
                 let crashed = snapshot.try_lock().is_ok_and(|snapshot| snapshot.crashed);
-                let outcome = if crashed {
-                    None
-                } else {
-                    Some(catch_unwind(AssertUnwindSafe(|| {
-                        engine.process(&mut scratch[..frames * 2], frames)
-                    })))
-                };
-                let processed_ok = matches!(outcome, Some(Ok(Ok(()))));
-                if let Some(outcome) = outcome {
-                    match outcome {
-                        Ok(Ok(())) => {}
-                        Ok(Err(err)) => {
-                            if let Ok(mut snapshot) = snapshot.try_lock() {
-                                snapshot.error = Some(err.to_string());
+                if !crashed {
+                    let mut crashed_now = false;
+                    while project_ring.len() < frames * 2 {
+                        let outcome = catch_unwind(AssertUnwindSafe(|| {
+                            engine
+                                .process(&mut project_scratch[..project_frames * 2], project_frames)
+                        }));
+                        match outcome {
+                            Ok(Ok(())) => {
+                                let generation = engine.transport_generation();
+                                if generation != project_generation {
+                                    project_ring.clear();
+                                    project_generation = generation;
+                                }
+                                project_ring
+                                    .extend(project_scratch[..project_frames * 2].iter().copied());
                             }
-                        }
-                        Err(_) => {
-                            if let Ok(mut snapshot) = snapshot.try_lock() {
-                                snapshot.crashed = true;
-                                snapshot.error =
-                                    Some("Audio engine crashed while processing a block.".into());
+                            Ok(Err(err)) => {
+                                project_ring.clear();
+                                if let Ok(mut snapshot) = snapshot.try_lock() {
+                                    snapshot.error = Some(err.to_string());
+                                }
+                                break;
+                            }
+                            Err(_) => {
+                                project_ring.clear();
+                                crashed_now = true;
+                                if let Ok(mut snapshot) = snapshot.try_lock() {
+                                    snapshot.crashed = true;
+                                    snapshot.error = Some(
+                                        "Audio engine crashed while processing a block.".into(),
+                                    );
+                                }
+                                break;
                             }
                         }
                     }
+                    if !crashed_now {
+                        low_scratch[..frames * 2].fill(0.0);
+                        let outcome = catch_unwind(AssertUnwindSafe(|| {
+                            engine
+                                .process_low_latency_monitor(&mut low_scratch[..frames * 2], frames)
+                        }));
+                        if outcome.is_err() {
+                            low_scratch[..frames * 2].fill(0.0);
+                            if let Ok(mut snapshot) = snapshot.try_lock() {
+                                snapshot.crashed = true;
+                                snapshot.error =
+                                    Some("Audio engine crashed while monitoring input.".into());
+                            }
+                        }
+                    }
+                    processed = !crashed_now;
                 }
-                if processed_ok {
-                    processed = true;
+                if processed {
                     let block_seconds = frames as f64 / f64::from(sample_rate.max(1));
                     let elapsed = started.elapsed();
                     let timestamp = info.timestamp();
@@ -666,12 +717,14 @@ where
                 }
                 for (frame_index, frame) in data.chunks_mut(channels).enumerate() {
                     let left = if processed {
-                        scratch[frame_index * 2]
+                        project_ring.pop_front().unwrap_or(0.0)
+                            + low_scratch.get(frame_index * 2).copied().unwrap_or(0.0)
                     } else {
                         0.0
                     };
                     let right = if processed {
-                        scratch[frame_index * 2 + 1]
+                        project_ring.pop_front().unwrap_or(0.0)
+                            + low_scratch.get(frame_index * 2 + 1).copied().unwrap_or(0.0)
                     } else {
                         0.0
                     };

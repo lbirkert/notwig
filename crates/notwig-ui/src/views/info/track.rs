@@ -136,6 +136,37 @@ impl NotwigUi {
         }
     }
 
+    fn track_monitor_editor(&mut self, ui: &mut egui::Ui, track: &Track) {
+        egui::ComboBox::from_id_salt(("track-monitor", track.id))
+            .selected_text(track.io.monitor.label())
+            .width(ui.available_width().min(280.0))
+            .show_ui(ui, |ui| {
+                for mode in [
+                    notwig_core::MonitorMode::Disabled,
+                    notwig_core::MonitorMode::Enabled,
+                    notwig_core::MonitorMode::LowLatency,
+                ] {
+                    if ui
+                        .selectable_label(track.io.monitor == mode, mode.label())
+                        .clicked()
+                    {
+                        self.emit(UiIntent::SetTrackMonitorMode {
+                            track_id: track.id,
+                            mode,
+                        });
+                        ui.close();
+                    }
+                }
+            });
+        if track.io.monitor == notwig_core::MonitorMode::LowLatency {
+            ui.label(
+                RichText::new("Runs through the track chain but bypasses groups, sends, and master processing.")
+                    .small()
+                    .color(theme::TEXT_MUTED),
+            );
+        }
+    }
+
     fn track_comment_editor(&mut self, ui: &mut egui::Ui, track: &Track) {
         ui.add_space(6.0);
         let mut comment = track.comment.clone();
@@ -224,6 +255,9 @@ impl NotwigUi {
             ui.separator();
             ui.label(theme::heading(ui.ctx(), "INPUT"));
             self.track_input_editor(ui, &track, runtime);
+            ui.separator();
+            ui.label(theme::heading(ui.ctx(), "MONITORING"));
+            self.track_monitor_editor(ui, &track);
         }
         ui.separator();
 

@@ -57,8 +57,18 @@ The info panel exposes the same controls and adds:
 
 Audio tracks record one selected mono or stereo input. The input picker lists
 only named inputs configured in **Settings > Audio**; all of them use the single
-audio device selected there. Arm tracks before enabling record mode; clips grow
-in place while playback runs.
+audio device selected there.
+
+The **MONITORING** section below the input picker selects how an armed audio
+track is monitored:
+
+- **Disabled**: record without monitoring the input.
+- **Enabled**: monitor through the track's device chain, mixer, and routing.
+- **Low Latency**: monitor through the track's device chain at the device's
+  small callback buffer, bypassing groups, sends, and master processing. Track
+  volume, pan, mute, and solo still apply.
+
+Arm tracks before enabling record mode; clips grow in place while playback runs.
 
 Click a peak readout to reset its held value.
 

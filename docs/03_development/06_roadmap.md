@@ -196,7 +196,7 @@ Dependencies worth planning around:
 | Loop and punch recording | 📋 Planned | ⭐⭐⭐⭐ | Linear recording is implemented first. |
 | Take lanes | 📋 Planned | ⭐⭐⭐⭐ | After basic recording. |
 | Comping | 🚫 Not Planned | ⭐⭐⭐⭐ | After basic recording. |
-| Input monitoring | 🧪 Partial | ⭐⭐⭐⭐⭐ | Armed tracks monitor through the track chain. Monitoring modes are planned. |
+| Input monitoring | 🧪 Partial | ⭐⭐⭐⭐⭐ | Armed tracks support Disabled, Enabled through-chain, and Low Latency monitoring through a separate track-chain instance on a 16-frame device buffer while the project renders in larger chunks. Hardware calibration is still planned. |
 | Input routing | 🧪 Partial | ⭐⭐⭐⭐⭐ | Single selected device with named mono and stereo inputs using independent left/right channels, plus named output and master-output selection. Multi-device recording is intentionally unsupported. |
 | Mono and stereo track formats | 📋 Planned | ⭐⭐⭐⭐ | Engine and assets are stereo today. |
 | Surround and multi-channel | 🚫 Not Planned | ⭐ |  |

@@ -67,6 +67,25 @@ pub struct Send {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MonitorMode {
+    Disabled,
+    #[default]
+    Enabled,
+    LowLatency,
+}
+
+impl MonitorMode {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Disabled => "Disabled",
+            Self::Enabled => "Enabled",
+            Self::LowLatency => "Low Latency",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrackOutput {
     Default,
@@ -101,6 +120,8 @@ const fn default_input_channels() -> u16 {
 pub struct TrackIO {
     #[serde(default)]
     pub audio_input: Option<AudioInputRef>,
+    #[serde(default)]
+    pub monitor: MonitorMode,
     pub midi_in: Option<String>,
     pub audio_out: TrackOutput,
 }
@@ -109,6 +130,7 @@ impl Default for TrackIO {
     fn default() -> Self {
         Self {
             audio_input: None,
+            monitor: MonitorMode::Enabled,
             midi_in: None,
             audio_out: TrackOutput::Default,
         }

@@ -93,6 +93,7 @@ pub struct DeviceMeterRuntime {
 #[derive(Debug)]
 pub struct TrackRuntime {
     pub plan: PlanTrack,
+    pub monitor: notwig_core::MonitorMode,
     pub buffer: Vec<f32>,
     pub pre_fader: Vec<f32>,
     input_delay: DelayLine,
@@ -112,11 +113,13 @@ impl TrackRuntime {
             .iter()
             .map(|send| (send.id, DelayLine::new(send.latency_samples)))
             .collect();
+        let monitor = plan.monitor;
         Self {
             input_delay: DelayLine::new(plan.input_latency),
             main_delay: DelayLine::new(main_delay_samples),
             send_delays,
             plan,
+            monitor,
             buffer: vec![0.0; frames * 2],
             pre_fader: vec![0.0; frames * 2],
             peak_l: 0.0,
@@ -141,6 +144,11 @@ impl TrackRuntime {
     }
 }
 
+struct LowLatencyMonitorRuntime {
+    roots: Vec<(DeviceId, Box<dyn DeviceProcessor>)>,
+    buffer: Vec<f32>,
+}
+
 pub struct ActivePlan {
     config: RenderConfig,
     master: TrackId,
@@ -149,6 +157,7 @@ pub struct ActivePlan {
     chains: BTreeMap<DeviceChainId, Vec<DeviceId>>,
     processors: Vec<Option<Box<dyn DeviceProcessor>>>,
     processor_index: BTreeMap<DeviceId, usize>,
+    low_monitors: BTreeMap<TrackId, LowLatencyMonitorRuntime>,
     device_meters: BTreeMap<DeviceId, DeviceMeterRuntime>,
     schedule: Arc<PlaybackSchedule>,
     assets: Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>,
@@ -209,6 +218,30 @@ impl ActivePlan {
         for (chain, devices) in &plan.chains {
             chains.insert(*chain, devices.clone());
         }
+        let mut low_monitors = BTreeMap::new();
+        for (id, track) in &plan.tracks {
+            if track.monitor != notwig_core::MonitorMode::LowLatency {
+                continue;
+            }
+            let Some(chain) = plan.chains.get(&track.main_chain) else {
+                continue;
+            };
+            let mut roots = Vec::new();
+            for device_id in chain {
+                if let Some(mut processor) = build_processor(plan, *device_id, factory) {
+                    if processor.prepare(config).is_ok() {
+                        roots.push((*device_id, processor));
+                    }
+                }
+            }
+            low_monitors.insert(
+                *id,
+                LowLatencyMonitorRuntime {
+                    roots,
+                    buffer: vec![0.0; config.max_block_size.max(1) * 2],
+                },
+            );
+        }
         Ok(Self {
             config,
             master: plan.master,
@@ -217,6 +250,7 @@ impl ActivePlan {
             chains,
             processors,
             processor_index,
+            low_monitors,
             device_meters: BTreeMap::new(),
             schedule: Arc::clone(schedule),
             assets,
@@ -245,6 +279,12 @@ impl ActivePlan {
         }
         for processor in self.processors.iter_mut().flatten() {
             processor.reset();
+        }
+        for monitor in self.low_monitors.values_mut() {
+            for (_, processor) in &mut monitor.roots {
+                processor.reset();
+            }
+            monitor.buffer.fill(0.0);
         }
         self.device_meters.clear();
     }
@@ -343,6 +383,12 @@ impl ActivePlan {
         }
     }
 
+    pub fn set_track_monitor(&mut self, track_id: TrackId, monitor: notwig_core::MonitorMode) {
+        if let Some(track) = self.tracks.get_mut(&track_id) {
+            track.monitor = monitor;
+        }
+    }
+
     pub fn meter_snapshot(&self) -> Vec<(TrackId, f32, f32, f32, f32)> {
         self.tracks
             .iter()
@@ -415,8 +461,22 @@ impl ActivePlan {
 
         if let Some(bus) = input_bus {
             for (track_id, slot) in input_routes.iter().flatten() {
-                if let Some(track) = self.tracks.get_mut(track_id) {
-                    bus.drain_monitor_into(*slot, frames, &mut track.buffer[..frames * 2]);
+                let mode = self
+                    .tracks
+                    .get(track_id)
+                    .map_or(notwig_core::MonitorMode::Enabled, |track| track.monitor);
+                match mode {
+                    notwig_core::MonitorMode::Disabled => bus.discard_monitor(*slot, frames),
+                    notwig_core::MonitorMode::Enabled => {
+                        if let Some(track) = self.tracks.get_mut(track_id) {
+                            bus.drain_monitor_into(*slot, frames, &mut track.buffer[..frames * 2]);
+                        }
+                    }
+                    notwig_core::MonitorMode::LowLatency => {
+                        // The low-latency monitor path drains this slot in the
+                        // device callback so it stays outside the high-latency
+                        // project chunk.
+                    }
                 }
             }
         }
@@ -511,6 +571,71 @@ impl ActivePlan {
             output.copy_from_slice(&master.buffer[..frames * 2]);
         } else {
             output.fill(0.0);
+        }
+    }
+
+    pub(crate) fn render_low_latency_monitor(
+        &mut self,
+        input_bus: &InputBus,
+        input_routes: &[Option<(TrackId, u16)>; MAX_INPUT_TRACKS],
+        frames: usize,
+        output: &mut [f32],
+        sample_position: u64,
+        playing: bool,
+    ) {
+        output[..frames * 2].fill(0.0);
+        let config = self.config;
+        let tempo_bpm = self.tempo_bpm;
+        let map = notwig_core::TempoMap {
+            tempo_bpm,
+            sample_rate: notwig_core::SampleRate(self.sample_rate),
+        };
+        let transport = TransportInfo {
+            playhead_mus: map.samples_to_mus(sample_position),
+            loop_start_mus: None,
+            loop_end_mus: None,
+        };
+        let ctx = ProcessContext {
+            config,
+            sample_position,
+            playing,
+            tempo_bpm,
+            transport: &transport,
+        };
+        for (track_id, slot) in input_routes.iter().flatten() {
+            let Some(track) = self.tracks.get(track_id) else {
+                continue;
+            };
+            if track.monitor != notwig_core::MonitorMode::LowLatency {
+                continue;
+            }
+            let gains = {
+                let audible = track.plan.solo_effective && !track.plan.mute;
+                let gain = if audible {
+                    track.plan.volume_db.to_gain().0
+                } else {
+                    0.0
+                };
+                let (pan_l, pan_r) = track.plan.pan.gains();
+                (gain * pan_l, gain * pan_r)
+            };
+            let Some(monitor) = self.low_monitors.get_mut(track_id) else {
+                input_bus.discard_monitor(*slot, frames);
+                continue;
+            };
+            let buffer = &mut monitor.buffer[..frames * 2];
+            buffer.fill(0.0);
+            input_bus.drain_monitor_into(*slot, frames, buffer);
+            for (_, processor) in &mut monitor.roots {
+                let _ = processor.process(&ctx, buffer, &[]);
+            }
+            for frame in buffer.chunks_exact_mut(2) {
+                frame[0] *= gains.0;
+                frame[1] *= gains.1;
+            }
+            for (dst, sample) in output[..frames * 2].iter_mut().zip(buffer.iter()) {
+                *dst += *sample;
+            }
         }
     }
 

@@ -101,6 +101,7 @@ pub struct Engine {
     metronome_bar_length: TimeMus,
     input_bus: Option<Arc<InputBus>>,
     input_routes: [Option<(notwig_core::TrackId, u16)>; MAX_INPUT_TRACKS],
+    transport_generation: u64,
     offline: bool,
 }
 
@@ -144,6 +145,7 @@ impl Engine {
             metronome_bar_length: TimeMus::new(4, 1),
             input_bus: None,
             input_routes: [None; MAX_INPUT_TRACKS],
+            transport_generation: 0,
             offline: false,
         }
     }
@@ -474,6 +476,7 @@ impl Engine {
         }
 
         if let Some(transport) = self.control_data.transport {
+            self.transport_generation = self.transport_generation.wrapping_add(1);
             let jumped = (self.transport.playhead_samples as u64) != transport.playhead_samples;
             self.transport.playing = transport.playing;
             self.transport.playhead_samples = transport.playhead_samples as f64;
@@ -508,6 +511,7 @@ impl Engine {
                     update.gain_db,
                     update.pan,
                 );
+                runtime.set_track_monitor(update.track_id, update.monitor);
             }
             for update in &self.control_data.params {
                 runtime.set_param(update.device_id, update.param_id, &update.value);
@@ -559,6 +563,45 @@ impl Engine {
             control.store_playhead_samples(self.playhead_samples());
         }
         Ok(())
+    }
+
+    /// Render the low-latency monitoring path for one device callback. This
+    /// runs through each low-latency track's device chain but bypasses groups,
+    /// sends, and the master chain.
+    pub fn process_low_latency_monitor(
+        &mut self,
+        output: &mut [f32],
+        frames: usize,
+    ) -> Result<(), EngineError> {
+        if output.len() < frames * 2 {
+            return Err(EngineError::InvalidBuffer {
+                expected: frames * 2,
+                actual: output.len(),
+            });
+        }
+        let Some(bus) = self.input_bus.clone() else {
+            output[..frames * 2].fill(0.0);
+            return Ok(());
+        };
+        let Some(runtime) = &mut self.runtime else {
+            output[..frames * 2].fill(0.0);
+            return Ok(());
+        };
+        let sample_position = self.transport.playhead_samples.max(0.0) as u64;
+        runtime.render_low_latency_monitor(
+            bus.as_ref(),
+            &self.input_routes,
+            frames,
+            output,
+            sample_position,
+            self.transport.playing,
+        );
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn transport_generation(&self) -> u64 {
+        self.transport_generation
     }
 
     fn process_chunk(&mut self, stereo: &mut [f32], frames: usize) -> Result<(), EngineError> {

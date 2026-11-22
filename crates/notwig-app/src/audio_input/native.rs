@@ -93,9 +93,10 @@ impl InputHub {
             .map(|(_, _, left, right)| usize::from((*left).max(right.unwrap_or(*left))))
             .max()
             .unwrap_or(0);
-        let (config, sample_format) =
+        let (mut config, sample_format) =
             choose_input_config(&device, self.sample_rate, max_channel)
                 .ok_or_else(|| format!("input device does not support {} Hz", self.sample_rate))?;
+        config.buffer_size = cpal::BufferSize::Fixed(crate::audio::LOW_LATENCY_DEVICE_BLOCK);
         let targets: Vec<(u16, u16, Option<u16>)> = targets
             .iter()
             .map(|(_, slot, left, right)| (*slot, *left, *right))

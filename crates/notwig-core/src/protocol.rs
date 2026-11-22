@@ -88,6 +88,10 @@ pub enum CommandPayload {
         id: TrackId,
         input: Option<crate::tracks::AudioInputRef>,
     },
+    SetTrackMonitorMode {
+        id: TrackId,
+        mode: crate::tracks::MonitorMode,
+    },
     SetRecording {
         recording: bool,
     },
@@ -262,6 +266,7 @@ impl CommandPayload {
                 | Self::MoveDevice { .. }
                 | Self::SetDeviceBypass { .. }
                 | Self::SetDeviceState { .. }
+                | Self::SetTrackMonitorMode { .. }
         )
     }
 }

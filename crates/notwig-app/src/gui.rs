@@ -2111,6 +2111,12 @@ impl NotwigApp {
                 }
                 let _ = self.report(result);
             }
+            UiIntent::SetTrackMonitorMode { track_id, mode } => {
+                let result = self
+                    .workspace
+                    .apply(CommandPayload::SetTrackMonitorMode { id: track_id, mode });
+                let _ = self.report(result);
+            }
             UiIntent::SetTrackComment { track_id, comment } => {
                 let result = self.workspace.apply(CommandPayload::SetTrackComment {
                     id: track_id,

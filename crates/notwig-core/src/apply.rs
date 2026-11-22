@@ -220,6 +220,17 @@ fn apply_payload(
             changes.track(doc, *id);
             Ok(Vec::new())
         }
+        CommandPayload::SetTrackMonitorMode { id, mode } => {
+            let track = doc.tracks.get_mut(id).ok_or_else(|| not_found(id))?;
+            if track.kind != TrackKind::Audio {
+                return Err(CoreError::ValidationFailed {
+                    reason: "only audio tracks can select a monitoring mode".into(),
+                });
+            }
+            track.io.monitor = *mode;
+            changes.track(doc, *id);
+            Ok(Vec::new())
+        }
         CommandPayload::SetRecording { recording } => {
             doc.transport.recording = *recording;
             changes.push(DocChange::Transport(doc.transport.clone()));

@@ -58,6 +58,7 @@ pub struct PlanDevice {
 pub struct PlanTrack {
     pub id: TrackId,
     pub kind: TrackKind,
+    pub monitor: crate::MonitorMode,
     pub main_chain: DeviceChainId,
     pub volume_db: Db,
     pub pan: Pan,
@@ -187,6 +188,7 @@ pub fn compile(
             PlanTrack {
                 id: track.id,
                 kind: track.kind,
+                monitor: track.io.monitor,
                 main_chain: track.main_chain,
                 volume_db: track.mixer.volume_db,
                 pan: track.mixer.pan,

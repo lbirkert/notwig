@@ -114,6 +114,60 @@ fn only_audio_tracks_can_arm_or_select_input() {
 }
 
 #[test]
+fn audio_tracks_select_a_monitoring_mode() {
+    let mut doc = new_doc();
+    let track = id::<Track>(2);
+    create_track(
+        &mut doc,
+        track,
+        id::<DeviceChain>(102),
+        tracks::TrackKind::Audio,
+        "Monitor".into(),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        doc.tracks.get(&track).unwrap().io.monitor,
+        MonitorMode::Enabled
+    );
+    apply_payload(
+        &mut doc,
+        CommandPayload::SetTrackMonitorMode {
+            id: track,
+            mode: MonitorMode::LowLatency,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        doc.tracks.get(&track).unwrap().io.monitor,
+        MonitorMode::LowLatency
+    );
+
+    let instrument = id::<Track>(3);
+    create_track(
+        &mut doc,
+        instrument,
+        id::<DeviceChain>(103),
+        tracks::TrackKind::Instrument,
+        "Instrument".into(),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetTrackMonitorMode {
+            id: instrument,
+            mode: MonitorMode::Disabled,
+        }),
+    );
+    assert!(result.is_err());
+}
+
+#[test]
 fn recording_state_is_not_part_of_transport_validation() {
     let mut doc = new_doc();
     apply_payload(&mut doc, CommandPayload::SetRecording { recording: true }).unwrap();

@@ -6,7 +6,9 @@ use notwig_core::ids::{DeviceChain, Track};
 use notwig_core::protocol::MetronomeState;
 use notwig_core::protocol::PlaybackSchedule;
 use notwig_core::{Id, Meta, ProjectDoc, SampleRate, TimeMus};
-use notwig_engine::{Engine, EngineConfig, EngineControl, StockDeviceFactory, TransportUpdate};
+use notwig_engine::{
+    Engine, EngineConfig, EngineControl, InputRoute, StockDeviceFactory, TransportUpdate,
+};
 use uuid::Uuid;
 
 fn id<T>(n: u128) -> Id<T> {
@@ -77,6 +79,28 @@ fn control_sync_installs_a_prepared_runtime_and_tracks_the_playhead() {
     engine.process(&mut output, 128).unwrap();
     assert_eq!(engine.transport().playhead_samples, 256.0);
     assert_eq!(producer.handle().playhead_samples(), 256);
+}
+
+#[test]
+fn a_control_publish_preserves_a_pending_transport_update() {
+    let doc = empty_doc();
+    let mut engine = Engine::new(EngineConfig::new(48_000, 128));
+    engine.set_control_sync_frames(1);
+    let mut producer = EngineControl::new();
+    engine.attach_control(producer.handle());
+
+    producer.data_mut().set_prepared_runtime(prepare(&doc));
+    producer.data_mut().set_transport(transport(0));
+    producer.flush();
+    producer
+        .data_mut()
+        .set_input_routes(Vec::<InputRoute>::new());
+    producer.flush();
+
+    let mut output = vec![0.0_f32; 128 * 2];
+    engine.process(&mut output, 128).unwrap();
+    assert!(engine.transport().playing);
+    assert_eq!(engine.transport().playhead_samples, 128.0);
 }
 
 #[test]

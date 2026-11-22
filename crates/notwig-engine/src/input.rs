@@ -131,6 +131,18 @@ impl InputBus {
             .is_some_and(|slot| slot.overflow.swap(false, Ordering::Relaxed))
     }
 
+    pub(crate) fn discard_monitor(&self, slot: u16, frames: usize) {
+        let Some(slot) = self.slots.get(usize::from(slot)) else {
+            return;
+        };
+        for _ in 0..frames {
+            if slot.monitor_left.pop().is_none() {
+                break;
+            }
+            let _ = slot.monitor_right.pop();
+        }
+    }
+
     pub(crate) fn drain_monitor_into(&self, slot: u16, frames: usize, dest: &mut [f32]) {
         let Some(slot) = self.slots.get(usize::from(slot)) else {
             return;
