@@ -207,3 +207,53 @@ fn low_latency_monitoring_uses_the_track_chain_path() {
         "low-latency monitor should render input: {low:?}"
     );
 }
+
+#[test]
+fn disabling_low_latency_monitoring_falls_back_to_the_enabled_path() {
+    let (mut doc, track) = doc_with_audio_track();
+    doc.tracks.get_mut(&track).unwrap().io.monitor = MonitorMode::LowLatency;
+    let config = EngineConfig::new(48_000, 128);
+    let mut control = EngineControl::new();
+    let bus = Arc::new(InputBus::new(48_000));
+    let mut engine = Engine::new(config);
+    engine.attach_control(control.handle());
+    engine.attach_input_bus(Arc::clone(&bus));
+    engine.set_control_sync_frames(1);
+    let plan = notwig_core::dsp::compile(
+        &doc,
+        &notwig_core::dsp::stock_registry(),
+        EngineCaps {
+            sample_rate: 48_000,
+            max_block_size: 128,
+            channels: 2,
+        },
+    )
+    .unwrap();
+    engine
+        .apply(EngineMsg::UpdateSchedule {
+            schedule: Arc::new(PlaybackSchedule::from_doc(&doc)),
+        })
+        .unwrap();
+    engine
+        .apply(EngineMsg::ApplyPlan {
+            plan: PlanHandle::new(plan),
+        })
+        .unwrap();
+    control.data_mut().set_input_routes(vec![InputRoute {
+        track_id: track,
+        slot: 0,
+    }]);
+    control.data_mut().set_low_latency_monitoring(false);
+    control.flush();
+    for _ in 0..128 {
+        bus.push(0, 0.5);
+    }
+
+    let mut high = vec![0.0_f32; 128 * 2];
+    engine.process(&mut high, 128).unwrap();
+    let mut low = vec![1.0_f32; 128 * 2];
+    engine.process_low_latency_monitor(&mut low, 128).unwrap();
+
+    assert!(high.iter().any(|sample| sample.abs() > 0.1));
+    assert!(low.iter().all(|sample| sample.abs() < 0.001));
+}

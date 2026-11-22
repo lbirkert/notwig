@@ -617,6 +617,7 @@ impl NotwigUi {
                 .master_output
                 .clone_from(&current.master_output);
             self.audio_draft.low_latency_block_size = current.low_latency_block_size;
+            self.audio_draft.low_latency_monitoring = current.low_latency_monitoring;
             if self.audio_draft.block_size == 0 {
                 self.audio_draft.block_size = current.block_size.max(256);
             }
@@ -706,11 +707,14 @@ impl NotwigUi {
             .or_else(|| current.sample_rate.parse::<u32>().ok())
             .unwrap_or(48_000);
         let latency_ms = |samples: u32| f64::from(samples) / f64::from(rate) * 1000.0;
+        let full_width = ui.max_rect().width().max(ui.available_width());
+        let original_slider_width = ui.spacing().slider_width;
+        ui.spacing_mut().slider_width = full_width;
 
         ui.label(RichText::new("Block size").size(13.0));
         ui.add_sized(
-            [ui.available_width(), 18.0],
-            egui::Slider::new(&mut self.audio_draft.block_size, 16..=2048)
+            [full_width, ui.spacing().interact_size.y.max(20.0)],
+            egui::Slider::new(&mut self.audio_draft.block_size, 16..=8192)
                 .step_by(16.0)
                 .show_value(false),
         );
@@ -728,25 +732,32 @@ impl NotwigUi {
             .color(theme::ACCENT),
         );
         ui.add_space(8.0);
-        ui.label(RichText::new("Low latency buffer").size(13.0));
-        ui.add_sized(
-            [ui.available_width(), 18.0],
-            egui::Slider::new(
-                &mut self.audio_draft.low_latency_block_size,
-                16..=self.audio_draft.block_size,
-            )
-            .step_by(16.0)
-            .show_value(false),
+        ui.checkbox(
+            &mut self.audio_draft.low_latency_monitoring,
+            "Enable low latency monitoring",
         );
-        ui.label(
-            RichText::new(format!(
-                "{} samples / {:.2} ms",
-                self.audio_draft.low_latency_block_size,
-                latency_ms(self.audio_draft.low_latency_block_size)
-            ))
-            .monospace()
-            .color(theme::ACCENT),
-        );
+        ui.add_enabled_ui(self.audio_draft.low_latency_monitoring, |ui| {
+            ui.label(RichText::new("Low latency buffer").size(13.0));
+            ui.add_sized(
+                [full_width, ui.spacing().interact_size.y.max(20.0)],
+                egui::Slider::new(
+                    &mut self.audio_draft.low_latency_block_size,
+                    16..=self.audio_draft.block_size,
+                )
+                .step_by(16.0)
+                .show_value(false),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{} samples / {:.2} ms",
+                    self.audio_draft.low_latency_block_size,
+                    latency_ms(self.audio_draft.low_latency_block_size)
+                ))
+                .monospace()
+                .color(theme::ACCENT),
+            );
+        });
+        ui.spacing_mut().slider_width = original_slider_width;
         ui.add_space(14.0);
         self.audio_io_settings(ui, runtime);
         ui.add_space(14.0);
@@ -770,6 +781,7 @@ impl NotwigUi {
                     sample_rate,
                     block_size: self.audio_draft.block_size,
                     low_latency_block_size: self.audio_draft.low_latency_block_size,
+                    low_latency_monitoring: self.audio_draft.low_latency_monitoring,
                     channels: self.audio_draft.channels.clone(),
                     master_output: self.audio_draft.master_output.clone(),
                 });

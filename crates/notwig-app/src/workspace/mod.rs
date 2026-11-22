@@ -67,6 +67,7 @@ pub struct Workspace {
     pub last_autosave: Instant,
     pub play_start: Option<notwig_core::TimeMus>,
     pub audio_block_size: u32,
+    low_latency_monitoring: bool,
     pub recovery_offered: bool,
     #[cfg(not(target_arch = "wasm32"))]
     pub recovery_candidates: Vec<project_registry::RecoveryCandidate>,
@@ -147,6 +148,7 @@ impl Workspace {
             last_autosave: Instant::now(),
             play_start: None,
             audio_block_size: 512,
+            low_latency_monitoring: true,
             recovery_offered: false,
             #[cfg(not(target_arch = "wasm32"))]
             recovery_candidates: Vec::new(),
@@ -246,6 +248,12 @@ impl Workspace {
             monitors: Arc::clone(&self.monitors),
             extension_runtime: self.extension_runtime.clone(),
         }
+    }
+
+    pub fn set_low_latency_monitoring(&mut self, enabled: bool) -> bool {
+        let changed = self.low_latency_monitoring != enabled;
+        self.low_latency_monitoring = enabled;
+        changed
     }
 
     pub fn request_engine_rebuild(&mut self) {
@@ -419,6 +427,7 @@ impl Workspace {
             data.set_prepared_runtime(prepared);
         }
         data.set_schedule(schedule);
+        data.set_low_latency_monitoring(self.low_latency_monitoring);
         for track in self.doc.tracks.values() {
             data.push_track_state(TrackStateUpdate {
                 track_id: track.id,

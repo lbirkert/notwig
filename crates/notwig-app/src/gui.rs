@@ -261,8 +261,13 @@ impl NotwigApp {
         if audio_settings.block_size == 0 {
             audio_settings.block_size = workspace.audio_block_size;
         }
+        let mut rebuild =
+            workspace.set_low_latency_monitoring(audio_settings.low_latency_monitoring);
         if workspace.audio_block_size != audio_settings.block_size {
             workspace.audio_block_size = audio_settings.block_size;
+            rebuild = true;
+        }
+        if rebuild {
             workspace.request_engine_rebuild();
         }
         let (audio_import_tx, audio_import_requests) = mpsc::channel::<AudioImportRequest>();
@@ -2313,6 +2318,7 @@ impl NotwigApp {
                 sample_rate,
                 block_size,
                 low_latency_block_size,
+                low_latency_monitoring,
                 channels,
                 master_output,
             } => {
@@ -2329,10 +2335,13 @@ impl NotwigApp {
                     sample_rate,
                     block_size,
                     low_latency_block_size,
+                    low_latency_monitoring,
                     channels,
                     master_output,
                 };
                 self.workspace.audio_block_size = if block_size == 0 { 512 } else { block_size };
+                self.workspace
+                    .set_low_latency_monitoring(low_latency_monitoring);
                 self.workspace.request_engine_rebuild();
                 self.audio_options = available_audio_options();
                 self.restart_audio();

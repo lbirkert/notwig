@@ -136,7 +136,8 @@ impl NotwigUi {
         }
     }
 
-    fn track_monitor_editor(&mut self, ui: &mut egui::Ui, track: &Track) {
+    fn track_monitor_editor(&mut self, ui: &mut egui::Ui, track: &Track, runtime: &RuntimeView) {
+        let low_latency_enabled = runtime.audio_settings.current.low_latency_monitoring;
         egui::ComboBox::from_id_salt(("track-monitor", track.id))
             .selected_text(track.io.monitor.label())
             .width(ui.available_width().min(280.0))
@@ -146,10 +147,14 @@ impl NotwigUi {
                     notwig_core::MonitorMode::Enabled,
                     notwig_core::MonitorMode::LowLatency,
                 ] {
-                    if ui
-                        .selectable_label(track.io.monitor == mode, mode.label())
-                        .clicked()
-                    {
+                    let enabled =
+                        mode != notwig_core::MonitorMode::LowLatency || low_latency_enabled;
+                    let response = ui
+                        .add_enabled_ui(enabled, |ui| {
+                            ui.selectable_label(track.io.monitor == mode, mode.label())
+                        })
+                        .inner;
+                    if response.clicked() {
                         self.emit(UiIntent::SetTrackMonitorMode {
                             track_id: track.id,
                             mode,
@@ -160,9 +165,13 @@ impl NotwigUi {
             });
         if track.io.monitor == notwig_core::MonitorMode::LowLatency {
             ui.label(
-                RichText::new("Runs through the track chain but bypasses groups, sends, and master processing.")
-                    .small()
-                    .color(theme::TEXT_MUTED),
+                RichText::new(if low_latency_enabled {
+                    "Runs through the track chain but bypasses groups, sends, and master processing."
+                } else {
+                    "Low latency monitoring is disabled in Audio Settings."
+                })
+                .small()
+                .color(theme::TEXT_MUTED),
             );
         }
     }
@@ -257,7 +266,7 @@ impl NotwigUi {
             self.track_input_editor(ui, &track, runtime);
             ui.separator();
             ui.label(theme::heading(ui.ctx(), "MONITORING"));
-            self.track_monitor_editor(ui, &track);
+            self.track_monitor_editor(ui, &track, runtime);
         }
         ui.separator();
 

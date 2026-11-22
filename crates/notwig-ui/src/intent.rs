@@ -303,6 +303,7 @@ pub enum UiIntent {
         sample_rate: Option<u32>,
         block_size: u32,
         low_latency_block_size: u32,
+        low_latency_monitoring: bool,
         channels: Vec<crate::runtime::AudioChannelConfig>,
         master_output: Option<String>,
     },

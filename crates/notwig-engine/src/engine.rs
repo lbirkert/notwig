@@ -101,6 +101,7 @@ pub struct Engine {
     metronome_bar_length: TimeMus,
     input_bus: Option<Arc<InputBus>>,
     input_routes: [Option<(notwig_core::TrackId, u16)>; MAX_INPUT_TRACKS],
+    low_latency_monitoring: bool,
     transport_generation: u64,
     offline: bool,
 }
@@ -145,6 +146,7 @@ impl Engine {
             metronome_bar_length: TimeMus::new(4, 1),
             input_bus: None,
             input_routes: [None; MAX_INPUT_TRACKS],
+            low_latency_monitoring: true,
             transport_generation: 0,
             offline: false,
         }
@@ -475,6 +477,13 @@ impl Engine {
             }
         }
 
+        if let Some(enabled) = self.control_data.low_latency_monitoring.take() {
+            self.low_latency_monitoring = enabled;
+            if let Some(runtime) = &mut self.runtime {
+                runtime.set_low_latency_monitoring(enabled);
+            }
+        }
+
         if let Some(transport) = self.control_data.transport.take() {
             self.transport_generation = self.transport_generation.wrapping_add(1);
             let jumped = (self.transport.playhead_samples as u64) != transport.playhead_samples;
@@ -587,6 +596,10 @@ impl Engine {
             output[..frames * 2].fill(0.0);
             return Ok(());
         };
+        if !self.low_latency_monitoring {
+            output[..frames * 2].fill(0.0);
+            return Ok(());
+        }
         let sample_position = self.transport.playhead_samples.max(0.0) as u64;
         runtime.render_low_latency_monitor(
             bus.as_ref(),

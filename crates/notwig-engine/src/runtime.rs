@@ -168,6 +168,7 @@ pub struct ActivePlan {
     tempo_bpm: f64,
     sample_rate: u32,
     route_scratch: Vec<f32>,
+    low_latency_monitoring: bool,
     measure_meters: bool,
 }
 
@@ -261,12 +262,17 @@ impl ActivePlan {
             tempo_bpm: plan.config.tempo_bpm,
             sample_rate: plan.config.sample_rate,
             route_scratch: vec![0.0; config.max_block_size.max(1) * 2],
+            low_latency_monitoring: true,
             measure_meters: true,
         })
     }
 
     pub fn set_measure_meters(&mut self, measure: bool) {
         self.measure_meters = measure;
+    }
+
+    pub fn set_low_latency_monitoring(&mut self, enabled: bool) {
+        self.low_latency_monitoring = enabled;
     }
 
     pub fn reset(&mut self) {
@@ -465,6 +471,13 @@ impl ActivePlan {
                     .tracks
                     .get(track_id)
                     .map_or(notwig_core::MonitorMode::Enabled, |track| track.monitor);
+                let mode = if mode == notwig_core::MonitorMode::LowLatency
+                    && !self.low_latency_monitoring
+                {
+                    notwig_core::MonitorMode::Enabled
+                } else {
+                    mode
+                };
                 match mode {
                     notwig_core::MonitorMode::Disabled => bus.discard_monitor(*slot, frames),
                     notwig_core::MonitorMode::Enabled => {
@@ -584,6 +597,9 @@ impl ActivePlan {
         playing: bool,
     ) {
         output[..frames * 2].fill(0.0);
+        if !self.low_latency_monitoring {
+            return;
+        }
         let config = self.config;
         let tempo_bpm = self.tempo_bpm;
         let map = notwig_core::TempoMap {

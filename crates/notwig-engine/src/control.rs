@@ -82,6 +82,7 @@ pub struct EngineControlUpdate {
     pub transport: Option<TransportUpdate>,
     pub metronome: Option<MetronomeState>,
     pub input_routes: Option<Vec<InputRoute>>,
+    pub low_latency_monitoring: Option<bool>,
     pub all_notes_off: bool,
 }
 
@@ -105,6 +106,7 @@ pub struct EngineData {
     pub(crate) transport: Option<TransportUpdate>,
     pub(crate) metronome: Option<MetronomeState>,
     pub(crate) input_routes: Option<Vec<InputRoute>>,
+    pub(crate) low_latency_monitoring: Option<bool>,
     pub(crate) all_notes_off: bool,
 }
 
@@ -127,6 +129,10 @@ impl EngineData {
 
     pub fn set_input_routes(&mut self, routes: Vec<InputRoute>) {
         self.input_routes = Some(routes);
+    }
+
+    pub fn set_low_latency_monitoring(&mut self, enabled: bool) {
+        self.low_latency_monitoring = Some(enabled);
     }
 
     /// Update only the metronome without touching the transport or playhead.
@@ -167,6 +173,7 @@ impl EngineData {
             transport: self.transport.take(),
             metronome: self.metronome.take(),
             input_routes: self.input_routes.take(),
+            low_latency_monitoring: self.low_latency_monitoring.take(),
             all_notes_off: std::mem::replace(&mut self.all_notes_off, false),
         }
     }

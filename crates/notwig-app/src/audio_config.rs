@@ -21,6 +21,8 @@ struct PersistedAudioSettings {
     block_size: u32,
     #[serde(default = "default_low_latency_block_size")]
     low_latency_block_size: u32,
+    #[serde(default = "default_low_latency_monitoring")]
+    low_latency_monitoring: bool,
     #[serde(default)]
     channels: Vec<notwig_ui::AudioChannelConfig>,
     #[serde(default)]
@@ -35,6 +37,7 @@ impl Default for PersistedAudioSettings {
             device: String::new(),
             block_size: DEFAULT_BLOCK_SIZE,
             low_latency_block_size: DEFAULT_LOW_LATENCY_BLOCK_SIZE,
+            low_latency_monitoring: true,
             channels: Vec::new(),
             master_output: None,
         }
@@ -53,6 +56,10 @@ const fn default_low_latency_block_size() -> u32 {
     DEFAULT_LOW_LATENCY_BLOCK_SIZE
 }
 
+const fn default_low_latency_monitoring() -> bool {
+    true
+}
+
 impl From<&AudioSettings> for PersistedAudioSettings {
     fn from(settings: &AudioSettings) -> Self {
         Self {
@@ -61,6 +68,7 @@ impl From<&AudioSettings> for PersistedAudioSettings {
             device: settings.device.clone(),
             block_size: settings.block_size,
             low_latency_block_size: settings.low_latency_block_size,
+            low_latency_monitoring: settings.low_latency_monitoring,
             channels: settings.channels.clone(),
             master_output: settings.master_output.clone(),
         }
@@ -94,6 +102,7 @@ impl From<PersistedAudioSettings> for AudioSettings {
             sample_rate: None,
             block_size,
             low_latency_block_size,
+            low_latency_monitoring: settings.low_latency_monitoring,
             channels: settings.channels,
             master_output: settings.master_output,
         }

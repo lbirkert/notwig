@@ -54,6 +54,8 @@ pub struct AudioSettings {
     pub block_size: u32,
     #[serde(default = "default_low_latency_block_size")]
     pub low_latency_block_size: u32,
+    #[serde(default = "default_low_latency_monitoring")]
+    pub low_latency_monitoring: bool,
     #[serde(default)]
     pub channels: Vec<notwig_ui::AudioChannelConfig>,
     #[serde(default)]
@@ -68,6 +70,7 @@ impl Default for AudioSettings {
             sample_rate: None,
             block_size: 0,
             low_latency_block_size: DEFAULT_LOW_LATENCY_BLOCK_SIZE,
+            low_latency_monitoring: true,
             channels: Vec::new(),
             master_output: None,
         }
@@ -76,6 +79,10 @@ impl Default for AudioSettings {
 
 const fn default_low_latency_block_size() -> u32 {
     DEFAULT_LOW_LATENCY_BLOCK_SIZE
+}
+
+const fn default_low_latency_monitoring() -> bool {
+    true
 }
 
 #[must_use]
@@ -187,6 +194,7 @@ pub fn settings_view(
                 .map_or_else(|| "auto".into(), |rate| rate.to_string()),
             block_size: settings.block_size,
             low_latency_block_size: settings.low_latency_block_size,
+            low_latency_monitoring: settings.low_latency_monitoring,
             channels: settings.channels.clone(),
             master_output: settings.master_output.clone(),
         },
@@ -233,10 +241,14 @@ impl AudioService {
             config
         });
         let project_frames = usize::try_from(settings.block_size.max(16)).unwrap_or(512);
-        let device_block = settings
-            .low_latency_block_size
-            .max(1)
-            .min(u32::try_from(project_frames).unwrap_or(u32::MAX));
+        let device_block = if settings.low_latency_monitoring {
+            settings
+                .low_latency_block_size
+                .max(1)
+                .min(u32::try_from(project_frames).unwrap_or(u32::MAX))
+        } else {
+            u32::try_from(project_frames).unwrap_or(u32::MAX)
+        };
         config.buffer_size = cpal::BufferSize::Fixed(device_block);
         let deadline_ms = device_block as f32 / config.sample_rate as f32 * 1000.0;
         let snapshot = Arc::new(Mutex::new(AudioSnapshot {

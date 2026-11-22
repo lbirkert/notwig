@@ -420,6 +420,9 @@ impl EngineWorker {
         if let Some(metronome) = update.metronome {
             data.set_metronome(metronome);
         }
+        if let Some(enabled) = update.low_latency_monitoring {
+            data.set_low_latency_monitoring(enabled);
+        }
         if update.all_notes_off {
             data.request_all_notes_off();
         }
