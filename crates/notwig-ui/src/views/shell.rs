@@ -42,6 +42,7 @@ pub struct NotwigUi {
     pub(crate) pending_extension_replace: Option<String>,
     pub(crate) extension_images:
         BTreeMap<PathBuf, (Option<SystemTime>, Option<egui::TextureHandle>)>,
+    pub(crate) extension_icon_images: BTreeMap<String, (u64, Option<egui::TextureHandle>)>,
     pub drag: Option<ClipDrag>,
     pub time_drag: Option<TimeDrag>,
     pub track_drag: Option<TrackId>,
@@ -117,6 +118,7 @@ impl Default for NotwigUi {
             show_extension_index_manager: false,
             pending_extension_replace: None,
             extension_images: BTreeMap::new(),
+            extension_icon_images: BTreeMap::new(),
             drag: None,
             time_drag: None,
             track_drag: None,
@@ -1024,7 +1026,7 @@ impl NotwigUi {
                             egui::vec2(engine_width, TOP_BAR_HEIGHT),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
-                                egui::Frame::new()
+                                let engine = egui::Frame::new()
                                     .fill(Color32::from_rgb(16, 17, 21))
                                     .corner_radius(egui::CornerRadius::same(4))
                                     .inner_margin(egui::Margin::symmetric(8, 2))
@@ -1151,6 +1153,31 @@ impl NotwigUi {
                                             master_meter(ui, master);
                                         });
                                     });
+                                engine.response.context_menu(|ui| {
+                                    if ui.button("Stop playback").clicked() {
+                                        self.emit(UiIntent::Stop);
+                                        ui.close();
+                                    }
+                                    if runtime.engine_stopped {
+                                        if ui.button("Start audio engine").clicked() {
+                                            self.emit(UiIntent::RestartAudioEngine);
+                                            ui.close();
+                                        }
+                                    } else {
+                                        if ui.button("Stop audio engine").clicked() {
+                                            self.emit(UiIntent::StopAudioEngine);
+                                            ui.close();
+                                        }
+                                        if ui.button("Restart audio engine").clicked() {
+                                            self.emit(UiIntent::RestartAudioEngine);
+                                            ui.close();
+                                        }
+                                    }
+                                    if ui.button("Audio settings…").clicked() {
+                                        self.open_settings(runtime);
+                                        ui.close();
+                                    }
+                                });
                             },
                         );
                     },

@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use egui::{Align2, Color32, FontId, RichText, Vec2};
-use notwig_ext_api::{ExtensionIndexEntry, ExtensionInfo};
+use notwig_ext_api::{ExtensionIndexEntry, ExtensionInfo, ExtensionStatus};
 
 use crate::form;
 use crate::intent::UiIntent;
@@ -200,6 +201,18 @@ impl NotwigUi {
             ui.add_space(4.0);
         }
 
+        if !runtime.extension_errors.is_empty() {
+            ui.label(
+                RichText::new("Some extensions failed to load:")
+                    .small()
+                    .color(theme::PLAYHEAD),
+            );
+            for error in &runtime.extension_errors {
+                ui.label(RichText::new(error).small().color(theme::PLAYHEAD));
+            }
+            ui.add_space(6.0);
+        }
+
         let filtered: Vec<ExtensionCard> = cards
             .into_iter()
             .filter(|card| match self.extension_filter {
@@ -235,6 +248,11 @@ impl NotwigUi {
     fn extension_card(&mut self, ui: &mut egui::Ui, card: &ExtensionCard) {
         let installed = card.installed.clone();
         let disabled = installed.as_ref().is_some_and(|info| !info.enabled);
+        let target_unavailable = installed.is_none()
+            && card
+                .index_entry
+                .as_ref()
+                .is_some_and(|entry| entry.download_for_host().is_none());
         let inner = ui.scope(|ui| {
             if disabled {
                 ui.set_opacity(0.55);
@@ -303,6 +321,25 @@ impl NotwigUi {
                                     .small()
                                     .color(theme::TEXT_MUTED),
                                 );
+                                if target_unavailable {
+                                    ui.label(
+                                        RichText::new("Not available for this platform")
+                                            .small()
+                                            .color(theme::PLAYHEAD),
+                                    );
+                                } else if let Some(info) = installed.as_ref()
+                                    && info.status == ExtensionStatus::Failed
+                                {
+                                    ui.label(
+                                        RichText::new(
+                                            info.error
+                                                .as_deref()
+                                                .unwrap_or("Failed to load this extension."),
+                                        )
+                                        .small()
+                                        .color(theme::PLAYHEAD),
+                                    );
+                                }
                             },
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -317,6 +354,10 @@ impl NotwigUi {
                                         id: card.id.clone(),
                                     });
                                 }
+                            } else if target_unavailable {
+                                ui.label(
+                                    RichText::new("Unavailable").small().color(theme::PLAYHEAD),
+                                );
                             } else if ui
                                 .add_sized([96.0, 30.0], egui::Button::new("Install"))
                                 .clicked()
@@ -374,7 +415,7 @@ impl NotwigUi {
                     });
                     ui.close();
                 }
-            } else if ui.button("Install").clicked() {
+            } else if !target_unavailable && ui.button("Install").clicked() {
                 self.emit(UiIntent::InstallExtensionFromIndex {
                     id: card.id.clone(),
                 });
@@ -384,6 +425,16 @@ impl NotwigUi {
     }
 
     fn extension_thumbnail(&mut self, ui: &mut egui::Ui, card: &ExtensionCard, size: Vec2) {
+        if let Some(bytes) = card.icon.as_deref() {
+            if let Some(texture) = self.extension_icon_texture(ui.ctx(), &card.id, bytes) {
+                ui.add(
+                    egui::Image::new(&texture)
+                        .fit_to_exact_size(size)
+                        .corner_radius(egui::CornerRadius::same(8)),
+                );
+                return;
+            }
+        }
         if let Some(path) = card.image_path.as_deref() {
             if let Some(texture) = self.extension_texture(ui.ctx(), path) {
                 ui.add(
@@ -395,6 +446,37 @@ impl NotwigUi {
             }
         }
         extension_placeholder(ui, size);
+    }
+
+    fn extension_icon_texture(
+        &mut self,
+        ctx: &egui::Context,
+        id: &str,
+        bytes: &[u8],
+    ) -> Option<egui::TextureHandle> {
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        let fingerprint = hasher.finish();
+        if let Some((cached, texture)) = self.extension_icon_images.get(id) {
+            if *cached == fingerprint {
+                return texture.clone();
+            }
+        }
+        let texture = image::load_from_memory(bytes).ok().map(|image| {
+            let image = image.to_rgba8();
+            let size = [image.width() as usize, image.height() as usize];
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+            ctx.load_texture(
+                format!("extension-icon:{id}"),
+                color,
+                egui::TextureOptions::LINEAR,
+            )
+        });
+        self.extension_icon_images
+            .insert(id.to_owned(), (fingerprint, texture.clone()));
+        texture
     }
 
     fn extension_texture(
@@ -704,6 +786,7 @@ struct ExtensionCard {
     version: String,
     description: Option<String>,
     image_path: Option<PathBuf>,
+    icon: Option<Arc<Vec<u8>>>,
     installed: Option<ExtensionInfo>,
     index_entry: Option<ExtensionIndexEntry>,
 }
@@ -718,6 +801,7 @@ fn extension_cards(runtime: &RuntimeView) -> Vec<ExtensionCard> {
             .find(|entry| entry.id == info.id)
             .cloned();
         seen.insert(info.id.clone());
+        let icon = runtime.extension_icons.get(&info.id).cloned();
         cards.push(ExtensionCard {
             id: info.id.clone(),
             name: info.name.clone(),
@@ -729,6 +813,7 @@ fn extension_cards(runtime: &RuntimeView) -> Vec<ExtensionCard> {
                     .and_then(|entry| entry.description.clone())
             }),
             image_path: info.image_path.clone(),
+            icon,
             installed: Some(info),
             index_entry,
         });
@@ -744,6 +829,7 @@ fn extension_cards(runtime: &RuntimeView) -> Vec<ExtensionCard> {
             version: entry.version.clone(),
             description: entry.description.clone(),
             image_path: None,
+            icon: None,
             installed: None,
             index_entry: Some(entry),
         });

@@ -268,6 +268,7 @@ pub enum UiIntent {
     Redo,
     CancelRender,
     RestartAudioEngine,
+    StopAudioEngine,
     SetExtensionEnabled {
         id: String,
         enabled: bool,

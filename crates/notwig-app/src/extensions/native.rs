@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -152,6 +153,15 @@ impl ExtensionManager {
 
     pub(crate) fn error(&self) -> Option<&str> {
         self.error.as_deref()
+    }
+
+    pub(crate) fn errors(&self) -> Vec<String> {
+        self.error.iter().cloned().collect()
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn icons(&self) -> BTreeMap<String, Arc<Vec<u8>>> {
+        BTreeMap::new()
     }
 
     pub(crate) fn indexes(&self) -> Vec<String> {

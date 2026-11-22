@@ -7,7 +7,8 @@ use std::sync::mpsc;
 
 use notwig_core::dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{
-    ExtensionArchive, WebExtensionHost, WebExtensionPackage, read_archive, validate_extension_id,
+    ExtensionArchive, WebExtensionHost, WebExtensionPackage, read_archive, read_extension_files,
+    validate_extension_id,
 };
 use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
 use wasm_bindgen::JsValue;
@@ -31,7 +32,8 @@ pub(crate) struct ExtensionManager {
     uninstalled: UninstalledExtensions,
     host: Option<WebExtensionHost>,
     infos: Vec<ExtensionInfo>,
-    error: Option<String>,
+    errors: Vec<String>,
+    icons: BTreeMap<String, Arc<Vec<u8>>>,
     loading: bool,
     index_entries: Vec<ExtensionIndexEntry>,
     index_errors: Vec<String>,
@@ -45,6 +47,7 @@ pub(crate) struct ExtensionManager {
 struct LoadOutcome {
     host: WebExtensionHost,
     errors: Vec<String>,
+    icons: BTreeMap<String, Arc<Vec<u8>>>,
 }
 
 enum AdminEvent {
@@ -66,7 +69,8 @@ impl ExtensionManager {
             uninstalled: load_uninstalled(),
             host: None,
             infos: Vec::new(),
-            error: None,
+            errors: Vec::new(),
+            icons: BTreeMap::new(),
             loading: false,
             index_entries: Vec::new(),
             index_errors: Vec::new(),
@@ -88,10 +92,13 @@ impl ExtensionManager {
         let config = self.config.clone();
         let uninstalled = self.uninstalled.clone();
         spawn_local(async move {
-            let (packages, mut errors) = load_packages(&uninstalled).await;
+            let (packages, errors, icons) = load_packages(&uninstalled).await;
             let host = WebExtensionHost::load(packages, &config);
-            errors.extend(host.errors().iter().cloned());
-            let _ = sender.send(LoadOutcome { host, errors });
+            let _ = sender.send(LoadOutcome {
+                host,
+                errors,
+                icons,
+            });
         });
     }
 
@@ -119,7 +126,7 @@ impl ExtensionManager {
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
                 self.load_rx = None;
                 self.loading = false;
-                self.error = Some("Extension loading stopped.".into());
+                self.errors = vec!["Extension loading stopped.".into()];
                 return false;
             }
             Some(Err(mpsc::TryRecvError::Empty)) | None => return false,
@@ -133,11 +140,8 @@ impl ExtensionManager {
         );
         self.infos = outcome.host.infos().to_vec();
         self.host = Some(outcome.host);
-        self.error = if outcome.errors.is_empty() {
-            None
-        } else {
-            Some(outcome.errors.join("; "))
-        };
+        self.errors = outcome.errors;
+        self.icons = outcome.icons;
         true
     }
 
@@ -153,11 +157,7 @@ impl ExtensionManager {
         self.index_rx = None;
         self.index_loading = false;
         self.index_loaded = true;
-        self.index_entries = result
-            .entries
-            .into_iter()
-            .filter(ExtensionIndexEntry::is_available_to_wasm)
-            .collect();
+        self.index_entries = result.entries;
         self.index_errors = result.errors;
     }
 
@@ -212,7 +212,15 @@ impl ExtensionManager {
     }
 
     pub(crate) fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.errors.first().map(String::as_str)
+    }
+
+    pub(crate) fn errors(&self) -> Vec<String> {
+        self.errors.clone()
+    }
+
+    pub(crate) fn icons(&self) -> BTreeMap<String, Arc<Vec<u8>>> {
+        self.icons.clone()
     }
 
     pub(crate) fn indexes(&self) -> Vec<String> {
@@ -394,11 +402,14 @@ impl ExtensionManager {
     }
 }
 
+type ExtensionIcons = BTreeMap<String, Arc<Vec<u8>>>;
+
 async fn load_packages(
     uninstalled: &UninstalledExtensions,
-) -> (Vec<WebExtensionPackage>, Vec<String>) {
+) -> (Vec<WebExtensionPackage>, Vec<String>, ExtensionIcons) {
     let mut packages = BTreeMap::new();
     let mut errors = Vec::new();
+    let mut icons = ExtensionIcons::new();
     let entries = crate::web::storage::list_opfs_entries(EXTENSIONS_DIR)
         .await
         .unwrap_or_else(|error| {
@@ -410,14 +421,18 @@ async fn load_packages(
             OpfsEntryKind::Directory => {
                 let path = format!("{EXTENSIONS_DIR}/{name}");
                 match load_directory(&path).await {
-                    Ok(package) => insert_package(&mut packages, package),
+                    Ok((package, image)) => {
+                        insert_package(&mut packages, &mut icons, package, image);
+                    }
                     Err(error) => errors.push(format!("{path}: {error}")),
                 }
             }
             OpfsEntryKind::File if is_zip_name(&name) => {
                 let path = format!("{EXTENSIONS_DIR}/{name}");
                 match migrate_zip(&path).await {
-                    Ok(Some(package)) => insert_package(&mut packages, package),
+                    Ok(Some((package, image))) => {
+                        insert_package(&mut packages, &mut icons, package, image);
+                    }
                     Ok(None) => {}
                     Err(error) => errors.push(format!("{path}: {error}")),
                 }
@@ -426,7 +441,7 @@ async fn load_packages(
         }
     }
     match load_stock_package().await {
-        Ok(Some(package)) => insert_package(&mut packages, package),
+        Ok(Some((package, image))) => insert_package(&mut packages, &mut icons, package, image),
         Ok(None) => {}
         Err(error) => errors.push(error),
     }
@@ -435,17 +450,24 @@ async fn load_packages(
         .filter(|(id, _)| !uninstalled.contains(id))
         .map(|(_, package)| package)
         .collect();
-    (packages, errors)
+    icons.retain(|id, _| !uninstalled.contains(id));
+    (packages, errors, icons)
 }
 
 fn insert_package(
     packages: &mut BTreeMap<String, WebExtensionPackage>,
+    icons: &mut ExtensionIcons,
     package: WebExtensionPackage,
+    image: Option<Vec<u8>>,
 ) {
-    packages.entry(package.id().to_owned()).or_insert(package);
+    let id = package.id().to_owned();
+    if let Some(image) = image {
+        icons.entry(id.clone()).or_insert_with(|| Arc::new(image));
+    }
+    packages.entry(id).or_insert(package);
 }
 
-async fn load_stock_package() -> Result<Option<WebExtensionPackage>, String> {
+async fn load_stock_package() -> Result<Option<(WebExtensionPackage, Option<Vec<u8>>)>, String> {
     let Some(base) = site_base_url() else {
         return Ok(None);
     };
@@ -455,12 +477,12 @@ async fn load_stock_package() -> Result<Option<WebExtensionPackage>, String> {
         return Ok(None);
     };
     let archive = read_archive(&bytes, None).map_err(|error| format!("{url}: {error}"))?;
-    WebExtensionPackage::from_archive(archive)
+    package_with_image(archive)
         .map(Some)
         .map_err(|error| format!("{url}: {error}"))
 }
 
-async fn load_directory(path: &str) -> Result<WebExtensionPackage, String> {
+async fn load_directory(path: &str) -> Result<(WebExtensionPackage, Option<Vec<u8>>), String> {
     let files = crate::web::storage::read_opfs_directory_files(path)
         .await?
         .ok_or_else(|| "extension directory is missing".to_string())?;
@@ -468,21 +490,34 @@ async fn load_directory(path: &str) -> Result<WebExtensionPackage, String> {
         .into_iter()
         .map(|(path, bytes)| (PathBuf::from(path), bytes))
         .collect();
-    WebExtensionPackage::from_files(files).map_err(|error| error.to_string())
+    let archive = read_extension_files(files, None).map_err(|error| error.to_string())?;
+    package_with_image(archive)
 }
 
-async fn migrate_zip(path: &str) -> Result<Option<WebExtensionPackage>, String> {
+async fn migrate_zip(path: &str) -> Result<Option<(WebExtensionPackage, Option<Vec<u8>>)>, String> {
     let Some(bytes) = crate::web::storage::read_opfs_optional(path).await? else {
         return Ok(None);
     };
     let archive = read_archive(&bytes, None).map_err(|error| error.to_string())?;
-    let package =
-        WebExtensionPackage::from_archive(archive.clone()).map_err(|error| error.to_string())?;
+    let (package, image) = package_with_image(archive.clone())?;
     install_archive(package.id(), &archive).await?;
     if let Err(error) = crate::web::storage::remove_opfs_path(path).await {
         tracing::warn!(path = %path, error = %error, "could not remove migrated extension ZIP");
     }
-    Ok(Some(package))
+    Ok(Some((package, image)))
+}
+
+fn package_with_image(
+    archive: ExtensionArchive,
+) -> Result<(WebExtensionPackage, Option<Vec<u8>>), String> {
+    let image = archive
+        .manifest
+        .image
+        .as_deref()
+        .and_then(|path| archive.files.get(Path::new(path)))
+        .cloned();
+    let package = WebExtensionPackage::from_archive(archive).map_err(|error| error.to_string())?;
+    Ok((package, image))
 }
 
 async fn install_archive(id: &str, archive: &ExtensionArchive) -> Result<(), String> {

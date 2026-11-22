@@ -167,6 +167,7 @@ pub struct NotwigApp {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     audio_import_rx: mpsc::Receiver<(AssetId, Result<notwig_project::ImportedAsset, String>)>,
     engine_crash_reported: bool,
+    engine_stopped: bool,
     audio_device_lost: bool,
     audio_device_lost_message: Option<String>,
     next_audio_device_scan: Instant,
@@ -281,6 +282,7 @@ impl NotwigApp {
             audio_import_tx,
             audio_import_rx,
             engine_crash_reported: false,
+            engine_stopped: false,
             audio_device_lost: false,
             audio_device_lost_message: None,
             next_audio_device_scan: Instant::now(),
@@ -331,6 +333,7 @@ impl NotwigApp {
             audio_import_tx,
             audio_import_rx,
             engine_crash_reported: false,
+            engine_stopped: false,
             audio_device_lost: false,
             audio_device_lost_message: None,
             next_audio_device_scan: Instant::now(),
@@ -587,6 +590,8 @@ impl NotwigApp {
                         self.fallback_playhead = self.workspace.doc.transport.playhead.as_f64();
                         self.ui.state.selection.clear();
                         self.recovery_error = None;
+                        self.sync_extensions();
+                        self.restart_audio();
                         self.notify_info(format!("Opened {}", handle.name));
                     }
                     Err(error) => self.notify_error(error),
@@ -691,6 +696,7 @@ impl NotwigApp {
                 self.audio = Some(audio);
                 self.workspace.engine_audio_restarted();
                 self.sync_recording_inputs();
+                self.engine_stopped = false;
                 self.clear_audio_device_lost(true);
             }
             Err(err) => {
@@ -713,6 +719,7 @@ impl NotwigApp {
                 self.audio = Some(audio);
                 self.workspace.engine_audio_restarted();
                 self.sync_recording_inputs();
+                self.engine_stopped = false;
                 self.clear_audio_device_lost(true);
             }
             Err(err) => {
@@ -1247,6 +1254,7 @@ impl NotwigApp {
             cpu_load: snapshot.cpu_load,
             status,
             engine_crashed: snapshot.crashed,
+            engine_stopped: self.engine_stopped,
             audio_device_lost: self.audio_device_lost,
             audio_device_lost_message: self.audio_device_lost_message.clone(),
             plugins: self.workspace.plugins.clone(),
@@ -1259,6 +1267,8 @@ impl NotwigApp {
             clipboard: self.workspace.clipboard().clone(),
             extensions: self.extensions.infos(),
             extensions_error: self.extensions.error().map(str::to_owned),
+            extension_errors: self.extensions.errors(),
+            extension_icons: self.extensions.icons(),
             extension_indexes: self.extensions.indexes(),
             extension_index: self.extensions.index_entries(),
             extension_index_errors: self.extensions.index_errors(),
@@ -2077,6 +2087,7 @@ impl NotwigApp {
                     {
                         self.web_project = None;
                         self.web_picker = None;
+                        self.sync_extensions();
                     }
                     self.restart_audio();
                     self.notify_info("New project created.".into());
@@ -2236,6 +2247,17 @@ impl NotwigApp {
                 if self.audio.is_some() && !was_lost {
                     self.notify_info("Audio engine restarted.".into());
                 }
+            }
+            UiIntent::StopAudioEngine => {
+                if self.workspace.doc.transport.playing {
+                    let _ = self.workspace.stop();
+                }
+                self.audio = None;
+                #[cfg(not(target_arch = "wasm32"))]
+                self.workspace.set_engine_process(None);
+                self.engine_stopped = true;
+                self.workspace.status = Some("Audio engine stopped.".into());
+                self.notify_info("Audio engine stopped.".into());
             }
             UiIntent::CancelRender => {
                 if self.render_job.take().is_some() {

@@ -1,4 +1,2 @@
 - Add a separate "Encoding Audio" progress notification after rendering finishes: use a horizontal indeterminate loader, not a circle spinner. Cover mixdown, stems, web mixdown, and the existing "Analyzing audio…" notification.
-- Add a right-click context menu on the middle transport/tempo/engine cluster to Stop or Restart the audio engine (and open audio settings). Add a stopped engine state and graceful plugin-editor teardown.
-- Browser extensions: re-sync extension specs/factory/engine runtime when opening or creating a project and restart audio on web project open. Surface per-extension load failures and target-unavailable entries in the UI, and restore extension icons from OPFS.
 - Metronome ignores the time-signature denominator: clicks are quarter notes and accents every numerator quarter notes. Make click pulse and accent use `beat_length`/`bar_length` so 6/8, 7/8, 3/2, and 12/8 are correct.
