@@ -711,52 +711,55 @@ impl NotwigUi {
             &mut self.audio_draft.low_latency_monitoring,
             "Enable low latency monitoring",
         );
-        let max_block_size = if self.audio_draft.low_latency_monitoring {
-            crate::MAX_AUDIO_BLOCK_SIZE
+        self.audio_draft.block_size = self
+            .audio_draft
+            .block_size
+            .clamp(16, crate::MAX_AUDIO_BLOCK_SIZE);
+        let device_max = if self.audio_draft.low_latency_monitoring {
+            self.audio_draft.block_size
         } else {
             crate::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
         };
-        self.audio_draft.block_size = self.audio_draft.block_size.clamp(16, max_block_size);
         self.audio_draft.low_latency_block_size = self
             .audio_draft
             .low_latency_block_size
-            .clamp(16, self.audio_draft.block_size);
+            .clamp(16, device_max);
 
-        ui.add_enabled_ui(self.audio_draft.low_latency_monitoring, |ui| {
-            ui.label(RichText::new("Device Block Size").size(13.0));
-            styled_buffer_slider(
-                ui,
-                &mut self.audio_draft.low_latency_block_size,
-                self.audio_draft.block_size,
-                full_width,
-            );
-            ui.label(
-                RichText::new(format!(
-                    "{} samples / {:.2} ms",
-                    self.audio_draft.low_latency_block_size,
-                    latency_ms(self.audio_draft.low_latency_block_size)
-                ))
-                .monospace()
-                .color(theme::ACCENT),
-            );
-        });
-        ui.add_space(8.0);
-        ui.label(RichText::new("High latency buffer").size(13.0));
+        ui.label(RichText::new("Device Block Size").size(13.0));
         styled_buffer_slider(
             ui,
-            &mut self.audio_draft.block_size,
-            max_block_size,
+            &mut self.audio_draft.low_latency_block_size,
+            device_max,
             full_width,
         );
         ui.label(
             RichText::new(format!(
                 "{} samples / {:.2} ms",
-                self.audio_draft.block_size,
-                latency_ms(self.audio_draft.block_size)
+                self.audio_draft.low_latency_block_size,
+                latency_ms(self.audio_draft.low_latency_block_size)
             ))
             .monospace()
             .color(theme::ACCENT),
         );
+        ui.add_space(8.0);
+        ui.add_enabled_ui(self.audio_draft.low_latency_monitoring, |ui| {
+            ui.label(RichText::new("High latency buffer").size(13.0));
+            styled_buffer_slider(
+                ui,
+                &mut self.audio_draft.block_size,
+                crate::MAX_AUDIO_BLOCK_SIZE,
+                full_width,
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{} samples / {:.2} ms",
+                    self.audio_draft.block_size,
+                    latency_ms(self.audio_draft.block_size)
+                ))
+                .monospace()
+                .color(theme::ACCENT),
+            );
+        });
         ui.add_space(14.0);
         self.audio_io_settings(ui, runtime);
         ui.add_space(14.0);

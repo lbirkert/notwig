@@ -233,19 +233,23 @@ fn audio_config_round_trip_persists_named_channels() {
 }
 
 #[test]
-fn validation_caps_block_size_when_low_latency_monitoring_is_disabled() {
+fn validation_caps_device_block_when_low_latency_monitoring_is_disabled() {
     let mut without_low_latency = settings("CoreAudio", "Speakers", 4096);
     without_low_latency.low_latency_monitoring = false;
+    without_low_latency.low_latency_block_size = 4096;
     let validated = validated(without_low_latency, &options());
+    assert_eq!(validated.block_size, 4096);
     assert_eq!(
-        validated.block_size,
+        validated.low_latency_block_size,
         notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
     );
 
     let mut with_low_latency = settings("CoreAudio", "Speakers", 4096);
     with_low_latency.low_latency_monitoring = true;
+    with_low_latency.low_latency_block_size = 4096;
     let validated = validated(with_low_latency, &options());
     assert_eq!(validated.block_size, 4096);
+    assert_eq!(validated.low_latency_block_size, 4096);
 }
 
 #[test]

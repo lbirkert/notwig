@@ -16,12 +16,13 @@ The Audio page selects the output system:
 - **Sample rate**: automatic or a rate reported by the device.
 - **Enable low latency monitoring**: enables the separate low-latency monitor
   path and makes the Low Latency track monitoring mode available.
-- **Device Block Size**: the output device callback block used for Low Latency
-  monitoring, from 16 samples up to the high latency buffer size. This control
-  is disabled when low latency monitoring is off.
-- **High latency buffer**: the project render block, 16 to 8192 samples in steps
-  of 16 when low latency monitoring is enabled. With low latency monitoring
-  disabled the maximum is 2048 samples.
+- **Device Block Size**: the output device callback block. With low latency
+  monitoring enabled it can range from 16 samples up to the high latency buffer
+  size. With low latency monitoring disabled it is the single project/device
+  block and is capped at 2048 samples.
+- **High latency buffer**: the large project render block, always 16 to 8192
+  samples in steps of 16. This control is disabled when low latency monitoring
+  is off.
 - **Apply** opens the selected device and rebuilds the engine.
 - **Revert** restores the last applied values.
 

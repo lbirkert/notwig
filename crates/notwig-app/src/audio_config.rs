@@ -245,16 +245,18 @@ pub fn validated(
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
     }
-    let max_block_size = if settings.low_latency_monitoring {
-        notwig_ui::MAX_AUDIO_BLOCK_SIZE
+    settings.block_size = settings
+        .block_size
+        .clamp(16, notwig_ui::MAX_AUDIO_BLOCK_SIZE);
+    let device_max = if settings.low_latency_monitoring {
+        settings.block_size
     } else {
         notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
     };
-    settings.block_size = settings.block_size.clamp(16, max_block_size);
     settings.low_latency_block_size = settings
         .low_latency_block_size
-        .clamp(1, settings.block_size)
-        .max(DEFAULT_LOW_LATENCY_BLOCK_SIZE.min(settings.block_size));
+        .clamp(1, device_max)
+        .max(DEFAULT_LOW_LATENCY_BLOCK_SIZE.min(device_max));
     if settings.master_output.as_ref().is_some_and(|id| {
         !settings.channels.iter().any(|channel| {
             channel.direction == notwig_ui::AudioChannelDirection::Output && channel.id == *id

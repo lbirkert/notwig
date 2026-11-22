@@ -254,10 +254,10 @@ clears the destination range, and creates the recorded clip in one batch.
 ### High-latency project and low-latency monitoring
 
 When low latency monitoring is enabled, the output device stream runs at the
-configured low-latency callback block (default 16 frames). The project is still
-rendered in larger `block_size` chunks by the engine. Disabling the setting makes
-the device callback use the project block and treats Low Latency track modes as
-Enabled. A preallocated ring buffer carries
+configured Device Block Size (default 16 frames). The project is still rendered
+in larger High latency buffer chunks by the engine. Disabling the setting makes
+the Device Block Size the single device/project block and treats Low Latency
+track modes as Enabled. A preallocated ring buffer carries
 project output into the device callback and is consumed in device-sized slices.
 
 With low-latency monitoring enabled, the project ring keeps one project block of

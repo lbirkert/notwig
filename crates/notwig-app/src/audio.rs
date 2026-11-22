@@ -240,7 +240,12 @@ impl AudioService {
             let config: StreamConfig = default.into();
             config
         });
-        let project_frames = usize::try_from(settings.block_size.max(16)).unwrap_or(512);
+        let project_frames = if settings.low_latency_monitoring {
+            settings.block_size
+        } else {
+            settings.low_latency_block_size
+        };
+        let project_frames = usize::try_from(project_frames.max(16)).unwrap_or(512);
         let device_block = if settings.low_latency_monitoring {
             settings
                 .low_latency_block_size
