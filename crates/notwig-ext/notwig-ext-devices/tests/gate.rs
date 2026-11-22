@@ -1,28 +1,28 @@
 use notwig_core::dsp::DeviceUiSpec;
 use notwig_ext_api::{
-    DeviceExtension, DeviceMeterSnapshot, EguiFrame, EguiInput, EguiModifiers, ThemeSnapshot, egui,
-    egui_panel,
+    DeviceExtension, DeviceMeterSnapshot, PanelFrame, PanelInput, PanelModifiers, ThemeSnapshot,
+    egui, panel_frame,
 };
 use notwig_ext_devices::{
     GATE_TYPE_ID, GateDevice, gate_attack_id, gate_hold_id, gate_range_id, gate_release_id,
     gate_threshold_id,
 };
 
-fn draw(meter: DeviceMeterSnapshot) -> EguiFrame {
+fn draw(meter: DeviceMeterSnapshot) -> PanelFrame {
     let mut gate = GateDevice::new();
     let context = egui::Context::default();
-    let input = EguiInput {
+    let input = PanelInput {
         width: 260.0,
         height: 200.0,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
         max_texture_side: 4096,
-        modifiers: EguiModifiers::default(),
+        modifiers: PanelModifiers::default(),
         events: Vec::new(),
     };
-    egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
-        gate.draw_egui(ui, meter);
+    panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+        gate.draw(ui, meter);
     })
 }
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::DeviceDrawContext;
 use crate::cursor::CursorIcon;
-use crate::egui_panel::EguiFrame;
+use crate::panel_frame::PanelFrame;
 
 /// A host-side action requested by an extension panel.
 ///
@@ -44,7 +44,7 @@ pub trait DevicePanelHost {
         &mut self,
         type_id: &str,
         context: &DeviceDrawContext,
-    ) -> Option<EguiFrame>;
+    ) -> Option<PanelFrame>;
 }
 
 pub(crate) fn validate_action(action: &PanelAction) -> Result<(), &'static str> {

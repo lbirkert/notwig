@@ -1,7 +1,9 @@
 use egui::{Align2, FontId, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
 use notwig_core::{DeviceKind, ParamId, ParamValue, SchemaVersion};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, NoteEvent, NoteKind, egui, egui_panel};
+use notwig_ext_api::{
+    DeviceExtension, DeviceMeterSnapshot, NoteEvent, NoteKind, egui, panel_frame,
+};
 use notwig_ui::{dropdown, knob, palette, section};
 use uuid::Uuid;
 
@@ -354,7 +356,7 @@ impl DeviceExtension for SynthDevice {
         }
     }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
+    fn draw(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "Synth");
 
         let width = ui.available_width();
@@ -366,7 +368,7 @@ impl DeviceExtension for SynthDevice {
             &OSCILLATOR_OPTIONS,
         ) {
             self.oscillator = OscillatorMode::from_index(index as u32);
-            egui_panel::set_param_value(ui, oscillator_id(), ParamValue::EnumIndex(index as u32));
+            panel_frame::set_param_value(ui, oscillator_id(), ParamValue::EnumIndex(index as u32));
         }
 
         ui.add_space(4.0);
@@ -417,21 +419,21 @@ impl DeviceExtension for SynthDevice {
             if let Some(norm) = changes[0] {
                 self.attack_seconds = MIN_ATTACK_SECONDS
                     + f64::from(norm) * (MAX_ATTACK_SECONDS - MIN_ATTACK_SECONDS);
-                egui_panel::set_param_normalized(ui, attack_id(), norm);
+                panel_frame::set_param_normalized(ui, attack_id(), norm);
             }
             if let Some(norm) = changes[1] {
                 self.decay_seconds =
                     MIN_DECAY_SECONDS + f64::from(norm) * (MAX_DECAY_SECONDS - MIN_DECAY_SECONDS);
-                egui_panel::set_param_normalized(ui, decay_id(), norm);
+                panel_frame::set_param_normalized(ui, decay_id(), norm);
             }
             if let Some(norm) = changes[2] {
                 self.sustain = f64::from(norm);
-                egui_panel::set_param_normalized(ui, sustain_id(), norm);
+                panel_frame::set_param_normalized(ui, sustain_id(), norm);
             }
             if let Some(norm) = changes[3] {
                 self.release_seconds = MIN_RELEASE_SECONDS
                     + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
-                egui_panel::set_param_normalized(ui, release_id(), norm);
+                panel_frame::set_param_normalized(ui, release_id(), norm);
             }
         });
 

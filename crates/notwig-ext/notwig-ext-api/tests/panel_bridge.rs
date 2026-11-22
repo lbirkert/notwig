@@ -1,24 +1,24 @@
 use notwig_core::ParamId;
-use notwig_ext_api::{EguiInput, EguiModifiers, PanelAction, ThemeSnapshot, egui_panel};
+use notwig_ext_api::{PanelAction, PanelInput, PanelModifiers, ThemeSnapshot, panel_frame};
 
 #[test]
 fn guest_frame_contains_meshes_textures_and_actions() {
     let context = egui::Context::default();
-    let input = EguiInput {
+    let input = PanelInput {
         width: 320.0,
         height: 200.0,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
         max_texture_side: 4096,
-        modifiers: EguiModifiers::default(),
+        modifiers: PanelModifiers::default(),
         events: Vec::new(),
     };
     let param_id = ParamId::nil();
-    let frame = egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
-        ui.heading("Egui panel");
+    let frame = panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+        ui.heading("Panel");
         ui.label("hello");
-        egui_panel::set_param_normalized(ui, param_id, 0.25);
+        panel_frame::set_param_normalized(ui, param_id, 0.25);
     });
     frame.validate().unwrap();
     assert_ne!(frame.primitives.len(), 0);
@@ -33,20 +33,20 @@ fn guest_frame_contains_meshes_textures_and_actions() {
 #[test]
 fn second_frame_does_not_reupload_the_font_atlas() {
     let context = egui::Context::default();
-    let input = EguiInput {
+    let input = PanelInput {
         width: 320.0,
         height: 200.0,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
         max_texture_side: 4096,
-        modifiers: EguiModifiers::default(),
+        modifiers: PanelModifiers::default(),
         events: Vec::new(),
     };
-    let first = egui_panel::run_frame(&context, input.clone(), &ThemeSnapshot::default(), |ui| {
+    let first = panel_frame::run_frame(&context, input.clone(), &ThemeSnapshot::default(), |ui| {
         ui.label("hello");
     });
-    let second = egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+    let second = panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
         ui.label("hello");
     });
     assert_ne!(first.textures.len(), 0);

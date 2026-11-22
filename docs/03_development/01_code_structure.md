@@ -108,9 +108,9 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `monitor.rs` | Lock-free per-device audio monitor ring for plugin editor meters |
 | `smoothing.rs` | Parameter smoothing primitives |
 
-### `notwig-ext-api` — extension SDK and egui panel transport
+### `notwig-ext-api` — extension SDK and panel transport
 
-ABI v3 makes the guest egui panel the only panel path. Extensions run a private
+ABI v4 makes the guest panel the only extension panel path. Extensions run a private
 `egui::Context` and return validated meshes, texture deltas, and host actions.
 
 | Module | Responsibility |
@@ -118,16 +118,16 @@ ABI v3 makes the guest egui panel the only panel path. Extensions run a private
 | `geometry.rs` | Renderer-neutral `Color` used by theme snapshots |
 | `cursor.rs` | Neutral cursor request enum |
 | `panel.rs` | `PanelAction`, `DevicePanelHost` |
-| `context.rs` | `DeviceDrawContext` (egui input and device meters) and theme snapshot |
+| `context.rs` | `DeviceDrawContext` (panel input and device meters) and theme snapshot |
 | `manifest.rs` | extension manifest, ordered entrypoints, capability/device declarations |
 | `target.rs` | canonical target names, aliases, and host support checks |
 | `status.rs` | `ExtensionStatus`, `ExtensionInfo`, settings |
 | `config.rs` | Versioned user config, default index URL, legacy migration |
 | `index.rs` | Extension index entry/device/url types and validation |
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
-| `egui_panel/` | Guest egui wire types, validation, frame runner, and theme bridge |
-| `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device egui draw dispatch |
-| `abi.rs` | ABI version (`3`), status codes, pointer/length packing, helper re-exports |
+| `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
+| `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device panel draw dispatch |
+| `abi.rs` | ABI version (`4`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -171,8 +171,8 @@ describes the extension subsystem and crate boundaries.
 
 | Module | Responsibility |
 |---|---|
-| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, egui panel, meters, parameter IDs |
-| `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, egui panel, meters, parameter IDs |
+| `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
+| `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
 | `synth.rs` | Polyphonic synth `DeviceExtension` impl: oscillator, ADSR, note handling |
 | `gain.rs` | Small guest-egui gain example using shared `notwig-ui` controls |
 | `dynamics.rs` | Shared 50-frame peak/gain history and egui history-graph painter |
@@ -209,7 +209,7 @@ describes the extension subsystem and crate boundaries.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; `extension.rs` builds the draw context, and `egui_render.rs` composites guest egui textures/meshes and bridges input |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; `extension.rs` builds the draw context, and `panel_render.rs` composites guest egui textures/meshes and bridges input |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/mod.rs` | Settings window and category navigation |
 | `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
@@ -282,8 +282,8 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Browser bundle/files and byte audio I/O | `crates/notwig-project/tests/browser_io.rs` |
 | DSP plans and stock devices | `crates/notwig-core/tests/dsp_graph.rs`, `dsp_stock.rs` |
 | Extension ABI, WASM devices, panels | `crates/notwig-ext/notwig-ext/tests/abi.rs` |
-| Egui panel wire validation | `crates/notwig-ext/notwig-ext-api/tests/egui_wire.rs` |
-| Guest egui bridge | `crates/notwig-ext/notwig-ext-api/tests/egui_bridge.rs` |
+| Panel wire validation | `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs` |
+| Panel bridge | `crates/notwig-ext/notwig-ext-api/tests/panel_bridge.rs` |
 | Extension ABI helpers | `crates/notwig-ext/notwig-ext-api/tests/abi_helpers.rs` |
 | Limiter, gate, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext/notwig-ext-api/tests/index_config.rs` |
@@ -364,16 +364,16 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    `notwig-ext-api` directly; use `notwig-core` and `notwig-ui` without default
    features and build the crate as a `cdylib`/`rlib`.
 2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
-   `draw_egui`, keep DSP in `process` over interleaved `f32` audio, and handle
+   `draw`, keep DSP in `process` over interleaved `f32` audio, and handle
    `note_event` if the device declares a note input. Register the type with
    `#[notwig_extension]`.
-3. In `draw_egui`, use the shared `notwig-ui` components (`knob`, meters,
+3. In `draw`, use the shared `notwig-ui` components (`knob`, meters,
    sections, dropdowns), keep IDs stable with `ui.make_persistent_id(...)`, and
-   emit parameter changes through `egui_panel::set_param_normalized` /
+   emit parameter changes through `panel_frame::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship a source `extension.json` with `api_version: 3`, no `entrypoints`, the
-   `device`/`ui.egui` capabilities, and optional target-gated `includes`. Set
+4. Ship a source `extension.json` with `api_version: 4`, no `entrypoints`, the
+   `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
    with `notwig-ext-cli build <target>`, which adds the entrypoint.
 5. Add frame tests in `crates/notwig-ext/notwig-ext-devices/tests/` and a host compositing

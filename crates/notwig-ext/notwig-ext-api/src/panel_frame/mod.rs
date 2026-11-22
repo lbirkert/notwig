@@ -1,4 +1,4 @@
-//! Guest-owned egui panels.
+//! Guest-owned extension panels.
 //!
 //! The wire types in this module are deliberately independent of `egui`'s
 //! internal serialization format. Extensions run a private `egui::Context` and
@@ -14,29 +14,29 @@ use serde::{Deserialize, Serialize};
 use crate::cursor::CursorIcon;
 use crate::panel::{PanelAction, validate_action};
 
-/// Maximum serialized size of one egui frame.
-pub const MAX_EGUI_FRAME_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum serialized size of one panel frame.
+pub const MAX_PANEL_FRAME_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum number of meshes in one frame.
-pub const MAX_EGUI_MESHES: usize = 8 * 1024;
+pub const MAX_PANEL_MESHES: usize = 8 * 1024;
 /// Maximum number of vertices across all meshes in one frame.
-pub const MAX_EGUI_VERTICES: usize = 262_144;
+pub const MAX_PANEL_VERTICES: usize = 262_144;
 /// Maximum number of indices across all meshes in one frame.
-pub const MAX_EGUI_INDICES: usize = 786_432;
+pub const MAX_PANEL_INDICES: usize = 786_432;
 /// Maximum number of texture deltas in one frame.
-pub const MAX_EGUI_TEXTURES: usize = 256;
+pub const MAX_PANEL_TEXTURES: usize = 256;
 /// Maximum width or height of one texture.
-pub const MAX_EGUI_TEXTURE_DIM: u32 = 8 * 1024;
+pub const MAX_PANEL_TEXTURE_DIM: u32 = 8 * 1024;
 /// Maximum total texels uploaded in one frame.
-pub const MAX_EGUI_TEXTURE_TEXELS: usize = 16 * 1024 * 1024;
+pub const MAX_PANEL_TEXTURE_TEXELS: usize = 16 * 1024 * 1024;
 /// Maximum number of input events in one frame.
-pub const MAX_EGUI_EVENTS: usize = 2 * 1024;
+pub const MAX_PANEL_EVENTS: usize = 2 * 1024;
 /// Maximum size of one text event or copied string.
-pub const MAX_EGUI_TEXT_BYTES: usize = 64 * 1024;
+pub const MAX_PANEL_TEXT_BYTES: usize = 64 * 1024;
 /// Maximum number of host actions in one frame.
-pub const MAX_EGUI_ACTIONS: usize = 256;
+pub const MAX_PANEL_ACTIONS: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct EguiModifiers {
+pub struct PanelModifiers {
     pub alt: bool,
     pub ctrl: bool,
     pub shift: bool,
@@ -45,7 +45,7 @@ pub struct EguiModifiers {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EguiPointerButton {
+pub enum PanelPointerButton {
     Primary,
     Secondary,
     Middle,
@@ -53,38 +53,38 @@ pub enum EguiPointerButton {
 
 /// Serializable pointer, keyboard, and IME input for one panel frame.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct EguiInput {
+pub struct PanelInput {
     pub width: f32,
     pub height: f32,
     pub pixels_per_point: f32,
     pub time: Option<f64>,
     pub focused: bool,
     pub max_texture_side: u32,
-    pub modifiers: EguiModifiers,
-    pub events: Vec<EguiEvent>,
+    pub modifiers: PanelModifiers,
+    pub events: Vec<PanelEvent>,
 }
 
-impl EguiInput {
-    pub fn validate(&self) -> Result<(), EguiFrameError> {
+impl PanelInput {
+    pub fn validate(&self) -> Result<(), PanelFrameError> {
         if !self.width.is_finite()
             || !self.height.is_finite()
             || self.width <= 0.0
             || self.height <= 0.0
         {
-            return Err(EguiFrameError::InvalidInput("panel size"));
+            return Err(PanelFrameError::InvalidInput("panel size"));
         }
         if !self.pixels_per_point.is_finite() || self.pixels_per_point <= 0.0 {
-            return Err(EguiFrameError::InvalidInput("pixels-per-point"));
+            return Err(PanelFrameError::InvalidInput("pixels-per-point"));
         }
         if self.time.is_some_and(|time| !time.is_finite()) {
-            return Err(EguiFrameError::InvalidInput("time"));
+            return Err(PanelFrameError::InvalidInput("time"));
         }
-        if self.max_texture_side == 0 || self.max_texture_side > MAX_EGUI_TEXTURE_DIM {
-            return Err(EguiFrameError::InvalidInput("max texture side"));
+        if self.max_texture_side == 0 || self.max_texture_side > MAX_PANEL_TEXTURE_DIM {
+            return Err(PanelFrameError::InvalidInput("max texture side"));
         }
-        if self.events.len() > MAX_EGUI_EVENTS {
-            return Err(EguiFrameError::TooManyEvents {
-                limit: MAX_EGUI_EVENTS,
+        if self.events.len() > MAX_PANEL_EVENTS {
+            return Err(PanelFrameError::TooManyEvents {
+                limit: MAX_PANEL_EVENTS,
             });
         }
         for event in &self.events {
@@ -95,26 +95,26 @@ impl EguiInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum EguiEvent {
+pub enum PanelEvent {
     PointerMoved {
         pos: [f32; 2],
     },
     PointerButton {
         pos: [f32; 2],
-        button: EguiPointerButton,
+        button: PanelPointerButton,
         pressed: bool,
-        modifiers: EguiModifiers,
+        modifiers: PanelModifiers,
     },
     PointerGone,
     MouseWheel {
         delta: [f32; 2],
-        modifiers: EguiModifiers,
+        modifiers: PanelModifiers,
     },
     Key {
         key: String,
         pressed: bool,
         repeat: bool,
-        modifiers: EguiModifiers,
+        modifiers: PanelModifiers,
     },
     Text(String),
     Copy,
@@ -123,28 +123,28 @@ pub enum EguiEvent {
     WindowFocused(bool),
 }
 
-impl EguiEvent {
-    fn validate(&self) -> Result<(), EguiFrameError> {
+impl PanelEvent {
+    fn validate(&self) -> Result<(), PanelFrameError> {
         match self {
             Self::PointerMoved { pos } | Self::PointerButton { pos, .. } => {
                 if !finite_pair(*pos) {
-                    return Err(EguiFrameError::InvalidInput("pointer"));
+                    return Err(PanelFrameError::InvalidInput("pointer"));
                 }
             }
             Self::MouseWheel { delta, .. } => {
                 if !finite_pair(*delta) {
-                    return Err(EguiFrameError::InvalidInput("scroll"));
+                    return Err(PanelFrameError::InvalidInput("scroll"));
                 }
             }
             Self::Key { key, .. } => {
                 if key.len() > 64 {
-                    return Err(EguiFrameError::InvalidInput("key name"));
+                    return Err(PanelFrameError::InvalidInput("key name"));
                 }
             }
             Self::Text(text) | Self::Paste(text) => {
-                if text.len() > MAX_EGUI_TEXT_BYTES {
-                    return Err(EguiFrameError::TextTooLong {
-                        limit: MAX_EGUI_TEXT_BYTES,
+                if text.len() > MAX_PANEL_TEXT_BYTES {
+                    return Err(PanelFrameError::TextTooLong {
+                        limit: MAX_PANEL_TEXT_BYTES,
                     });
                 }
             }
@@ -156,40 +156,40 @@ impl EguiEvent {
 
 /// One tessellated mesh and its guest clip rectangle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EguiPrimitive {
+pub struct PanelPrimitive {
     pub clip_rect: [f32; 4],
-    pub mesh: EguiMesh,
+    pub mesh: PanelMesh,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EguiMesh {
+pub struct PanelMesh {
     pub indices: Vec<u32>,
-    pub vertices: Vec<EguiVertex>,
+    pub vertices: Vec<PanelVertex>,
     pub texture_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct EguiVertex {
+pub struct PanelVertex {
     pub pos: [f32; 2],
     pub uv: [f32; 2],
     pub color: [u8; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct EguiTextureOptions {
+pub struct PanelTextureOptions {
     pub linear: bool,
     pub repeat: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EguiImage {
+pub struct PanelImage {
     pub width: u32,
     pub height: u32,
     /// Premultiplied sRGBA pixels packed as little-endian `u32`.
     pub pixels: Vec<u32>,
 }
 
-impl EguiImage {
+impl PanelImage {
     #[must_use]
     pub fn texels(&self) -> usize {
         usize::try_from(self.width)
@@ -204,18 +204,18 @@ impl EguiImage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EguiTextureDelta {
+pub struct PanelTextureDelta {
     pub id: u64,
     pub pos: Option<[u32; 2]>,
-    pub options: EguiTextureOptions,
-    pub image: EguiImage,
+    pub options: PanelTextureOptions,
+    pub image: PanelImage,
 }
 
-/// One validated guest egui frame.
+/// One validated guest panel frame.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct EguiFrame {
-    pub primitives: Vec<EguiPrimitive>,
-    pub textures: Vec<EguiTextureDelta>,
+pub struct PanelFrame {
+    pub primitives: Vec<PanelPrimitive>,
+    pub textures: Vec<PanelTextureDelta>,
     pub free_textures: Vec<u64>,
     pub actions: Vec<PanelAction>,
     pub cursor: Option<CursorIcon>,
@@ -225,27 +225,27 @@ pub struct EguiFrame {
     pub repaint_after_ms: Option<u32>,
 }
 
-impl EguiFrame {
-    pub fn validate(&self) -> Result<(), EguiFrameError> {
-        if self.primitives.len() > MAX_EGUI_MESHES {
-            return Err(EguiFrameError::TooManyMeshes {
-                limit: MAX_EGUI_MESHES,
+impl PanelFrame {
+    pub fn validate(&self) -> Result<(), PanelFrameError> {
+        if self.primitives.len() > MAX_PANEL_MESHES {
+            return Err(PanelFrameError::TooManyMeshes {
+                limit: MAX_PANEL_MESHES,
             });
         }
-        if self.textures.len() > MAX_EGUI_TEXTURES {
-            return Err(EguiFrameError::TooManyTextures {
-                limit: MAX_EGUI_TEXTURES,
+        if self.textures.len() > MAX_PANEL_TEXTURES {
+            return Err(PanelFrameError::TooManyTextures {
+                limit: MAX_PANEL_TEXTURES,
             });
         }
-        if self.actions.len() > MAX_EGUI_ACTIONS {
-            return Err(EguiFrameError::TooManyActions {
-                limit: MAX_EGUI_ACTIONS,
+        if self.actions.len() > MAX_PANEL_ACTIONS {
+            return Err(PanelFrameError::TooManyActions {
+                limit: MAX_PANEL_ACTIONS,
             });
         }
         if let Some(text) = &self.copy_text {
-            if text.len() > MAX_EGUI_TEXT_BYTES {
-                return Err(EguiFrameError::TextTooLong {
-                    limit: MAX_EGUI_TEXT_BYTES,
+            if text.len() > MAX_PANEL_TEXT_BYTES {
+                return Err(PanelFrameError::TextTooLong {
+                    limit: MAX_PANEL_TEXT_BYTES,
                 });
             }
         }
@@ -258,14 +258,14 @@ impl EguiFrame {
             vertices = vertices.saturating_add(primitive.mesh.vertices.len());
             indices = indices.saturating_add(primitive.mesh.indices.len());
         }
-        if vertices > MAX_EGUI_VERTICES {
-            return Err(EguiFrameError::TooManyVertices {
-                limit: MAX_EGUI_VERTICES,
+        if vertices > MAX_PANEL_VERTICES {
+            return Err(PanelFrameError::TooManyVertices {
+                limit: MAX_PANEL_VERTICES,
             });
         }
-        if indices > MAX_EGUI_INDICES {
-            return Err(EguiFrameError::TooManyIndices {
-                limit: MAX_EGUI_INDICES,
+        if indices > MAX_PANEL_INDICES {
+            return Err(PanelFrameError::TooManyIndices {
+                limit: MAX_PANEL_INDICES,
             });
         }
 
@@ -273,17 +273,17 @@ impl EguiFrame {
         for (index, texture) in self.textures.iter().enumerate() {
             if texture.image.width == 0
                 || texture.image.height == 0
-                || texture.image.width > MAX_EGUI_TEXTURE_DIM
-                || texture.image.height > MAX_EGUI_TEXTURE_DIM
+                || texture.image.width > MAX_PANEL_TEXTURE_DIM
+                || texture.image.height > MAX_PANEL_TEXTURE_DIM
             {
-                return Err(EguiFrameError::InvalidTexture {
+                return Err(PanelFrameError::InvalidTexture {
                     index,
                     reason: "dimensions",
                 });
             }
             let size = texture.image.texels();
             if size == usize::MAX || size != texture.image.pixels.len() {
-                return Err(EguiFrameError::InvalidTexture {
+                return Err(PanelFrameError::InvalidTexture {
                     index,
                     reason: "pixel count",
                 });
@@ -291,7 +291,7 @@ impl EguiFrame {
             if let Some(pos) = texture.pos {
                 let overflow = pos[0] > texture.image.width || pos[1] > texture.image.height;
                 if overflow {
-                    return Err(EguiFrameError::InvalidTexture {
+                    return Err(PanelFrameError::InvalidTexture {
                         index,
                         reason: "patch position",
                     });
@@ -299,40 +299,40 @@ impl EguiFrame {
             }
             texels = texels.saturating_add(size);
         }
-        if texels > MAX_EGUI_TEXTURE_TEXELS {
-            return Err(EguiFrameError::TextureBudget {
-                limit: MAX_EGUI_TEXTURE_TEXELS,
+        if texels > MAX_PANEL_TEXTURE_TEXELS {
+            return Err(PanelFrameError::TextureBudget {
+                limit: MAX_PANEL_TEXTURE_TEXELS,
             });
         }
 
         for (index, action) in self.actions.iter().enumerate() {
-            validate_action(action).map_err(|_| EguiFrameError::InvalidAction { index })?;
+            validate_action(action).map_err(|_| PanelFrameError::InvalidAction { index })?;
         }
         Ok(())
     }
 }
 
-impl EguiMesh {
-    fn validate(&self, index: usize) -> Result<(), EguiFrameError> {
-        if self.vertices.len() > MAX_EGUI_VERTICES {
-            return Err(EguiFrameError::TooManyVertices {
-                limit: MAX_EGUI_VERTICES,
+impl PanelMesh {
+    fn validate(&self, index: usize) -> Result<(), PanelFrameError> {
+        if self.vertices.len() > MAX_PANEL_VERTICES {
+            return Err(PanelFrameError::TooManyVertices {
+                limit: MAX_PANEL_VERTICES,
             });
         }
-        if self.indices.len() > MAX_EGUI_INDICES {
-            return Err(EguiFrameError::TooManyIndices {
-                limit: MAX_EGUI_INDICES,
+        if self.indices.len() > MAX_PANEL_INDICES {
+            return Err(PanelFrameError::TooManyIndices {
+                limit: MAX_PANEL_INDICES,
             });
         }
         if self.indices.len() % 3 != 0 {
-            return Err(EguiFrameError::InvalidMesh {
+            return Err(PanelFrameError::InvalidMesh {
                 index,
                 reason: "index count",
             });
         }
         for vertex in &self.vertices {
             if !finite_pair(vertex.pos) || !finite_pair(vertex.uv) {
-                return Err(EguiFrameError::InvalidMesh {
+                return Err(PanelFrameError::InvalidMesh {
                     index,
                     reason: "non-finite vertex",
                 });
@@ -342,7 +342,7 @@ impl EguiMesh {
             if usize::try_from(vertex_index)
                 .map_or(true, |vertex_index| vertex_index >= self.vertices.len())
             {
-                return Err(EguiFrameError::InvalidMesh {
+                return Err(PanelFrameError::InvalidMesh {
                     index,
                     reason: "index out of range",
                 });
@@ -352,15 +352,15 @@ impl EguiMesh {
     }
 }
 
-fn validate_clip(clip: [f32; 4], index: usize) -> Result<(), EguiFrameError> {
+fn validate_clip(clip: [f32; 4], index: usize) -> Result<(), PanelFrameError> {
     if !clip.into_iter().all(f32::is_finite) {
-        return Err(EguiFrameError::InvalidMesh {
+        return Err(PanelFrameError::InvalidMesh {
             index,
             reason: "non-finite clip",
         });
     }
     if clip[0] > clip[2] || clip[1] > clip[3] {
-        return Err(EguiFrameError::InvalidMesh {
+        return Err(PanelFrameError::InvalidMesh {
             index,
             reason: "inverted clip",
         });
@@ -373,24 +373,24 @@ fn finite_pair(value: [f32; 2]) -> bool {
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
-pub enum EguiFrameError {
-    #[error("invalid egui input: {0}")]
+pub enum PanelFrameError {
+    #[error("invalid panel input: {0}")]
     InvalidInput(&'static str),
-    #[error("egui frame exceeds {limit} meshes")]
+    #[error("panel frame exceeds {limit} meshes")]
     TooManyMeshes { limit: usize },
-    #[error("egui frame exceeds {limit} vertices")]
+    #[error("panel frame exceeds {limit} vertices")]
     TooManyVertices { limit: usize },
-    #[error("egui frame exceeds {limit} indices")]
+    #[error("panel frame exceeds {limit} indices")]
     TooManyIndices { limit: usize },
-    #[error("egui frame exceeds {limit} textures")]
+    #[error("panel frame exceeds {limit} textures")]
     TooManyTextures { limit: usize },
-    #[error("egui frame exceeds {limit} texture texels")]
+    #[error("panel frame exceeds {limit} texture texels")]
     TextureBudget { limit: usize },
-    #[error("egui frame exceeds {limit} events")]
+    #[error("panel frame exceeds {limit} events")]
     TooManyEvents { limit: usize },
-    #[error("egui frame exceeds {limit} actions")]
+    #[error("panel frame exceeds {limit} actions")]
     TooManyActions { limit: usize },
-    #[error("egui text exceeds {limit} bytes")]
+    #[error("panel text exceeds {limit} bytes")]
     TextTooLong { limit: usize },
     #[error("mesh {index} is invalid: {reason}")]
     InvalidMesh { index: usize, reason: &'static str },

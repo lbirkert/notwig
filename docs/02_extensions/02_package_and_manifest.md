@@ -42,8 +42,8 @@ builds a ZIP:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 3,
-  "capabilities": ["device", "ui.egui"],
+  "api_version": 4,
+  "capabilities": ["device", "ui.panel"],
   "devices": [
     {
       "name": "Example Gain",
@@ -69,7 +69,7 @@ manually; the CLI builds one target per ZIP.
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
 | `version` | yes | Package version string. |
-| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `3`. |
+| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `4`. |
 | `entrypoints` | installed only | Ordered target builds; the CLI adds it. The first supported entry wins. |
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
@@ -93,11 +93,11 @@ manually; the CLI builds one target per ZIP.
 | Capability | Grants |
 | --- | --- |
 | `device` | Device registration and DSP. |
-| `ui.egui` | Guest-owned egui panels. |
+| `ui.panel` | Guest-owned panels. |
 
-An extension without `ui.egui` still appears in the device browser and uses the
+An extension without `ui.panel` still appears in the device browser and uses the
 generic parameter view. See the
-[development design page](../03_development/12_egui_extension_panels.md).
+[development design page](../03_development/12_extension_panels.md).
 
 ### Includes
 

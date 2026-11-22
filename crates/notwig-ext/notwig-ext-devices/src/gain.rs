@@ -1,11 +1,11 @@
 use egui::{Align2, FontId, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_core::{DeviceKind, ParamId, ParamValue, SchemaVersion};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, panel_frame};
 use notwig_ui::{knob, label, palette, section};
 use uuid::Uuid;
 
-pub const TYPE_ID: &str = "notwig.ext.devices.egui-gain";
+pub const TYPE_ID: &str = "notwig.ext.devices.gain";
 
 const GAIN_UUID: u128 = 0x4547_5549_4741_494e_0000_0000_0000_0001;
 
@@ -18,12 +18,12 @@ pub fn gain_id() -> ParamId {
 }
 
 #[derive(Debug, Clone)]
-pub struct EguiGainDevice {
+pub struct GainDevice {
     gain_db: f64,
     gain: f32,
 }
 
-impl Default for EguiGainDevice {
+impl Default for GainDevice {
     fn default() -> Self {
         Self {
             gain_db: 0.0,
@@ -36,7 +36,7 @@ fn gain_norm(db: f64) -> f32 {
     ((db - MIN_GAIN_DB) / (MAX_GAIN_DB - MIN_GAIN_DB)) as f32
 }
 
-impl DeviceExtension for EguiGainDevice {
+impl DeviceExtension for GainDevice {
     fn new() -> Self {
         Self::default()
     }
@@ -56,25 +56,22 @@ impl DeviceExtension for EguiGainDevice {
                 0.0,
             )],
             latency_samples: 0,
-            name: "Egui Gain".into(),
+            name: "Gain".into(),
             vendor: "Notwig".into(),
-            ui: DeviceUiSpec::custom("notwig.example.egui-gain", Some(320.0)),
+            ui: DeviceUiSpec::custom(format!("ext:{TYPE_ID}"), Some(320.0)),
         }
     }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
-        section(ui, "Egui Gain");
-        label(
-            ui,
-            "This panel uses notwig-ui components inside the guest egui context.",
-        );
+    fn draw(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
+        section(ui, "Gain");
+        label(ui, "This panel uses the shared notwig-ui components.");
         ui.add_space(6.0);
 
         let width = ui.available_width().min(78.0);
         let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 58.0), Sense::hover());
         if let Some(norm) = knob(
             ui,
-            ui.make_persistent_id(("egui-gain", "gain")),
+            ui.make_persistent_id(("gain", "gain")),
             rect,
             gain_norm(self.gain_db),
             gain_norm(0.0),
@@ -84,7 +81,7 @@ impl DeviceExtension for EguiGainDevice {
             let gain_db = MIN_GAIN_DB + f64::from(norm) * (MAX_GAIN_DB - MIN_GAIN_DB);
             self.gain_db = gain_db;
             self.gain = 10.0_f32.powf((gain_db / 20.0) as f32);
-            egui_panel::set_param_value(ui, gain_id(), ParamValue::F64(gain_db));
+            panel_frame::set_param_value(ui, gain_id(), ParamValue::F64(gain_db));
         }
         ui.painter().with_clip_rect(rect).text(
             egui::pos2(rect.center().x, rect.bottom() + 8.0),

@@ -33,8 +33,9 @@ pub struct NotwigUi {
     pub intents: Vec<UiIntent>,
     pub registry: DeviceRegistry,
     pub(crate) device_panel_host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
-    pub(crate) egui_panel_textures: BTreeMap<String, BTreeMap<u64, egui::TextureHandle>>,
-    pub(crate) egui_panel_keyboard: bool,
+    pub(crate) extension_panel_textures: BTreeMap<String, BTreeMap<u64, egui::TextureHandle>>,
+    pub(crate) last_extension_frames: BTreeMap<String, notwig_ext_api::PanelFrame>,
+    pub(crate) extension_panel_keyboard: bool,
     pub(crate) extension_index_input: String,
     pub(crate) extension_index_requested: bool,
     pub(crate) extension_filter: crate::settings::ExtensionFilter,
@@ -110,8 +111,9 @@ impl Default for NotwigUi {
             intents: Vec::new(),
             registry: notwig_core::dsp::stock_registry(),
             device_panel_host: None,
-            egui_panel_textures: BTreeMap::new(),
-            egui_panel_keyboard: false,
+            extension_panel_textures: BTreeMap::new(),
+            last_extension_frames: BTreeMap::new(),
+            extension_panel_keyboard: false,
             extension_index_input: String::new(),
             extension_index_requested: false,
             extension_filter: crate::settings::ExtensionFilter::default(),
@@ -205,6 +207,8 @@ impl NotwigUi {
         host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
     ) {
         self.device_panel_host = host;
+        self.last_extension_frames.clear();
+        self.extension_panel_textures.clear();
     }
 
     pub fn show(
@@ -236,7 +240,7 @@ impl NotwigUi {
         self.update_drag_preview(ctx, doc, runtime);
         self.track_rows.clear();
         self.handle_shortcuts(ctx, doc, runtime);
-        self.egui_panel_keyboard = false;
+        self.extension_panel_keyboard = false;
         Self::app_bar(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
@@ -530,7 +534,7 @@ impl NotwigUi {
         if self.shortcut_editor.capture.is_some() {
             return;
         }
-        if self.egui_panel_keyboard {
+        if self.extension_panel_keyboard {
             return;
         }
         if ctx.wants_keyboard_input() {

@@ -9,7 +9,7 @@ This page is a quick map of the workspace crates. Each crate also has a
 | --- | --- | --- |
 | `notwig-core` | Domain document, IDs, time, tracks, clips, command protocol, editing algebra, device contracts, plan compilation, stock devices | No workspace crates |
 | `notwig-project` | Project bundles, manifests, autosave/recovery, audio probe/decode/resample/export | `notwig-core` |
-| `notwig-ext-api` | Extension SDK, guest egui panel wire types/runner, note events, manifests, ABI helpers | `notwig-core`, `notwig-ext-macros` |
+| `notwig-ext-api` | Extension SDK, guest panel wire types/runner, note events, manifests, ABI helpers | `notwig-core`, `notwig-ext-macros` |
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates wasm exports | Proc-macro support only |
 | `notwig-ext` | Extension discovery, wasmtime host, WASM DSP, panel host | `notwig-core`, `notwig-ext-api` |
 | `notwig-ext-devices` | Limiter, gate, synth, and gain example devices using shared UI components | `notwig-core`, `notwig-ui`, `notwig-ext-api` |
@@ -31,7 +31,7 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 | Document field, command, validation, edit algebra | `notwig-core` |
 | Bundle format, asset import/export, autosave | `notwig-project` |
 | Device contract, stock device, DSP graph | `notwig-core::dsp` |
-| Extension API, guest egui frame wire types, ABI wire types | `notwig-ext-api` |
+| Extension API, guest panel frame wire types, ABI wire types | `notwig-ext-api` |
 | Extension loading, target selection, WASM/native device runtime | `notwig-ext/notwig-ext` |
 | Extension scaffolding and package ZIPs | `notwig-ext/notwig-ext-cli` |
 | Playback, scheduling, transport, latency compensation | `notwig-engine` |

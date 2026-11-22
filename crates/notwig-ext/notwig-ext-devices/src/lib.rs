@@ -6,7 +6,8 @@ mod gate;
 mod limiter;
 mod synth;
 
-pub use gain::{EguiGainDevice, TYPE_ID as EGUI_GAIN_TYPE_ID, gain_id as egui_gain_id};
+pub use gain::{GainDevice, TYPE_ID as GAIN_TYPE_ID, gain_id};
+
 pub use gate::{
     GateDevice, TYPE_ID as GATE_TYPE_ID, attack_id as gate_attack_id, hold_id as gate_hold_id,
     range_id as gate_range_id, release_id as gate_release_id, threshold_id as gate_threshold_id,
@@ -23,5 +24,5 @@ pub fn extension(extension: &mut Extension) {
     extension.register_device::<LimiterDevice>();
     extension.register_device::<GateDevice>();
     extension.register_device::<SynthDevice>();
-    extension.register_device::<EguiGainDevice>();
+    extension.register_device::<GainDevice>();
 }

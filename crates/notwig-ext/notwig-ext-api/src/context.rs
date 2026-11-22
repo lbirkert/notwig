@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use notwig_core::{ParamId, ParamValue};
 use serde::{Deserialize, Serialize};
 
-use crate::egui_panel::EguiInput;
 use crate::geometry::Color;
+use crate::panel_frame::PanelInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThemeSnapshot {
@@ -68,9 +68,9 @@ pub struct DeviceDrawContext {
     pub bypassed: bool,
     pub params: BTreeMap<ParamId, ParamValue>,
     pub theme: ThemeSnapshot,
-    /// Pointer, keyboard, and focus snapshot for the egui panel path.
+    /// Pointer, keyboard, and focus snapshot for the panel path.
     #[serde(default)]
-    pub egui: EguiInput,
+    pub input: PanelInput,
     /// Latest input/output peaks measured by the engine.
     #[serde(default)]
     pub meter: DeviceMeterSnapshot,

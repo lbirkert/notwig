@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use notwig_ext_api::{DeviceDrawContext, DevicePanelHost, EguiFrame, ExtensionCapability};
+use notwig_ext_api::{DeviceDrawContext, DevicePanelHost, ExtensionCapability, PanelFrame};
 
 use crate::compiled::LoadedExtensions;
 use crate::instance::ExtensionInstance;
@@ -36,11 +36,11 @@ impl DevicePanelHost for ExtensionPanelHost {
         &mut self,
         type_id: &str,
         context: &DeviceDrawContext,
-    ) -> Option<EguiFrame> {
+    ) -> Option<PanelFrame> {
         let extension = self.loaded.find_type(type_id)?;
         if !extension
             .manifest
-            .has_capability(ExtensionCapability::UiEgui)
+            .has_capability(ExtensionCapability::UiPanel)
         {
             return None;
         }
@@ -72,7 +72,7 @@ impl DevicePanelHost for ExtensionPanelHost {
             for (param_id, value) in &context.params {
                 let _ = ui.instance.set_param(ui.handle, *param_id, value);
             }
-            ui.instance.draw_egui_panel(ui.handle, context)
+            ui.instance.draw_panel(ui.handle, context)
         };
         match result {
             Ok(frame) => Some(frame),
@@ -84,7 +84,8 @@ impl DevicePanelHost for ExtensionPanelHost {
                     error = %error,
                     "extension panel draw failed"
                 );
-                self.instances.remove(device_key);
+                // Keep the UI instance so a transient frame error does not
+                // recreate the guest context and flash the panel.
                 None
             }
         }

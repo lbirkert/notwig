@@ -4,10 +4,10 @@ use egui::{Color32, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, ParamKind};
 use notwig_core::{DeviceInstance, Norm01, ParamValue};
 use notwig_ext_api::{
-    Color, DeviceDrawContext, DeviceMeterSnapshot, EguiInput, PanelAction, ThemeSnapshot,
+    Color, DeviceDrawContext, DeviceMeterSnapshot, PanelAction, PanelInput, ThemeSnapshot,
 };
 
-use super::egui_render::{egui_input, paint_egui_frame, to_egui_cursor};
+use super::panel_render::{paint_panel_frame, panel_input, to_cursor};
 use crate::shell::NotwigUi;
 use crate::theme;
 
@@ -27,8 +27,16 @@ impl NotwigUi {
             response.request_focus();
         }
         let focused = response.has_focus();
-        let egui_input = egui_input(ui, target, size, focused);
-        let context = device_context(device, spec, sample_rate, selected, meter, egui_input, size);
+        let panel_input = panel_input(ui, target, size, focused);
+        let context = device_context(
+            device,
+            spec,
+            sample_rate,
+            selected,
+            meter,
+            panel_input,
+            size,
+        );
         let frame = {
             let Some(host) = self.device_panel_host.as_mut() else {
                 return false;
@@ -38,9 +46,9 @@ impl NotwigUi {
         let Some(frame) = frame else {
             return false;
         };
-        paint_egui_frame(self, ui, device, spec, &frame, target);
+        paint_panel_frame(self, ui, device, spec, &frame, target);
         if frame.wants_keyboard && focused {
-            self.egui_panel_keyboard = true;
+            self.extension_panel_keyboard = true;
         }
         true
     }
@@ -78,7 +86,7 @@ impl NotwigUi {
                     });
                 }
                 PanelAction::SetCursor { cursor } => {
-                    ui.ctx().set_cursor_icon(to_egui_cursor(*cursor));
+                    ui.ctx().set_cursor_icon(to_cursor(*cursor));
                 }
                 PanelAction::RequestRepaint => ui.ctx().request_repaint(),
             }
@@ -92,7 +100,7 @@ fn device_context(
     sample_rate: u32,
     selected: bool,
     meter: DeviceMeterSnapshot,
-    egui: EguiInput,
+    input: PanelInput,
     size: Vec2,
 ) -> DeviceDrawContext {
     DeviceDrawContext {
@@ -110,7 +118,7 @@ fn device_context(
             .map(|(id, value)| (*id, value.clone()))
             .collect::<BTreeMap<_, _>>(),
         theme: theme_snapshot(),
-        egui,
+        input,
         meter,
     }
 }
@@ -172,4 +180,14 @@ fn validated_param_value(
 fn to_color32(color: Color32) -> Color {
     let [r, g, b, a] = color.to_array();
     Color::rgba(r, g, b, a)
+}
+
+fn paint_panel_placeholder(ui: &egui::Ui, target: egui::Rect) {
+    ui.painter().with_clip_rect(target).text(
+        target.center(),
+        egui::Align2::CENTER_CENTER,
+        "Extension panel unavailable",
+        egui::FontId::proportional(11.0),
+        crate::theme::TEXT_MUTED,
+    );
 }

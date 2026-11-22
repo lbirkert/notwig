@@ -59,7 +59,7 @@ use notwig_core::dsp::{
     DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit,
 };
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, Extension, egui, egui_panel, notwig_extension};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, Extension, egui, panel_frame, notwig_extension};
 use notwig_ui::{knob, section};
 use uuid::Uuid;
 
@@ -139,7 +139,7 @@ impl DeviceExtension for GainDevice {
         }
     }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
+    fn draw(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "My Gain");
         let (rect, _) = ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hover());
         if let Some(norm) = knob(
@@ -153,7 +153,7 @@ impl DeviceExtension for GainDevice {
         ) {
             self.gain_db = -24.0 + f64::from(norm) * 48.0;
             self.update_gain();
-            egui_panel::set_param_normalized(ui, gain_id(), norm);
+            panel_frame::set_param_normalized(ui, gain_id(), norm);
         }
     }
 
@@ -188,8 +188,8 @@ ABI on desktop targets. The device implements only the Rust surface.
   "name": "My Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 3,
-  "capabilities": ["device", "ui.egui"],
+  "api_version": 4,
+  "capabilities": ["device", "ui.panel"],
   "image": "icon.png",
   "devices": [
     {

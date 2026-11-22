@@ -1,8 +1,8 @@
 use notwig_core::DeviceKind;
 use notwig_core::dsp::DeviceUiSpec;
 use notwig_ext_api::{
-    DeviceExtension, DeviceMeterSnapshot, EguiFrame, EguiInput, EguiModifiers, NoteEvent, NoteKind,
-    ThemeSnapshot, egui, egui_panel,
+    DeviceExtension, DeviceMeterSnapshot, NoteEvent, NoteKind, PanelFrame, PanelInput,
+    PanelModifiers, ThemeSnapshot, egui, panel_frame,
 };
 use notwig_ext_devices::{
     SYNTH_TYPE_ID, SynthDevice, synth_attack_id, synth_decay_id, synth_oscillator_id,
@@ -18,21 +18,21 @@ fn note(kind: NoteKind, pitch: u8, velocity: f32) -> NoteEvent {
     }
 }
 
-fn draw() -> EguiFrame {
+fn draw() -> PanelFrame {
     let mut synth = SynthDevice::new();
     let context = egui::Context::default();
-    let input = EguiInput {
+    let input = PanelInput {
         width: 260.0,
         height: 200.0,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
         max_texture_side: 4096,
-        modifiers: EguiModifiers::default(),
+        modifiers: PanelModifiers::default(),
         events: Vec::new(),
     };
-    egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
-        synth.draw_egui(ui, DeviceMeterSnapshot::default());
+    panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+        synth.draw(ui, DeviceMeterSnapshot::default());
     })
 }
 

@@ -21,7 +21,7 @@ extension (wasm or native)      notwig-ext host              notwig-ui
 ──────────────────────────      ────────────────              ─────────
 DeviceExtension::spec  ──────►  DeviceSpec validation  ───►  device chain
 DeviceExtension::process ────►  audio buffers          ───►  engine
-DeviceExtension::draw_egui ──►  EguiFrame + actions    ───►  panels
+DeviceExtension::draw ──►  PanelFrame + actions    ───►  panels
 ```
 
 - `notwig-ext-api` is the author-facing SDK. It has no `wasmtime`, `libloading`,
@@ -33,7 +33,7 @@ DeviceExtension::draw_egui ──►  EguiFrame + actions    ───►  panel
   The browser build loads WASM entrypoints only, discovers them from extracted
   packages in OPFS, and installs packages from the same JSON index as the native
   app.
-- `notwig-ui` composites the returned egui frame and applies validated
+- `notwig-ui` composites the returned panel frame and applies validated
   parameter actions. Extension panels use its shared knobs, meters, labels,
   sections, toggles, and dropdowns.
 - `notwig-ext-cli` scaffolds extensions and builds target-specific ZIPs. It
@@ -42,7 +42,7 @@ DeviceExtension::draw_egui ──►  EguiFrame + actions    ───►  panel
   artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
-version is `3`. The WASM and native ABIs are different transport layers around
+version is `4`. The WASM and native ABIs are different transport layers around
 the same Rust API.
 
 ## What an extension can do
@@ -75,7 +75,7 @@ Install native extensions only from trusted sources.
    layout and target selection.
 3. [Device API](03_device_api.md) covers `DeviceExtension`, parameters, ports,
    DSP, and latency.
-4. [Panel API](04_panel_api.md) covers the guest egui panel, shared components,
+4. [Panel API](04_panel_api.md) covers the guest panel, shared components,
    input, and actions.
 5. [Testing and Distribution](05_testing_and_distribution.md) covers tests,
    the example limiter, gate, synth, and gain devices, packaging, and index

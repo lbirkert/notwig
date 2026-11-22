@@ -201,7 +201,7 @@ fn extension_json(extension_id: &str, display_name: &str) -> String {
         "vendor": "Example",
         "version": "0.1.0",
         "api_version": notwig_ext_api::ABI_VERSION,
-        "capabilities": ["device", "ui.egui"],
+        "capabilities": ["device", "ui.panel"],
         "devices": [{
             "name": display_name,
             "type_id": extension_id,
@@ -236,7 +236,7 @@ const LIB_TEMPLATE: &str = r#"use egui::{Align2, FontId, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
 use notwig_ext_api::{
-    DeviceExtension, DeviceMeterSnapshot, Extension, egui, egui_panel, notwig_extension,
+    DeviceExtension, DeviceMeterSnapshot, Extension, egui, panel_frame, notwig_extension,
 };
 use notwig_ui::{knob, palette, section};
 use uuid::Uuid;
@@ -304,7 +304,7 @@ impl DeviceExtension for MyDevice {
         }
     }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
+    fn draw(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "My Device");
         let (rect, _) = ui.allocate_exact_size(Vec2::new(78.0, 58.0), Sense::hover());
         if let Some(norm) = knob(
@@ -318,7 +318,7 @@ impl DeviceExtension for MyDevice {
         ) {
             self.gain_db = MIN_GAIN_DB + f64::from(norm) * (MAX_GAIN_DB - MIN_GAIN_DB);
             self.update_gain();
-            egui_panel::set_param_normalized(ui, gain_id(), norm);
+            panel_frame::set_param_normalized(ui, gain_id(), norm);
         }
         ui.painter().with_clip_rect(rect).text(
             egui::pos2(rect.center().x, rect.bottom() + 8.0),

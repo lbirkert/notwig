@@ -264,7 +264,7 @@ Dependencies worth planning around:
 | --- | --- | --- | --- |
 | Extension host | ✅ Implemented | ⭐⭐⭐⭐ | Native shared-library host plus `wasmtime`/browser WebAssembly host, ordered target selection, user-directory discovery. |
 | Extension device DSP | 🧪 Partial | ⭐⭐⭐⭐ | Block `f32` processing, parameters, dynamic latency, and note events are forwarded. Persistent device state blobs are not. |
-| Extension device panels | ✅ Implemented | ⭐⭐⭐⭐ | Render-neutral draw commands plus native knob/toggle/dropdown commands, with generic fallback. |
+| Extension device panels | ✅ Implemented | ⭐⭐⭐⭐ | Guest panel frames use the real egui API with shared `notwig-ui` components and validated actions. |
 | Extension sandboxing | ✅ Implemented | ⭐⭐⭐⭐ | WASM always runs with memory and fuel limits. Native shared libraries run trusted with no sandbox, as documented. |
 | Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |

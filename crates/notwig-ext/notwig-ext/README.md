@@ -14,10 +14,10 @@ and never depends on `notwig-ui`.
 - Manifest discovery and target selection.
 - WASM module compilation/cache and native shared-library loading.
 - Extension ABI calls: describe, create, prepare, set parameter, process, note
-  events, latency, and egui panel frames.
+  events, latency, and panel frames.
 - Trust/limits, budgets, and host imports.
 - `ExtensionPanelHost`, which owns one UI-side extension instance per device and
-  returns a validated `EguiFrame` for the UI to composite.
+  returns a validated `PanelFrame` for the UI to composite.
 
 ## Does not own
 

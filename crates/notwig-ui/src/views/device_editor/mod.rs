@@ -18,9 +18,9 @@ use crate::theme;
 use crate::widgets::format_param;
 
 mod browser;
-mod egui_render;
 mod eq;
 mod extension;
+mod panel_render;
 mod params;
 mod renderer;
 
@@ -413,8 +413,11 @@ impl NotwigUi {
                             ui.add_space(4.0);
                         }
                         let renderer = device_renderer(spec);
-                        let extension_drawn = matches!(&renderer, DeviceRendererKind::Extension(_))
-                            && spec.is_some_and(|spec| {
+                        // Extension devices own their body. Never fall back to
+                        // the generic parameter editor: toggling between the
+                        // two makes meters and custom visuals flash.
+                        if matches!(&renderer, DeviceRendererKind::Extension(_)) {
+                            if let Some(spec) = spec {
                                 self.draw_extension_device_panel(
                                     ui,
                                     device,
@@ -426,9 +429,9 @@ impl NotwigUi {
                                         .copied()
                                         .unwrap_or_default(),
                                     Vec2::new(body_width - 8.0, height - 4.0),
-                                )
-                            });
-                        if !extension_drawn {
+                                );
+                            }
+                        } else {
                             match (renderer, spec) {
                                 (DeviceRendererKind::Eq, _) => {
                                     self.eq_card_body_from_panel(

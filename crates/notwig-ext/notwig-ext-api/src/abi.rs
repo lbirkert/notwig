@@ -9,7 +9,7 @@ pub use pointers::{
 };
 pub use store::DeviceStore;
 
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Maximum serialized metadata response from an extension.
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;

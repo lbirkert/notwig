@@ -5,13 +5,13 @@ Author-facing SDK and shared boundary types for Notwig extensions.
 ## Purpose
 
 `notwig-ext-api` defines the stable device-extension contract: device specs,
-guest egui panel transport, note events, manifests, target matching, ABI
+guest panel transport, note events, manifests, target matching, ABI
 constants, and the reusable ABI helpers generated into extension modules. The
 host uses the same wire types to validate and composite extension panels.
 
 ## Owns
 
-- Guest egui panel frames (`EguiFrame`, `EguiInput`, meshes, texture deltas) and
+- Guest panel frames (`PanelFrame`, `PanelInput`, meshes, texture deltas) and
   their limits/validation.
 - the `#[notwig_extension]` ABI generator, re-exported from
   `notwig-ext-macros`;
@@ -29,7 +29,7 @@ no render-neutral command IR. Extension panels should use the shared components
 from `notwig-ui` for knobs, meters, labels, sections, toggles, and dropdowns.
 
 This crate has no `wasmtime` and no I/O. Keep wire-format changes versioned
-through `notwig_ext_api::ABI_VERSION` (currently `3`).
+through `notwig_ext_api::ABI_VERSION` (currently `4`).
 
 Device authors implement `DeviceExtension` for their device type and register it
 from the entrypoint:
@@ -49,13 +49,13 @@ Cargo requires the proc macro to live in a separate crate, so
 `notwig-ext-macros` is an implementation detail re-exported here; authors only
 depend on `notwig-ext-api`.
 
-Panels are dynamic: the host calls `DeviceExtension::draw_egui` once per frame
+Panels are dynamic: the host calls `DeviceExtension::draw` once per frame
 with the guest egui `Ui` and the latest engine-measured device peaks. Queue
-parameter changes through the egui panel helpers so the host can validate them:
+parameter changes through the panel helpers so the host can validate them:
 
 ```rust
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, panel_frame};
 use notwig_ui::{knob, section};
 
 impl DeviceExtension for MyDevice {
@@ -67,7 +67,7 @@ impl DeviceExtension for MyDevice {
         gain_spec()
     }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
+    fn draw(&mut self, ui: &mut egui::Ui, _meter: DeviceMeterSnapshot) {
         section(ui, "Gain");
 
         let (rect, _) =
@@ -82,7 +82,7 @@ impl DeviceExtension for MyDevice {
             "Gain",
         ) {
             self.gain = norm;
-            egui_panel::set_param_normalized(ui, gain_id(), norm);
+            panel_frame::set_param_normalized(ui, gain_id(), norm);
         }
     }
 
@@ -96,7 +96,7 @@ own parameter values and view state.
 
 Parameter and UI changes are emitted as `PanelAction` values
 (`SetParamNormalized`, `SetParamValue`, `SetCursor`, `RequestRepaint`) and
-returned inside `EguiFrame::actions`. The host validates them against the device
+returned inside `PanelFrame::actions`. The host validates them against the device
 spec before applying them: parameters must exist, values must be finite, and
 normalized values are clamped.
 

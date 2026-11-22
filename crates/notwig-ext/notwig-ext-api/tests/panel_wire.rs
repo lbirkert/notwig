@@ -1,26 +1,26 @@
 use notwig_ext_api::{
-    EguiFrame, EguiImage, EguiInput, EguiMesh, EguiModifiers, EguiPrimitive, EguiTextureDelta,
-    EguiTextureOptions, EguiVertex, PanelAction,
+    PanelAction, PanelFrame, PanelImage, PanelInput, PanelMesh, PanelModifiers, PanelPrimitive,
+    PanelTextureDelta, PanelTextureOptions, PanelVertex,
 };
 
-fn valid_frame() -> EguiFrame {
-    EguiFrame {
-        primitives: vec![EguiPrimitive {
+fn valid_frame() -> PanelFrame {
+    PanelFrame {
+        primitives: vec![PanelPrimitive {
             clip_rect: [0.0, 0.0, 100.0, 100.0],
-            mesh: EguiMesh {
+            mesh: PanelMesh {
                 indices: vec![0, 1, 2],
                 vertices: vec![
-                    EguiVertex {
+                    PanelVertex {
                         pos: [0.0, 0.0],
                         uv: [0.0, 0.0],
                         color: [255; 4],
                     },
-                    EguiVertex {
+                    PanelVertex {
                         pos: [10.0, 0.0],
                         uv: [1.0, 0.0],
                         color: [255; 4],
                     },
-                    EguiVertex {
+                    PanelVertex {
                         pos: [0.0, 10.0],
                         uv: [0.0, 1.0],
                         color: [255; 4],
@@ -29,14 +29,14 @@ fn valid_frame() -> EguiFrame {
                 texture_id: 0,
             },
         }],
-        textures: vec![EguiTextureDelta {
+        textures: vec![PanelTextureDelta {
             id: 0,
             pos: None,
-            options: EguiTextureOptions {
+            options: PanelTextureOptions {
                 linear: true,
                 repeat: false,
             },
-            image: EguiImage {
+            image: PanelImage {
                 width: 1,
                 height: 1,
                 pixels: vec![u32::MAX],
@@ -57,7 +57,7 @@ fn frame_round_trips_through_postcard() {
     let frame = valid_frame();
     frame.validate().unwrap();
     let bytes = postcard::to_allocvec(&frame).unwrap();
-    let decoded: EguiFrame = postcard::from_bytes(&bytes).unwrap();
+    let decoded: PanelFrame = postcard::from_bytes(&bytes).unwrap();
     assert_eq!(decoded, frame);
 }
 
@@ -85,14 +85,14 @@ fn non_finite_geometry_is_rejected() {
 
 #[test]
 fn input_limits_are_enforced() {
-    let mut input = EguiInput {
+    let mut input = PanelInput {
         width: 100.0,
         height: 100.0,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
         max_texture_side: 4096,
-        modifiers: EguiModifiers::default(),
+        modifiers: PanelModifiers::default(),
         events: Vec::new(),
     };
     input.validate().unwrap();

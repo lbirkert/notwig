@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use egui::{Align2, FontId, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, panel_frame};
 use notwig_ui::{draw_stereo_meter_with_peak, knob, palette, section};
 use uuid::Uuid;
 
@@ -74,6 +76,8 @@ pub struct LimiterDevice {
     meter_right_db: f32,
     meter_peak_db: f32,
     gain_reduction_db: f32,
+    last_meter_time: f64,
+    last_history_time: f64,
 }
 
 impl Default for LimiterDevice {
@@ -97,6 +101,8 @@ impl Default for LimiterDevice {
             meter_right_db: METER_MIN_DB,
             meter_peak_db: METER_MIN_DB,
             gain_reduction_db: 0.0,
+            last_meter_time: 0.0,
+            last_history_time: -1.0,
         };
         limiter.update_threshold();
         limiter.update_release();
@@ -122,12 +128,20 @@ impl LimiterDevice {
         self.meter_right_db = METER_MIN_DB;
         self.meter_peak_db = METER_MIN_DB;
         self.gain_reduction_db = 0.0;
+        self.last_meter_time = 0.0;
+        self.last_history_time = -1.0;
     }
 
-    fn update_meters(&mut self, meter: DeviceMeterSnapshot) {
+    fn update_meters(&mut self, meter: DeviceMeterSnapshot, now: f64) {
+        let dt = if self.last_meter_time > 0.0 {
+            (now - self.last_meter_time).clamp(1.0 / 240.0, 0.25) as f32
+        } else {
+            1.0 / 60.0
+        };
+        self.last_meter_time = now;
         let input_peak = meter.input_peak_l.max(meter.input_peak_r);
         let output_peak = meter.output_peak_l.max(meter.output_peak_r);
-        let level_db = follow_peak(self.level_db, linear_to_db(input_peak), 0.8);
+        let level_db = follow_peak(self.level_db, linear_to_db(input_peak), 48.0 * dt);
         self.level_db = level_db;
         let gain_db = if input_peak > 1e-6 {
             linear_to_db((output_peak / input_peak).clamp(0.0, 1.0))
@@ -135,17 +149,27 @@ impl LimiterDevice {
             self.gain_reduction_db
         };
         self.gain_reduction_db = gain_db;
-        self.history.push(HistorySample { level_db, gain_db });
 
-        self.meter_left_db =
-            follow_peak(self.meter_left_db, linear_to_db(meter.output_peak_l), 0.8);
-        self.meter_right_db =
-            follow_peak(self.meter_right_db, linear_to_db(meter.output_peak_r), 0.8);
+        self.meter_left_db = follow_peak(
+            self.meter_left_db,
+            linear_to_db(meter.output_peak_l),
+            48.0 * dt,
+        );
+        self.meter_right_db = follow_peak(
+            self.meter_right_db,
+            linear_to_db(meter.output_peak_r),
+            48.0 * dt,
+        );
         let peak_db = self.meter_left_db.max(self.meter_right_db);
         if peak_db >= self.meter_peak_db {
             self.meter_peak_db = peak_db;
         } else {
-            self.meter_peak_db = (self.meter_peak_db - 0.25).max(METER_MIN_DB);
+            self.meter_peak_db = (self.meter_peak_db - 15.0 * dt).max(METER_MIN_DB);
+        }
+
+        if self.last_history_time < 0.0 || now - self.last_history_time >= 1.0 / 30.0 {
+            self.history.push(HistorySample { level_db, gain_db });
+            self.last_history_time = now;
         }
     }
 }
@@ -201,8 +225,9 @@ impl DeviceExtension for LimiterDevice {
         }
     }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
-        self.update_meters(meter);
+    fn draw(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
+        let now = ui.input(|input| input.time);
+        self.update_meters(meter, now);
         section(ui, "Limiter");
 
         let width = ui.available_width();
@@ -259,7 +284,7 @@ impl DeviceExtension for LimiterDevice {
                 self.threshold_db =
                     MIN_THRESHOLD_DB + f64::from(norm) * (MAX_THRESHOLD_DB - MIN_THRESHOLD_DB);
                 self.update_threshold();
-                egui_panel::set_param_normalized(ui, threshold_id(), norm);
+                panel_frame::set_param_normalized(ui, threshold_id(), norm);
             }
             knob_label(ui, threshold_rect, "Threshold");
 
@@ -277,12 +302,12 @@ impl DeviceExtension for LimiterDevice {
                 self.release_seconds = MIN_RELEASE_SECONDS
                     + f64::from(norm) * (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS);
                 self.update_release();
-                egui_panel::set_param_normalized(ui, release_id(), norm);
+                panel_frame::set_param_normalized(ui, release_id(), norm);
             }
             knob_label(ui, release_rect, "Release");
         });
 
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after(Duration::from_millis(33));
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {

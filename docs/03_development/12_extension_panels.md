@@ -1,4 +1,4 @@
-# egui extension panels
+# Extension panels
 
 This page defines the extension panel path. Device extensions implement their
 panel with the real `egui` API inside their own context; the host keeps the
@@ -38,14 +38,14 @@ extension panels look and behave like the host.
 
 ```text
 extension instance (WASM or native)
-  draw_egui(ui: &mut egui::Ui, meter: DeviceMeterSnapshot)
+  draw(ui: &mut egui::Ui, meter: DeviceMeterSnapshot)
     -> private egui::Context::run
     -> Context::tessellate
-    -> EguiFrame { meshes, textures, actions, focus, repaint }
+    -> PanelFrame { meshes, textures, actions, focus, repaint }
     -> postcard bytes
   ------------------------------------------------
 host extension loader (notwig-ext)
-  decode + validate EguiFrame
+  decode + validate PanelFrame
   ------------------------------------------------
 host UI (notwig-ui)
   upload texture deltas into a per-panel texture namespace
@@ -60,18 +60,18 @@ host pointer. Only the serialized frame and input snapshot cross the boundary.
 
 ## Capability and ABI
 
-- Manifest capability: `ui.egui`.
-- Macro: `#[notwig_extension]` always generates the egui panel export. The
-  optional `egui` attribute is accepted for source compatibility.
+- Manifest capability: `ui.panel`.
+- Macro: `#[notwig_extension]` takes no options and generates the panel draw
+  export.
 - Exports:
-  - `notwig_device_draw_egui(handle, context_ptr, context_len) -> pointer/len`
-- The former command-panel export (`notwig_device_draw`) and the
-  `supports_egui` query were removed in ABI version 3.
+  - `notwig_device_draw(handle, context_ptr, context_len) -> pointer/len`
+- ABI version 4 removed the command-panel IR and the capability query, and
+  renamed the guest panel wire types to `Panel*`.
 
 Frames use `postcard`, not JSON. A first frame can include a ~1 MiB font atlas
 and mesh data; JSON would inflate both.
 
-`EguiFrame` is validated before the host uses any of it:
+`PanelFrame` is validated before the host uses any of it:
 
 - action/mesh/texture counts and bytes are capped;
 - clip rects and vertex positions must be finite;
@@ -87,7 +87,7 @@ and mesh data; JSON would inflate both.
 ```rust
 use notwig_core::dsp::DeviceSpec;
 use notwig_ext_api::{
-    notwig_extension, DeviceExtension, DeviceMeterSnapshot, egui, egui_panel,
+    notwig_extension, DeviceExtension, DeviceMeterSnapshot, egui, panel_frame,
 };
 use notwig_ui::{knob, section};
 
@@ -97,7 +97,7 @@ impl DeviceExtension for MyDevice {
     fn new() -> Self { Self { gain: 0.5 } }
     fn spec() -> DeviceSpec { /* ... */ }
 
-    fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
+    fn draw(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
         section(ui, "My device");
         let (rect, _) = ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hover());
         if let Some(norm) = knob(
@@ -110,7 +110,7 @@ impl DeviceExtension for MyDevice {
             "Gain",
         ) {
             self.gain = norm;
-            egui_panel::set_param_normalized(ui, my_param_id(), norm);
+            panel_frame::set_param_normalized(ui, my_param_id(), norm);
         }
         let _ = meter;
     }
@@ -124,7 +124,7 @@ pub fn extension(extension: &mut notwig_ext_api::Extension) {
 }
 ```
 
-`draw_egui` runs in the guest's own context. It may use `Grid`, `ScrollArea`,
+`draw` runs in the guest's own context. It may use `Grid`, `ScrollArea`,
 `TextEdit`, custom `Widget` implementations, and any other egui API because all
 of that executes inside the guest. It must not rely on host windows, host
 clipboards, or host accessibility.
@@ -157,9 +157,14 @@ view-state mutations idempotent, or avoid requesting a discard in device panels.
 Guest id `0` is the guest font atlas, including solid-color geometry that uses
 the font atlas white texel. The host maps it like any other texture.
 
+The host keeps the last valid frame for each device instance. A transient guest
+error reuses that frame instead of dropping to generic parameter controls, and
+the guest UI instance is retained across failed draws so the panel does not
+flash or recreate its context.
+
 ## Input, focus, repaint
 
-`notwig-ui` builds an `EguiInput` snapshot from the host frame:
+`notwig-ui` builds an `PanelInput` snapshot from the host frame:
 
 - panel-local pointer position, pointer buttons, scroll, modifiers;
 - key press/release events using egui's stable key names;
@@ -168,7 +173,7 @@ the font atlas white texel. The host maps it like any other texture.
 
 The host only forwards keyboard/text events while the panel owns focus. The
 panel takes focus on click and releases it through normal egui interaction.
-`EguiFrame::wants_keyboard` tells the shell whether to suppress host shortcuts
+`PanelFrame::wants_keyboard` tells the shell whether to suppress host shortcuts
 while the panel is focused.
 
 Repaint comes from the guest frame's root viewport `repaint_delay`. The host
@@ -207,38 +212,38 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 
 `crates/notwig-ext/notwig-ext-api`:
 
-- `src/egui_panel/mod.rs`: wire types, limits, validation.
-- `src/egui_panel/bridge.rs`: `EguiInput -> RawInput`, `FullOutput ->
-  EguiFrame`, theme mapping, parameter-action helpers.
-- `src/extension.rs`: `DeviceExtension::draw_egui`, per-slot egui context and
+- `src/panel_frame/mod.rs`: wire types, limits, validation.
+- `src/panel_frame/bridge.rs`: `PanelInput -> RawInput`, `FullOutput ->
+  PanelFrame`, theme mapping, parameter-action helpers.
+- `src/extension.rs`: `DeviceExtension::draw`, per-slot egui context and
   frame buffer.
-- `src/manifest.rs`: `ui.egui` capability.
+- `src/manifest.rs`: `ui.panel` capability.
 - `src/abi.rs`: ABI version and export names.
 
 `crates/notwig-ext/notwig-ext-macros`:
 
-- generate `notwig_device_draw_egui` for WASM and native targets.
+- generate `notwig_device_draw` for WASM and native targets.
 
 `crates/notwig-ext/notwig-ext`:
 
 - `abi.rs`, `native.rs`, `web/instance.rs`: egui exports, frame budget, decode
   and validation.
 - `instance.rs`, `panel.rs`, `web/panel.rs`: route capable extensions through
-  the egui panel path.
+  the panel path.
 
 `crates/notwig-ui`:
 
 - `components/`: shared controls and meters used by both the app and guests.
-- `views/device_editor/egui_render.rs`: input snapshot, focus, texture
+- `views/device_editor/panel_render.rs`: input snapshot, focus, texture
   namespace, mesh compositing, actions.
 - `views/device_editor/extension.rs`: build the draw context and composite the
   returned frame.
 
 ## Tests
 
-- Wire round-trip and limits in `crates/notwig-ext/notwig-ext-api/tests/egui_wire.rs`.
+- Wire round-trip and limits in `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs`.
 - Guest frame generation and action assertions in
-  `crates/notwig-ext/notwig-ext-api/tests/egui_bridge.rs`.
+  `crates/notwig-ext/notwig-ext-api/tests/panel_bridge.rs`.
 - Device-level frames in `crates/notwig-ext/notwig-ext-devices/tests/`.
 - Host compositing, meter delivery, and invalid-frame handling in
   `notwig-ui/tests/extension_panel.rs`.

@@ -6,8 +6,8 @@ use notwig_core::dsp::{CompiledPlan, PlanDevice, ProcessContext, RenderConfig, T
 use notwig_core::{DeviceId, DeviceKind, SchemaVersion, TrackId};
 use notwig_ext::ExtensionHost;
 use notwig_ext_api::{
-    DeviceDrawContext, EguiFrame, EguiImage, EguiInput, EguiMesh, EguiPrimitive, EguiTextureDelta,
-    EguiTextureOptions, EguiVertex, PanelAction, ThemeSnapshot,
+    DeviceDrawContext, PanelAction, PanelFrame, PanelImage, PanelInput, PanelMesh, PanelPrimitive,
+    PanelTextureDelta, PanelTextureOptions, PanelVertex, ThemeSnapshot,
 };
 
 const DESCRIBE: &str = r#"{"type_id":"com.test.gain","version":{"major":0,"minor":1},"kind":"AudioFx","ports":[],"params":[],"latency_samples":0,"name":"Gain","vendor":"Test"}"#;
@@ -16,24 +16,24 @@ fn escape(text: &str) -> String {
     text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn egui_frame() -> EguiFrame {
-    EguiFrame {
-        primitives: vec![EguiPrimitive {
+fn valid_frame() -> PanelFrame {
+    PanelFrame {
+        primitives: vec![PanelPrimitive {
             clip_rect: [0.0, 0.0, 100.0, 100.0],
-            mesh: EguiMesh {
+            mesh: PanelMesh {
                 indices: vec![0, 1, 2],
                 vertices: vec![
-                    EguiVertex {
+                    PanelVertex {
                         pos: [0.0, 0.0],
                         uv: [0.0, 0.0],
                         color: [255; 4],
                     },
-                    EguiVertex {
+                    PanelVertex {
                         pos: [10.0, 0.0],
                         uv: [1.0, 0.0],
                         color: [255; 4],
                     },
-                    EguiVertex {
+                    PanelVertex {
                         pos: [0.0, 10.0],
                         uv: [0.0, 1.0],
                         color: [255; 4],
@@ -42,14 +42,14 @@ fn egui_frame() -> EguiFrame {
                 texture_id: 0,
             },
         }],
-        textures: vec![EguiTextureDelta {
+        textures: vec![PanelTextureDelta {
             id: 0,
             pos: None,
-            options: EguiTextureOptions {
+            options: PanelTextureOptions {
                 linear: true,
                 repeat: false,
             },
-            image: EguiImage {
+            image: PanelImage {
                 width: 1,
                 height: 1,
                 pixels: vec![u32::MAX],
@@ -67,7 +67,7 @@ fn egui_frame() -> EguiFrame {
 
 fn module_wat() -> String {
     let describe = escape(DESCRIBE);
-    let frame_bytes = postcard::to_allocvec(&egui_frame()).unwrap();
+    let frame_bytes = postcard::to_allocvec(&valid_frame()).unwrap();
     let mut frame = String::with_capacity(frame_bytes.len() * 4);
     for byte in &frame_bytes {
         write!(&mut frame, "\\{byte:02x}").unwrap();
@@ -80,7 +80,7 @@ fn module_wat() -> String {
   (data (i32.const 0) "{describe}")
   (data (i32.const 8192) "{frame}")
   (global $next (mut i32) (i32.const 16384))
-  (func (export "notwig_abi_version") (result i32) i32.const 3)
+  (func (export "notwig_abi_version") (result i32) i32.const 4)
   (func (export "notwig_alloc") (param $len i32) (result i32)
     (local $ptr i32)
     global.get $next
@@ -138,7 +138,7 @@ fn module_wat() -> String {
     i32.const 0)
   (func (export "notwig_device_latency") (param i32) (result i32)
     i32.const 7)
-  (func (export "notwig_device_draw_egui") (param i32 i32 i32) (result i64)
+  (func (export "notwig_device_draw") (param i32 i32 i32) (result i64)
     i64.const {frame_packed})
 )"#
     )
@@ -149,7 +149,7 @@ fn write_extension(with_ui: bool) -> PathBuf {
     let extension = dir.join("com.test.gain");
     std::fs::create_dir_all(&extension).unwrap();
     let capabilities = if with_ui {
-        serde_json::json!(["device", "ui.egui"])
+        serde_json::json!(["device", "ui.panel"])
     } else {
         serde_json::json!(["device"])
     };
@@ -158,7 +158,7 @@ fn write_extension(with_ui: bool) -> PathBuf {
         "name": "Test Gain",
         "vendor": "Test",
         "version": "0.1.0",
-        "api_version": 3,
+        "api_version": 4,
         "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
         "capabilities": capabilities,
         "devices": [{
@@ -191,7 +191,7 @@ fn context() -> DeviceDrawContext {
         bypassed: false,
         params: BTreeMap::new(),
         theme: ThemeSnapshot::default(),
-        egui: EguiInput::default(),
+        input: PanelInput::default(),
         meter: notwig_ext_api::DeviceMeterSnapshot::default(),
     }
 }
@@ -227,7 +227,7 @@ fn plan_for(spec: notwig_core::dsp::DeviceSpec) -> (CompiledPlan, PlanDevice) {
 }
 
 #[test]
-fn loads_device_spec_and_draws_egui_frame() {
+fn loads_device_spec_and_draws_panel_frame() {
     let dir = write_extension(true);
     let host = ExtensionHost::load(&dir, &BTreeMap::new()).unwrap();
     let specs = host.specs();

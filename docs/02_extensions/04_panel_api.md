@@ -1,14 +1,14 @@
 # Panel API
 
-`DeviceExtension::draw_egui` runs once per UI frame while the device panel is
+`DeviceExtension::draw` runs once per UI frame while the device panel is
 visible. The extension runs a private `egui::Context`; the host provides the
 latest engine meter snapshot and composites the returned frame.
 
 ```rust
-use notwig_ext_api::{DeviceMeterSnapshot, egui, egui_panel};
+use notwig_ext_api::{DeviceMeterSnapshot, egui, panel_frame};
 use notwig_ui::{knob, section};
 
-fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
+fn draw(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
     section(ui, "Gain");
 
     let (rect, _) = ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hover());
@@ -23,7 +23,7 @@ fn draw_egui(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot) {
     ) {
         self.gain_db = -24.0 + f64::from(norm) * 48.0;
         self.update_gain();
-        egui_panel::set_param_normalized(ui, gain_id(), norm);
+        panel_frame::set_param_normalized(ui, gain_id(), norm);
     }
 }
 ```
@@ -59,15 +59,15 @@ resets to the default; Cmd/Ctrl+click opens the shared numeric editor.
 ## Parameter actions
 
 Drawing code cannot mutate host state directly. Parameter changes are queued as
-`PanelAction` values and returned inside `EguiFrame::actions`:
+`PanelAction` values and returned inside `PanelFrame::actions`:
 
 - `SetParamNormalized { param_id, norm }`
 - `SetParamValue { param_id, value }`
 - `SetCursor { cursor }`
 - `RequestRepaint`
 
-Use `egui_panel::set_param_normalized` for knobs and drag controls. Use
-`egui_panel::set_param_value` when you already have a typed value, such as an
+Use `panel_frame::set_param_normalized` for knobs and drag controls. Use
+`panel_frame::set_param_value` when you already have a typed value, such as an
 enum index or a reset to a known default.
 
 The host validates actions against the device spec before applying them:
@@ -79,11 +79,11 @@ The host validates actions against the device spec before applying them:
   spec range and step;
 - actions for the same parameter in one frame apply in order, and the last one
   wins;
-- invalid actions are dropped, and actions are capped by `MAX_EGUI_ACTIONS`.
+- invalid actions are dropped, and actions are capped by `MAX_PANEL_ACTIONS`.
 
 ## Metering
 
-`draw_egui` receives the engine-measured `DeviceMeterSnapshot`:
+`draw` receives the engine-measured `DeviceMeterSnapshot`:
 
 ```rust
 let to_linear = |db: f32| 10.0_f32.powf(db / 20.0);
@@ -104,7 +104,7 @@ history on the device, feed it from the snapshot, and call
 
 ## Interaction and layout
 
-`draw_egui` gets the real egui `Ui`. Use normal egui layout (`ui.horizontal`,
+`draw` gets the real egui `Ui`. Use normal egui layout (`ui.horizontal`,
 `ui.vertical`, `ui.add_space`, `ui.allocate_exact_size`, `Grid`, `ScrollArea`)
 and normal egui widgets. Keep IDs stable across frames with
 `ui.make_persistent_id(...)`.
@@ -138,10 +138,10 @@ Host limits are enforced on the WASM boundary:
 | indices per frame | 786,432 |
 | textures per frame | 256 |
 | texture side | 8192 px |
-| serialized egui frame | 8 MiB |
+| serialized panel frame | 8 MiB |
 | actions per frame | 256 |
 
-`EguiFrame::validate()` enforces finite geometry, clip ordering, index bounds,
+`PanelFrame::validate()` enforces finite geometry, clip ordering, index bounds,
 texture sizes, command/action counts, and the frame budget. The host calls it
 before compositing.
 
@@ -149,7 +149,7 @@ before compositing.
 
 Native entrypoints are not sandboxed; they run in the Notwig process and use the
 same panel API with lower overhead. The host still validates the returned
-`EguiFrame` before rendering. Only install native extensions from sources you
+`PanelFrame` before rendering. Only install native extensions from sources you
 trust.
 
 ## Why not pass the host egui context
@@ -159,7 +159,7 @@ stable FFI layout, and cannot be passed across the WASM boundary. Running a
 private guest context keeps output validated, bounded, and isolated while still
 giving authors the real egui API.
 
-See [egui extension panels](../03_development/12_egui_extension_panels.md) for
+See [extension panels](../03_development/12_extension_panels.md) for
 the protocol, limits, and current non-goals (floating windows, IME, and guest
 accessibility trees).
 

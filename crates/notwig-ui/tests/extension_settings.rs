@@ -38,13 +38,13 @@ fn runtime() -> RuntimeView {
         name: "Notwig Stock Devices".into(),
         vendor: "Notwig".into(),
         version: "0.1.0".into(),
-        api_version: 3,
+        api_version: 4,
         urls: vec![ExtensionIndexUrl {
             url: "https://example.com/notwig.ext.devices.zip".into(),
             hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
             targets: vec!["wasm".into()],
         }],
-        capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiEgui],
+        capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiPanel],
         devices: vec![ExtensionIndexDevice {
             name: "Notwig Stock Limiter".into(),
             type_id: "notwig.ext.devices.limiter".into(),

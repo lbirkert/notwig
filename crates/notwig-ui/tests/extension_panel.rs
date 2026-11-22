@@ -7,8 +7,8 @@ use notwig_core::protocol::{Command, CommandPayload};
 use notwig_core::tracks::TrackKind;
 use notwig_core::*;
 use notwig_ext_api::{
-    DeviceDrawContext, DeviceMeterSnapshot, DevicePanelHost, EguiFrame, EguiImage, EguiMesh,
-    EguiPrimitive, EguiTextureDelta, EguiTextureOptions, EguiVertex, PanelAction,
+    DeviceDrawContext, DeviceMeterSnapshot, DevicePanelHost, PanelAction, PanelFrame, PanelImage,
+    PanelMesh, PanelPrimitive, PanelTextureDelta, PanelTextureOptions, PanelVertex,
 };
 use notwig_ui::{NotwigUi, RuntimeView, UiIntent};
 use uuid::Uuid;
@@ -17,19 +17,19 @@ fn id<T>(n: u128) -> Id<T> {
     Id::from_uuid(Uuid::from_u128(n))
 }
 
-struct FakeEguiHost {
+struct FakePanelHost {
     called: Arc<AtomicBool>,
     action: Option<PanelAction>,
     expected_meter: Option<DeviceMeterSnapshot>,
     invalid: bool,
 }
 
-impl DevicePanelHost for FakeEguiHost {
+impl DevicePanelHost for FakePanelHost {
     fn draw_device_panel(
         &mut self,
         _type_id: &str,
         context: &DeviceDrawContext,
-    ) -> Option<EguiFrame> {
+    ) -> Option<PanelFrame> {
         self.called.store(true, Ordering::Relaxed);
         assert!(context.width > 0.0);
         assert!(context.height > 0.0);
@@ -41,28 +41,28 @@ impl DevicePanelHost for FakeEguiHost {
         } else {
             vec![0, 1, 2, 0, 2, 3]
         };
-        Some(EguiFrame {
-            primitives: vec![EguiPrimitive {
+        Some(PanelFrame {
+            primitives: vec![PanelPrimitive {
                 clip_rect: [0.0, 0.0, 200.0, 200.0],
-                mesh: EguiMesh {
+                mesh: PanelMesh {
                     indices,
                     vertices: vec![
-                        EguiVertex {
+                        PanelVertex {
                             pos: [0.0, 0.0],
                             uv: [0.0, 0.0],
                             color: [255; 4],
                         },
-                        EguiVertex {
+                        PanelVertex {
                             pos: [20.0, 0.0],
                             uv: [1.0, 0.0],
                             color: [255; 4],
                         },
-                        EguiVertex {
+                        PanelVertex {
                             pos: [20.0, 20.0],
                             uv: [1.0, 1.0],
                             color: [255; 4],
                         },
-                        EguiVertex {
+                        PanelVertex {
                             pos: [0.0, 20.0],
                             uv: [0.0, 1.0],
                             color: [255; 4],
@@ -71,14 +71,14 @@ impl DevicePanelHost for FakeEguiHost {
                     texture_id: 0,
                 },
             }],
-            textures: vec![EguiTextureDelta {
+            textures: vec![PanelTextureDelta {
                 id: 0,
                 pos: None,
-                options: EguiTextureOptions {
+                options: PanelTextureOptions {
                     linear: true,
                     repeat: false,
                 },
-                image: EguiImage {
+                image: PanelImage {
                     width: 1,
                     height: 1,
                     pixels: vec![u32::MAX],
@@ -191,13 +191,13 @@ fn render(ui: &mut NotwigUi, doc: &ProjectDoc) -> Vec<UiIntent> {
 }
 
 #[test]
-fn egui_frame_composites_and_applies_actions() {
+fn panel_frame_composites_and_applies_actions() {
     let doc = doc();
     let param_id = id::<Param>(7);
     let mut ui = NotwigUi::default();
     ui.registry.register(extension_spec_with_param(param_id));
     ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
+    ui.set_device_panel_host(Some(Box::new(FakePanelHost {
         called: Arc::new(AtomicBool::new(false)),
         action: Some(PanelAction::SetParamNormalized {
             param_id,
@@ -232,7 +232,7 @@ fn extension_panel_receives_device_meter() {
     let mut ui = NotwigUi::default();
     ui.registry.register(extension_spec());
     ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
+    ui.set_device_panel_host(Some(Box::new(FakePanelHost {
         called: Arc::clone(&called),
         action: None,
         expected_meter: Some(meter),
@@ -245,13 +245,13 @@ fn extension_panel_receives_device_meter() {
 }
 
 #[test]
-fn invalid_egui_frame_is_ignored_without_panicking() {
+fn invalid_panel_frame_is_ignored_without_panicking() {
     let doc = doc();
     let called = Arc::new(AtomicBool::new(false));
     let mut ui = NotwigUi::default();
     ui.registry.register(extension_spec());
     ui.state.selection.select_track(id::<Track>(2), false);
-    ui.set_device_panel_host(Some(Box::new(FakeEguiHost {
+    ui.set_device_panel_host(Some(Box::new(FakePanelHost {
         called: Arc::clone(&called),
         action: None,
         expected_meter: None,

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use js_sys::{BigInt, Function, Object, Reflect, Uint8Array};
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
+    ABI_VERSION, AbiStatus, DeviceDrawContext, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
     unpack_ptr_len,
 };
 use wasm_bindgen::{JsCast, JsValue};
@@ -25,7 +25,7 @@ pub(crate) struct WebExtensionInstance {
     set_param: Function,
     process: Function,
     latency: Function,
-    draw_egui: Function,
+    draw: Function,
     host_global: String,
 }
 
@@ -110,7 +110,7 @@ impl WebExtensionInstance {
             set_param: function(&exports, "notwig_device_set_param")?,
             process: function(&exports, "notwig_device_process")?,
             latency: function(&exports, "notwig_device_latency")?,
-            draw_egui: function(&exports, "notwig_device_draw_egui")?,
+            draw: function(&exports, "notwig_device_draw")?,
             memory,
             host_global: host_name,
         })
@@ -232,16 +232,16 @@ impl WebExtensionInstance {
             .unwrap_or(0)
     }
 
-    pub(crate) fn draw_egui_panel(
+    pub(crate) fn draw_panel(
         &mut self,
         handle: i32,
         context: &DeviceDrawContext,
-    ) -> Result<EguiFrame, ExtensionError> {
+    ) -> Result<PanelFrame, ExtensionError> {
         let context = postcard::to_allocvec(context)
             .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
         let (ptr, len) = self.write_input(&context)?;
         let packed = call_u64(
-            &self.draw_egui,
+            &self.draw,
             &[
                 JsValue::from(handle),
                 JsValue::from(ptr),
@@ -249,8 +249,8 @@ impl WebExtensionInstance {
             ],
         )?;
         self.free_input(ptr, len);
-        let bytes = self.read_packed_bytes(packed, MAX_EGUI_FRAME_BYTES)?;
-        let frame: EguiFrame = postcard::from_bytes(&bytes)
+        let bytes = self.read_packed_bytes(packed, MAX_PANEL_FRAME_BYTES)?;
+        let frame: PanelFrame = postcard::from_bytes(&bytes)
             .map_err(|error| ExtensionError::Abi(format!("decode egui frame: {error}")))?;
         frame
             .validate()

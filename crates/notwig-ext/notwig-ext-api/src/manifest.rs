@@ -10,8 +10,8 @@ use crate::target;
 pub enum ExtensionCapability {
     #[serde(rename = "device")]
     Device,
-    #[serde(rename = "ui.egui")]
-    UiEgui,
+    #[serde(rename = "ui.panel")]
+    UiPanel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

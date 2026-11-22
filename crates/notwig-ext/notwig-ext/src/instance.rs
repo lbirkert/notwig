@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
 use notwig_core::{ParamId, ParamValue};
-use notwig_ext_api::{DeviceDrawContext, EguiFrame};
+use notwig_ext_api::{DeviceDrawContext, PanelFrame};
 
 use crate::abi::{ExtensionEngines, ExtensionInstance as WasmInstance};
 use crate::compiled::ExtensionRuntime;
@@ -59,14 +59,14 @@ impl ExtensionInstance {
         }
     }
 
-    pub(crate) fn draw_egui_panel(
+    pub(crate) fn draw_panel(
         &mut self,
         handle: i32,
         context: &DeviceDrawContext,
-    ) -> Result<EguiFrame, ExtensionError> {
+    ) -> Result<PanelFrame, ExtensionError> {
         match self {
-            Self::Wasm(instance) => instance.draw_egui_panel(handle, context),
-            Self::Native(instance) => instance.draw_egui_panel(handle, context),
+            Self::Wasm(instance) => instance.draw_panel(handle, context),
+            Self::Native(instance) => instance.draw_panel(handle, context),
         }
     }
 }

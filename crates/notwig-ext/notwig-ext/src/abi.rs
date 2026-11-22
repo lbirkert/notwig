@@ -1,6 +1,6 @@
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
+    ABI_VERSION, AbiStatus, DeviceDrawContext, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
     unpack_ptr_len,
 };
 use wasmtime::{
@@ -57,7 +57,7 @@ pub(crate) struct ExtensionInstance {
     set_param: TypedFunc<(i32, i32, i32, i32, f64), i32>,
     process: ProcessFn,
     latency: TypedFunc<i32, i32>,
-    draw_egui: TypedFunc<(i32, i32, i32), i64>,
+    draw: TypedFunc<(i32, i32, i32), i64>,
 }
 
 impl ExtensionInstance {
@@ -135,7 +135,7 @@ impl ExtensionInstance {
         let set_param = get_func(&instance, &mut store, "notwig_device_set_param")?;
         let process = get_func(&instance, &mut store, "notwig_device_process")?;
         let latency = get_func(&instance, &mut store, "notwig_device_latency")?;
-        let draw_egui = get_func(&instance, &mut store, "notwig_device_draw_egui")?;
+        let draw = get_func(&instance, &mut store, "notwig_device_draw")?;
 
         Ok(Self {
             store,
@@ -149,7 +149,7 @@ impl ExtensionInstance {
             set_param,
             process,
             latency,
-            draw_egui,
+            draw,
         })
     }
 
@@ -358,22 +358,22 @@ impl ExtensionInstance {
         Ok(bytes)
     }
 
-    pub(crate) fn draw_egui_panel(
+    pub(crate) fn draw_panel(
         &mut self,
         handle: i32,
         context: &DeviceDrawContext,
-    ) -> Result<EguiFrame, ExtensionError> {
+    ) -> Result<PanelFrame, ExtensionError> {
         let context = postcard::to_allocvec(context)
             .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
         let (ptr, len) = self.write_input(&context)?;
         self.reset_fuel()?;
         let packed = self
-            .draw_egui
+            .draw
             .call(&mut self.store, (handle, ptr, len))
             .map_err(wasm_err)?;
         self.free_input(ptr, len);
-        let bytes = self.read_packed_bytes(packed, MAX_EGUI_FRAME_BYTES)?;
-        let frame: EguiFrame = postcard::from_bytes(&bytes)
+        let bytes = self.read_packed_bytes(packed, MAX_PANEL_FRAME_BYTES)?;
+        let frame: PanelFrame = postcard::from_bytes(&bytes)
             .map_err(|error| ExtensionError::Abi(format!("decode egui frame: {error}")))?;
         frame
             .validate()

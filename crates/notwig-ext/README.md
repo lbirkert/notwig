@@ -7,7 +7,7 @@ proc macro, host runtime, example devices, and the packaging/scaffolding CLI.
 
 | Crate | Purpose |
 | --- | --- |
-| [`notwig-ext-api`](notwig-ext-api) | Author-facing SDK, device manifest, guest egui panel transport, note events, ABI helpers |
+| [`notwig-ext-api`](notwig-ext-api) | Author-facing SDK, device manifest, guest panel transport, note events, ABI helpers |
 | [`notwig-ext-macros`](notwig-ext-macros) | `#[notwig_extension]` proc macro that generates WASM and native exports |
 | [`notwig-ext`](notwig-ext) | Discovery, WASM/native loading, DSP instances, frame validation, and panel host |
 | [`notwig-ext-devices`](notwig-ext-devices) | Reference limiter, gate, synth, and gain devices |
@@ -39,7 +39,7 @@ my-extension.zip
 
 The installed host accepts only the transformed package. Installed manifests
 must declare at least one entrypoint; source manifests may omit them. The
-current ABI version is `3`.
+current ABI version is `4`.
 
 ### Source manifest fields
 
@@ -52,8 +52,8 @@ Source manifests use the same fields as installed manifests, plus `includes`.
   "name": "My Extension",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 3,
-  "capabilities": ["device", "ui.egui"],
+  "api_version": 4,
+  "capabilities": ["device", "ui.panel"],
   "devices": [
     { "name": "My Device", "type_id": "com.example.my-extension" }
   ],

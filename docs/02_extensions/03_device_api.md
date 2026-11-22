@@ -12,9 +12,9 @@ pub fn extension(extension: &mut Extension) {
 }
 ```
 
-Panels use the guest egui API. Implement `draw_egui` with the shared
+Panels use the guest egui API. Implement `draw` with the shared
 `notwig-ui` components; see
-[egui extension panels](../03_development/12_egui_extension_panels.md).
+[extension panels](../03_development/12_extension_panels.md).
 
 The full trait is:
 
@@ -22,7 +22,7 @@ The full trait is:
 pub trait DeviceExtension: Send + Sized + 'static {
     fn new() -> Self;
     fn spec() -> notwig_core::dsp::DeviceSpec;
-    fn draw_egui(
+    fn draw(
         &mut self,
         ui: &mut notwig_ext_api::egui::Ui,
         meter: notwig_ext_api::DeviceMeterSnapshot,
@@ -50,8 +50,8 @@ pub trait DeviceExtension: Send + Sized + 'static {
 5. `note_event(event)` is called for each note event before the block is
    processed. Events are ordered by block sample offset.
 6. `process(samples)` runs in the audio callback.
-7. `draw_egui(ui, meter)` runs once per UI frame while the panel is visible.
-   The host composites the returned egui frame.
+7. `draw(ui, meter)` runs once per UI frame while the panel is visible.
+   The host composites the returned panel frame.
 8. `latency()` is queried by the engine for delay compensation.
 
 The extension runtime keeps one guest egui context per UI instance. Device state
@@ -125,7 +125,7 @@ ParamSpec::enumeration(mode_id(), "Mode", 4, 0)
 Rules:
 
 - Parameter IDs must be stable across versions and sessions.
-- The same `ParamId` must be used in `spec`, `set_param`, and `draw_egui`.
+- The same `ParamId` must be used in `spec`, `set_param`, and `draw`.
 - Parameter values are physical values in `set_param`, not normalized values.
 - Normalized values are always in `0..=1` at the panel boundary.
 - Clamp values in `set_param`; the host validates the action, not the DSP
@@ -176,7 +176,7 @@ fn prepare(&mut self, sample_rate: u32, channels: u16) {
 ## Metering
 
 The engine measures the signal before and after every device and passes a
-`DeviceMeterSnapshot` to `draw_egui`. The four fields are linear peak
+`DeviceMeterSnapshot` to `draw`. The four fields are linear peak
 amplitudes:
 
 - `input_peak_l`, `input_peak_r`

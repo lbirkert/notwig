@@ -23,18 +23,12 @@ use syn::{ItemFn, parse_macro_input};
 #[proc_macro_attribute]
 pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
-        let supported = attr
-            .to_string()
-            .split(',')
-            .all(|part| part.trim() == "egui");
-        if !supported {
-            return syn::Error::new(
-                proc_macro2::Span::call_site(),
-                "unsupported notwig_extension option",
-            )
-            .to_compile_error()
-            .into();
-        }
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "notwig_extension takes no options",
+        )
+        .to_compile_error()
+        .into();
     }
     let function = parse_macro_input!(item as ItemFn);
     if function.sig.asyncness.is_some() {
@@ -48,29 +42,29 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
     let entrypoint = &function.sig.ident;
     let wasm_module = format_ident!("__notwig_extension_wasm_{}", entrypoint);
     let native_module = format_ident!("__notwig_extension_native_{}", entrypoint);
-    let wasm_egui_exports = quote! {
+    let wasm_draw_exports = quote! {
         #[unsafe(no_mangle)]
-        pub extern "C" fn notwig_device_draw_egui(
+        pub extern "C" fn notwig_device_draw(
             handle: i32,
             ctx_ptr: i32,
             ctx_len: i32,
         ) -> i64 {
             with_bytes(ctx_ptr, ctx_len, |bytes| {
-                extension().draw_egui_pointer(handle, bytes)
+                extension().draw_pointer(handle, bytes)
             })
             .unwrap_or(0)
         }
     };
-    let native_egui_exports = quote! {
+    let native_draw_exports = quote! {
         #[unsafe(no_mangle)]
-        pub extern "C" fn notwig_device_draw_egui(
+        pub extern "C" fn notwig_device_draw(
             handle: i32,
             ctx_ptr: *const u8,
             ctx_len: usize,
         ) -> NotwigNativeBytes {
             with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
                 extension()
-                    .draw_egui_bytes(handle, bytes)
+                    .draw_bytes(handle, bytes)
                     .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
                         NotwigNativeBytes { ptr, len }
                     })
@@ -217,7 +211,7 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             pub extern "C" fn notwig_device_latency(handle: i32) -> i32 {
                 i32::try_from(extension().latency(handle)).unwrap_or(0)
             }
-           #wasm_egui_exports
+           #wasm_draw_exports
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -380,7 +374,7 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             pub extern "C" fn notwig_device_latency(handle: i32) -> i32 {
                 i32::try_from(extension().latency(handle)).unwrap_or(0)
             }
-           #native_egui_exports
+           #native_draw_exports
         }
     };
     expanded.into()

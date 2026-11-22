@@ -50,19 +50,19 @@ A simple polyphonic synthesizer:
 The panel uses the shared `notwig_ui::dropdown` component for the oscillator and
 four shared knobs for the ADSR.
 
-### Egui Gain
+### Gain
 
-`notwig.ext.devices.egui-gain`
+`notwig.ext.devices.gain`
 
-A small gain device that demonstrates the guest egui panel path:
+A small gain device that demonstrates the guest panel path:
 
 - draws a shared `notwig-ui` knob and labels;
-- reports parameter changes through `egui_panel::set_param_value`;
+- reports parameter changes through `panel_frame::set_param_value`;
 - is registered with the same `#[notwig_extension]` entrypoint as the others.
 
-All devices draw dynamically each frame with `DeviceExtension::draw_egui` and
+All devices draw dynamically each frame with `DeviceExtension::draw` and
 request repaint so they animate while visible. Meter and history data come from
-the engine-measured `DeviceMeterSnapshot` passed to `draw_egui`, because the
+the engine-measured `DeviceMeterSnapshot` passed to `draw`, because the
 panel runs in a separate extension instance from the audio processor. The graph
 and history ring are local to this crate and shared by the limiter and gate.
 
@@ -77,11 +77,11 @@ pub fn extension(extension: &mut Extension) {
     extension.register_device::<LimiterDevice>();
     extension.register_device::<GateDevice>();
     extension.register_device::<SynthDevice>();
-    extension.register_device::<EguiGainDevice>();
+    extension.register_device::<GainDevice>();
 }
 ```
 
-Each device implements `DeviceExtension`, providing `spec`, `draw_egui`,
+Each device implements `DeviceExtension`, providing `spec`, `draw`,
 `prepare`, `set_param`, `process`, and `latency`. The extension runtime retains
 the guest egui context; the devices keep only their own parameter values and
 display state. The generated ABI exports and all heap/store/pointer plumbing
@@ -145,7 +145,7 @@ can also load a manually unpacked package from the user extensions directory:
 Then open **Settings > Extensions** and press **Reload extensions**. The
 devices appear under **Extensions** in the Add Device browser.
 
-The source manifest uses `"api_version": 3` and the `ui.egui` capability. It
+The source manifest uses `"api_version": 4` and the `ui.panel` capability. It
 omits `entrypoints`; the CLI adds the selected target entrypoint to the packaged
 manifest.
 
@@ -164,11 +164,11 @@ manifest.
 
 ## Tests
 
-`tests/limiter.rs` covers the limiter spec, egui frame generation, lookahead,
+`tests/limiter.rs` covers the limiter spec, panel frame generation, lookahead,
 threshold limiting, release recovery, and parameter rejection. `tests/gate.rs`
 covers the gate spec, frame generation, opening/closing behavior, and parameter
 rejection. `tests/synth.rs` covers the synth spec, frame generation, oscillator
 modes, note on/off, ADSR release, and parameter rejection.
-`tests/egui_device.rs` covers the gain device frame and parameter behavior.
+`tests/gain_device.rs` covers the gain device frame and parameter behavior.
 `crates/notwig-ext/notwig-ext/tests` also loads the built WASM module and native shared library
 and checks the devices through the real ABIs.

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use libloading::Library;
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, DeviceDrawContext, EguiFrame, MAX_EGUI_FRAME_BYTES, MAX_OUTPUT_BYTES,
+    ABI_VERSION, AbiStatus, DeviceDrawContext, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 
 use crate::error::ExtensionError;
@@ -27,7 +27,7 @@ type PrepareFn = unsafe extern "C" fn(i32, i32, i32, i32) -> i32;
 type SetParamFn = unsafe extern "C" fn(i32, *const u8, usize, i32, f64) -> i32;
 type ProcessFn = unsafe extern "C" fn(i32, *mut f32, i32, *const u8, i32, i64, i32) -> i32;
 type LatencyFn = unsafe extern "C" fn(i32) -> i32;
-type DrawEguiFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
+type DrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
 
 /// A loaded native extension shared library.
 pub(crate) struct NativeLibrary {
@@ -39,7 +39,7 @@ pub(crate) struct NativeLibrary {
     set_param: SetParamFn,
     process: ProcessFn,
     latency: LatencyFn,
-    draw_egui: DrawEguiFn,
+    draw: DrawFn,
 }
 
 impl NativeLibrary {
@@ -80,9 +80,9 @@ impl NativeLibrary {
                 latency: *library
                     .get(b"notwig_device_latency\0")
                     .map_err(|error| missing_export("notwig_device_latency", error))?,
-                draw_egui: *library
-                    .get(b"notwig_device_draw_egui\0")
-                    .map_err(|error| missing_export("notwig_device_draw_egui", error))?,
+                draw: *library
+                    .get(b"notwig_device_draw\0")
+                    .map_err(|error| missing_export("notwig_device_draw", error))?,
                 _library: library,
             }))
         }
@@ -195,16 +195,16 @@ impl NativeInstance {
         u32::try_from(samples).unwrap_or(0)
     }
 
-    pub(crate) fn draw_egui_panel(
+    pub(crate) fn draw_panel(
         &mut self,
         handle: i32,
         context: &DeviceDrawContext,
-    ) -> Result<EguiFrame, ExtensionError> {
+    ) -> Result<PanelFrame, ExtensionError> {
         let context = postcard::to_allocvec(context)
             .map_err(|error| ExtensionError::Abi(format!("encode egui context: {error}")))?;
-        let bytes = unsafe { (self.library.draw_egui)(handle, context.as_ptr(), context.len()) };
-        let bytes = read_bytes_with_limit(bytes, MAX_EGUI_FRAME_BYTES)?;
-        let frame: EguiFrame = postcard::from_bytes(&bytes)
+        let bytes = unsafe { (self.library.draw)(handle, context.as_ptr(), context.len()) };
+        let bytes = read_bytes_with_limit(bytes, MAX_PANEL_FRAME_BYTES)?;
+        let frame: PanelFrame = postcard::from_bytes(&bytes)
             .map_err(|error| ExtensionError::Abi(format!("decode egui frame: {error}")))?;
         frame
             .validate()

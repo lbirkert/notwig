@@ -6,15 +6,15 @@ use crate::geometry::Color;
 use crate::panel::PanelAction;
 
 use super::{
-    EguiEvent, EguiFrame, EguiImage, EguiInput, EguiMesh, EguiModifiers, EguiPointerButton,
-    EguiPrimitive, EguiTextureDelta, EguiTextureOptions, EguiVertex,
+    PanelEvent, PanelFrame, PanelImage, PanelInput, PanelMesh, PanelModifiers, PanelPointerButton,
+    PanelPrimitive, PanelTextureDelta, PanelTextureOptions, PanelVertex,
 };
 
 #[derive(Default, Clone)]
 struct ActionBuffer(Vec<PanelAction>);
 
 fn action_id() -> egui::Id {
-    egui::Id::new("notwig.egui.actions")
+    egui::Id::new("notwig.panel.actions")
 }
 
 /// Applies the host theme to a guest egui context.
@@ -43,10 +43,10 @@ pub fn apply_theme(context: &egui::Context, theme: &ThemeSnapshot) {
 /// Runs one guest egui frame and converts it to the wire format.
 pub fn run_frame(
     context: &egui::Context,
-    input: EguiInput,
+    input: PanelInput,
     theme: &ThemeSnapshot,
     mut draw: impl FnMut(&mut egui::Ui),
-) -> EguiFrame {
+) -> PanelFrame {
     apply_theme(context, theme);
     let raw = raw_input(&input);
     let output = context.run(raw, |ctx| {
@@ -80,7 +80,7 @@ pub fn set_param_value(ui: &egui::Ui, param_id: ParamId, value: ParamValue) {
     });
 }
 
-fn raw_input(input: &EguiInput) -> egui::RawInput {
+fn raw_input(input: &PanelInput) -> egui::RawInput {
     let mut raw = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
             egui::Pos2::ZERO,
@@ -99,10 +99,10 @@ fn raw_input(input: &EguiInput) -> egui::RawInput {
     raw
 }
 
-fn to_event(event: &EguiEvent) -> Option<egui::Event> {
+fn to_event(event: &PanelEvent) -> Option<egui::Event> {
     match event {
-        EguiEvent::PointerMoved { pos } => Some(egui::Event::PointerMoved(to_pos(*pos))),
-        EguiEvent::PointerButton {
+        PanelEvent::PointerMoved { pos } => Some(egui::Event::PointerMoved(to_pos(*pos))),
+        PanelEvent::PointerButton {
             pos,
             button,
             pressed,
@@ -113,13 +113,13 @@ fn to_event(event: &EguiEvent) -> Option<egui::Event> {
             pressed: *pressed,
             modifiers: to_modifiers(*modifiers),
         }),
-        EguiEvent::PointerGone => Some(egui::Event::PointerGone),
-        EguiEvent::MouseWheel { delta, modifiers } => Some(egui::Event::MouseWheel {
+        PanelEvent::PointerGone => Some(egui::Event::PointerGone),
+        PanelEvent::MouseWheel { delta, modifiers } => Some(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(delta[0], delta[1]),
             modifiers: to_modifiers(*modifiers),
         }),
-        EguiEvent::Key {
+        PanelEvent::Key {
             key,
             pressed,
             repeat,
@@ -131,23 +131,23 @@ fn to_event(event: &EguiEvent) -> Option<egui::Event> {
             repeat: *repeat,
             modifiers: to_modifiers(*modifiers),
         }),
-        EguiEvent::Text(text) => Some(egui::Event::Text(text.clone())),
-        EguiEvent::Copy => Some(egui::Event::Copy),
-        EguiEvent::Cut => Some(egui::Event::Cut),
-        EguiEvent::Paste(text) => Some(egui::Event::Paste(text.clone())),
-        EguiEvent::WindowFocused(focused) => Some(egui::Event::WindowFocused(*focused)),
+        PanelEvent::Text(text) => Some(egui::Event::Text(text.clone())),
+        PanelEvent::Copy => Some(egui::Event::Copy),
+        PanelEvent::Cut => Some(egui::Event::Cut),
+        PanelEvent::Paste(text) => Some(egui::Event::Paste(text.clone())),
+        PanelEvent::WindowFocused(focused) => Some(egui::Event::WindowFocused(*focused)),
     }
 }
 
-fn to_button(button: EguiPointerButton) -> egui::PointerButton {
+fn to_button(button: PanelPointerButton) -> egui::PointerButton {
     match button {
-        EguiPointerButton::Primary => egui::PointerButton::Primary,
-        EguiPointerButton::Secondary => egui::PointerButton::Secondary,
-        EguiPointerButton::Middle => egui::PointerButton::Middle,
+        PanelPointerButton::Primary => egui::PointerButton::Primary,
+        PanelPointerButton::Secondary => egui::PointerButton::Secondary,
+        PanelPointerButton::Middle => egui::PointerButton::Middle,
     }
 }
 
-fn to_modifiers(modifiers: EguiModifiers) -> egui::Modifiers {
+fn to_modifiers(modifiers: PanelModifiers) -> egui::Modifiers {
     egui::Modifiers {
         alt: modifiers.alt,
         ctrl: modifiers.ctrl,
@@ -169,7 +169,7 @@ fn frame_from_output(
     context: &egui::Context,
     output: egui::FullOutput,
     actions: Vec<PanelAction>,
-) -> EguiFrame {
+) -> PanelFrame {
     let mut primitives = Vec::new();
     for primitive in context.tessellate(output.shapes, output.pixels_per_point) {
         let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive else {
@@ -178,7 +178,7 @@ fn frame_from_output(
         let Some(mesh) = mesh_to_wire(&mesh) else {
             continue;
         };
-        primitives.push(EguiPrimitive {
+        primitives.push(PanelPrimitive {
             clip_rect: [
                 primitive.clip_rect.min.x,
                 primitive.clip_rect.min.y,
@@ -220,12 +220,12 @@ fn frame_from_output(
             _ => None,
         });
 
-    EguiFrame {
+    PanelFrame {
         primitives,
         textures,
         free_textures,
         actions,
-        cursor: cursor_from_egui(output.platform_output.cursor_icon),
+        cursor: cursor_from_host(output.platform_output.cursor_icon),
         wants_keyboard: context.wants_keyboard_input(),
         wants_pointer: context.wants_pointer_input(),
         copy_text,
@@ -233,16 +233,16 @@ fn frame_from_output(
     }
 }
 
-fn mesh_to_wire(mesh: &egui::epaint::Mesh) -> Option<EguiMesh> {
+fn mesh_to_wire(mesh: &egui::epaint::Mesh) -> Option<PanelMesh> {
     let egui::TextureId::Managed(texture_id) = mesh.texture_id else {
         return None;
     };
-    Some(EguiMesh {
+    Some(PanelMesh {
         indices: mesh.indices.clone(),
         vertices: mesh
             .vertices
             .iter()
-            .map(|vertex| EguiVertex {
+            .map(|vertex| PanelVertex {
                 pos: [vertex.pos.x, vertex.pos.y],
                 uv: [vertex.uv.x, vertex.uv.y],
                 color: vertex.color.to_array(),
@@ -252,7 +252,7 @@ fn mesh_to_wire(mesh: &egui::epaint::Mesh) -> Option<EguiMesh> {
     })
 }
 
-fn texture_delta_to_wire(id: u64, delta: egui::epaint::ImageDelta) -> Option<EguiTextureDelta> {
+fn texture_delta_to_wire(id: u64, delta: egui::epaint::ImageDelta) -> Option<PanelTextureDelta> {
     let egui::epaint::ImageData::Color(image) = delta.image;
     let width = u32::try_from(image.size[0]).ok()?;
     let height = u32::try_from(image.size[1]).ok()?;
@@ -262,14 +262,14 @@ fn texture_delta_to_wire(id: u64, delta: egui::epaint::ImageDelta) -> Option<Egu
     let pos = delta
         .pos
         .and_then(|[x, y]| Some([u32::try_from(x).ok()?, u32::try_from(y).ok()?]));
-    Some(EguiTextureDelta {
+    Some(PanelTextureDelta {
         id,
         pos,
-        options: EguiTextureOptions {
+        options: PanelTextureOptions {
             linear: matches!(delta.options.magnification, egui::TextureFilter::Linear),
             repeat: matches!(delta.options.wrap_mode, egui::TextureWrapMode::Repeat),
         },
-        image: EguiImage {
+        image: PanelImage {
             width,
             height,
             pixels: image
@@ -281,7 +281,7 @@ fn texture_delta_to_wire(id: u64, delta: egui::epaint::ImageDelta) -> Option<Egu
     })
 }
 
-fn cursor_from_egui(cursor: egui::CursorIcon) -> Option<CursorIcon> {
+fn cursor_from_host(cursor: egui::CursorIcon) -> Option<CursorIcon> {
     match cursor {
         egui::CursorIcon::Default => Some(CursorIcon::Default),
         egui::CursorIcon::PointingHand => Some(CursorIcon::PointingHand),
@@ -294,10 +294,10 @@ fn cursor_from_egui(cursor: egui::CursorIcon) -> Option<CursorIcon> {
     }
 }
 
-impl EguiImage {
+impl PanelImage {
     /// Converts this wire image to an egui image.
     #[must_use]
-    pub fn to_egui_color_image(&self) -> egui::ColorImage {
+    pub fn to_color_image(&self) -> egui::ColorImage {
         let pixels = self
             .pixels
             .iter()
@@ -314,10 +314,10 @@ impl EguiImage {
     }
 }
 
-impl EguiTextureOptions {
+impl PanelTextureOptions {
     /// Converts this wire option set to egui texture options.
     #[must_use]
-    pub const fn to_egui(self) -> egui::TextureOptions {
+    pub const fn to_texture_options(self) -> egui::TextureOptions {
         if self.repeat {
             egui::TextureOptions {
                 magnification: if self.linear {
@@ -341,10 +341,10 @@ impl EguiTextureOptions {
     }
 }
 
-impl EguiMesh {
+impl PanelMesh {
     /// Converts this wire mesh to an egui mesh, offset into panel space.
     #[must_use]
-    pub fn to_egui_mesh(
+    pub fn to_panel_mesh(
         &self,
         texture_id: egui::TextureId,
         offset: egui::Vec2,

@@ -1,25 +1,25 @@
 use notwig_core::dsp::DeviceUiSpec;
 use notwig_ext_api::{
-    DeviceExtension, DeviceMeterSnapshot, EguiFrame, EguiInput, EguiModifiers, ThemeSnapshot, egui,
-    egui_panel,
+    DeviceExtension, DeviceMeterSnapshot, PanelFrame, PanelInput, PanelModifiers, ThemeSnapshot,
+    egui, panel_frame,
 };
 use notwig_ext_devices::{LOOKAHEAD_SAMPLES, LimiterDevice, TYPE_ID, release_id, threshold_id};
 
-fn draw(meter: DeviceMeterSnapshot) -> EguiFrame {
+fn draw(meter: DeviceMeterSnapshot) -> PanelFrame {
     let mut limiter = LimiterDevice::new();
     let context = egui::Context::default();
-    let input = EguiInput {
+    let input = PanelInput {
         width: 240.0,
         height: 200.0,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
         max_texture_side: 4096,
-        modifiers: EguiModifiers::default(),
+        modifiers: PanelModifiers::default(),
         events: Vec::new(),
     };
-    egui_panel::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
-        limiter.draw_egui(ui, meter);
+    panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+        limiter.draw(ui, meter);
     })
 }
 
@@ -52,6 +52,41 @@ fn draw_uses_the_engine_meter_snapshot() {
     });
     frame.validate().unwrap();
     assert_ne!(frame.primitives.len(), 0);
+}
+
+#[test]
+fn limiter_frames_stay_valid_across_time_and_meter_changes() {
+    let mut limiter = LimiterDevice::new();
+    let context = egui::Context::default();
+    for frame_index in 0..180 {
+        let level = match frame_index % 3 {
+            0 => 1.0,
+            1 => 0.1,
+            _ => 0.0,
+        };
+        let input = PanelInput {
+            width: 240.0,
+            height: 200.0,
+            pixels_per_point: 1.0,
+            time: Some(f64::from(frame_index) / 60.0),
+            focused: true,
+            max_texture_side: 4096,
+            modifiers: PanelModifiers::default(),
+            events: Vec::new(),
+        };
+        let frame = panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
+            limiter.draw(
+                ui,
+                DeviceMeterSnapshot {
+                    input_peak_l: level,
+                    input_peak_r: level,
+                    output_peak_l: level * 0.5,
+                    output_peak_r: level * 0.5,
+                },
+            );
+        });
+        frame.validate().unwrap();
+    }
 }
 
 #[test]
