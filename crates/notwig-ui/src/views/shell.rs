@@ -21,7 +21,8 @@ use crate::views::device_editor::{DeviceBrowserState, EqDrag};
 use crate::views::midi_editor::MidiEditorState;
 use notwig_core::edit::SelectionMode;
 
-const APP_BAR_HEIGHT: f32 = 38.0;
+// Match the native macOS titlebar so AppKit centers the traffic lights in it.
+const APP_BAR_HEIGHT: f32 = 28.0;
 const TOP_BAR_HEIGHT: f32 = 34.0;
 const TOP_BAR_ICON: f32 = 30.0;
 const TOP_BAR_FONT: f32 = 12.0;
