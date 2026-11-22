@@ -21,8 +21,8 @@ use crate::views::device_editor::{DeviceBrowserState, EqDrag};
 use crate::views::midi_editor::MidiEditorState;
 use notwig_core::edit::SelectionMode;
 
-// Match the native macOS titlebar so AppKit centers the traffic lights in it.
-const APP_BAR_HEIGHT: f32 = 28.0;
+// Keep the app bar compact while leaving the native traffic lights room.
+const APP_BAR_HEIGHT: f32 = 22.0;
 const TOP_BAR_HEIGHT: f32 = 34.0;
 const TOP_BAR_ICON: f32 = 30.0;
 const TOP_BAR_FONT: f32 = 12.0;
@@ -252,6 +252,9 @@ impl NotwigUi {
         }
         if runtime.engine_crashed {
             self.engine_crash_overlay(ctx);
+        }
+        if runtime.audio_device_lost {
+            self.audio_device_lost_overlay(ctx, runtime);
         }
         if let Some(progress) = self.render_progress {
             self.render_progress_overlay(ctx, progress);
@@ -908,7 +911,7 @@ impl NotwigUi {
                 }
 
                 let brand = crate::widgets::brand::icon(ctx, true);
-                let icon_height = 18.0;
+                let icon_height = 16.0;
                 let brand_size = brand.size_vec2();
                 let icon_width = icon_height * (brand_size.x / brand_size.y.max(1.0));
                 let title = painter.layout_no_wrap(
@@ -1364,6 +1367,54 @@ impl NotwigUi {
             });
         if restart {
             self.emit(UiIntent::RestartAudioEngine);
+        }
+    }
+
+    fn audio_device_lost_overlay(&mut self, ctx: &egui::Context, runtime: &RuntimeView) {
+        let mut retry = false;
+        let mut settings = false;
+        egui::Area::new(egui::Id::new("audio-device-lost"))
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 54.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(58, 48, 24))
+                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(238, 196, 96)))
+                    .inner_margin(egui::Margin::symmetric(14, 10))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new(
+                                        runtime
+                                            .audio_device_lost_message
+                                            .as_deref()
+                                            .unwrap_or("The audio output device is unavailable."),
+                                    )
+                                    .color(Color32::from_rgb(255, 232, 178)),
+                                );
+                                ui.label(
+                                    RichText::new(
+                                        "Playback is paused. Reconnect the device or choose another output; Notwig retries automatically.",
+                                    )
+                                    .small()
+                                    .color(Color32::from_rgb(224, 206, 160)),
+                                );
+                            });
+                            if ui.button("Retry now").clicked() {
+                                retry = true;
+                            }
+                            if ui.button("Audio settings…").clicked() {
+                                settings = true;
+                            }
+                        });
+                    });
+            });
+        if retry {
+            self.emit(UiIntent::RestartAudioEngine);
+        }
+        if settings {
+            self.open_settings(runtime);
         }
     }
 

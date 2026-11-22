@@ -109,6 +109,10 @@ fn audio_import_notification_tag(asset_id: AssetId) -> String {
     format!("audio-import:{asset_id}")
 }
 
+const AUDIO_DEVICE_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
+const AUDIO_RESTART_INITIAL_DELAY: Duration = Duration::from_millis(500);
+const AUDIO_RESTART_MAX_DELAY: Duration = Duration::from_secs(5);
+
 fn available_audio_options() -> Vec<notwig_ui::AudioDriverView> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -163,6 +167,11 @@ pub struct NotwigApp {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     audio_import_rx: mpsc::Receiver<(AssetId, Result<notwig_project::ImportedAsset, String>)>,
     engine_crash_reported: bool,
+    audio_device_lost: bool,
+    audio_device_lost_message: Option<String>,
+    next_audio_device_scan: Instant,
+    audio_restart_at: Option<Instant>,
+    audio_restart_backoff: Duration,
     recent_projects: Vec<RecentProjectView>,
     #[cfg(target_arch = "wasm32")]
     web_project: Option<ProjectHandle>,
@@ -272,6 +281,11 @@ impl NotwigApp {
             audio_import_tx,
             audio_import_rx,
             engine_crash_reported: false,
+            audio_device_lost: false,
+            audio_device_lost_message: None,
+            next_audio_device_scan: Instant::now(),
+            audio_restart_at: None,
+            audio_restart_backoff: AUDIO_RESTART_INITIAL_DELAY,
             recent_projects: load_recent_projects(),
         };
         app.ui.set_shortcuts(crate::shortcuts::load());
@@ -317,6 +331,11 @@ impl NotwigApp {
             audio_import_tx,
             audio_import_rx,
             engine_crash_reported: false,
+            audio_device_lost: false,
+            audio_device_lost_message: None,
+            next_audio_device_scan: Instant::now(),
+            audio_restart_at: None,
+            audio_restart_backoff: AUDIO_RESTART_INITIAL_DELAY,
             recent_projects: load_recent_projects(),
             web_project: None,
             web_storage_rx: None,
@@ -672,12 +691,11 @@ impl NotwigApp {
                 self.audio = Some(audio);
                 self.workspace.engine_audio_restarted();
                 self.sync_recording_inputs();
+                self.clear_audio_device_lost(true);
             }
             Err(err) => {
                 self.workspace.set_engine_process(None);
-                self.workspace.error = Some(err.clone());
-                self.workspace.status = Some(err.clone());
-                self.notify_error(format!("Could not start the audio engine: {err}"));
+                self.audio_start_failed(err);
             }
         }
     }
@@ -695,12 +713,151 @@ impl NotwigApp {
                 self.audio = Some(audio);
                 self.workspace.engine_audio_restarted();
                 self.sync_recording_inputs();
+                self.clear_audio_device_lost(true);
             }
             Err(err) => {
-                self.workspace.error = Some(err.clone());
-                self.workspace.status = Some(err.clone());
-                self.notify_error(format!("Could not start the audio engine: {err}"));
+                self.audio_start_failed(err);
             }
+        }
+    }
+
+    fn audio_start_failed(&mut self, err: String) {
+        if self.audio_device_lost || !self.configured_output_available() {
+            self.enter_audio_device_lost(format!(
+                "Audio output \"{}\" is unavailable: {err}",
+                self.configured_output_label()
+            ));
+            self.schedule_audio_restart_after_failure();
+        } else {
+            self.workspace.error = Some(err.clone());
+            self.workspace.status = Some(err.clone());
+            self.notify_error(format!("Could not start the audio engine: {err}"));
+        }
+    }
+
+    fn configured_output_label(&self) -> String {
+        if self.audio_settings.device.is_empty()
+            || self.audio_settings.device == crate::audio::SYSTEM_OUT_DEVICE_ID
+        {
+            "System Out".to_string()
+        } else {
+            self.audio_settings.device.clone()
+        }
+    }
+
+    fn uses_system_output(&self) -> bool {
+        self.audio_settings.device.is_empty()
+            || self.audio_settings.device == crate::audio::SYSTEM_OUT_DEVICE_ID
+    }
+
+    fn configured_output_available(&self) -> bool {
+        crate::audio::resolve_output_device_name(
+            &self.audio_settings.driver,
+            &self.audio_settings.device,
+        )
+        .is_ok()
+    }
+
+    fn rescan_audio_devices(&mut self) {
+        self.audio_options = available_audio_options();
+        self.audio_inputs = AudioService::available_input_options();
+    }
+
+    fn enter_audio_device_lost(&mut self, message: String) {
+        let was_lost = self.audio_device_lost;
+        self.audio_device_lost = true;
+        self.audio_device_lost_message = Some(message.clone());
+        if !was_lost {
+            self.next_audio_device_scan = Instant::now();
+            self.audio_restart_backoff = AUDIO_RESTART_INITIAL_DELAY;
+            self.audio_restart_at = Some(Instant::now() + AUDIO_RESTART_INITIAL_DELAY);
+            if self.workspace.doc.transport.playing
+                || self.recording.is_some()
+                || self.pending_recording_start.is_some()
+            {
+                self.handle_intent(UiIntent::Pause);
+            }
+            self.rescan_audio_devices();
+            self.workspace.error = None;
+            self.ui
+                .state
+                .notify(NotificationKind::Warning, message.clone());
+        }
+        self.workspace.status = Some(message);
+    }
+
+    fn clear_audio_device_lost(&mut self, notify: bool) {
+        if !self.audio_device_lost {
+            return;
+        }
+        self.audio_device_lost = false;
+        self.audio_device_lost_message = None;
+        self.audio_restart_at = None;
+        self.audio_restart_backoff = AUDIO_RESTART_INITIAL_DELAY;
+        if notify {
+            self.notify_info("Audio output restored.".into());
+        }
+    }
+
+    fn schedule_audio_restart_after_failure(&mut self) {
+        self.audio_restart_at = Some(Instant::now() + self.audio_restart_backoff);
+        self.audio_restart_backoff = (self.audio_restart_backoff * 2).min(AUDIO_RESTART_MAX_DELAY);
+    }
+
+    fn restart_audio_for_output_change(&mut self) {
+        let was_lost = self.audio_device_lost;
+        self.restart_audio();
+        if self.audio.is_some() && !was_lost {
+            self.notify_info("Audio output changed.".into());
+        }
+    }
+
+    fn poll_audio_device_state(&mut self, snapshot: &crate::audio::AudioSnapshot) {
+        if snapshot.device_lost {
+            let reason = snapshot
+                .device_lost_reason
+                .as_deref()
+                .map_or(String::new(), |reason| format!(": {reason}"));
+            self.enter_audio_device_lost(format!(
+                "Audio output \"{}\" is unavailable{reason}",
+                snapshot.device_name
+            ));
+        } else if snapshot.device_changed && !self.audio_device_lost {
+            self.rescan_audio_devices();
+            self.restart_audio_for_output_change();
+            return;
+        }
+
+        let now = Instant::now();
+        if now < self.next_audio_device_scan {
+            return;
+        }
+        self.next_audio_device_scan = now + AUDIO_DEVICE_SCAN_INTERVAL;
+        self.rescan_audio_devices();
+
+        if self.audio_device_lost {
+            if self
+                .audio_restart_at
+                .is_none_or(|restart_at| now >= restart_at)
+                && self.configured_output_available()
+            {
+                self.restart_audio_for_output_change();
+            } else if !self.configured_output_available() {
+                self.audio_restart_at = None;
+            }
+            return;
+        }
+
+        if snapshot.running
+            && self.uses_system_output()
+            && let Ok(default_name) = crate::audio::resolve_output_device_name(
+                &self.audio_settings.driver,
+                &self.audio_settings.device,
+            )
+            && !snapshot.device_name.is_empty()
+            && default_name != snapshot.device_name
+        {
+            self.restart_audio_for_output_change();
         }
     }
 
@@ -1090,6 +1247,8 @@ impl NotwigApp {
             cpu_load: snapshot.cpu_load,
             status,
             engine_crashed: snapshot.crashed,
+            audio_device_lost: self.audio_device_lost,
+            audio_device_lost_message: self.audio_device_lost_message.clone(),
             plugins: self.workspace.plugins.clone(),
             bundle_path: self.workspace.bundle.clone(),
             dirty: self.workspace.dirty,
@@ -2072,8 +2231,9 @@ impl NotwigApp {
             }
             UiIntent::RestartAudioEngine => {
                 self.engine_crash_reported = false;
+                let was_lost = self.audio_device_lost;
                 self.restart_audio();
-                if self.audio.is_some() {
+                if self.audio.is_some() && !was_lost {
                     self.notify_info("Audio engine restarted.".into());
                 }
             }
@@ -2512,6 +2672,7 @@ impl eframe::App for NotwigApp {
         #[cfg(not(target_arch = "wasm32"))]
         self.workspace
             .set_engine_playhead_samples(snapshot.playhead_samples);
+        self.poll_audio_device_state(&snapshot);
         if snapshot.crashed && !self.engine_crash_reported {
             self.engine_crash_reported = true;
             self.notify_error(

@@ -14,6 +14,7 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 
 use super::ExtensionEvent;
+use super::UninstalledExtensions;
 use super::index::{
     IndexFetchResult, MAX_INDEX_BYTES, merge_indexes, normalize_indexes, select_download,
     verify_sha256,
@@ -22,10 +23,12 @@ use crate::web::storage::OpfsEntryKind;
 
 const EXTENSIONS_DIR: &str = "notwig-extensions";
 const CONFIG_KEY: &str = "notwig.extension-config";
+const UNINSTALLED_KEY: &str = "notwig.uninstalled-extensions";
 const STOCK_PACKAGE: &str = "extensions/ext-devices-wasm.zip";
 
 pub(crate) struct ExtensionManager {
     config: ExtensionConfig,
+    uninstalled: UninstalledExtensions,
     host: Option<WebExtensionHost>,
     infos: Vec<ExtensionInfo>,
     error: Option<String>,
@@ -45,8 +48,14 @@ struct LoadOutcome {
 }
 
 enum AdminEvent {
-    Installed { name: String, version: String },
-    Removed { id: String },
+    Installed {
+        id: String,
+        name: String,
+        version: String,
+    },
+    Removed {
+        id: String,
+    },
 }
 
 impl ExtensionManager {
@@ -54,6 +63,7 @@ impl ExtensionManager {
         let config = load_config();
         let mut manager = Self {
             config,
+            uninstalled: load_uninstalled(),
             host: None,
             infos: Vec::new(),
             error: None,
@@ -76,8 +86,9 @@ impl ExtensionManager {
         let (sender, receiver) = mpsc::channel();
         self.load_rx = Some(receiver);
         let config = self.config.clone();
+        let uninstalled = self.uninstalled.clone();
         spawn_local(async move {
-            let (packages, mut errors) = load_packages().await;
+            let (packages, mut errors) = load_packages(&uninstalled).await;
             let host = WebExtensionHost::load(packages, &config);
             errors.extend(host.errors().iter().cloned());
             let _ = sender.send(LoadOutcome { host, errors });
@@ -160,7 +171,12 @@ impl ExtensionManager {
         };
         self.admin_rx = None;
         match result {
-            Ok(AdminEvent::Installed { name, version }) => {
+            Ok(AdminEvent::Installed { id, name, version }) => {
+                if self.uninstalled.clear(&id) {
+                    if let Err(error) = self.persist_uninstalled() {
+                        events.push(ExtensionEvent::Error(error));
+                    }
+                }
                 events.push(ExtensionEvent::Installed { name, version });
                 self.start_load();
             }
@@ -288,7 +304,11 @@ impl ExtensionManager {
                 let name = package.name().to_owned();
                 let version = package.version().to_owned();
                 install_archive(package.id(), &archive).await?;
-                Ok(AdminEvent::Installed { name, version })
+                Ok(AdminEvent::Installed {
+                    id: entry.id,
+                    name,
+                    version,
+                })
             }
             .await;
             let _ = sender.send(result);
@@ -315,7 +335,7 @@ impl ExtensionManager {
         spawn_local(async move {
             let result = install_archive(&id, &archive)
                 .await
-                .map(|()| AdminEvent::Installed { name, version });
+                .map(|()| AdminEvent::Installed { id, name, version });
             let _ = sender.send(result);
         });
         Ok(())
@@ -327,7 +347,9 @@ impl ExtensionManager {
         }
         validate_extension_id(id).map_err(|error| error.to_string())?;
         self.config.settings.remove(id);
-        self.persist();
+        self.persist_result()?;
+        self.uninstalled.mark(id);
+        self.persist_uninstalled()?;
         let id = id.to_owned();
         let (sender, receiver) = mpsc::channel();
         self.admin_rx = Some(receiver);
@@ -348,25 +370,33 @@ impl ExtensionManager {
     }
 
     fn persist(&self) {
-        let text = match self.config.to_json() {
-            Ok(text) => text,
-            Err(error) => {
-                tracing::warn!(error = %error, "could not encode extension config");
-                return;
-            }
-        };
-        let Some(storage) =
-            web_sys::window().and_then(|window| window.local_storage().ok().flatten())
-        else {
-            return;
-        };
-        if let Err(error) = storage.set_item(CONFIG_KEY, &text) {
-            tracing::warn!(error = ?error, "could not save extension config");
+        if let Err(error) = self.persist_result() {
+            tracing::warn!(error = %error, "could not save extension config");
         }
+    }
+
+    fn persist_result(&self) -> Result<(), String> {
+        let text = self.config.to_json()?;
+        let storage =
+            local_storage().ok_or_else(|| "browser local storage is unavailable".to_string())?;
+        storage
+            .set_item(CONFIG_KEY, &text)
+            .map_err(|error| format!("save extension config: {error:?}"))
+    }
+
+    fn persist_uninstalled(&self) -> Result<(), String> {
+        let text = self.uninstalled.to_json()?;
+        let storage =
+            local_storage().ok_or_else(|| "browser local storage is unavailable".to_string())?;
+        storage
+            .set_item(UNINSTALLED_KEY, &text)
+            .map_err(|error| format!("save uninstalled extensions: {error:?}"))
     }
 }
 
-async fn load_packages() -> (Vec<WebExtensionPackage>, Vec<String>) {
+async fn load_packages(
+    uninstalled: &UninstalledExtensions,
+) -> (Vec<WebExtensionPackage>, Vec<String>) {
     let mut packages = BTreeMap::new();
     let mut errors = Vec::new();
     let entries = crate::web::storage::list_opfs_entries(EXTENSIONS_DIR)
@@ -400,7 +430,12 @@ async fn load_packages() -> (Vec<WebExtensionPackage>, Vec<String>) {
         Ok(None) => {}
         Err(error) => errors.push(error),
     }
-    (packages.into_values().collect(), errors)
+    let packages = packages
+        .into_iter()
+        .filter(|(id, _)| !uninstalled.contains(id))
+        .map(|(_, package)| package)
+        .collect();
+    (packages, errors)
 }
 
 fn insert_package(
@@ -504,17 +539,31 @@ fn opfs_path(path: &Path) -> String {
         .join("/")
 }
 
-fn load_config() -> ExtensionConfig {
-    let mut config = match web_sys::window()
-        .and_then(|window| window.local_storage().ok().flatten())
-        .and_then(|storage| storage.get_item(CONFIG_KEY).ok().flatten())
-    {
-        Some(text) => ExtensionConfig::from_json(&text).unwrap_or_else(|error| {
-            tracing::warn!(error = %error, "ignoring invalid extension config");
-            ExtensionConfig::default()
-        }),
-        None => ExtensionConfig::default(),
+fn local_storage() -> Option<web_sys::Storage> {
+    web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+}
+
+fn load_uninstalled() -> UninstalledExtensions {
+    let Some(text) =
+        local_storage().and_then(|storage| storage.get_item(UNINSTALLED_KEY).ok().flatten())
+    else {
+        return UninstalledExtensions::default();
     };
+    UninstalledExtensions::from_json(&text).unwrap_or_else(|error| {
+        tracing::warn!(error = %error, "ignoring invalid uninstalled extension state");
+        UninstalledExtensions::default()
+    })
+}
+
+fn load_config() -> ExtensionConfig {
+    let mut config =
+        match local_storage().and_then(|storage| storage.get_item(CONFIG_KEY).ok().flatten()) {
+            Some(text) => ExtensionConfig::from_json(&text).unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "ignoring invalid extension config");
+                ExtensionConfig::default()
+            }),
+            None => ExtensionConfig::default(),
+        };
     if let Some(base) = site_base_url() {
         config.resolve_default_index(&base);
     }

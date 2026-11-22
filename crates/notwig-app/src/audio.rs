@@ -22,6 +22,26 @@ const SYSTEM_OUT_LABEL: &str = "System Out";
 const SYSTEM_OUT_WARNING: &str = "System Out follows the operating system's default output device.";
 const COMMON_SAMPLE_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
+/// Errors that mean the current output stream cannot continue and the app must
+/// reopen the configured device. `DeviceChanged` is handled separately because
+/// the host may keep the rerouted stream alive.
+#[doc(hidden)]
+#[must_use]
+pub fn is_device_loss_error(kind: cpal::ErrorKind) -> bool {
+    matches!(
+        kind,
+        cpal::ErrorKind::DeviceNotAvailable
+            | cpal::ErrorKind::StreamInvalidated
+            | cpal::ErrorKind::HostUnavailable
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn is_device_change_error(kind: cpal::ErrorKind) -> bool {
+    kind == cpal::ErrorKind::DeviceChanged
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AudioSettings {
     pub driver: String,
@@ -55,6 +75,18 @@ pub struct AudioSnapshot {
     pub cpu_load: Option<f32>,
     pub error: Option<String>,
     pub crashed: bool,
+    /// The output stream was invalidated because its device disappeared or the
+    /// host became unavailable. This is recoverable: the app pauses transport,
+    /// rescans devices, and retries opening the configured output.
+    #[serde(default)]
+    pub device_lost: bool,
+    #[serde(default)]
+    pub device_lost_reason: Option<String>,
+    /// The host rerouted the stream to a different device (for example the OS
+    /// default output changed). The stream may still be audible, but the app
+    /// should reopen it so settings and device metadata stay in sync.
+    #[serde(default)]
+    pub device_changed: bool,
     pub dsp: notwig_ui::DspAnalysisView,
     pub(crate) load_ms_history: Vec<f32>,
     pub(crate) jitter_history: Vec<f32>,
@@ -522,7 +554,20 @@ where
             },
             move |err| {
                 if let Ok(mut snapshot) = error_snapshot.lock() {
-                    snapshot.error = Some(err.to_string());
+                    let kind = err.kind();
+                    if is_device_loss_error(kind) {
+                        snapshot.running = false;
+                        snapshot.playing = false;
+                        snapshot.device_lost = true;
+                        snapshot.device_lost_reason = Some(err.to_string());
+                        snapshot.error = None;
+                        snapshot.meters.clear();
+                        snapshot.device_meters.clear();
+                    } else if is_device_change_error(kind) {
+                        snapshot.device_changed = true;
+                    } else {
+                        snapshot.error = Some(err.to_string());
+                    }
                 }
             },
             None,
