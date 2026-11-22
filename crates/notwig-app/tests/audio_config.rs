@@ -237,19 +237,19 @@ fn validation_caps_device_block_when_low_latency_monitoring_is_disabled() {
     let mut without_low_latency = settings("CoreAudio", "Speakers", 4096);
     without_low_latency.low_latency_monitoring = false;
     without_low_latency.low_latency_block_size = 4096;
-    let validated = validated(without_low_latency, &options());
-    assert_eq!(validated.block_size, 4096);
+    let without_ll = validated(without_low_latency, &options());
+    assert_eq!(without_ll.block_size, 4096);
     assert_eq!(
-        validated.low_latency_block_size,
+        without_ll.low_latency_block_size,
         notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
     );
 
     let mut with_low_latency = settings("CoreAudio", "Speakers", 4096);
     with_low_latency.low_latency_monitoring = true;
     with_low_latency.low_latency_block_size = 4096;
-    let validated = validated(with_low_latency, &options());
-    assert_eq!(validated.block_size, 4096);
-    assert_eq!(validated.low_latency_block_size, 4096);
+    let with_ll = validated(with_low_latency, &options());
+    assert_eq!(with_ll.block_size, 4096);
+    assert_eq!(with_ll.low_latency_block_size, 4096);
 }
 
 #[test]

@@ -2424,6 +2424,7 @@ name = "notwig-app"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "crossbeam-queue",
  "eframe",
  "egui",
  "hound",

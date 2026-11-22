@@ -37,6 +37,7 @@ uuid = { workspace = true, features = ["v4"] }
 eframe.workspace = true
 egui.workspace = true
 cpal.workspace = true
+crossbeam-queue.workspace = true
 rfd.workspace = true
 wgpu.workspace = true
 

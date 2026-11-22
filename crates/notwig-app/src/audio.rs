@@ -1,7 +1,13 @@
 use crate::clock::Instant;
 use std::collections::BTreeMap;
+#[cfg(target_arch = "wasm32")]
 use std::panic::{AssertUnwindSafe, catch_unwind};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crossbeam_queue::ArrayQueue;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
@@ -11,6 +17,8 @@ use notwig_ext_api::DeviceMeterSnapshot;
 use notwig_ui::MeterValues;
 
 use crate::audio_input::{InputHub, InputRequest, available_input_options};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::audio_worker::RenderPipeline;
 use crate::recording::RecordingSession;
 
 /// Synthetic device id that always resolves to the host's default output
@@ -159,12 +167,12 @@ impl AudioSnapshot {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct DspSample {
-    usage_percent: f32,
-    load_ms: f32,
-    jitter_percent: f32,
-    frames: u32,
-    output_latency_samples: u64,
+pub(crate) struct DspSample {
+    pub(crate) usage_percent: f32,
+    pub(crate) load_ms: f32,
+    pub(crate) jitter_percent: f32,
+    pub(crate) frames: u32,
+    pub(crate) output_latency_samples: u64,
 }
 
 pub struct AudioService {
@@ -172,6 +180,8 @@ pub struct AudioService {
     input_hub: InputHub,
     pub snapshot: Arc<Mutex<AudioSnapshot>>,
     pub settings: AudioSettings,
+    #[cfg(not(target_arch = "wasm32"))]
+    _render: RenderPipeline,
 }
 
 pub fn settings_view(
@@ -285,55 +295,131 @@ impl AudioService {
         let mut engine = Engine::new(EngineConfig::new(config.sample_rate, project_frames));
         engine.attach_control(control);
         engine.attach_input_bus(input_hub.bus());
-        let stream = match sample_format {
-            SampleFormat::F32 => build::<f32>(
-                &device,
-                config,
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let device_frames = usize::try_from(device_block).unwrap_or(1);
+            let pipeline = RenderPipeline::start(
                 engine,
                 Arc::clone(&snapshot),
-                output_route,
+                config.sample_rate,
+                device_frames,
                 project_frames,
                 high_latency_frames,
-            ),
-            SampleFormat::I16 => build::<i16>(
-                &device,
-                config,
-                engine,
-                Arc::clone(&snapshot),
-                output_route,
-                project_frames,
-                high_latency_frames,
-            ),
-            SampleFormat::U16 => build::<u16>(
-                &device,
-                config,
-                engine,
-                Arc::clone(&snapshot),
-                output_route,
-                project_frames,
-                high_latency_frames,
-            ),
-            SampleFormat::I32 => build::<i32>(
-                &device,
-                config,
-                engine,
-                Arc::clone(&snapshot),
-                output_route,
-                project_frames,
-                high_latency_frames,
-            ),
-            other => Err(format!("unsupported sample format {other}")),
-        }?;
-        stream.play().map_err(|err| format!("start audio: {err}"))?;
-        if let Ok(mut snapshot) = snapshot.lock() {
-            snapshot.running = true;
+            );
+            let high = Arc::clone(&pipeline.high);
+            let low = Arc::clone(&pipeline.low);
+            let ready = Arc::clone(&pipeline.ready);
+            let output_latency_samples = Arc::clone(&pipeline.output_latency_samples);
+            let error_snapshot = Arc::clone(&snapshot);
+            let stream = match sample_format {
+                SampleFormat::F32 => build_rendered::<f32>(
+                    &device,
+                    config,
+                    high,
+                    low,
+                    ready,
+                    output_latency_samples,
+                    error_snapshot,
+                    output_route,
+                ),
+                SampleFormat::I16 => build_rendered::<i16>(
+                    &device,
+                    config,
+                    high,
+                    low,
+                    ready,
+                    output_latency_samples,
+                    error_snapshot,
+                    output_route,
+                ),
+                SampleFormat::U16 => build_rendered::<u16>(
+                    &device,
+                    config,
+                    high,
+                    low,
+                    ready,
+                    output_latency_samples,
+                    error_snapshot,
+                    output_route,
+                ),
+                SampleFormat::I32 => build_rendered::<i32>(
+                    &device,
+                    config,
+                    high,
+                    low,
+                    ready,
+                    output_latency_samples,
+                    error_snapshot,
+                    output_route,
+                ),
+                other => Err(format!("unsupported sample format {other}")),
+            }?;
+            stream.play().map_err(|err| format!("start audio: {err}"))?;
+            if let Ok(mut snapshot) = snapshot.lock() {
+                snapshot.running = true;
+            }
+            Ok(Self {
+                _stream: stream,
+                input_hub,
+                snapshot,
+                settings: settings.clone(),
+                _render: pipeline,
+            })
         }
-        Ok(Self {
-            _stream: stream,
-            input_hub,
-            snapshot,
-            settings: settings.clone(),
-        })
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let stream = match sample_format {
+                SampleFormat::F32 => build::<f32>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    high_latency_frames,
+                ),
+                SampleFormat::I16 => build::<i16>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    high_latency_frames,
+                ),
+                SampleFormat::U16 => build::<u16>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    high_latency_frames,
+                ),
+                SampleFormat::I32 => build::<i32>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    high_latency_frames,
+                ),
+                other => Err(format!("unsupported sample format {other}")),
+            }?;
+            stream.play().map_err(|err| format!("start audio: {err}"))?;
+            if let Ok(mut snapshot) = snapshot.lock() {
+                snapshot.running = true;
+            }
+            Ok(Self {
+                _stream: stream,
+                input_hub,
+                snapshot,
+                settings: settings.clone(),
+            })
+        }
     }
 
     pub fn snapshot(&self) -> AudioSnapshot {
@@ -631,6 +717,91 @@ fn output_route(settings: &AudioSettings, stream_channels: u16) -> (usize, Optio
     (left, Some(right))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn build_rendered<T>(
+    device: &cpal::Device,
+    config: StreamConfig,
+    high: Arc<ArrayQueue<f32>>,
+    low: Arc<ArrayQueue<f32>>,
+    ready: Arc<AtomicBool>,
+    output_latency_samples: Arc<AtomicU64>,
+    snapshot: Arc<Mutex<AudioSnapshot>>,
+    output_route: (usize, Option<usize>),
+) -> Result<cpal::Stream, String>
+where
+    T: SizedSample + FromSample<f32>,
+{
+    let channels = usize::from(config.channels.max(1));
+    let sample_rate = config.sample_rate;
+    let error_snapshot = Arc::clone(&snapshot);
+    device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+                let frames = data.len() / channels;
+                if frames == 0 {
+                    return;
+                }
+                let timestamp = info.timestamp();
+                let latency = (timestamp
+                    .playback
+                    .duration_since(timestamp.callback)
+                    .as_secs_f64()
+                    * f64::from(sample_rate))
+                .round() as u64;
+                output_latency_samples.store(latency, Ordering::Relaxed);
+                let high_ready = ready.load(Ordering::Acquire);
+                for frame in data.chunks_mut(channels) {
+                    let low_left = low.pop().unwrap_or(0.0);
+                    let low_right = low.pop().unwrap_or(0.0);
+                    let high_left = if high_ready {
+                        high.pop().unwrap_or(0.0)
+                    } else {
+                        0.0
+                    };
+                    let high_right = if high_ready {
+                        high.pop().unwrap_or(0.0)
+                    } else {
+                        0.0
+                    };
+                    let left = high_left + low_left;
+                    let right = high_right + low_right;
+                    for (channel_index, sample) in frame.iter_mut().enumerate() {
+                        let value = if channel_index == output_route.0 {
+                            left
+                        } else if Some(channel_index) == output_route.1 {
+                            right
+                        } else {
+                            0.0
+                        };
+                        *sample = T::from_sample(value);
+                    }
+                }
+            },
+            move |err| {
+                if let Ok(mut snapshot) = error_snapshot.lock() {
+                    let kind = err.kind();
+                    if is_device_loss_error(kind) {
+                        snapshot.running = false;
+                        snapshot.playing = false;
+                        snapshot.device_lost = true;
+                        snapshot.device_lost_reason = Some(err.to_string());
+                        snapshot.error = None;
+                        snapshot.meters.clear();
+                        snapshot.device_meters.clear();
+                    } else if is_device_change_error(kind) {
+                        snapshot.device_changed = true;
+                    } else {
+                        snapshot.error = Some(err.to_string());
+                    }
+                }
+            },
+            None,
+        )
+        .map_err(|err| format!("build audio stream: {err}"))
+}
+
+#[cfg(target_arch = "wasm32")]
 fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
@@ -802,7 +973,7 @@ where
         .map_err(|err| format!("build audio stream: {err}"))
 }
 
-fn update_snapshot(
+pub(crate) fn update_snapshot(
     snapshot: &Arc<Mutex<AudioSnapshot>>,
     engine: &Engine,
     events: &[RtEvent],

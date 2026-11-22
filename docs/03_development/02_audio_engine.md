@@ -255,21 +255,30 @@ clears the destination range, and creates the recorded clip in one batch.
 
 When low latency monitoring is enabled, the output device stream runs at the
 configured Device Block Size (default 16 frames). The project is still rendered
-in larger High latency buffer chunks by the engine. Disabling the setting makes
-the Device Block Size the single device/project block and treats Low Latency
-track modes as Enabled. A preallocated ring buffer carries
-project output into the device callback and is consumed in device-sized slices.
+in larger High latency buffer chunks. Disabling the setting makes the Device
+Block Size the single device/project block and treats Low Latency track modes as
+Enabled.
 
-With low-latency monitoring enabled, the project ring keeps one project block of
-headroom so the regular high-latency monitor path really is delayed by the
-project block size. Low-latency monitor tracks do not write into the project
-ring. They drain their input queues in the device callback, run through a second set of their track's
-device-chain processors prepared at the project block size, apply track
-gain/pan/mute/solo, and are mixed directly into the device slice. Their monitor
-path skips groups, sends, and the master chain. The second processor set is
-built during the structural rebuild triggered by changing a track's monitor
-mode. The high-latency path skips monitor injection for these tracks while still
-rendering their clips through the normal project graph.
+Native builds move the engine and project rendering to a dedicated
+`notwig-project-render` worker thread. It renders full high-latency project
+chunks ahead into a preallocated high ring. It also renders the low-latency
+monitor path into a separate, much shorter low ring. The device callback never
+touches the engine or plugins; it only mixes samples from the two rings into the
+device buffer.
+
+The high ring keeps one project block of headroom so the regular high-latency
+monitor path really is delayed by the project block size. Low-latency monitor
+tracks do not write into the project ring. They drain their input queues, run
+through a second set of their track's device-chain processors prepared at the
+project block size, apply track gain/pan/mute/solo, and are mixed from the low
+ring directly into the device slice. Their monitor path skips groups, sends, and
+the master chain. The second processor set is built during the structural
+rebuild triggered by changing a track's monitor mode. The high-latency path
+skips monitor injection for these tracks while still rendering their clips
+through the normal project graph.
+
+The browser build keeps the in-process callback path because browsers cannot
+spawn the render worker thread used by native builds.
 
 ## 10. Tests
 
