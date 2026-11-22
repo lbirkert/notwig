@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Read;
 
 use notwig_ext_api::ExtensionManifest;
-use notwig_ext_cli::build::package_extension;
+use notwig_ext_cli::build::{PackageEntry, package_entries, package_extension, package_targets};
 use notwig_ext_cli::scaffold;
 use notwig_ext_cli::target;
 use serde_json::Value;
@@ -130,12 +130,7 @@ fn targets_gate_includes_independently() {
 fn new_scaffolds_a_buildable_extension() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("my-gain");
-    scaffold::new_command(&[
-        path.display().to_string(),
-        "--id".into(),
-        "com.test.my-gain".into(),
-    ])
-    .unwrap();
+    scaffold::new(path.clone(), None, Some("com.test.my-gain".into())).unwrap();
 
     assert!(path.join("Cargo.toml").is_file());
     assert!(path.join("src/lib.rs").is_file());
@@ -149,4 +144,106 @@ fn new_scaffolds_a_buildable_extension() {
     assert_eq!(manifest["id"], "com.test.my-gain");
     assert!(manifest.get("entrypoints").is_none());
     assert!(manifest.get("includes").is_none());
+}
+
+#[test]
+fn default_target_plan_covers_every_supported_platform() {
+    assert_eq!(target::all().len(), 7);
+    let wasm = target::resolve("wasm").unwrap();
+    assert_eq!(wasm.extension, "wasm");
+    let windows = target::resolve("windows-x86_64").unwrap();
+    assert_eq!(windows.extension, "dll");
+    assert!(target::resolve("macos-arm64").is_some());
+}
+
+#[test]
+fn packages_multiple_entrypoints_together() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path();
+    write(&source.join("icon.png"), b"icon");
+    write(&source.join("shared.txt"), b"shared");
+    write(&source.join("wasm.txt"), b"wasm");
+    write(&source.join("mac.txt"), b"mac");
+    let out = source.join("dist/bundle.zip");
+    let manifest = source_manifest();
+    let entries = [
+        PackageEntry {
+            target: target::resolve("wasm").unwrap(),
+            entrypoint: "test_extension.wasm".into(),
+            bytes: b"wasm-artifact".to_vec(),
+        },
+        PackageEntry {
+            target: target::resolve("macos-aarch64").unwrap(),
+            entrypoint: "test_extension.dylib".into(),
+            bytes: b"mac-artifact".to_vec(),
+        },
+    ];
+
+    package_entries(&manifest, source, &entries, &out).unwrap();
+
+    let files = archive_entries(&out);
+    assert_eq!(
+        files.get("test_extension.wasm").map(Vec::as_slice),
+        Some(b"wasm-artifact".as_slice())
+    );
+    assert_eq!(
+        files.get("test_extension.dylib").map(Vec::as_slice),
+        Some(b"mac-artifact".as_slice())
+    );
+    assert!(files.contains_key("shared.txt"));
+    assert!(files.contains_key("wasm.txt"));
+    assert!(files.contains_key("mac.txt"));
+
+    let packaged: Value = serde_json::from_slice(&files["extension.json"]).unwrap();
+    assert_eq!(packaged["entrypoints"].as_array().unwrap().len(), 2);
+    assert!(packaged.get("includes").is_none());
+}
+
+#[test]
+fn packages_artifacts_already_present_in_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path();
+    write(
+        &source.join("Cargo.toml"),
+        br#"[package]
+name = "test-extension"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "test_extension"
+crate-type = ["cdylib", "rlib"]
+
+[workspace]
+"#,
+    );
+    write(&source.join("src/lib.rs"), b"");
+    write(&source.join("icon.png"), b"icon");
+    write(&source.join("shared.txt"), b"shared");
+    write(&source.join("wasm.txt"), b"wasm");
+    write(&source.join("mac.txt"), b"mac");
+    write(
+        &source.join("extension.json"),
+        serde_json::to_vec(&source_manifest()).unwrap().as_slice(),
+    );
+    write(
+        &source.join("target/wasm32-unknown-unknown/release/test_extension.wasm"),
+        b"wasm-artifact",
+    );
+    write(
+        &source.join("target/aarch64-apple-darwin/release/libtest_extension.dylib"),
+        b"mac-artifact",
+    );
+    let out_dir = source.join("dist");
+
+    let packaged = package_targets(&[], Some(source), &out_dir, None).unwrap();
+    assert_eq!(packaged.file_name().unwrap(), "com.test.extension.zip");
+    let files = archive_entries(&packaged);
+    assert!(files.contains_key("test_extension.wasm"));
+    assert!(files.contains_key("test_extension.dylib"));
+    assert!(files.contains_key("icon.png"));
+    assert!(files.contains_key("wasm.txt"));
+    assert!(files.contains_key("mac.txt"));
+    let manifest: Value = serde_json::from_slice(&files["extension.json"]).unwrap();
+    assert_eq!(manifest["entrypoints"].as_array().unwrap().len(), 2);
 }

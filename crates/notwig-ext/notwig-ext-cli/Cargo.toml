@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+clap.workspace = true
 notwig-ext-api = { workspace = true, default-features = false }
 serde_json.workspace = true
 thiserror.workspace = true

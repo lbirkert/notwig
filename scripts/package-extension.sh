@@ -26,7 +26,13 @@ build_target() {
     --quiet \
     --manifest-path "$ROOT/Cargo.toml" \
     -p notwig-ext-cli \
-    -- build "$target" \
+    -- build --entrypoint "$target" --path "$EXTENSION"
+
+  cargo run \
+    --quiet \
+    --manifest-path "$ROOT/Cargo.toml" \
+    -p notwig-ext-cli \
+    -- build --package "$target" \
     --path "$EXTENSION" \
     --out-dir "$ROOT/docs/extensions" \
     --name "ext-devices-$slug"

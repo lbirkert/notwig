@@ -159,7 +159,7 @@ ABI v4 makes the guest panel the only extension panel path. Extensions run a pri
 
 | Module | Responsibility |
 |---|---|
-| `build.rs` | Locate `extension.json`, run cargo for one target, transform the manifest, filter includes, and write the ZIP |
+| `build.rs` | Build one target entrypoint or package existing target artifacts together, transform the manifest, filter includes, and write the ZIP |
 | `scaffold.rs` | `new`/`init`: Cargo.toml, `src/lib.rs`, source manifest, default icon |
 | `target.rs` | Canonical target to Rust triple, artifact suffix, and entrypoint naming |
 | `error.rs` | CLI errors |
@@ -375,7 +375,8 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 4. Ship a source `extension.json` with `api_version: 4`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
-   with `notwig-ext-cli build <target>`, which adds the entrypoint.
+   with `notwig-ext-cli build --entrypoint <target>` on each platform, then run
+   `notwig-ext-cli build --package` to add entrypoints and bundle the ZIP.
 5. Add frame tests in `crates/notwig-ext/notwig-ext-devices/tests/` and a host compositing
    test in `crates/notwig-ui/tests/`. See
    [Extension Overview](../02_extensions/00_overview.md) for the full package

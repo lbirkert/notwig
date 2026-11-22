@@ -85,7 +85,10 @@ present; the `image` path is packaged in addition when it differs from
 | `windows-aarch64` | `aarch64-pc-windows-msvc` | `.dll` |
 
 `wasm` is portable and works in the native and browser hosts. Native targets
-run in-process and are not sandboxed.
+run in-process and are not sandboxed. Non-host native targets build through
+the target platform. Build each binary in a matching VM or machine, then copy
+the `target/<rust-triple>/release/` artifact into one target directory and run
+`notwig-ext-cli build --package` to bundle them together.
 
 ## CLI
 
@@ -96,11 +99,15 @@ notwig-ext-cli new my-extension
 # Add extension files to an existing crate/package.
 notwig-ext-cli init
 
-# Build one target and write dist/<id>-<target>.zip.
-notwig-ext-cli build wasm
+# Build one target binary (run this in each target VM).
+notwig-ext-cli build --entrypoint wasm
+notwig-ext-cli build --entrypoint macos-aarch64
 
-# Override the ZIP location/name.
-notwig-ext-cli build macos-aarch64 --out-dir docs/extensions --name ext-devices-macos-arm64
+# After copying target artifacts together, package what is available.
+notwig-ext-cli build --package --out-dir dist
+
+# Package only selected targets and override the ZIP name.
+notwig-ext-cli build --package macos-aarch64 wasm --out-dir docs/extensions --name ext-devices
 ```
 
 `new` and `init` generate `Cargo.toml`, `src/lib.rs`, `extension.json`, and a

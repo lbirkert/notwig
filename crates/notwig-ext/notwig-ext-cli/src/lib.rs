@@ -7,31 +7,115 @@ pub mod target;
 
 pub use error::{Error, Result};
 
-pub const USAGE: &str = "\
-notwig-ext-cli — build and scaffold Notwig extensions
+use std::path::PathBuf;
 
-Usage:
-  notwig-ext-cli new <path> [--name <package>] [--id <extension-id>]
-  notwig-ext-cli init [path] [--name <package>] [--id <extension-id>]
-  notwig-ext-cli build <target> [--path <dir>] [--out-dir <dir>] [--name <zip-name>]
-  notwig-ext-cli targets
-  notwig-ext-cli help
+use clap::{CommandFactory, Parser, Subcommand};
 
-Build looks for extension.json in the supplied path or its parents, runs
-`cargo build --release` for the requested Rust target, adds the generated
-entrypoint to extension.json, and writes a ZIP package.
-";
+/// Build and scaffold Notwig extensions.
+#[derive(Debug, Parser)]
+#[command(
+    name = "notwig-ext-cli",
+    version,
+    about = "Build and scaffold Notwig extensions",
+    long_about = "Build source extension projects into target-specific ZIP packages, or scaffold a new extension with a working device, manifest, and icon."
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
 
-pub fn run(args: &[String]) -> Result<()> {
-    let Some(command) = args.first().map(String::as_str) else {
-        print!("{USAGE}");
-        return Ok(());
-    };
-    match command {
-        "new" => scaffold::new_command(&args[1..]),
-        "init" => scaffold::init_command(&args[1..]),
-        "build" => build::command(&args[1..]),
-        "targets" => {
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Create a new extension project.
+    New {
+        /// Directory to create.
+        path: PathBuf,
+        /// Cargo package name (defaults to the directory name).
+        #[arg(long)]
+        name: Option<String>,
+        /// Extension id (defaults to com.example.<name>).
+        #[arg(long = "id")]
+        id: Option<String>,
+    },
+    /// Add extension files to an existing directory.
+    Init {
+        /// Directory to initialize (defaults to the current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Cargo package name (defaults to the directory name).
+        #[arg(long)]
+        name: Option<String>,
+        /// Extension id (defaults to com.example.<name>).
+        #[arg(long = "id")]
+        id: Option<String>,
+    },
+    /// Build one entrypoint binary or package existing binaries into a ZIP.
+    ///
+    /// Use `--entrypoint <target>` on each target VM. Copy the produced
+    /// binaries into the same Cargo target directory, then run `--package` to
+    /// bundle every available target together.
+    Build {
+        /// Build only this target's entrypoint binary.
+        #[arg(long, value_name = "TARGET", conflicts_with = "package")]
+        entrypoint: Option<String>,
+        /// Package the target binaries already present in Cargo's target directory.
+        #[arg(long)]
+        package: bool,
+        /// Targets to include when packaging (defaults to all available binaries).
+        #[arg(value_name = "TARGET")]
+        targets: Vec<String>,
+        /// Extension directory containing extension.json (defaults to the current directory).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Directory for the generated ZIP.
+        #[arg(long, default_value = "dist")]
+        out_dir: PathBuf,
+        /// ZIP file name (defaults to <extension-id>.zip, or <extension-id>-<target>.zip for one entrypoint).
+        #[arg(long)]
+        name: Option<String>,
+        /// Do not run `rustup target add` for missing Rust targets.
+        #[arg(long)]
+        no_install_targets: bool,
+    },
+    /// List supported build targets.
+    Targets,
+}
+
+pub fn run() -> Result<()> {
+    let cli = Cli::parse();
+    match cli.command {
+        Some(Command::New { path, name, id }) => scaffold::new(path, name, id),
+        Some(Command::Init { path, name, id }) => scaffold::init(path, name, id),
+        Some(Command::Build {
+            entrypoint,
+            package,
+            targets,
+            path,
+            out_dir,
+            name,
+            no_install_targets,
+        }) => {
+            if let Some(target) = entrypoint {
+                if !targets.is_empty() {
+                    return Err(Error::message(
+                        "--entrypoint does not accept extra target arguments",
+                    ));
+                }
+                if name.is_some() {
+                    return Err(Error::message("--name is only valid with --package"));
+                }
+                build::build_entrypoint(&target, Some(&path), !no_install_targets)?;
+                Ok(())
+            } else if package {
+                build::package_targets(&targets, Some(&path), &out_dir, name.as_deref())?;
+                Ok(())
+            } else {
+                Err(Error::message(
+                    "build requires --entrypoint <target> or --package",
+                ))
+            }
+        }
+        Some(Command::Targets) => {
             for target in target::all() {
                 println!(
                     "{:<16} {:<28} .{}",
@@ -40,12 +124,13 @@ pub fn run(args: &[String]) -> Result<()> {
             }
             Ok(())
         }
-        "help" | "--help" | "-h" => {
-            print!("{USAGE}");
+        None => {
+            let mut command = Cli::command();
+            command
+                .print_help()
+                .map_err(|error| Error::message(error.to_string()))?;
+            println!();
             Ok(())
         }
-        other => Err(Error::message(format!(
-            "unknown command `{other}` (try `notwig-ext-cli help`)"
-        ))),
     }
 }

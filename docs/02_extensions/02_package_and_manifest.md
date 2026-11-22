@@ -60,8 +60,8 @@ builds a ZIP:
 ```
 
 The packaged manifest has `includes` removed and an `entrypoints` list added. A
-ZIP may contain multiple target binaries only when the manifest is assembled
-manually; the CLI builds one target per ZIP.
+ZIP may contain one or several target binaries; `--package` includes every
+binary it finds in Cargo's target directory, or only the targets you list.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ generic parameter view. See the
 
 ### Entrypoints and targets
 
-`notwig-ext-cli` automatically adds an entrypoint for the built target:
+`notwig-ext-cli build --package` adds one entrypoint per packaged binary:
 
 ```json
 "entrypoints": [
@@ -127,8 +127,8 @@ generic parameter view. See the
 ]
 ```
 
-If you assemble a fat package manually, each entrypoint names a file relative to
-the package directory and the target it was built for:
+Each entrypoint names a file relative to the package directory and the target it
+was built for. A multi-platform package looks like this:
 
 ```json
 "entrypoints": [
@@ -220,17 +220,21 @@ installed again.
 
 ## Packaging with the CLI
 
-The `notwig-ext-cli` crate builds one target, transforms the manifest, and
-writes the ZIP:
+The `notwig-ext-cli` crate separates building from packaging:
 
 ```sh
-notwig-ext-cli build wasm
-notwig-ext-cli build macos-aarch64 --out-dir docs/extensions --name my-gain-macos
+# Build one binary on each target machine or VM.
+notwig-ext-cli build --entrypoint wasm
+notwig-ext-cli build --entrypoint macos-aarch64
+
+# Copy the target/<rust-triple>/release/ artifacts into one target directory.
+notwig-ext-cli build --package --out-dir docs/extensions
 ```
 
-Without `--name`, the ZIP is named `<extension-id>-<target>.zip`. Supported
-targets are `wasm`, `macos-aarch64`, `macos-x86_64`, `linux-x86_64`,
-`linux-aarch64`, `windows-x86_64`, and `windows-aarch64`.
+`--package` bundles every target binary it finds, or only the targets passed as
+arguments. Without `--name`, the ZIP is named `<extension-id>.zip` when it
+contains several entrypoints and `<extension-id>-<target>.zip` for one. There is
+no automatic native cross-compilation; build each binary on the target platform.
 
 The repository keeps a thin `scripts/package-extension.sh` wrapper for the stock
 `notwig-ext-devices` package:

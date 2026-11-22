@@ -7,70 +7,27 @@ use crate::error::{Error, Result};
 
 const DEFAULT_ICON: &[u8] = include_bytes!("../assets/icon.png");
 
-#[derive(Debug, Default)]
-struct Options {
-    path: Option<PathBuf>,
+pub fn new(
+    path: PathBuf,
     package_name: Option<String>,
     extension_id: Option<String>,
-}
-
-pub fn new_command(args: &[String]) -> Result<()> {
-    let options = parse_options(args)?;
-    let path = options
-        .path
-        .clone()
-        .ok_or_else(|| Error::message("new requires a path or name"))?;
+) -> Result<()> {
     if path.exists() {
         return Err(Error::message(format!("{} already exists", path.display())));
     }
-    create(&path, &options, true)
+    create(&path, package_name, extension_id)
 }
 
-pub fn init_command(args: &[String]) -> Result<()> {
-    let options = parse_options(args)?;
-    let path = options.path.clone().unwrap_or_else(|| PathBuf::from("."));
-    create(&path, &options, false)
+pub fn init(
+    path: PathBuf,
+    package_name: Option<String>,
+    extension_id: Option<String>,
+) -> Result<()> {
+    create(&path, package_name, extension_id)
 }
 
-fn parse_options(args: &[String]) -> Result<Options> {
-    let mut options = Options::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--name" => {
-                index += 1;
-                options.package_name = Some(value(args, index, "--name")?);
-            }
-            "--id" => {
-                index += 1;
-                options.extension_id = Some(value(args, index, "--id")?);
-            }
-            flag if flag.starts_with('-') => {
-                return Err(Error::message(format!("unknown option: {flag}")));
-            }
-            value => {
-                if options.path.replace(PathBuf::from(value)).is_some() {
-                    return Err(Error::message("expected at most one path"));
-                }
-            }
-        }
-        index += 1;
-    }
-    Ok(options)
-}
-
-fn value(args: &[String], index: usize, flag: &str) -> Result<String> {
-    args.get(index)
-        .cloned()
-        .ok_or_else(|| Error::message(format!("{flag} requires a value")))
-}
-
-fn create(path: &Path, options: &Options, create_root: bool) -> Result<()> {
-    if create_root {
-        fs::create_dir_all(path).map_err(|error| Error::io(path, error))?;
-    } else if !path.exists() {
-        fs::create_dir_all(path).map_err(|error| Error::io(path, error))?;
-    }
+fn create(path: &Path, package_name: Option<String>, extension_id: Option<String>) -> Result<()> {
+    fs::create_dir_all(path).map_err(|error| Error::io(path, error))?;
     let directory_name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -84,15 +41,9 @@ fn create(path: &Path, options: &Options, create_root: bool) -> Result<()> {
         })
         .ok_or_else(|| Error::message("could not derive an extension name from the path"))?;
 
-    let package_name = options
-        .package_name
-        .clone()
-        .unwrap_or_else(|| sanitize_package_name(&directory_name));
+    let package_name = package_name.unwrap_or_else(|| sanitize_package_name(&directory_name));
     let slug = package_name.replace('_', "-");
-    let extension_id = options
-        .extension_id
-        .clone()
-        .unwrap_or_else(|| format!("com.example.{slug}"));
+    let extension_id = extension_id.unwrap_or_else(|| format!("com.example.{slug}"));
     let display_name = display_name(&directory_name);
 
     let files = [
@@ -128,7 +79,10 @@ fn create(path: &Path, options: &Options, create_root: bool) -> Result<()> {
     fs::write(&icon, DEFAULT_ICON).map_err(|error| Error::io(&icon, error))?;
 
     println!("created extension {extension_id} in {}", path.display());
-    println!("next: cd {} && notwig-ext-cli build wasm", path.display());
+    println!(
+        "next: cd {} && notwig-ext-cli build --entrypoint wasm && notwig-ext-cli build --package wasm",
+        path.display()
+    );
     Ok(())
 }
 

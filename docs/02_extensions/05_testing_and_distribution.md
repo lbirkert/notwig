@@ -77,21 +77,23 @@ as a model when testing error paths and ABI version mismatches.
 
 ## Package the extension
 
-The CLI builds one target, transforms the source manifest, and writes a ZIP:
+The CLI separates building one target binary from packaging the binaries
+together:
 
 ```sh
-notwig-ext-cli build wasm
-notwig-ext-cli build macos-aarch64 --out-dir docs/extensions --name ext-devices-macos-arm64
+# Run on each target machine or VM.
+notwig-ext-cli build --entrypoint wasm
+notwig-ext-cli build --entrypoint macos-aarch64
+
+# Copy target/<rust-triple>/release/ artifacts into one target directory, then:
+notwig-ext-cli build --package --out-dir docs/extensions
 ```
 
-Without `--name`, the ZIP is named `<extension-id>-<target>.zip`. Each ZIP
-contains:
-
-```text
-extension.json             # includes removed, entrypoints added
-notwig_ext_devices.wasm    # or .dylib/.so/.dll for a native target
-icon.png                   # included by default
-```
+`--package` includes every target whose artifact is present. Pass target names
+to limit the package, or use `--name` to choose the ZIP name. One package can
+contain several entrypoints; the host picks the first supported target. Missing
+Rust targets are installed with `rustup target add` for `--entrypoint` builds by
+default.
 
 The repository keeps `scripts/package-extension.sh` as a thin wrapper around the
 CLI for the stock extension:
