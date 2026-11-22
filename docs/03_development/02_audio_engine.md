@@ -217,6 +217,8 @@ preallocated slot in `notwig-engine::InputBus`:
 
 - the input callback selects the configured mono channel or stereo pair and
   pushes interleaved samples into bounded monitoring and recording queues;
+- the app trims one audio block from the start of each new take to compensate
+  for block-level capture latency;
 - the audio thread drains the monitoring queue into the armed track's input
   buffer before the track's device chain runs, so monitoring follows devices,
   mixer, pan, mute/solo, and routing;

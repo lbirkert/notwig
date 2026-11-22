@@ -141,6 +141,7 @@ struct ActiveRecording {
     sample_rate: u32,
     takes: std::collections::BTreeMap<TrackId, LiveRecordingTake>,
     end: Option<TimeMus>,
+    compensation_samples: usize,
     #[cfg(target_arch = "wasm32")]
     session: Option<crate::recording::RecordingSession>,
 }
@@ -166,6 +167,17 @@ fn append_take_samples(active: &mut ActiveRecording, track_id: TrackId, samples:
         .or_insert_with(|| new_live_take(sample_rate));
     take.samples.extend_from_slice(samples);
     take.waveform_dirty = true;
+}
+
+fn append_captures(active: &mut ActiveRecording, captures: Vec<(TrackId, Vec<f32>)>) {
+    let skip = active.compensation_samples;
+    let mut skipped = 0;
+    for (track_id, samples) in captures {
+        let skip_samples = skip.min(samples.len());
+        append_take_samples(active, track_id, &samples[skip_samples..]);
+        skipped = skipped.max(skip_samples);
+    }
+    active.compensation_samples = active.compensation_samples.saturating_sub(skipped);
 }
 
 pub struct NotwigApp {
@@ -989,6 +1001,14 @@ impl NotwigApp {
         let snapshot = self.audio_snapshot();
         let started_at = self.current_playhead(&snapshot);
         let sample_rate = self.workspace.doc.meta.sample_rate.value();
+        let block_size = if snapshot.block_size > 0 {
+            snapshot.block_size
+        } else {
+            self.audio_settings.block_size
+        };
+        let compensation_samples = usize::try_from(block_size.max(1))
+            .unwrap_or(1)
+            .saturating_mul(2);
         let mut takes = std::collections::BTreeMap::new();
         for (track_id, _) in &requests {
             takes.insert(*track_id, new_live_take(sample_rate));
@@ -1012,6 +1032,7 @@ impl NotwigApp {
                 sample_rate,
                 takes,
                 end: None,
+                compensation_samples,
             });
         }
         #[cfg(target_arch = "wasm32")]
@@ -1036,6 +1057,7 @@ impl NotwigApp {
                 sample_rate,
                 takes,
                 end: None,
+                compensation_samples,
                 session: Some(session),
             });
         }
@@ -1069,9 +1091,11 @@ impl NotwigApp {
             if let Some(session) = active.session.take() {
                 match session.finish() {
                     Ok(captures) => {
-                        for (track_id, buffer) in captures {
-                            append_take_samples(&mut active, track_id, &buffer.samples);
-                        }
+                        let captures = captures
+                            .into_iter()
+                            .map(|(track_id, buffer)| (track_id, buffer.samples))
+                            .collect();
+                        append_captures(&mut active, captures);
                     }
                     Err(error) => self.notify_error(error),
                 }
@@ -1085,9 +1109,7 @@ impl NotwigApp {
             return;
         };
         active.sample_rate = sample_rate;
-        for (track_id, samples) in captures {
-            append_take_samples(active, track_id, &samples);
-        }
+        append_captures(active, captures);
     }
 
     fn refresh_recording_waveforms(&mut self) {
@@ -2900,9 +2922,11 @@ impl eframe::App for NotwigApp {
                         let Some(mut active) = self.recording.take() else {
                             continue;
                         };
-                        for (track_id, buffer) in captures {
-                            append_take_samples(&mut active, track_id, &buffer.samples);
-                        }
+                        let captures = captures
+                            .into_iter()
+                            .map(|(track_id, buffer)| (track_id, buffer.samples))
+                            .collect();
+                        append_captures(&mut active, captures);
                         self.finalize_live_recording(active, end);
                         if self.workspace.doc.transport.recording
                             && self.workspace.doc.transport.playing

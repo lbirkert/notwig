@@ -34,8 +34,9 @@ Recording is linear and audio-only in the current implementation.
 While record mode is on and the transport plays, each armed track records from
 its input. The clip starts at the playhead where capture began: at the play
 start if record mode was enabled before playback, or at the current playhead if
-it was enabled during playback. The clip grows with the playhead and shows its
-waveform while recording. An armed track's input is monitored through the
+it was enabled during playback. Notwig compensates for one audio block of
+capture latency. The clip grows with the playhead and shows its waveform while
+recording. An armed track's input is monitored through the
 track's device chain, mixer, pan, and routing.
 
 Turning record mode off finalizes the clips at the current playhead and leaves
