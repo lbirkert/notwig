@@ -232,7 +232,7 @@ preallocated slot in `notwig-engine::InputBus`:
   timestamps and publishes it through `InputBus`;
 - new takes are trimmed by the measured input plus output latency (with the
   device block as a floor) instead of only one block;
-- monitor queues discard stale backlog beyond two output blocks or 50 ms, so
+- monitor queues discard stale backlog beyond two output blocks or 5 ms, so
   clock drift or a stalled drain cannot turn into permanent multi-second
   monitoring latency;
 - `System Out` input resolution prefers the default output device when that
@@ -270,11 +270,13 @@ Block Size the single device/project block and treats Low Latency track modes as
 Enabled.
 
 Native builds move the engine and project rendering to a dedicated
-`notwig-project-render` worker thread. It renders full high-latency project
-chunks ahead into a preallocated high ring. It also renders the low-latency
-monitor path into a separate, much shorter low ring. The device callback never
-touches the engine or plugins; it only mixes samples from the two rings into the
-device buffer.
+`notwig-project-render` worker thread. It fills a preallocated high ring with
+high-latency project audio and a separate, much shorter low ring with the
+low-latency monitor path. The high project render is split into bounded steps
+(currently 64 frames) so the worker services the low ring between steps instead
+of waiting for a full project chunk. The low ring target is one render step or
+about 2 ms, whichever is larger. The device callback never touches the engine or
+plugins; it only mixes samples from the two rings into the device buffer.
 
 The high ring keeps one project block of headroom so the regular high-latency
 monitor path really is delayed by the project block size. Low-latency monitor
@@ -283,9 +285,10 @@ through a second set of their track's device-chain processors prepared at the
 project block size, apply track gain/pan/mute/solo, and are mixed from the low
 ring directly into the device slice. Their monitor path skips groups, sends, and
 the master chain. The second processor set is built during the structural
-rebuild triggered by changing a track's monitor mode. The high-latency path
-skips monitor injection for these tracks while still rendering their clips
-through the normal project graph.
+rebuild triggered by changing a track's monitor mode, and continuous parameter
+updates are applied to both processor sets. The high-latency path skips monitor
+injection for these tracks while still rendering their clips through the normal
+project graph.
 
 The browser build keeps the in-process callback path because browsers cannot
 spawn the render worker thread used by native builds.

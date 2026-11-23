@@ -11,6 +11,7 @@ use crate::audio::{AudioSnapshot, DspSample, update_snapshot_at};
 use crate::clock::Instant;
 
 const WORKER_IDLE_SLEEP: Duration = Duration::from_micros(250);
+const HIGH_RENDER_STEP_FRAMES: usize = 64;
 
 /// Preallocated producer/consumer rings shared by the render worker and the
 /// device callback. The callback never touches the engine.
@@ -33,10 +34,13 @@ impl RenderPipeline {
         high_latency_frames: usize,
     ) -> Self {
         let high_target_frames = device_frames.saturating_add(high_latency_frames);
-        let low_target_frames = device_frames
-            .saturating_mul(8)
-            .max(usize::try_from(sample_rate / 100).unwrap_or(480))
-            .max(device_frames);
+        let high_step_frames = device_frames
+            .max(HIGH_RENDER_STEP_FRAMES)
+            .min(project_frames.max(1))
+            .max(1);
+        let low_target_frames = high_step_frames
+            .max(usize::try_from(sample_rate / 500).unwrap_or(96))
+            .max(1);
         let high = Arc::new(ArrayQueue::new(project_frames.saturating_mul(6).max(8)));
         let low = Arc::new(ArrayQueue::new(
             low_target_frames
@@ -68,6 +72,7 @@ impl RenderPipeline {
                         project_frames.max(1),
                         high_target_frames.max(device_frames),
                         low_target_frames,
+                        high_step_frames,
                     );
                 })
                 .ok()
@@ -109,10 +114,14 @@ fn render_loop(
     project_frames: usize,
     high_target_frames: usize,
     low_target_frames: usize,
+    high_step_frames: usize,
 ) {
-    let mut project_scratch = vec![0.0_f32; project_frames * 2];
+    let mut high_scratch = vec![0.0_f32; high_step_frames * 2];
     let mut low_scratch = vec![0.0_f32; device_frames * 2];
     let mut events = Vec::with_capacity(4096);
+    let mut pending_events = Vec::with_capacity(4096);
+    let mut pending_frames = 0usize;
+    let mut pending_elapsed = Duration::ZERO;
     let mut project_generation = engine.transport_generation();
     let high_block_seconds = project_frames as f64 / f64::from(engine.config().sample_rate.max(1));
 
@@ -130,6 +139,9 @@ fn render_loop(
             ready.store(false, Ordering::Relaxed);
             clear_ring(&high);
             clear_ring(&low);
+            pending_frames = 0;
+            pending_elapsed = Duration::ZERO;
+            pending_events.clear();
         }
 
         let mut did_work = false;
@@ -168,7 +180,7 @@ fn render_loop(
         if high.len() / 2 < high_target_frames {
             let started = Instant::now();
             let outcome = catch_unwind(AssertUnwindSafe(|| {
-                engine.process(&mut project_scratch, project_frames)
+                engine.process(&mut high_scratch, high_step_frames)
             }));
             match outcome {
                 Ok(Ok(())) => {
@@ -178,32 +190,54 @@ fn render_loop(
                         ready.store(false, Ordering::Relaxed);
                         clear_ring(&high);
                         clear_ring(&low);
+                        pending_frames = 0;
+                        pending_elapsed = Duration::ZERO;
+                        pending_events.clear();
                     }
-                    for sample in &project_scratch {
+                    let elapsed = started.elapsed();
+                    for sample in &high_scratch {
                         let _ = high.push(*sample);
                     }
+                    pending_frames = pending_frames.saturating_add(high_step_frames);
+                    pending_elapsed = pending_elapsed.saturating_add(elapsed);
+                    events.clear();
+                    engine.drain_events(&mut events);
+                    pending_events.extend_from_slice(&events);
                     if high.len() / 2 >= high_target_frames {
                         ready.store(true, Ordering::Release);
                     }
-                    let elapsed = started.elapsed();
-                    events.clear();
-                    engine.drain_events(&mut events);
-                    let output_latency = output_latency_samples.load(Ordering::Relaxed);
-                    let queued_frames = u64::try_from(high.len() / 2).unwrap_or(u64::MAX);
-                    let audible_playhead = engine.playhead_samples().saturating_sub(queued_frames);
-                    let dsp = DspSample {
-                        usage_percent: (elapsed.as_secs_f64() / high_block_seconds * 100.0) as f32,
-                        load_ms: elapsed.as_secs_f64() as f32 * 1000.0,
-                        jitter_percent: 0.0,
-                        frames: project_frames as u32,
-                        output_latency_samples: output_latency,
-                    };
-                    update_snapshot_at(&snapshot, &engine, &events, audible_playhead, dsp);
+                    if pending_frames >= project_frames {
+                        let output_latency = output_latency_samples.load(Ordering::Relaxed);
+                        let queued_frames = u64::try_from(high.len() / 2).unwrap_or(u64::MAX);
+                        let audible_playhead =
+                            engine.playhead_samples().saturating_sub(queued_frames);
+                        let dsp = DspSample {
+                            usage_percent: (pending_elapsed.as_secs_f64() / high_block_seconds
+                                * 100.0) as f32,
+                            load_ms: pending_elapsed.as_secs_f64() as f32 * 1000.0,
+                            jitter_percent: 0.0,
+                            frames: project_frames as u32,
+                            output_latency_samples: output_latency,
+                        };
+                        update_snapshot_at(
+                            &snapshot,
+                            &engine,
+                            &pending_events,
+                            audible_playhead,
+                            dsp,
+                        );
+                        pending_frames = 0;
+                        pending_elapsed = Duration::ZERO;
+                        pending_events.clear();
+                    }
                     did_work = true;
                 }
                 Ok(Err(error)) => {
                     ready.store(false, Ordering::Relaxed);
                     clear_ring(&high);
+                    pending_frames = 0;
+                    pending_elapsed = Duration::ZERO;
+                    pending_events.clear();
                     if let Ok(mut snapshot) = snapshot.try_lock() {
                         snapshot.error = Some(error.to_string());
                     }

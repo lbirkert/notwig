@@ -364,11 +364,27 @@ impl ActivePlan {
             if let Some(processor) = self.processors[index].as_mut() {
                 processor.set_param(param_id, value);
             }
-            return;
+        } else {
+            for processor in self.processors.iter_mut().flatten() {
+                if processor.set_nested_param(device_id, param_id, value) {
+                    break;
+                }
+            }
         }
-        for processor in self.processors.iter_mut().flatten() {
-            if processor.set_nested_param(device_id, param_id, value) {
-                break;
+        for monitor in self.low_monitors.values_mut() {
+            let mut updated_root = false;
+            for (root_id, processor) in &mut monitor.roots {
+                if *root_id == device_id {
+                    processor.set_param(param_id, value);
+                    updated_root = true;
+                }
+            }
+            if !updated_root {
+                for (_, processor) in &mut monitor.roots {
+                    if processor.set_nested_param(device_id, param_id, value) {
+                        break;
+                    }
+                }
             }
         }
     }

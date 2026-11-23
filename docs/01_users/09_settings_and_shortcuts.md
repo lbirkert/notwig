@@ -11,20 +11,26 @@ The Audio page selects the output system:
 - **Device**: the output device for the selected driver, annotated with its
   input and output channel counts (for example `16-in, 16-out`). **System Out**
   follows the operating system's default output device, so it keeps working when
-  the default changes. On first launch, the default driver and **System Out** are
-  selected automatically.
+  the default changes. When that output device also exposes inputs, System Out
+  uses it for recording as well so input and output stay on one clock domain.
+  On first launch, the default driver and **System Out** are selected
+  automatically.
 - **Sample rate**: automatic or a rate reported by the device.
-- **Enable low latency monitoring**: enables the separate low-latency monitor
-  path and makes the Low Latency track monitoring mode available.
-- **Device Block Size**: the output device callback block. With low latency
-  monitoring enabled it can range from 16 samples up to the high latency buffer
-  size. With low latency monitoring disabled it is the single project/device
-  block and is capped at 2048 samples.
+- **Render the project in a higher block size than monitoring**: enables the
+  separate low-latency monitor path, the render-ahead worker, and the small
+  device callback buffer.
+- **Device Block Size**: the output device callback block. With higher-block
+  project rendering enabled it can range from 16 samples up to the High latency
+  buffer size. With it disabled, it is the single project/device block and is
+  capped at 2048 samples.
 - **High latency buffer**: the large project render block, always 16 to 8192
-  samples in steps of 16. This control is disabled when low latency monitoring
-  is off.
+  samples in steps of 16. This control is disabled when higher-block project
+  rendering is off.
 - **Apply** opens the selected device and rebuilds the engine.
 - **Revert** restores the last applied values.
+
+Even when higher-block project rendering is off, the Low Latency monitoring
+mode remains selectable; it behaves like **Enabled**.
 
 The page shows both buffer sizes in samples and their resulting latency in
 milliseconds. Driver, device, both buffer sizes, named channels, and the master

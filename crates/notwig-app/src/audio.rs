@@ -26,7 +26,7 @@ use crate::recording::RecordingSession;
 pub const SYSTEM_OUT_DEVICE_ID: &str = "system-out";
 
 const SYSTEM_OUT_LABEL: &str = "System Out";
-const SYSTEM_OUT_WARNING: &str = "System Out follows the operating system's default output device.";
+const SYSTEM_OUT_WARNING: &str = "System Out follows the operating system's default output device. If that output has no inputs, recording uses the default input device on a separate clock.";
 const COMMON_SAMPLE_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 /// Default device callback block used for the low-latency output path. The
 /// project is rendered in larger chunks and streamed into this small device

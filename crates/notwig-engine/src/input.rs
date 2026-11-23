@@ -162,10 +162,10 @@ impl InputBus {
         };
         // Monitoring must not accumulate unbounded latency if input and output
         // clocks drift or one callback path stalls. Keep at most two requested
-        // blocks or 50 ms, whichever is larger.
+        // blocks or 5 ms, whichever is larger.
         let max_backlog = frames
             .saturating_mul(2)
-            .max(usize::try_from(self.sample_rate / 20).unwrap_or(2_400));
+            .max(usize::try_from(self.sample_rate / 200).unwrap_or(240));
         let queued = slot.monitor_left.len();
         if queued > max_backlog {
             for _ in 0..queued - max_backlog {
@@ -227,7 +227,7 @@ mod tests {
         }
         let mut output = vec![0.0_f32; 128 * 2];
         bus.drain_monitor_into(0, 128, &mut output);
-        assert_eq!(output[0], 2_600.0);
-        assert_eq!(output[1], 2_600.0);
+        assert_eq!(output[0], 4_744.0);
+        assert_eq!(output[1], 4_744.0);
     }
 }

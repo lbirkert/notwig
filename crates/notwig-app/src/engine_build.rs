@@ -267,7 +267,7 @@ impl EngineBuild {
             block_size = request.max_block_size,
             "Rebuilding engine"
         );
-        let started = std::time::Instant::now();
+        let started = crate::clock::Instant::now();
         let prepared = request.prepare();
         tracing::info!(
             generation = self.requests,

@@ -90,6 +90,31 @@ impl InputHub {
     ) -> Result<cpal::Stream, String> {
         let host = resolve_host(driver)?;
         let device = resolve_input_device(&host, device_name)?;
+        let resolved_name = device.description().map_or_else(
+            |_| "unknown input".to_string(),
+            |description| description.name().to_string(),
+        );
+        tracing::info!(
+            driver,
+            requested = device_name,
+            resolved = %resolved_name,
+            "opened audio input device"
+        );
+        if device_name == crate::audio::SYSTEM_OUT_DEVICE_ID
+            && let Some(output_name) = host.default_output_device().and_then(|output| {
+                output
+                    .description()
+                    .ok()
+                    .map(|description| description.name().to_string())
+            })
+            && output_name != resolved_name
+        {
+            tracing::warn!(
+                output = %output_name,
+                input = %resolved_name,
+                "System Out is recording from a different device than the default output; latency and clock drift may differ"
+            );
+        }
         let max_channel = targets
             .iter()
             .map(|(_, _, left, right)| usize::from((*left).max(right.unwrap_or(*left))))

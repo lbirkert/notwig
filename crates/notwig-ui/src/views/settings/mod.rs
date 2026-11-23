@@ -709,7 +709,7 @@ impl NotwigUi {
         let full_width = ui.max_rect().width().max(ui.available_width());
         ui.checkbox(
             &mut self.audio_draft.low_latency_monitoring,
-            "Enable low latency monitoring",
+            "Render the project in a higher block size than monitoring",
         );
         self.audio_draft.block_size = self
             .audio_draft
