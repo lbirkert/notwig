@@ -1,6 +1,5 @@
 use crate::clock::Instant;
 use std::collections::BTreeMap;
-#[cfg(target_arch = "wasm32")]
 use std::panic::{AssertUnwindSafe, catch_unwind};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -181,7 +180,7 @@ pub struct AudioService {
     pub snapshot: Arc<Mutex<AudioSnapshot>>,
     pub settings: AudioSettings,
     #[cfg(not(target_arch = "wasm32"))]
-    _render: RenderPipeline,
+    _render: Option<RenderPipeline>,
 }
 
 pub fn settings_view(
@@ -297,7 +296,10 @@ impl AudioService {
         engine.attach_input_bus(input_hub.bus());
 
         #[cfg(not(target_arch = "wasm32"))]
-        {
+        let use_worker = settings.low_latency_monitoring && device_block < project_frames as u32;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if use_worker {
             let device_frames = usize::try_from(device_block).unwrap_or(1);
             let pipeline = RenderPipeline::start(
                 engine,
@@ -359,12 +361,66 @@ impl AudioService {
             if let Ok(mut snapshot) = snapshot.lock() {
                 snapshot.running = true;
             }
+            return Ok(Self {
+                _stream: stream,
+                input_hub,
+                snapshot,
+                settings: settings.clone(),
+                _render: Some(pipeline),
+            });
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let stream = match sample_format {
+                SampleFormat::F32 => build::<f32>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    0,
+                ),
+                SampleFormat::I16 => build::<i16>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    0,
+                ),
+                SampleFormat::U16 => build::<u16>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    0,
+                ),
+                SampleFormat::I32 => build::<i32>(
+                    &device,
+                    config,
+                    engine,
+                    Arc::clone(&snapshot),
+                    output_route,
+                    project_frames,
+                    0,
+                ),
+                other => Err(format!("unsupported sample format {other}")),
+            }?;
+            stream.play().map_err(|err| format!("start audio: {err}"))?;
+            if let Ok(mut snapshot) = snapshot.lock() {
+                snapshot.running = true;
+            }
             Ok(Self {
                 _stream: stream,
                 input_hub,
                 snapshot,
                 settings: settings.clone(),
-                _render: pipeline,
+                _render: None,
             })
         }
 
@@ -622,7 +678,7 @@ pub(crate) fn resolve_host(driver: &str) -> Result<cpal::Host, String> {
     cpal::host_from_id(id).map_err(|err| format!("audio driver: {err}"))
 }
 
-fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
+pub(crate) fn resolve_device(host: &cpal::Host, name: &str) -> Result<cpal::Device, String> {
     if name.is_empty() || name == SYSTEM_OUT_DEVICE_ID {
         return host
             .default_output_device()
@@ -820,7 +876,6 @@ where
         .map_err(|err| format!("build audio stream: {err}"))
 }
 
-#[cfg(target_arch = "wasm32")]
 fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
@@ -992,7 +1047,6 @@ where
         .map_err(|err| format!("build audio stream: {err}"))
 }
 
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn update_snapshot(
     snapshot: &Arc<Mutex<AudioSnapshot>>,
     engine: &Engine,

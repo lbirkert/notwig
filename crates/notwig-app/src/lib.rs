@@ -14,6 +14,8 @@ mod extensions;
 pub mod gui;
 pub mod history;
 pub mod logging;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod loopback;
 mod plugins;
 mod recording;
 mod shortcuts;

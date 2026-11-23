@@ -125,6 +125,24 @@ cargo run -p notwig-app -- demo
 cargo run -p notwig-app -- info path/to/project.notwig
 ```
 
+### Loopback latency measurement
+
+The native CLI can measure the round trip from the default output to the
+selected input by playing periodic clicks and detecting them in the recorded
+microphone signal:
+
+```sh
+cargo run -p notwig-app -- loopback
+cargo run -p notwig-app -- loopback --duration 8 --interval-ms 500 --out loopback.wav
+cargo run -p notwig-app -- loopback --driver CoreAudio --device "Aggregate Device" --input-device "Aggregate Device"
+```
+
+The report shows every detected click latency, the mean/min/max and spread, the
+sample-rate offset, and a linear drift estimate in milliseconds per second. A
+stable loopback should have a near-constant latency. A nonzero drift indicates
+that input and output are running on different clocks. `--out` keeps the captured
+microphone recording for waveform inspection.
+
 ## What is not implemented
 
 MIDI recording, loop recording, punch in and out, count-in, take lanes, and

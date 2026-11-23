@@ -114,6 +114,7 @@ fn run(args: &[String]) -> Result<(), AppError> {
                 .ok_or_else(|| AppError::Usage("info <bundle.notwig>".into()))?;
             print_info(Path::new(bundle))
         }
+        "loopback" => run_loopback(&args[1..]),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -130,6 +131,98 @@ fn print_help() {
     println!("  notwig demo [dir]");
     println!("  notwig render <bundle.notwig> <out.wav> [--start beats] [--end beats]");
     println!("  notwig info <bundle.notwig>");
+    println!("  notwig loopback [--driver NAME] [--device NAME] [--input-device NAME]");
+    println!(
+        "                   [--rate HZ] [--duration SECONDS] [--interval-ms MS] [--out input.wav]"
+    );
+}
+
+fn run_loopback(args: &[String]) -> Result<(), AppError> {
+    let saved = notwig_app::audio_config::load();
+    let mut options = notwig_app::loopback::LoopbackOptions {
+        driver: saved.driver,
+        device: saved.device,
+        input_device: None,
+        sample_rate: saved.sample_rate.unwrap_or(48_000),
+        duration_ms: 6_000,
+        interval_ms: 500,
+        output: None,
+    };
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--driver" => {
+                options.driver.clone_from(
+                    args.get(index + 1)
+                        .ok_or_else(|| AppError::Usage("--driver needs a value".into()))?,
+                );
+                index += 2;
+            }
+            "--device" => {
+                options.device.clone_from(
+                    args.get(index + 1)
+                        .ok_or_else(|| AppError::Usage("--device needs a value".into()))?,
+                );
+                index += 2;
+            }
+            "--input-device" => {
+                options.input_device = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| AppError::Usage("--input-device needs a value".into()))?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--rate" => {
+                options.sample_rate = parse_u32(args.get(index + 1))?;
+                index += 2;
+            }
+            "--duration" => {
+                let seconds = parse_f64(args.get(index + 1))?;
+                options.duration_ms = (seconds.max(0.5) * 1000.0).round() as u64;
+                index += 2;
+            }
+            "--interval-ms" => {
+                options.interval_ms = parse_u64(args.get(index + 1))?.clamp(100, 10_000);
+                index += 2;
+            }
+            "--out" => {
+                options.output =
+                    Some(PathBuf::from(args.get(index + 1).ok_or_else(|| {
+                        AppError::Usage("--out needs a path".into())
+                    })?));
+                index += 2;
+            }
+            other => {
+                return Err(AppError::Argument(format!(
+                    "unknown loopback option '{other}'"
+                )));
+            }
+        }
+    }
+    let report = notwig_app::loopback::run(&options).map_err(AppError::Argument)?;
+    println!("{}", report.summary());
+    for (index, latency) in report.latencies_ms.iter().enumerate() {
+        println!("click {}: {:.3} ms", index + 1, latency);
+    }
+    if let Some(path) = &options.output {
+        println!("recorded input: {}", path.display());
+    }
+    Ok(())
+}
+
+fn parse_u32(value: Option<&String>) -> Result<u32, AppError> {
+    value
+        .ok_or_else(|| AppError::Usage("expected an integer".into()))?
+        .parse::<u32>()
+        .map_err(|error| AppError::Argument(error.to_string()))
+}
+
+fn parse_u64(value: Option<&String>) -> Result<u64, AppError> {
+    value
+        .ok_or_else(|| AppError::Usage("expected an integer".into()))?
+        .parse::<u64>()
+        .map_err(|error| AppError::Argument(error.to_string()))
 }
 
 fn parse_f64(value: Option<&String>) -> Result<f64, AppError> {

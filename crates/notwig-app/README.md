@@ -62,6 +62,8 @@ domain or DSP logic belongs in lower crates, not here.
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `engine_build.rs` | Async engine build lifecycle |
 | `audio.rs` | CPAL stream, options, snapshot, DSP timing |
+| `audio_worker.rs` | Render-ahead project/monitor worker and ring handoff |
+| `loopback.rs` | Native loopback latency and clock-drift measurement |
 | `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |
 | `audio_input/mod.rs` | Shared input requests and platform input-hub selection |
 | `audio_input/native.rs` | CPAL input streams and hardware input enumeration |
