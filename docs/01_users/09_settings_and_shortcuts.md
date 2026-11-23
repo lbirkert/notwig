@@ -64,8 +64,9 @@ The browser build always uses the in-process callback path and has no render
 worker or low ring.
 
 On the browser build the driver list includes **Web Audio**. It plays through
-the browser's default output. Enabling audio also asks for microphone
-permission so the input picker can show the browser's available input devices.
+the browser's default output. Enabling audio does not request microphone access;
+permission is requested only when an armed track first opens its input. The
+input picker shows generic microphone entries until permission is granted.
 
 All audio settings are applied through the apply action. Changing the device
 while a project is open can interrupt playback.
@@ -116,6 +117,7 @@ command catalog and are not rebindable.
 | Application | Save As | Cmd+Shift+S |
 | Transport | Play / stop | Space |
 | Transport | Stop | Shift+Space |
+| Transport | Record | Cmd+R |
 | Transport | Loop time or clip selection / toggle loop | Cmd+L |
 | Edit | Undo | Cmd+Z |
 | Edit | Redo | Cmd+Shift+Z |
