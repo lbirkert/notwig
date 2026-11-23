@@ -87,10 +87,12 @@ parameters, and refreshes the playback schedule without rebuilding the plan.
 
 ### Audio output
 
-`notwig-app::audio::AudioService` owns the CPAL output stream and the
-audio-thread `Engine`. The audio thread does not share a mutex with the UI.
-Instead the app publishes control data through the exchange described in
-[`Audio Engine`](02_audio_engine.md):
+`notwig-app::audio::AudioService` owns the CPAL output stream. In the common
+high-block configuration the `Engine` runs on a dedicated render worker and the
+callback consumes pre-rendered rings; when project and device blocks are equal,
+the engine runs directly in the device callback. In both cases the audio thread
+does not share a mutex with the UI. Instead the app publishes control data
+through the exchange described in [`Audio Engine`](02_audio_engine.md):
 
 - the app owns a `Box<EngineData>` and modifies it without locks;
 - `EngineControl::flush` swaps it into `Mutex<(Option<Box<EngineData>>, bool)>`;
@@ -104,10 +106,11 @@ arrive as a prebuilt `PreparedRuntime` produced by the engine build/plugin-loade
 thread. The audio thread only moves the prepared value into place; it never
 compiles a plan, instantiates a plugin, or allocates buffers.
 
-The callback then processes one block and updates playhead, meters, and DSP
-timing in an `AudioSnapshot`. The UI reads snapshots through a short mutex lock; the audio thread uses `try_lock` and never
-blocks the audio thread. If the control slot is contended, the audio thread
-skips that sync point and retries at the next interval.
+The engine renders in project blocks and updates playhead, meters, and DSP timing
+in an `AudioSnapshot`. The UI reads snapshots through a short mutex lock; the
+render thread uses `try_lock` and is never blocked by the UI. If the control slot
+is contended, the render thread skips that sync point and retries at the next
+interval.
 
 The engine chunks oversized device blocks to `max_block_size` so a large host
 block cannot violate device expectations. Stop triggers all-notes-off and
@@ -189,7 +192,11 @@ under `/app/` beside the mdBook documentation.
   It owns CPAL, the `Engine`, plan/runtime construction, native plugin DSP,
   extension devices, and native plugin editor windows. It receives serialized
   build/control messages and returns snapshots and editor events.
-- **Engine thread (inside the engine process)**: CPAL-owned real-time callback.
+- **Device callback thread (inside the engine process)**: CPAL-owned real-time
+  callback. It consumes high/low rings in high-block mode, or renders inline
+  when the project and device blocks match.
+- **Render worker (inside the engine process)**: owns the engine in high-block
+  mode and fills the project and low-latency monitor rings.
 - **Engine build thread (inside the engine process)**: runtime construction and
   plugin instantiation.
 - **Plugin scan process**: separate `notwig scan-plugins <cache>` process, with

@@ -63,8 +63,8 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
   rules.
 - [Code Structure](01_code_structure.md) — module map, extension recipes,
   structural hotspots.
-- [Audio Engine](02_audio_engine.md) — control exchange and prepared runtime
-  swaps.
+- [Audio Engine](02_audio_engine.md) — control exchange, prepared-runtime swaps,
+  monitoring latency, rings, and recording capture.
 - [Editing](03_editing.md) — shared editing algebra and adapter contract.
 - [Editing Testing](04_editing_testing.md) — test strategy for editing.
 - [Testing](05_testing.md) — coverage map and test gaps.

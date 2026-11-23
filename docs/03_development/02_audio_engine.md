@@ -1,10 +1,26 @@
-# Audio engine control exchange
+# Audio engine
 
 Status: implemented.
+
+The engine spans the app/UI thread, loader threads, the render worker, and the
+device callback. This page covers the control exchange that connects them, the
+live monitoring and recording paths, and the latency consequences of each
+execution mode.
 
 Related: [`Architecture`](00_architecture.md),
 [`Code Structure`](01_code_structure.md), and the
 `crates/notwig-engine/README.md`.
+
+## Reading guide
+
+This page has three distinct concerns. Start with the part that matches your
+question instead of reading top to bottom.
+
+| If you need to... | Read |
+| --- | --- |
+| Understand how UI changes reach the audio thread | Sections 1–8 |
+| Understand live monitoring latency, rings, and recording alignment | Section 9 |
+| Find the tests guarding this behavior | Section 10 |
 
 ## 1. Principle
 
@@ -213,85 +229,275 @@ prepared-runtime publish and is applied at the next audio-thread sync point.
 11. The app only records a live playhead into the document on save; it does not
     publish it back as a seek while the engine owns playback.
 
-## 9. Input monitoring and recording capture
+## 9. Monitoring latency and recording capture
 
-Recording reuses the control exchange boundary. The app opens one input stream
-per selected device. The app is restricted to one device at a time; named mono
-or stereo inputs are aliases for that device and one or two independent
-channels. The track still stores a physical `AudioInputRef`, so renaming or
-removing a named input does not rewrite existing tracks. Each armed track gets a
-preallocated slot in `notwig-engine::InputBus`:
+This section follows one monitored sample from the input device to the speaker,
+then shows how the same capture path feeds recording. It separates three things
+that are easy to confuse:
 
-- the input callback selects the configured mono channel or independent left and
-  right channels and pushes interleaved samples into bounded monitoring and
-  recording queues;
-- each armed track's monitoring mode decides whether its queued monitor signal is
-  injected into the track chain, discarded, or rendered through a dedicated
-  low-latency chain instance;
-- the native input callback measures capture latency from CPAL's input
-  timestamps and publishes it through `InputBus`;
-- new takes are trimmed by the measured input plus output latency (with the
-  device block as a floor) instead of only one block;
-- monitor queues discard stale backlog beyond two output blocks or 5 ms, so
-  clock drift or a stalled drain cannot turn into permanent multi-second
-  monitoring latency;
-- `System Out` input resolution prefers the default output device when that
-  device also exposes input channels, keeping input and output on one clock
-  domain;
-- the audio thread drains the monitoring queue into the armed track's input
-  buffer before the track's device chain runs, so monitoring follows devices,
-  mixer, pan, mute/solo, and routing;
-- a writer thread drains recording queues into a temporary take without doing
-  file I/O in either audio callback;
-- routing tables are published through `EngineControlUpdate.input_routes` and
-  swapped without allocating on the audio thread;
-- queue overflow marks the take invalid instead of silently truncating it.
+1. device and driver latency, which Notwig cannot remove;
+2. callback block buffering, which is the "two blocks" rule of thumb;
+3. Notwig's worker and ring path, which adds latency only in specific
+   configurations.
 
-Native recording runs in the engine process. The UI process sends input
-configuration, start, and stop requests over IPC. The engine process forwards
-captured chunks to the UI process while recording so the app can grow the live
-clip and waveform; the final chunk and stop reply finish the take. Browser recording keeps the input hub and
-engine in the same process and drains capture queues from the UI event loop.
-The browser has no CPAL input backend, so `audio_input::web` opens a
-`getUserMedia` microphone stream, routes it through a `ScriptProcessorNode`, and
-pushes the same interleaved samples into `InputBus`. Named output channels are
-applied when the output stream is built by mapping the stereo master to the
-selected physical channel pair.
+### 9.1 Vocabulary
 
-Finalization writes a float WAV asset, builds its waveform, registers the asset,
-clears the destination range, and creates the recorded clip in one batch.
+| Term | Meaning |
+| --- | --- |
+| Device block `B` | Frames requested from the output device per callback. Set by **Device Block Size**. |
+| High block `H` | Project render chunk. Set by **High latency buffer**. |
+| Input block | Frames delivered by one input callback. It follows the device block. |
+| Output block | Frames written by one output callback. It follows the device block. |
+| High ring | Worker-to-callback queue for project audio and high-latency monitoring. |
+| Low ring | Worker-to-callback queue for **Low Latency** track monitoring. |
+| InputBus | Preallocated queues between the input callback, the engine, and the recorder. |
 
-### High-latency project and low-latency monitoring
+All block values are frames. Convert to time with:
 
-When low latency monitoring is enabled, the output device stream runs at the
-configured Device Block Size (default 16 frames). The project is still rendered
-in larger High latency buffer chunks. Disabling the setting makes the Device
-Block Size the single device/project block and treats Low Latency track modes as
-Enabled.
+```text
+milliseconds = frames / sample_rate * 1000
+```
 
-Native builds move the engine and project rendering to a dedicated
-`notwig-project-render` worker thread. It fills a preallocated high ring with
-high-latency project audio and a separate, much shorter low ring with the
-low-latency monitor path. The high project render is split into bounded steps
-(currently 64 frames) so the worker services the low ring between steps instead
-of waiting for a full project chunk. The low ring target is one render step or
-about 2 ms, whichever is larger. The device callback never touches the engine or
-plugins; it only mixes samples from the two rings into the device buffer.
+### 9.2 Why the software path is described as two blocks
 
-The high ring keeps one project block of headroom so the regular high-latency
-monitor path really is delayed by the project block size. Low-latency monitor
-tracks do not write into the project ring. They drain their input queues, run
-through a second set of their track's device-chain processors prepared at the
-project block size, apply track gain/pan/mute/solo, and are mixed from the low
-ring directly into the device slice. Their monitor path skips groups, sends, and
-the master chain. The second processor set is built during the structural
-rebuild triggered by changing a track's monitor mode, and continuous parameter
-updates are applied to both processor sets. The high-latency path skips monitor
-injection for these tracks while still rendering their clips through the normal
-project graph.
+A monitored input sample crosses two independent device buffers:
 
-The browser build keeps the in-process callback path because browsers cannot
-spawn the render worker thread used by native builds.
+```text
+time ──────────────────────────────────────────────────────────────►
+
+input device       [ capture block n ][ capture block n + 1 ]
+                              │
+                              │ input callback publishes block n
+                              ▼
+InputBus                      [ block n ]
+                              │
+                              │ next output callback drains block n
+                              ▼
+output device                  [ output block n ][ output block n + 1 ]
+                                                   │
+                                                   ▼
+                                                 speaker
+```
+
+There are two block-sized waits:
+
+- **Input block:** a sample is not available to software until its input callback
+  has filled and published the capture block. This can be almost one full block
+  for a sample captured just after the callback starts.
+- **Output block:** the output callback fills a block that the device consumes
+  over the next block period. The output buffer therefore contributes another
+  block to the practical callback-to-speaker delay.
+
+That is the source of the common estimate:
+
+```text
+software monitoring ≈ one input block + one output block ≈ 2B
+```
+
+It is an estimate, not a sample-exact promise. The input and output callbacks are
+separate streams, so their relative phase can add part of another block. The
+monitor queue is a bounded elastic buffer, not a third permanent latency stage.
+Driver safety offsets and converter latency are also outside this estimate.
+
+For a 16-frame device block:
+
+| Sample rate | One block | Two blocks |
+| --- | ---: | ---: |
+| 44.1 kHz | 0.363 ms | 0.726 ms |
+| 48 kHz | 0.333 ms | 0.667 ms |
+| 96 kHz | 0.167 ms | 0.333 ms |
+
+Those are buffer estimates only. Real microphone-to-speaker latency is usually a
+few milliseconds because it also includes the input and output hardware paths.
+CPAL and the driver may also choose a callback size other than the requested
+Device Block Size; the actual callback frame count is authoritative.
+
+### 9.3 Monitoring modes
+
+| Track mode | Audio path | Runs where | Notes |
+| --- | --- | --- | --- |
+| **Disabled** | Input is discarded | Input callback / monitor drain | No monitoring signal reaches the master. |
+| **Enabled** | Track devices, sends, groups, master | Project render path | With higher-block project rendering this follows the high project block. |
+| **Low Latency** | A second instance of only the track device chain | Low monitor path | Bypasses groups, sends, and master. Behaves like **Enabled** when higher-block project rendering is off. |
+
+**Enabled** monitoring is the full project path. If the project is one high
+block behind, monitoring is one high block behind too. **Low Latency** avoids that
+project delay, but it still has the input buffer, the monitor handoff, the output
+buffer, and any latency introduced by the duplicated track devices.
+
+### 9.4 Native execution paths
+
+The path depends on whether the project is rendered in a larger block than the
+device:
+
+| Higher-block rendering | Device block vs high block | Engine runs in | Low Latency monitoring | Low ring |
+| --- | --- | --- | --- | --- |
+| Off | Equal by definition | Output callback | Falls back to **Enabled** | No |
+| On | Device block smaller | `notwig-project-render` worker | Dedicated monitor chain | Yes |
+| On | Device block equal | Output callback | Dedicated monitor chain | No |
+| Browser | No native worker | Output callback | Dedicated chain when enabled | No |
+
+The worker path is selected by the condition in `crates/notwig-app/src/audio.rs`:
+
+```rust
+settings.low_latency_monitoring && device_block < project_frames
+```
+
+#### Inline path
+
+```text
+input callback ──► InputBus ──► output callback ──► device
+                                      │
+                                      ├─ project graph and Enabled monitoring
+                                      └─ Low Latency monitor chain
+```
+
+The output callback owns the engine. There are no rings and no worker handoff.
+All DSP, including the low monitor chain, runs inside the device callback.
+
+#### Worker path
+
+```text
+input callback ──► InputBus monitor queues
+                              │
+                              ▼
+                    notwig-project-render
+                    │                   │
+                    │ high project      │ low monitor chain
+                    │ steps             │ (duplicate track devices)
+                    ▼                   ▼
+                 high ring           low ring
+                    │                   │
+                    └────────┬──────────┘
+                             ▼
+                    output callback ──► device
+```
+
+The high ring is filled to the device block plus one high block. Project audio
+is therefore intentionally delayed by the high block, while Low Latency tracks
+bypass that queue. The worker owns the engine and plugin instances. The output
+callback never calls the engine. It only pops samples from the high and low
+rings, mixes them, and writes the device buffer. The high project render is split
+into bounded steps (currently 64 frames, or the device block when it is larger)
+so the worker can service the low ring between steps instead of disappearing for
+a full high block.
+
+### 9.5 What the low ring is and why it exists
+
+The low ring is a **worker-fed, preallocated queue** of interleaved stereo monitor
+audio. It uses a second instance of each Low Latency track's device chain,
+prepared during the structural rebuild that installs the monitor mode and kept in
+sync by ordinary parameter updates. In the worker path:
+
+1. the worker drains input from `InputBus`;
+2. it runs each Low Latency track's duplicate device chain at the device block
+   size;
+3. it applies track gain, pan, mute, and solo;
+4. it writes the resulting stereo frames into the low ring.
+
+The output callback consumes from that ring. The ring is not a processing stage;
+it is a handoff buffer between two threads with different deadlines.
+
+It is needed because the engine was moved to the worker so large project chunks
+and plugin work never run in the device callback. The callback must always return
+within its deadline, while the worker can be delayed by scheduling, a heavy
+project step, or another plugin. The ring absorbs that jitter. Without it, the
+callback would frequently run dry and produce dropouts.
+
+The cost is the ring's target depth. A ring only prevents underruns if it
+contains some audio before the callback asks for it. Today the target is:
+
+```text
+max(one high render step, sample_rate / 500)
+```
+
+At 48 kHz with a 16-frame device block that is roughly `max(64, 96)` frames, or
+about 2 ms. Those queued samples are added directly to microphone-to-speaker
+latency.
+
+Illustrative software-only budget at 48 kHz with a 16-frame device block:
+
+| Path | Input block | InputBus queue | Low ring | Output block | Software subtotal |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Higher-block off, inline | 0.33 ms | 0–0.33 ms | — | 0.33 ms | ~0.7–1.0 ms |
+| Higher-block on, Low Latency | 0.33 ms | ~0.33 ms | ~2.0 ms | 0.33 ms | ~3.0 ms |
+
+The table excludes driver safety offsets, converters, and any latency added by
+track devices. It explains why the same 16-frame device block can feel different
+in the two modes.
+
+The low ring exists only when the worker path is active and the track is in
+**Low Latency** mode. A 16-frame block with higher-block rendering off has no low
+ring. With higher-block rendering on, **Enabled** tracks use the high project
+ring and therefore inherit the high project block delay instead.
+
+### 9.6 Input capture and recording alignment
+
+Recording reuses the same capture boundary but has a different success criterion:
+the captured audio must line up with the project timeline when the take is
+finished, rather than be heard immediately.
+
+The app opens one input stream per selected device and restricts a session to one
+device. Named mono and stereo inputs are aliases for channels on that device. Each
+armed track receives one preallocated slot in `notwig-engine::InputBus`.
+
+```text
+input callback
+    │  timestamp capture
+    │  select mono/stereo channels
+    ▼
+monitor queue ──► live monitor path (bounded backlog)
+    │
+record queue ───► writer thread ──► temporary take ──► WAV asset and clip
+```
+
+Key behaviors:
+
+- **Latency measurement:** the native input callback derives capture-to-callback
+  latency from CPAL's input timestamps and publishes it through `InputBus`.
+  This is a measurement of the input callback path, not a delay added to live
+  monitoring.
+- **Recording trim:** new takes are trimmed by the measured input plus output
+  latency, with the device block as a floor and a one-second cap.
+- **Backlog control:** monitor queues drop stale samples beyond two requested
+  blocks or 5 ms. This bounds latency if clocks drift or one path stalls; dropped
+  monitor audio is preferable to permanently lagging monitoring.
+- **System Out:** input resolution prefers the default output device when it also
+  exposes inputs, keeping capture and playback on one clock domain. If the output
+  has no inputs, recording falls back to the default input device and logs the
+  separate-clock risk.
+- **Recording writer:** a writer thread drains the record queues into a
+  temporary take. Neither audio callback performs file I/O.
+- **Overflow:** record queue overflow marks the take invalid instead of silently
+  truncating it.
+- **Finalization:** the take is written as a float WAV asset, its waveform is
+  built, the destination range is cleared, and the recorded clip is created in
+  one batch.
+
+Native recording lives in the engine process; the UI process sends input
+configuration and start/stop requests over IPC. While recording, captured chunks
+are forwarded to the UI process so the live clip and waveform can grow. Browser
+recording keeps capture and rendering in one process and drains queues from the
+UI event loop. The browser has no CPAL input backend: `audio_input::web` uses
+`getUserMedia` and a `ScriptProcessorNode` to push the same interleaved samples
+into `InputBus`.
+
+### 9.7 Invariants
+
+1. In the worker path, the output callback never touches the engine, plugins, or
+   document state.
+2. Ring buffers are preallocated. Production and consumption are bounded and
+   never wait for each other.
+3. The low ring is a handoff buffer, not a processing stage. Increasing its
+   target lowers underrun risk but increases monitoring latency.
+4. Low Latency monitoring bypasses groups, sends, and the master chain; it is
+   not a full-project monitor.
+5. When higher-block project rendering is off, Low Latency behaves like Enabled
+   and uses neither the worker nor the low ring.
+6. Monitor backlog is bounded so a stalled path cannot accumulate permanent
+   latency.
+7. Recording alignment uses measured device timestamps; live monitoring uses the
+   real signal path and is not artificially delayed by that measurement.
 
 ## 10. Tests
 

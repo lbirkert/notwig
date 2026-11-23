@@ -39,6 +39,30 @@ selected device does not support the project rate, Notwig uses the device's
 default rate. If the saved driver or device is unavailable, Notwig falls back
 to an available option and reports the problem on the page.
 
+### Monitoring latency
+
+Live monitoring passes through an input buffer and an output buffer. With a
+device block of `B` frames, the software path is roughly:
+
+```text
+microphone -> input block B -> monitor path -> output block B -> speaker
+```
+
+So a 16-frame block adds about 32 frames of software buffering: roughly 0.67 ms
+at 48 kHz. Real microphone-to-speaker latency is higher because it also includes
+the audio interface, driver safety offsets, and converters.
+
+When **Render the project in a higher block size than monitoring** is enabled,
+tracks in **Low Latency** mode also use the render-ahead worker's low ring. That
+ring keeps about 2 ms of monitor audio queued to avoid dropouts, so Low Latency
+monitoring has roughly 2 ms more delay than the inline path. When higher-block
+rendering is on, tracks in **Enabled** mode instead follow the High latency
+buffer. When higher-block project rendering is off, there is no low ring and Low
+Latency behaves like **Enabled**.
+
+The browser build always uses the in-process callback path and has no render
+worker or low ring.
+
 On the browser build the driver list includes **Web Audio**. It plays through
 the browser's default output. Enabling audio also asks for microphone
 permission so the input picker can show the browser's available input devices.
