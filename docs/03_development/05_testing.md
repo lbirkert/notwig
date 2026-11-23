@@ -70,7 +70,7 @@ tables below summarize test groups. One row can cover several test functions.
 
 | Test | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| Document validation and template invariants | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-core/tests/domain_flow.rs`. |
+| Document validation and template invariants | ✅ Implemented | ⭐⭐⭐⭐⭐ | `domain_flow.rs` plus `apply_validation.rs`, which checks every successful command leaves a valid document and failed commands do not mutate input. |
 | Track hierarchy and recursive delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Clip overlap resolution | ✅ Implemented | ⭐⭐⭐⭐⭐ | `overlap_makes_space_and_preserves_both_fragments`. |
 | Split with crossing notes and ID remap | ✅ Implemented | ⭐⭐⭐⭐⭐ | Core and app tests cover note IDs. |
@@ -83,7 +83,9 @@ tables below summarize test groups. One row can cover several test functions.
 | Project JSON round-trip | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Edit algebra examples and property tests | ✅ Implemented | ⭐⭐⭐⭐⭐ | `edit_algebra.rs` has 14 example tests and 5 property tests. |
 | Bundle save and open | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
-| Autosave list and load | ✅ Implemented | ⭐⭐⭐⭐ | |
+| Autosave list and load | ✅ Implemented | ⭐⭐⭐⭐ | Numeric revision/timestamp ordering, atomic write, and corruption handling are covered. |
+| Recovery failure retention | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-app/tests/recovery.rs` covers failed recover/discard keeping the lock and snapshots, and plugin-state reload after recovery. |
+| Browser Save As staging | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-app/tests/web_save.rs` covers manifest-last ordering and failed-stage/failed-commit retention. |
 | WAV, AIFF, and MP3 decode and resample | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | FLAC and OGG decode and resample | 🧪 Partial | ⭐⭐⭐ | Probe and export round-trips are tested. Import-decode coverage is still missing. |
 | Audio probe and multi-format export | ✅ Implemented | ⭐⭐⭐⭐ | `probe.rs` covers header probing and duration for all formats; `export.rs` covers WAV/AIFF/FLAC/MP3/OGG writing, bit depth, dithering, and normalization. |
@@ -328,13 +330,13 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | EQ stability at extreme settings | 🧪 Partial | ⭐⭐⭐⭐ | Add gain, Q, and frequency sweeps at every supported rate. |
 | Chain dry/wet stability | 🧪 Partial | ⭐⭐⭐⭐ | Nested chain processing is covered. Dry/wet extremes are not. |
 | Loop boundary and tails | 🧪 Partial | ⭐⭐⭐⭐ | Loop wrap, start-after-loop behavior, and crossing are tested. Reverb tails and plugin reset are not. |
-| Tempo change with sample-locked audio | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-app/tests/transport.rs` verifies the range rescales and the engine plan uses the new tempo. |
+| Tempo change with sample-locked audio | ✅ Implemented | ⭐⭐⭐⭐⭐ | `transport.rs` covers plan updates; `notwig-core/tests/tempo_audio.rs` covers adjacent-clip overlap resolution and unsafe-overlap rejection. |
 | Audio events outside the clip container | ✅ Implemented | ⭐⭐⭐⭐⭐ | Core validation, engine clipping, and the audio editor gesture are covered. |
 | PDC across tracks and nested groups | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks. |
 | PDC with sends | ✅ Implemented | ⭐⭐⭐⭐⭐ | Send and direct paths stay phase-coherent in `pdc.rs`. |
 | Plugin latency reporting | ✅ Implemented | ⭐⭐⭐⭐⭐ | The vendored VST3/VST2/AU wrappers query latency; capability defaults and PDC plumbing are tested. |
 | Xrun detection and recovery | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| Audio callback allocation and lock checks | 🧪 Partial | ⭐⭐⭐⭐⭐ | The control slot uses `try_lock` and prepared swaps; scratch/output/event buffers are reused. Snapshot meter inserts and plugin callbacks still need allocator instrumentation. |
+| Audio callback allocation and lock checks | 🧪 Partial | ⭐⭐⭐⭐⭐ | The control slot uses `try_lock`; prepared swaps, meter publication, and CLAP/LV2 event-pointer scratch are reused. VST3 event buffers and external plugin code still need allocator instrumentation. |
 | Seek and stop reset behavior | 🧪 Partial | ⭐⭐⭐⭐ | Stop note-off is tested. Plugin and effect tails are not. |
 | Meter accuracy | 📋 Planned | ⭐⭐⭐⭐ | Peak, RMS, and hold behavior. |
 | Mono and multichannel asset handling | 🧪 Partial | ⭐⭐⭐ | Mono to stereo is tested. More than two channels is partial. |
@@ -368,7 +370,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | --- | --- | --- | --- |
 | Save and open round-trip | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Autosave list and load | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
-| Autosave interval and dirty gating | 📋 Planned | ⭐⭐⭐⭐ | |
+| Autosave interval and dirty gating | 🧪 Partial | ⭐⭐⭐⭐ | Failure retention is tested; the 60-second cadence and dirty gating still need a clock seam. |
 | Crash recovery with `session.lock` | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-project/tests/bundle.rs` and `notwig-app/tests/recovery.rs` cover lock lifecycle, offer rules, recover, discard, and corrupt autosaves. |
 | Schema migration | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Missing asset load issues | 🧪 Partial | ⭐⭐⭐⭐ | Issues are reported. No test asserts the missing-asset path. |
@@ -384,7 +386,7 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 
 | Test | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| Audio callback has no heap allocation | 📋 Planned | ⭐⭐⭐⭐⭐ | |
+| Device process status handling | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/status.rs` covers overload sanitizing/fault reporting, silence clearing, and low-latency prepare failures. |
 | Audio callback has no blocking locks | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Bounded engine command queue | 🚫 Not Planned | ⭐⭐⭐⭐⭐ | No command queue by design; the app swaps prepared `EngineData`. |
 | Large project load and render | 📋 Planned | ⭐⭐⭐⭐ | |

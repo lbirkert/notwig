@@ -132,16 +132,17 @@ targets. Format enablement in `PluginFormat::enabled` is compiled-feature based.
 
 ## 7. Real-time constraints and gaps
 
-- `RackPluginInstance::process` builds event lists and adapter pointer vectors per
-  block, and hosted plugins may allocate internally. The engine graph is
-  allocation-free, but plugin processing is not guaranteed to be.
+- CLAP and LV2 reuse event/pointer scratch buffers; VST3 still allocates its
+  per-block event-list storage, and hosted plugins may allocate internally. The
+  engine graph is allocation-free, but plugin processing is not guaranteed to be.
 - Only stereo I/O is used. Sidechains, multi-bus layouts, MIDI channels other than
   0, and plugin-produced notes are not handled.
 - Load failures in `PluginDeviceFactory::create` become an absent processor rather
-  than an error. State-restore failures, parameter-set failures, and low-latency
-  monitor prepare failures are also ignored.
-- Plugin process errors become silence with an overloaded/silence status, not an
-  `RtEvent::Error`; the UI may not learn which plugin failed.
+  than an error. State-restore and parameter-set failures are also ignored.
+  Low-latency monitor prepare failures are now reported as `RtEvent::Error`.
+- Adapters zero output when a plugin reports a process error. The core status type
+  cannot distinguish `Error` from overload, so the engine reports a device fault
+  and sanitizes output without naming the plugin.
 - `RackPluginInstance` reports `supports_state: true` and `reports_latency: true`
   for every format, although LV2 state is unwired and CLAP/LV2 latency is `0`.
   Latency compensation therefore trusts a zero for those formats.

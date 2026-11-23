@@ -92,8 +92,8 @@ Autosave is native-only and runs only while dirty. It is limited to one attempt
 per 60 seconds, is skipped while an asynchronous audio import is pending, and
 writes `autosave/snapshot-<revision>-<unix-seconds>.json` with
 `write_json_atomic`. There is no pruning; snapshots accumulate until discard.
-Failures are ignored (`let _ = autosave(...)`) and the timestamp is reset anyway,
-so a failed attempt delays the next by a minute.
+A failed write is logged and surfaced in the workspace status, and the autosave
+deadline is not advanced, so the next frame can retry once the interval elapses.
 
 `list_autosaves` keeps `.json` files and sorts by the parsed revision and
 timestamp, then by path for ties; the unpadded names are never compared as text.
@@ -118,8 +118,10 @@ startup / open bundle
 ```
 
 `recover_latest_autosave` replaces `doc`, marks it dirty, resets undo history,
-clears the playhead anchor, reloads assets, and requests an engine rebuild. It
-does not re-read `state/` blobs, restore selection, or delete snapshots.
+clears the playhead anchor, reloads assets and `state/` plugin blobs, and
+requests an engine rebuild. It does not restore selection or delete snapshots.
+Recover and discard failures leave the lock and snapshots in place so the
+candidate stays recoverable.
 
 ## Browser byte I/O differences
 
@@ -132,8 +134,7 @@ recursively and encodes an uncompressed ZIP.
 
 ## Known gaps
 
-- Autosave failures still reset the cadence timer; snapshots are never pruned or removed after recovery.
-- Recovery does not reload plugin state blobs or other derived state.
+- Snapshots are never pruned or removed after recovery.
 - Save writes state and assets before `project.json` without rollback and leaves obsolete files behind.
 - Hashes are never verified; browser saves and recordings are ID-named with no hash, and browser loading omits `state/` blobs.
-- Browser Save As deletes the target directory before rewriting it.
+- Browser Save As stages a complete bundle before committing, but does not remove stale files left by an older revision.

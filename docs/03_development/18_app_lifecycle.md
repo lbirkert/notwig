@@ -87,7 +87,8 @@ state.
   active render job, and these threads are not joined.
 - Native file dialogs run on a detached thread and cannot be cancelled when the
   window closes.
-- Autosave ignores write errors and is skipped while audio imports are pending.
+- Autosave failures are logged and surfaced; the deadline is not advanced. It is
+  still skipped while audio imports are pending.
 
 ## 6. Shutdown and session end
 

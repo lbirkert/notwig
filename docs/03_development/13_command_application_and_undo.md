@@ -113,12 +113,13 @@ History is in-memory only and is reset when an autosave is recovered.
 
 ## 7. Validation responsibilities
 
-Validation is layered but not centralized. `ProjectDoc::validate` checks
-document-wide invariants: one Master, chain/device references, lane/clip
-membership, and routing. Entity validators check clips, MIDI data, tracks, and
-transport. Each apply arm performs ad-hoc checks before mutation; some end with
-`doc.validate()`, some validate only the touched entity, and some treat a
-missing send or device as a no-op (`RemoveSend`, `RemoveDevice`). Lowering validates the
+Validation is layered with a final document check. `ProjectDoc::validate`
+checks document-wide invariants: one Master, chain/device references,
+lane/clip membership, and routing. Entity validators check clips, MIDI data,
+tracks, and transport inside individual apply arms, and `apply` validates the
+finished document before allocating a revision. A command that would leave an
+invalid document fails atomically. Missing sends/devices remain command-specific
+no-ops where documented (`RemoveSend`, `RemoveDevice`). Lowering validates the
 edit model before emitting commands but does not pre-validate command legality.
 
 ## 8. Known gaps
@@ -128,8 +129,8 @@ edit model before emitting commands but does not pre-validate command legality.
   `clear_range` creates a `ClipId` and crossing `NoteId`s, and audio range/slice
   rewriting creates `SliceId`s. These use `ids::new_uuid`, which is random UUID
   v4 under the default `rand` feature.
-- There is no single validation pass, and behaviour for stale or missing IDs is
-  inconsistent between arms.
+- Behaviour for stale or missing IDs is still inconsistent between arms even
+  though the final document is validated.
 - `StateDelta` and `AffectedSet` are unused by the app, and `affected` is
   incomplete.
 - A batch increments the revision once per command, not once per batch.

@@ -132,7 +132,7 @@ the plugin catalog is empty, leaving stock and WebAssembly extensions.
 ## Browser limitations
 
 - No autosave, `session.lock`, recovery modal, or multi-tab write protection.
-- No atomic write/rename; Save As deletes the target first, so a failed write can lose the previous copy.
+- No atomic write/rename. Save As stages the complete bundle in a hidden directory, commits the manifest last, and only then replaces the target; a failed staging step leaves the old project intact. Stale files from an older revision are not removed.
 - `read_bundle` reads only `project.json` and asset URIs, not `state/`; the wasm plugin-state loader is a no-op, so saved state blobs are not restored.
 - No project archive import; only download, audio import, and extension ZIP install are available.
 - Download ZIPs are uncompressed, so large projects produce large files.

@@ -98,7 +98,9 @@ holds an optional stage (the extension processor) and a serial child chain.
 - If the stage is missing, the children still run and the wet blend is skipped.
 
 The stock Chain keeps its separate `ChainProcessor`; extension containers do not
-change its behavior or performance.
+change its behavior or performance. `ChainProcessor::process` uses the dry
+buffer sized during `prepare`. Blocks larger than that capacity are processed in
+chunks without allocating; note events are delivered with the first chunk.
 
 ## 4. Benchmark methodology
 
