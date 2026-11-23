@@ -131,20 +131,21 @@ tracked in [`Roadmap`](06_roadmap.md).
 ## 7. Where it lives
 
 - Algebra and arranger model: `crates/notwig-core/src/edit/mod.rs`,
-  `crates/notwig-core/src/edit/algebra.rs`,
-  `crates/notwig-core/src/edit/arranger.rs`.
+  `crates/notwig-core/src/edit/algebra/` (materialize, delete, paste, move,
+  trim), and `crates/notwig-core/src/edit/arranger.rs`.
 - Arranger lowering and workspace operations:
   `crates/notwig-app/src/edit_lowering.rs`,
-  `crates/notwig-app/src/workspace/mod.rs`.
+  `crates/notwig-app/src/workspace/clips.rs`.
 - Arranger gestures: `crates/notwig-ui/src/views/arranger/clip.rs`,
-  `crates/notwig-ui/src/views/arranger/selection.rs`,
-  `crates/notwig-ui/src/views/arranger/track.rs`.
+  `crates/notwig-ui/src/views/arranger/selection.rs`, and
+  `crates/notwig-ui/src/views/arranger/track/` (header, lane, drop, menu).
 - Audio editor: `crates/notwig-ui/src/views/audio_editor/actions.rs`,
-  `panel.rs`, `model.rs`, and `geometry.rs`.
+  `panel/` (range selection, slice paint, slice gestures), `model.rs`, and
+  `geometry.rs`.
 - MIDI editor: `crates/notwig-ui/src/views/midi_editor/actions.rs`,
-  `panel.rs`, and `model.rs`.
-- Shortcut dispatch: `crates/notwig-ui/src/views/shell.rs` and
-  `crates/notwig-ui/src/commands.rs`.
+  `panel/` (paint, note drag, velocity lane, audition), and `model.rs`.
+- Shortcut dispatch: `crates/notwig-ui/src/views/shell/` and
+  `crates/notwig-ui/src/commands/`.
 - Coverage: `crates/notwig-core/tests/edit_algebra.rs`,
   `crates/notwig-ui/tests/audio_editor.rs`,
   `crates/notwig-ui/tests/midi_editor.rs`,

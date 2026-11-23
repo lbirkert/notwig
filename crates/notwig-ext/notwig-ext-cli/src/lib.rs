@@ -1,3 +1,11 @@
+//! Command-line build and scaffolding support for Notwig extensions.
+//!
+//! The `notwig-ext-cli` binary calls [`run`], which parses subcommands to
+//! scaffold a project or compile per-target entrypoint binaries and package
+//! them into ZIPs. The [`build`], [`scaffold`], and [`target`] modules are also
+//! usable as a library by tooling that needs the same target table, build, and
+//! packaging behavior.
+
 #![forbid(unsafe_code)]
 
 pub mod build;
@@ -81,6 +89,10 @@ enum Command {
     Targets,
 }
 
+/// Parses process arguments and runs the selected CLI subcommand.
+///
+/// With no subcommand this prints help and succeeds. Invalid argument
+/// combinations are reported as [`Error::Message`].
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {

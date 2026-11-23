@@ -43,24 +43,23 @@ extension devices inside their guest egui context. Disable default features
 |---|---|
 | `components/` | Extension-facing egui controls, meters, and formatters |
 | `palette.rs` | Shared color constants used by the app and guest components |
-| `views/shell.rs` | App shell, app bar, transport/status bars, layout, shortcuts |
-| `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
+| `views/shell/` | App shell, app bar, transport/status bars, layout, shortcuts, overlays, help, drag/drop |
+| `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split by header/lane/drop/menu |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/info/` | Left info panel sections |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
-| `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter views, EQ, renderer dispatch, guest egui compositor |
-| `views/settings/mod.rs` | Settings window and category navigation |
-| `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
-| `commands.rs` | Shortcut command catalog, chords, bindings, and config |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation; panel split into range selection, slice paint, slice gestures |
+| `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
+| `views/device_editor/` | Device panel, browser, parameters, EQ, dispatch; card/stock body/knob/bracket/plugin-kind split |
+| `views/settings/` | Settings window/navigation plus audio, audio channels, extensions, and shortcuts |
+| `commands/` | Shortcut command catalog, chords, bindings, and config |
 | `views/render.rs` | Render mixdown window |
 | `widgets/` | App-only knobs, faders, draggable numbers, form helpers, brand assets, icons, timeline |
-| `widgets/timeline/` | Beat strip, clip visuals, grid, selection, drop preview, interaction math |
+| `widgets/timeline/` | Beat strip (`beat_strip/` interaction + paint), clip visuals, grid, selection, drop preview, interaction math |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, and sample-level drawing |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
-| `state.rs`, `intent.rs`, `runtime.rs` | View state, intents, runtime projection |
+| `state/`, `intent.rs`, `runtime.rs` | View state (selection/viewport/notifications), intents, runtime projection |
 
 ## Tests
 

@@ -52,6 +52,7 @@ impl ActivePlan {
         sample_position: u64,
         playing: bool,
     ) {
+        self.runtime_faults.clear();
         output[..frames * 2].fill(0.0);
         if !self.low_latency_monitoring {
             return;
@@ -86,11 +87,27 @@ impl ActivePlan {
                 input_bus.discard_monitor(*slot, frames);
                 continue;
             };
+            let mut faults = [None; super::MAX_RUNTIME_FAULTS];
+            let mut fault_count = 0usize;
             let buffer = &mut monitor.buffer[..frames * 2];
             buffer.fill(0.0);
             input_bus.drain_monitor_into(*slot, frames, buffer);
-            for (_, processor) in &mut monitor.roots {
-                let _ = processor.process(&ctx, buffer, &[]);
+            for (device_id, processor) in &mut monitor.roots {
+                let status = processor.process(&ctx, buffer, &[]);
+                if status.produced_silence {
+                    buffer.fill(0.0);
+                }
+                if status.overloaded {
+                    for sample in buffer.iter_mut() {
+                        if !sample.is_finite() {
+                            *sample = 0.0;
+                        }
+                    }
+                    if fault_count < faults.len() {
+                        faults[fault_count] = Some(*device_id);
+                        fault_count += 1;
+                    }
+                }
             }
             for frame in buffer.chunks_exact_mut(2) {
                 frame[0] *= gains.0;
@@ -98,6 +115,13 @@ impl ActivePlan {
             }
             for (dst, sample) in output[..frames * 2].iter_mut().zip(buffer.iter()) {
                 *dst += *sample;
+            }
+            for device_id in faults[..fault_count].iter().flatten() {
+                if self.runtime_faults.len() < super::MAX_RUNTIME_FAULTS {
+                    self.runtime_faults.push(super::RuntimeFault {
+                        device_id: *device_id,
+                    });
+                }
             }
         }
     }

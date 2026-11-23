@@ -5,6 +5,8 @@ pub mod audio_config;
 mod audio_input;
 #[cfg(not(target_arch = "wasm32"))]
 mod audio_worker;
+#[doc(hidden)]
+pub mod bundle_write;
 pub mod clock;
 pub mod edit_lowering;
 mod engine_build;

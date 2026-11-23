@@ -5,6 +5,7 @@ use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, panel_frame};
 use notwig_ui::{knob, label, palette, section};
 use uuid::Uuid;
 
+/// Device type id for the stock gain device.
 pub const TYPE_ID: &str = "notwig.ext.devices.gain";
 
 const GAIN_UUID: u128 = 0x4547_5549_4741_494e_0000_0000_0000_0001;
@@ -12,11 +13,13 @@ const GAIN_UUID: u128 = 0x4547_5549_4741_494e_0000_0000_0000_0001;
 const MIN_GAIN_DB: f64 = -24.0;
 const MAX_GAIN_DB: f64 = 24.0;
 
+/// Returns the gain parameter id.
 #[must_use]
 pub fn gain_id() -> ParamId {
     ParamId::from_uuid(Uuid::from_u128(GAIN_UUID))
 }
 
+/// Stock gain (trim) device.
 #[derive(Debug, Clone)]
 pub struct GainDevice {
     gain_db: f64,
@@ -59,6 +62,7 @@ impl DeviceExtension for GainDevice {
             name: "Gain".into(),
             vendor: "Notwig".into(),
             ui: DeviceUiSpec::custom(format!("ext:{TYPE_ID}"), Some(320.0)),
+            container: None,
         }
     }
 

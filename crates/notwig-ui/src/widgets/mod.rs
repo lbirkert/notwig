@@ -19,6 +19,14 @@ pub use snap::{
 use egui::{Color32, Sense, Vec2};
 use notwig_core::TimeMus;
 
+/// Converts a beat position to [`TimeMus`] on the shared micro-beat grid.
+///
+/// Quantizing every gesture and projection to `1e-6` beats keeps repeated
+/// conversions on the same rational grid instead of accumulating denominators.
+pub(crate) fn beats_to_time(beats: f64) -> TimeMus {
+    TimeMus::new((beats * 1_000_000.0).round() as i64, 1_000_000)
+}
+
 pub fn snap_label(step: TimeMus, bar_length: TimeMus) -> String {
     let beats = step.as_f64();
     let bar = bar_length.as_f64().max(f64::EPSILON);
@@ -49,7 +57,7 @@ pub fn snap_16(time: TimeMus, bypass: bool) -> TimeMus {
     }
     let beats = time.as_f64();
     let snapped = (beats * GRID).round() / GRID;
-    TimeMus::new((snapped * 1_000_000.0).round() as i64, 1_000_000)
+    beats_to_time(snapped)
 }
 
 pub fn format_beats(time: TimeMus, bar_length: TimeMus, beat_length: TimeMus) -> String {

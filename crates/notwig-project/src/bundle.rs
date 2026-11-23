@@ -240,8 +240,38 @@ pub fn list_autosaves(bundle: &Path) -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
         .collect();
-    paths.sort();
+    // Snapshot names embed an unpadded revision and timestamp. Sort by the
+    // parsed numbers, not by the path text, so revision 10 outranks revision 9
+    // and the latest snapshot is the last element.
+    paths.sort_by(|a, b| {
+        autosave_order_key(a)
+            .cmp(&autosave_order_key(b))
+            .then_with(|| a.cmp(b))
+    });
     paths
+}
+
+fn autosave_order_key(path: &Path) -> (u64, i64) {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let Some(stem) = name
+        .strip_prefix("snapshot-")
+        .and_then(|stem| stem.strip_suffix(".json"))
+    else {
+        return (0, i64::MIN);
+    };
+    let Some((revision, timestamp)) = stem.rsplit_once('-') else {
+        return (0, i64::MIN);
+    };
+    let Ok(revision) = revision.parse::<u64>() else {
+        return (0, i64::MIN);
+    };
+    let Ok(timestamp) = timestamp.parse::<i64>() else {
+        return (0, i64::MIN);
+    };
+    (revision, timestamp)
 }
 
 pub fn load_latest_autosave(bundle: &Path) -> Result<Option<ProjectDoc>, ProjectError> {

@@ -35,19 +35,29 @@ pub const MAX_PANEL_TEXT_BYTES: usize = 64 * 1024;
 /// Maximum number of host actions in one frame.
 pub const MAX_PANEL_ACTIONS: usize = 256;
 
+/// Keyboard modifier state included with panel input events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PanelModifiers {
+    /// Alt/Option held.
     pub alt: bool,
+    /// Control held.
     pub ctrl: bool,
+    /// Shift held.
     pub shift: bool,
+    /// macOS Command held.
     pub mac_cmd: bool,
+    /// Platform command modifier held.
     pub command: bool,
 }
 
+/// Pointer button used by a [`PanelEvent::PointerButton`] event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PanelPointerButton {
+    /// Primary button.
     Primary,
+    /// Secondary button.
     Secondary,
+    /// Middle button.
     Middle,
 }
 
@@ -65,6 +75,11 @@ pub struct PanelInput {
 }
 
 impl PanelInput {
+    /// Validates geometry, scale, texture limits, and event counts.
+    ///
+    /// Rejects non-finite or non-positive size/scale values, a zero or oversized
+    /// texture side, more than [`MAX_PANEL_EVENTS`] events, and malformed
+    /// individual events.
     pub fn validate(&self) -> Result<(), PanelFrameError> {
         if !self.width.is_finite()
             || !self.height.is_finite()
@@ -94,32 +109,54 @@ impl PanelInput {
     }
 }
 
+/// One serializable input event delivered to a guest panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PanelEvent {
+    /// Pointer moved to a panel-space position.
     PointerMoved {
+        /// Position in points.
         pos: [f32; 2],
     },
+    /// A pointer button changed state.
     PointerButton {
+        /// Position in points.
         pos: [f32; 2],
+        /// Button that changed.
         button: PanelPointerButton,
+        /// Whether the button is now pressed.
         pressed: bool,
+        /// Modifier state at the event.
         modifiers: PanelModifiers,
     },
+    /// The pointer left the panel.
     PointerGone,
+    /// Mouse-wheel or trackpad scroll.
     MouseWheel {
+        /// Scroll delta in points.
         delta: [f32; 2],
+        /// Modifier state at the event.
         modifiers: PanelModifiers,
     },
+    /// A key changed state.
     Key {
+        /// egui key name; at most 64 bytes.
         key: String,
+        /// Whether the key is now pressed.
         pressed: bool,
+        /// Whether this is an auto-repeat.
         repeat: bool,
+        /// Modifier state at the event.
         modifiers: PanelModifiers,
     },
+    /// Text input produced by the platform.
     Text(String),
+    /// Copy was requested.
     Copy,
+    /// Cut was requested.
     Cut,
+    /// Clipboard text was pasted.
     Paste(String),
+    /// The window focus state changed.
     WindowFocused(bool),
 }
 
@@ -161,23 +198,35 @@ pub struct PanelPrimitive {
     pub mesh: PanelMesh,
 }
 
+/// One tessellated mesh.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PanelMesh {
+    /// Triangle indices; length must be a multiple of three and each index must
+    /// reference a vertex in this mesh.
     pub indices: Vec<u32>,
+    /// Mesh vertices.
     pub vertices: Vec<PanelVertex>,
+    /// Guest-managed egui texture id that the host remaps.
     pub texture_id: u64,
 }
 
+/// One mesh vertex in panel space.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelVertex {
+    /// Position in points; must be finite.
     pub pos: [f32; 2],
+    /// Normalized texture coordinates; must be finite.
     pub uv: [f32; 2],
+    /// Premultiplied sRGBA color.
     pub color: [u8; 4],
 }
 
+/// Texture filtering and wrapping requested by the guest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PanelTextureOptions {
+    /// Use linear filtering instead of nearest.
     pub linear: bool,
+    /// Repeat addressing instead of clamping.
     pub repeat: bool,
 }
 
@@ -190,6 +239,7 @@ pub struct PanelImage {
 }
 
 impl PanelImage {
+    /// Returns `width * height`, or `usize::MAX` on overflow.
     #[must_use]
     pub fn texels(&self) -> usize {
         usize::try_from(self.width)
@@ -203,11 +253,16 @@ impl PanelImage {
     }
 }
 
+/// A full or partial texture upload for one guest texture id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanelTextureDelta {
+    /// Guest-managed egui texture id.
     pub id: u64,
+    /// Patch origin for a partial upload, or `None` for a full upload.
     pub pos: Option<[u32; 2]>,
+    /// Filtering and wrapping options.
     pub options: PanelTextureOptions,
+    /// Pixel data; `pixels.len()` must equal `width * height`.
     pub image: PanelImage,
 }
 
@@ -226,6 +281,12 @@ pub struct PanelFrame {
 }
 
 impl PanelFrame {
+    /// Validates all frame counts, bounds, geometry, textures, and actions.
+    ///
+    /// Enforces the `MAX_PANEL_*` limits, finite vertex and clip coordinates,
+    /// triangle index ranges, texture dimensions and pixel counts, the total
+    /// texel budget, and finite parameter actions. The host rejects frames that
+    /// fail validation.
     pub fn validate(&self) -> Result<(), PanelFrameError> {
         if self.primitives.len() > MAX_PANEL_MESHES {
             return Err(PanelFrameError::TooManyMeshes {
@@ -372,30 +433,45 @@ fn finite_pair(value: [f32; 2]) -> bool {
     value.into_iter().all(f32::is_finite)
 }
 
+/// Validation failure for panel input, a panel frame, or its actions.
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum PanelFrameError {
+    /// An input field such as size, scale, or event data is invalid.
     #[error("invalid panel input: {0}")]
     InvalidInput(&'static str),
+    /// More meshes than [`MAX_PANEL_MESHES`].
     #[error("panel frame exceeds {limit} meshes")]
     TooManyMeshes { limit: usize },
+    /// More vertices than [`MAX_PANEL_VERTICES`].
     #[error("panel frame exceeds {limit} vertices")]
     TooManyVertices { limit: usize },
+    /// More indices than [`MAX_PANEL_INDICES`].
     #[error("panel frame exceeds {limit} indices")]
     TooManyIndices { limit: usize },
+    /// More texture deltas than [`MAX_PANEL_TEXTURES`].
     #[error("panel frame exceeds {limit} textures")]
     TooManyTextures { limit: usize },
+    /// More texels uploaded than [`MAX_PANEL_TEXTURE_TEXELS`].
     #[error("panel frame exceeds {limit} texture texels")]
     TextureBudget { limit: usize },
+    /// More input events than [`MAX_PANEL_EVENTS`].
     #[error("panel frame exceeds {limit} events")]
     TooManyEvents { limit: usize },
+    /// More host actions than [`MAX_PANEL_ACTIONS`].
     #[error("panel frame exceeds {limit} actions")]
     TooManyActions { limit: usize },
+    /// Text or a copied string exceeds [`MAX_PANEL_TEXT_BYTES`].
     #[error("panel text exceeds {limit} bytes")]
     TextTooLong { limit: usize },
+    /// The mesh at `index` has an invalid index count, non-finite vertex, or
+    /// out-of-range vertex index.
     #[error("mesh {index} is invalid: {reason}")]
     InvalidMesh { index: usize, reason: &'static str },
+    /// The texture at `index` has invalid dimensions, pixel count, or patch
+    /// position.
     #[error("texture {index} is invalid: {reason}")]
     InvalidTexture { index: usize, reason: &'static str },
+    /// The action at `index` contains a non-finite parameter value.
     #[error("action {index} is invalid")]
     InvalidAction { index: usize },
 }

@@ -21,7 +21,10 @@ host uses the same wire types to validate and composite extension panels.
 - extension manifest types, ordered entrypoints, target matching, and ABI
   constants;
 - reusable ABI helpers: a stable bump heap, handle-keyed `DeviceStore` with
-  per-instance locks, and safe WASM-offset and native-pointer wrappers.
+  per-instance locks, and checked WASM-offset/native-pointer wrappers. The
+  WASM-offset helpers validate null/length, size, and alignment but require a
+  guest-managed offset. The native `*_ptr` helpers are `unsafe fn` with explicit
+  `# Safety` contracts; callers must guarantee pointer validity and alignment.
 
 Panel rendering is egui-only. The guest runs a private `egui::Context`; the
 host only receives validated, tessellated meshes and texture deltas. There is
@@ -29,7 +32,7 @@ no render-neutral command IR. Extension panels should use the shared components
 from `notwig-ui` for knobs, meters, labels, sections, toggles, and dropdowns.
 
 This crate has no `wasmtime` and no I/O. Keep wire-format changes versioned
-through `notwig_ext_api::ABI_VERSION` (currently `4`).
+through `notwig_ext_api::ABI_VERSION` (currently `5`).
 
 Device authors implement `DeviceExtension` for their device type and register it
 from the entrypoint:
@@ -102,16 +105,28 @@ normalized values are clamped.
 
 The `abi` module provides the boilerplate every extension needs:
 
-- `abi::alloc` / `abi::free` / `abi::packed_pointer` for stable host inputs and
+- `abi::heap` (`alloc`, `free`, `packed_pointer`) for stable host inputs and
   extension-owned outputs;
-- `abi::DeviceStore<T>` for handle-keyed device instances with a const
+- `abi::store::DeviceStore<T>` for handle-keyed device instances with a const
   constructor suitable for `static` use;
-- `abi::read_param_id`, `abi::with_str`, `abi::with_bytes`, and
-  `abi::with_audio_frames` for safe reads from extension linear memory.
+- `abi::pointers` (`read_param_id`, `with_str`, `with_bytes`,
+  `with_audio_frames`, and the native `*_ptr` variants) for checked reads from
+  extension linear memory or host pointers. WASM-offset helpers require a
+  guest-managed offset; native pointer helpers are `unsafe` and document their
+  `# Safety` preconditions.
+
+### `abi` module map
+
+| Module | Responsibility |
+| --- | --- |
+| `abi/heap.rs` | Fixed 1 MiB bump heap and packed pointer/length results |
+| `abi/store.rs` | Handle-keyed `DeviceStore` with per-instance locks |
+| `abi/pointers.rs` | Guest-offset and native raw-pointer read helpers |
+| `abi.rs` | Facade, ABI version, status codes, and packed pointer helpers |
 
 For `wasm32-unknown-unknown` extensions, depend on `notwig-core` and
 `notwig-ui` with `default-features = false`. This keeps UUID `v4` and the app
 shell out of the wasm module. Native builds use the same crate and do not need a
 special feature. See `notwig-ext-devices` for working examples, and
-[`docs/02_extensions/`](../../docs/02_extensions/) for the package, build, and
-install workflow.
+[`docs/02_extensions/`](../../../docs/02_extensions/) for the package, build,
+and install workflow.

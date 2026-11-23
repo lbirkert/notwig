@@ -52,5 +52,17 @@ Rust targets are installed through `rustup target add` for `--entrypoint`
 builds by default (disable with `--no-install-targets`). There is no automatic
 native cross-compilation: build the binary on the target OS or VM.
 
+## Module map
+
+| Module | Responsibility |
+| --- | --- |
+| `build/mod.rs` | Public build/packaging facade |
+| `build/source.rs` | Extension root discovery, manifest reading, Cargo metadata |
+| `build/compile.rs` | Per-target Cargo build, target installation, artifact paths |
+| `build/package.rs` | ZIP assembly, entrypoint selection, and manifest rewriting |
+| `build/paths.rs` | Package-relative path validation and ZIP name rules |
+| `scaffold.rs` | `new`/`init` project generation |
+| `target.rs` | Canonical target table and artifact naming |
+
 See the [parent README](../README.md) for the manifest format, supported
 targets, and include gating rules.

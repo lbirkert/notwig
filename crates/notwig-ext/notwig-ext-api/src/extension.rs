@@ -32,6 +32,13 @@ pub trait DeviceExtension: Send + Sized + 'static {
     /// Parameter changes must go through
     /// [`crate::panel_frame::set_param_normalized`] or
     /// [`crate::panel_frame::set_param_value`].
+    ///
+    /// # Borrow lifetime
+    ///
+    /// `ui` and its underlying egui context are owned by the extension runtime
+    /// and are only valid for the duration of this call. Do not store `ui` or
+    /// any reference derived from it; copy out the values you need into device
+    /// state. Panels run on the UI/display path, not the audio path.
     fn draw(&mut self, ui: &mut egui::Ui, meter: DeviceMeterSnapshot);
 
     /// Prepares the processor for a sample rate and channel count.
@@ -51,6 +58,14 @@ pub trait DeviceExtension: Send + Sized + 'static {
     fn note_event(&mut self, _event: NoteEvent) {}
 
     /// Processes interleaved `f32` samples in place.
+    ///
+    /// # Real-time
+    ///
+    /// This method runs on the audio path and must not allocate, block, perform
+    /// I/O, load plugins, or run unbounded work. All setup belongs in
+    /// [`new`](Self::new) or [`prepare`](Self::prepare), and any runtime problem
+    /// should be surfaced through the returned status rather than by unwinding
+    /// across the ABI.
     fn process(&mut self, samples: &mut [f32]);
 
     /// Returns the reported processing latency in samples.
@@ -127,6 +142,10 @@ impl Extension {
     }
 
     /// Registers one device implementation.
+    ///
+    /// The device is keyed by [`DeviceExtension::spec`]'s `type_id`; registering
+    /// the same type id again replaces the earlier implementation. This is
+    /// normally called once from the `#[notwig_extension]` entrypoint.
     pub fn register_device<D: DeviceExtension>(&mut self) {
         let spec = D::spec();
         let type_id = spec.type_id.clone();
@@ -141,12 +160,21 @@ impl Extension {
     }
 
     /// Returns a packed pointer to the serialized spec for `type_id`.
+    ///
+    /// Returns `0` when the type is unknown or the pointer/length does not fit
+    /// the packed 32-bit fields. The pointed-to bytes stay valid until that
+    /// device type is registered again or the [`Extension`] is dropped; the host
+    /// copies the spec immediately after this call.
     #[must_use]
     pub fn describe_pointer(&self, type_id: &str) -> i64 {
         self.describe_bytes(type_id).map_or(0, packed_pointer)
     }
 
     /// Returns the serialized spec bytes for `type_id`.
+    ///
+    /// The returned slice borrows this runtime and is valid until the same type
+    /// is registered again or the extension is dropped. Returns `None` for an
+    /// unknown type.
     #[must_use]
     pub fn describe_bytes(&self, type_id: &str) -> Option<&[u8]> {
         self.devices
@@ -154,7 +182,10 @@ impl Extension {
             .map(|device| device.spec_json.as_slice())
     }
 
-    /// Creates a device instance and returns its handle.
+    /// Creates a device instance and returns its nonzero handle, or `-1` when
+    /// `type_id` is unknown.
+    ///
+    /// This locks and allocates and must not be called from the audio callback.
     pub fn create_device(&self, type_id: &str) -> i32 {
         let Some(device) = self.devices.get(type_id) else {
             return -1;
@@ -188,6 +219,17 @@ impl Extension {
     }
 
     /// Processes one block of interleaved audio after delivering note events.
+    ///
+    /// `audio_ptr` is a guest linear-memory offset to `frames * channels`
+    /// interleaved samples. `events` is a sequence of fixed-size
+    /// [`NOTE_EVENT_BYTES`] records. Returns [`AbiStatus::UnknownDevice`] for a
+    /// missing handle or [`AbiStatus::InvalidArgument`] for an invalid buffer.
+    ///
+    /// # Real-time
+    ///
+    /// This is on the audio path and performs no allocation or I/O of its own
+    /// beyond the guest device implementation, which must also obey the
+    /// real-time rules of [`DeviceExtension::process`].
     pub fn process(
         &self,
         handle: i32,
@@ -209,7 +251,19 @@ impl Extension {
     ///
     /// The native shared-library ABI passes ordinary process pointers, so the
     /// host can process its audio buffer in place without copying.
-    pub fn process_ptr(
+    ///
+    /// # Safety
+    ///
+    /// `audio_ptr` must be valid for exclusive access to `frames * channels`
+    /// `f32` samples, 4-byte aligned, and non-aliasing for the duration of the
+    /// call. See [`crate::abi::with_audio_frames_ptr`].
+    ///
+    /// # Real-time
+    ///
+    /// Runs on the audio path and follows the same no-allocate, no-block,
+    /// no-I/O rule as [`process`](Self::process).
+    #[allow(unsafe_code)]
+    pub unsafe fn process_ptr(
         &self,
         handle: i32,
         audio_ptr: *mut f32,
@@ -219,9 +273,11 @@ impl Extension {
         let processed = self.instances.with(handle, |slot| {
             deliver_events(slot, events);
             let channels = slot.channels.max(1);
-            with_audio_frames_ptr(audio_ptr, frames, channels, |samples| {
-                slot.instance.process(samples);
-            })
+            unsafe {
+                with_audio_frames_ptr(audio_ptr, frames, channels, |samples| {
+                    slot.instance.process(samples);
+                })
+            }
         })?;
         processed.ok_or(AbiStatus::InvalidArgument)
     }
@@ -253,7 +309,11 @@ impl Extension {
     /// Draws a device panel and returns a pointer/length pair to the serialized
     /// [`crate::panel_frame::PanelFrame`].
     ///
-    /// The pointer stays valid until the next draw on the same handle.
+    /// The pointer stays valid until the next draw on the same handle, after
+    /// which the backing bytes may be replaced. The host must copy or consume
+    /// the frame before drawing that handle again. Returns `None` for an
+    /// unknown handle, an invalid context or input snapshot, or a frame that
+    /// fails validation.
     #[must_use]
     pub fn draw_bytes(&self, handle: i32, context_bytes: &[u8]) -> Option<(*const u8, usize)> {
         let context = postcard::from_bytes::<DeviceDrawContext>(context_bytes).ok()?;

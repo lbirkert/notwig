@@ -71,11 +71,11 @@ cargo test -p notwig-app --no-default-features --features native
 |---|---|
 | `lib.rs` | Shared native/browser library surface |
 | `main.rs` | Clap-based CLI, demo project, offline render/info commands |
-| `gui.rs` | `eframe` app, intent handling, native dialogs, plugin windows |
+| `gui/` | `eframe` app facade plus intents, audio supervision, recording, render, dialogs, plugin windows, extensions, platform |
 | `web/mod.rs` | Browser app construction |
 | `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
-| `workspace/mod.rs` | Project lifecycle, commands, history, tracks/devices/transport |
+| `workspace/` | Lifecycle facade plus commands, engine, persistence, transport, tracks, devices, clips, sample rate, render |
 | `workspace/assets.rs` | Asset load/import/relink/peaks/engine prepare |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `engine_build.rs` | Async engine build lifecycle |

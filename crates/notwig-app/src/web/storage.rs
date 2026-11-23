@@ -139,10 +139,63 @@ pub(crate) async fn write_bundle(
     handle: &ProjectHandle,
     files: &BundleFiles,
 ) -> Result<(), String> {
-    for (path, bytes) in &files.files {
-        write_file(&handle.dir, path, bytes).await?;
+    for path in crate::bundle_write::write_order(files) {
+        let bytes = crate::bundle_write::bytes(files, &path);
+        write_file(&handle.dir, &path, bytes).await?;
     }
     Ok(())
+}
+
+/// Saves a bundle under `name` without deleting the existing project first.
+///
+/// The complete bundle is written to a hidden staging directory; only after
+/// that succeeds are the files committed to the target project. The manifest is
+/// written last in both phases, so a failed commit leaves the previous
+/// `project.json` in place.
+pub(crate) async fn save_as_project(
+    name: &str,
+    files: &BundleFiles,
+) -> Result<ProjectHandle, String> {
+    let staging_name = format!(".{name}.notwig-staging");
+    delete_project(&staging_name).await?;
+    let staging = create_project(&staging_name).await?;
+    let mut target: Option<ProjectHandle> = None;
+    for step in crate::bundle_write::save_as_steps(files) {
+        let result = match step {
+            crate::bundle_write::BundleWriteStep::Staging(path) => {
+                let bytes = crate::bundle_write::bytes(files, &path);
+                write_file(&staging.dir, &path, bytes).await
+            }
+            crate::bundle_write::BundleWriteStep::Commit(path) => {
+                if target.is_none() {
+                    match create_project(name).await {
+                        Ok(handle) => target = Some(handle),
+                        Err(error) => {
+                            let _ = delete_project(&staging_name).await;
+                            return Err(error);
+                        }
+                    }
+                }
+                let Some(handle) = target.as_ref() else {
+                    unreachable!("target project is created before the first commit");
+                };
+                let bytes = crate::bundle_write::bytes(files, &path);
+                write_file(&handle.dir, &path, bytes).await
+            }
+        };
+        if let Err(error) = result {
+            let _ = delete_project(&staging_name).await;
+            return Err(error);
+        }
+    }
+    if let Err(error) = delete_project(&staging_name).await {
+        tracing::warn!(
+            project = staging_name,
+            error = %error,
+            "could not delete staged browser project"
+        );
+    }
+    target.ok_or_else(|| "project bundle had no files to save".to_string())
 }
 
 async fn projects_root() -> Result<FileSystemDirectoryHandle, String> {

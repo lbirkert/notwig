@@ -140,6 +140,7 @@ pub fn compile(
                         .unwrap_or_else(|| instance.type_id.clone()),
                     vendor: String::new(),
                     ui: DeviceUiSpec::Generic,
+                    container: None,
                 },
                 false,
             ),

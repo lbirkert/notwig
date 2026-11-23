@@ -164,7 +164,7 @@ mod tests {
                 "name": "Test Gain",
                 "vendor": "Test",
                 "version": "0.1.0",
-                "api_version": 4,
+                "api_version": 5,
                 "urls": [{{ "url": "{url}", "hash": "{HASH}", "targets": ["{target}"] }}],
                 "devices": [{{ "name": "Gain", "type_id": "com.test.gain.fx" }}]
             }}]"#
@@ -202,7 +202,7 @@ mod tests {
                 "name": "Test Gain",
                 "vendor": "Test",
                 "version": "0.1.0",
-                "api_version": 4,
+                "api_version": 5,
                 "urls": [{{ "url": "gain.zip", "hash": "{HASH}", "targets": ["wasm"] }}],
                 "devices": [],
                 "image": "extensions/com.test.gain.png"
@@ -228,7 +228,7 @@ mod tests {
                 "name": "Test Gain",
                 "vendor": "Test",
                 "version": "0.1.0",
-                "api_version": 4,
+                "api_version": 5,
                 "urls": [{{ "url": "gain.zip", "hash": "{HASH}", "targets": ["wasm"] }}],
                 "devices": []
             }}]"#

@@ -7,6 +7,7 @@ use zip::ZipArchive;
 
 use crate::error::ExtensionError;
 
+/// Maximum accepted ZIP size in bytes.
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 1024;
@@ -127,6 +128,9 @@ pub fn read_extension_files(
     })
 }
 
+/// Validates an extension id for use as an install directory name.
+///
+/// Rejects empty ids, `.`/`..`, and ids containing path separators or NUL.
 pub fn validate_extension_id(id: &str) -> Result<(), ExtensionError> {
     if id.is_empty()
         || id == "."

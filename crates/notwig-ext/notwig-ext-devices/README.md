@@ -36,6 +36,24 @@ A stereo-linked noise gate with the same graph and meter treatment:
   line showing when the gate opens and closes.
 - A stereo output meter with peak hold and an OPEN/CLOSED readout.
 
+### Reverb
+
+`notwig.ext.devices.reverb`
+
+A stereo algorithmic reverb with a wet FX chain:
+
+- **Size**: 0 to 1, default 0.6.
+- **Damping**: 0 to 1, default 0.4.
+- **Pre-delay**: 0 s to 0.2 s, default 0.02 s.
+- **Width**: 0 to 1, default 1.0.
+- **Mix**: 0 to 1, default 0.3.
+- A Freeverb-style network of 8 damped comb filters and 4 allpass filters per
+  channel, with a stereo predelay.
+- Declared as `DeviceKind::Container` with `ContainerRouting::StageThenChildren`
+  and `Mix` as the container wet parameter. The host owns the child chain, so
+  nested devices process the wet reverb signal before the dry/wet blend.
+- A decay-curve graph, stereo output meter, and shared knobs.
+
 ### Synth
 
 `notwig.ext.devices.synth`
@@ -76,6 +94,7 @@ use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
 pub fn extension(extension: &mut Extension) {
     extension.register_device::<LimiterDevice>();
     extension.register_device::<GateDevice>();
+    extension.register_device::<ReverbDevice>();
     extension.register_device::<SynthDevice>();
     extension.register_device::<GainDevice>();
 }
@@ -86,6 +105,27 @@ Each device implements `DeviceExtension`, providing `spec`, `draw`,
 the guest egui context; the devices keep only their own parameter values and
 display state. The generated ABI exports and all heap/store/pointer plumbing
 come from `notwig-ext-api`.
+
+## Module map
+
+| Module | Responsibility |
+| --- | --- |
+| `lib.rs` | `#[notwig_extension]` entrypoint registering every stock device |
+| `synth/mod.rs` | Synth device state and `DeviceExtension` delegation |
+| `synth/params.rs` | Synth parameter ids, ranges, defaults, normalization |
+| `synth/spec.rs` | Synth device spec |
+| `synth/panel.rs` | Synth egui panel |
+| `synth/dsp.rs` | Oscillators, voices, envelopes, note handling, processing |
+| `gate/mod.rs` | Gate device state and `DeviceExtension` delegation |
+| `gate/params.rs` | Gate parameter ids, ranges, defaults, normalization |
+| `gate/spec.rs` | Gate device spec |
+| `gate/panel.rs` | Gate egui panel |
+| `gate/dsp.rs` | Gate detector, meter ballistics, and processing |
+| `limiter.rs` | Limiter DSP, spec, panel, meters, parameter ids |
+| `gain.rs` | Small guest-egui gain example |
+| `reverb.rs` | Stock reverb device |
+| `dynamics.rs` | Shared peak/gain history and history-graph painter |
+| `ui.rs` | Shared knob caption helper |
 
 ## Build
 
@@ -134,10 +174,10 @@ can also load a manually unpacked package from the user extensions directory:
   icon.png
 ```
 
-Then open **Settings > Extensions** and press **Reload extensions**. The
-devices appear under **Extensions** in the Add Device browser.
+Restart Notwig after unpacking the package. The devices appear under
+**Extensions** in the Add Device browser.
 
-The source manifest uses `"api_version": 4` and the `ui.panel` capability. It
+The source manifest uses `"api_version": 5` and the `ui.panel` capability. It
 omits `entrypoints`; the CLI adds the selected target entrypoint to the packaged
 manifest.
 
@@ -152,6 +192,9 @@ manifest.
   `no_mangle` attributes inside an SDK-generated module.
 - The synth receives note events through the extension note-event ABI. None of
   the devices use persistent state blobs yet.
+- The reverb is a container. The host runs its child chain on the wet path and
+  applies the `Mix` parameter after the reverb and its nested devices; the
+  reverb's `process` outputs wet only.
 - Display state is rebuilt when the engine rebuilds a device instance.
 
 ## Tests
@@ -159,8 +202,10 @@ manifest.
 `tests/limiter.rs` covers the limiter spec, panel frame generation, lookahead,
 threshold limiting, release recovery, and parameter rejection. `tests/gate.rs`
 covers the gate spec, frame generation, opening/closing behavior, and parameter
-rejection. `tests/synth.rs` covers the synth spec, frame generation, oscillator
-modes, note on/off, ADSR release, and parameter rejection.
+rejection. `tests/reverb.rs` covers the container spec, frame generation,
+pre-delay, wet tail decay, reset behavior, and parameter rejection.
+`tests/synth.rs` covers the synth spec, frame generation, oscillator modes, note
+on/off, ADSR release, and parameter rejection.
 `tests/gain_device.rs` covers the gain device frame and parameter behavior.
 `crates/notwig-ext/notwig-ext/tests` also loads the built WASM module and native shared library
 and checks the devices through the real ABIs.

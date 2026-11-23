@@ -6,7 +6,7 @@ use crate::form;
 use crate::intent::{ExportBitDepth, ExportFormat, UiIntent};
 use crate::shell::NotwigUi;
 use crate::theme;
-use crate::widgets::format_beats;
+use crate::widgets::{beats_to_time, format_beats};
 
 impl NotwigUi {
     pub(crate) fn open_render(&mut self, doc: &ProjectDoc) {
@@ -139,10 +139,7 @@ impl NotwigUi {
                             )
                             .changed()
                         {
-                            self.render_start = TimeMus::new(
-                                (start.max(0.0) * 1_000_000.0).round() as i64,
-                                1_000_000,
-                            );
+                            self.render_start = beats_to_time(start.max(0.0));
                         }
                         ui.label("to");
                         let mut end = self.render_end.as_f64();
@@ -150,10 +147,7 @@ impl NotwigUi {
                             .add(egui::DragValue::new(&mut end).speed(0.01).suffix(" beats"))
                             .changed()
                         {
-                            self.render_end = TimeMus::new(
-                                (end.max(0.0) * 1_000_000.0).round() as i64,
-                                1_000_000,
-                            );
+                            self.render_end = beats_to_time(end.max(0.0));
                         }
                     });
                     ui.add_space(4.0);

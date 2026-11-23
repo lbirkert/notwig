@@ -150,6 +150,7 @@ fn extension_spec() -> DeviceSpec {
         name: "Ext".into(),
         vendor: "Test".into(),
         ui: DeviceUiSpec::custom("ext:com.test.ext", Some(300.0)),
+        container: None,
     }
 }
 

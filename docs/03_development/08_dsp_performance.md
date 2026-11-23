@@ -59,8 +59,8 @@ Everything runs in `f32`. The smoothed values update once per sample, which
 keeps parameter changes click-free. `Tool` has no filter state and cannot
 denormal.
 
-`p_swap_lr` is not exposed in `tool_spec`, and `set_param` does not update the
-swap smoother, so the swap path is currently dead code.
+`p_swap_lr` is part of `tool_spec`; the smoother crossfades the channels over
+roughly 8 ms, so the swap stays click-free.
 
 ### EQ
 
@@ -82,6 +82,23 @@ direct-form II transposed biquad with two state values per channel.
 A container processor with input gain, output gain, and dry/wet. It copies the
 dry signal, runs each child in order, then mixes wet and dry. Its reported
 latency is the sum of its children's latency.
+
+### Extension containers
+
+`ContainerProcessor` is the host-owned container for extension devices. It
+holds an optional stage (the extension processor) and a serial child chain.
+
+- `StageThenChildren` runs the stage, then the children; `ChildrenThenStage`
+  does the reverse.
+- With a wet parameter, it copies the dry input first, runs the stage and
+  children as the wet path, and crossfades with a 15 ms smoothed mix. The stage
+  outputs wet only.
+- Nested parameters route into the child chain. Latency is the stage plus all
+  children.
+- If the stage is missing, the children still run and the wet blend is skipped.
+
+The stock Chain keeps its separate `ChainProcessor`; extension containers do not
+change its behavior or performance.
 
 ## 4. Benchmark methodology
 
@@ -236,14 +253,11 @@ happens.
 2. **Ramp specs are ignored.** `ParamSet` carries an optional `RampSpec`, but
    `DeviceProcessor::set_param` only receives a value. Ramping behavior is
    hardcoded per device.
-3. **Dead swap path.** `p_swap_lr`, the smoother field, and the per-frame swap
-   blend exist without a spec entry or a `set_param` branch. Remove it or
-   finish it.
-4. **No NaN/Inf guard.** A faulty device or plugin can poison downstream
+3. **No NaN/Inf guard.** A faulty device or plugin can poison downstream
    buffers. Stock devices are safe, but the boundary does not sanitize.
-5. **Bypass is structural.** Bypassing a device rebuilds the runtime rather
+4. **Bypass is structural.** Bypassing a device rebuilds the runtime rather
    than crossfading, so bypass changes can click.
-6. **EQ coefficient interpolation has no stability guard.** Linear interpolation
+5. **EQ coefficient interpolation has no stability guard.** Linear interpolation
    between stable coefficient sets is common but is not a formal guarantee for
    extreme parameter jumps.
 

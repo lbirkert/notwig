@@ -7,6 +7,10 @@ use crate::error::{Error, Result};
 
 const DEFAULT_ICON: &[u8] = include_bytes!("../assets/icon.png");
 
+/// Creates a new extension project directory.
+///
+/// Fails if `path` already exists. `package_name` defaults to the directory
+/// name and `extension_id` defaults to `com.example.<name>`.
 pub fn new(
     path: PathBuf,
     package_name: Option<String>,
@@ -18,6 +22,10 @@ pub fn new(
     create(&path, package_name, extension_id)
 }
 
+/// Adds extension files to an existing directory.
+///
+/// `package_name` defaults to the directory name and `extension_id` defaults to
+/// `com.example.<name>`.
 pub fn init(
     path: PathBuf,
     package_name: Option<String>,
@@ -255,6 +263,7 @@ impl DeviceExtension for MyDevice {
             name: "My Device".into(),
             vendor: "Example".into(),
             ui: DeviceUiSpec::custom(format!("ext:{TYPE_ID}"), Some(260.0)),
+            container: None,
         }
     }
 

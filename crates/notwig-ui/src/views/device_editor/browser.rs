@@ -6,6 +6,8 @@ use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
 use crate::theme;
 
+use super::plugin_kind::{format_tag, is_plugin_type_id};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceBrowserState {
     pub track_id: TrackId,
@@ -279,33 +281,6 @@ impl NotwigUi {
             self.device_browser = Some(state);
         }
         let _ = doc;
-    }
-}
-
-fn is_plugin_type_id(type_id: &str) -> bool {
-    type_id.starts_with("vst3.")
-        || type_id.starts_with("vst2.")
-        || type_id.starts_with("au.")
-        || type_id.starts_with("au3.")
-        || type_id.starts_with("clap.")
-        || type_id.starts_with("lv2.")
-}
-
-pub(super) fn format_tag(type_id: &str) -> Option<&'static str> {
-    if type_id.starts_with("vst3.") {
-        Some("VST3")
-    } else if type_id.starts_with("vst2.") {
-        Some("VST")
-    } else if type_id.starts_with("au3.") {
-        Some("AU3")
-    } else if type_id.starts_with("au.") {
-        Some("AU")
-    } else if type_id.starts_with("clap.") {
-        Some("CLAP")
-    } else if type_id.starts_with("lv2.") {
-        Some("LV2")
-    } else {
-        None
     }
 }
 

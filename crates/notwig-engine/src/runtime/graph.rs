@@ -102,6 +102,25 @@ pub(super) fn build_processor(
         }
         return Some(Box::new(chain));
     }
+    if device.kind == notwig_core::DeviceKind::Container {
+        let mut container = notwig_core::dsp::ContainerProcessor::new(&device.spec);
+        if let Some(stage) = factory.create(plan, device) {
+            container.set_stage(stage);
+        }
+        for (id, value) in &device.param_values {
+            container.set_param(*id, value);
+        }
+        for child_chain in &device.child_chains {
+            if let Some(children) = plan.chains.get(child_chain) {
+                for child_id in children {
+                    if let Some(child) = build_processor(plan, *child_id, factory) {
+                        container.add_child(*child_id, child);
+                    }
+                }
+            }
+        }
+        return Some(Box::new(container));
+    }
     let mut processor = factory.create(plan, device)?;
     for (id, value) in &device.param_values {
         processor.set_param(*id, value);

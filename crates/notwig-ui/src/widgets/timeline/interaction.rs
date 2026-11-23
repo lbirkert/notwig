@@ -3,6 +3,7 @@ use notwig_core::edit::Edge;
 use notwig_core::{RangeMus, TimeMus};
 
 use crate::state::Viewport;
+use crate::widgets::beats_to_time;
 
 pub(crate) fn pointer_delta(start: Pos2, current: Pos2, ppb: f32) -> f64 {
     if ppb <= 0.0 {
@@ -17,10 +18,7 @@ pub(crate) fn snapped_start(
     grid: TimeMus,
     bypass: bool,
 ) -> TimeMus {
-    let beat = TimeMus::new(
-        ((absolute_anchor.as_f64() + delta) * 1_000_000.0).round() as i64,
-        1_000_000,
-    );
+    let beat = beats_to_time(absolute_anchor.as_f64() + delta);
     crate::widgets::snap_time(beat, grid, bypass)
 }
 
@@ -82,8 +80,7 @@ pub(crate) fn trim_range(
 }
 
 fn snap_beats(beats: f64, grid: TimeMus, bypass: bool) -> TimeMus {
-    let time = TimeMus::new((beats * 1_000_000.0).round() as i64, 1_000_000);
-    crate::widgets::snap_time(time, grid, bypass)
+    crate::widgets::snap_time(beats_to_time(beats), grid, bypass)
 }
 
 pub(crate) fn navigation_update(

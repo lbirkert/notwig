@@ -2,7 +2,7 @@ use egui::{Painter, Rect, Stroke};
 use notwig_core::TimeMus;
 
 use crate::theme;
-use crate::widgets::{SnapSettings, snap_step_label};
+use crate::widgets::{SnapSettings, beats_to_time, snap_step_label};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TimelineGrid {
@@ -45,7 +45,7 @@ impl TimelineGrid {
     #[must_use]
     pub fn beat_for_x(self, x: f32, left: f32) -> TimeMus {
         let beat = self.start.as_f64() + f64::from((x - left) / self.pixels_per_beat);
-        TimeMus::new((beat * 1_000_000.0).round() as i64, 1_000_000)
+        beats_to_time(beat)
     }
 
     #[must_use]
@@ -99,10 +99,7 @@ impl TimelineGrid {
     }
 
     fn draw_line(&self, painter: &Painter, rect: Rect, beat: f64, color: egui::Color32) {
-        let x = self.x_for_beat(
-            TimeMus::new((beat * 1_000_000.0).round() as i64, 1_000_000),
-            rect.left(),
-        );
+        let x = self.x_for_beat(beats_to_time(beat), rect.left());
         if x < rect.left() - 1.0 || x > rect.right() + 1.0 {
             return;
         }

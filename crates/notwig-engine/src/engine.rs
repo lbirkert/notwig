@@ -107,6 +107,10 @@ pub struct Engine {
     low_latency_monitoring: bool,
     transport_generation: u64,
     offline: bool,
+    /// Reused meter rows for the audio callback's `RtEvent::Meters` queue.
+    meter_scratch: Vec<(notwig_core::TrackId, f32, f32, f32, f32)>,
+    /// Reused device faults drained from the runtime each block.
+    fault_scratch: Vec<crate::runtime::RuntimeFault>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -152,6 +156,8 @@ impl Engine {
             low_latency_monitoring: true,
             transport_generation: 0,
             offline: false,
+            meter_scratch: Vec::new(),
+            fault_scratch: Vec::new(),
         }
     }
 
@@ -219,6 +225,7 @@ impl Engine {
         engine.runtime = Some(runtime);
         engine.transport = transport;
         engine.all_notes_off = all_notes_off;
+        engine.emit_low_monitor_failures();
         engine
     }
 
@@ -362,6 +369,7 @@ impl Engine {
         if let Some(runtime) = &mut self.runtime {
             runtime.prime_notes_at(playhead);
         }
+        self.emit_low_monitor_failures();
         self.push_event(RtEvent::LatencyChanged {
             device_id: None,
             samples: latency,
@@ -381,6 +389,46 @@ impl Engine {
 
     pub fn drain_events(&mut self, out: &mut Vec<RtEvent>) {
         out.extend(self.events.drain(..));
+    }
+
+    /// Surface low-latency monitor devices that failed to prepare. These are
+    /// recorded on the runtime off the audio thread; turning them into events
+    /// here keeps the failure visible in the audio snapshot.
+    fn emit_low_monitor_failures(&mut self) {
+        let failures = self
+            .runtime
+            .as_mut()
+            .map(ActivePlan::take_low_monitor_failures)
+            .unwrap_or_default();
+        for failure in failures {
+            self.push_event(RtEvent::Error {
+                scope: "low-latency-monitor".into(),
+                code: "prepare".into(),
+                message: format!(
+                    "track {} device {} failed to prepare: {}",
+                    failure.track_id, failure.device_id, failure.reason
+                ),
+            });
+        }
+    }
+
+    /// Move device faults recorded by the last render block into `RtEvent`s.
+    fn emit_runtime_faults(&mut self) {
+        let Some(runtime) = &mut self.runtime else {
+            return;
+        };
+        runtime.take_faults_into(&mut self.fault_scratch);
+        for index in 0..self.fault_scratch.len() {
+            let fault = self.fault_scratch[index];
+            self.push_event(RtEvent::Error {
+                scope: "device".into(),
+                code: "overloaded".into(),
+                message: format!(
+                    "device {} reported an overloaded or failed process block",
+                    fault.device_id
+                ),
+            });
+        }
     }
 
     fn maybe_sync_control(&mut self, frames: usize) {
@@ -439,6 +487,7 @@ impl Engine {
                 device_id: None,
                 samples: latency,
             });
+            self.emit_low_monitor_failures();
             // The new runtime has no note state yet. Re-prime whatever is
             // sounding under the current playhead so a structural rebuild does
             // not silence sustained MIDI.
@@ -612,6 +661,7 @@ impl Engine {
             sample_position,
             self.transport.playing,
         );
+        self.emit_runtime_faults();
         Ok(())
     }
 
@@ -699,6 +749,7 @@ impl Engine {
                     *sample = 0.0;
                 }
             } else {
+                self.emit_runtime_faults();
                 self.mix_metronome(
                     &mut stereo[written * 2..(written + segment) * 2],
                     start,
@@ -724,12 +775,13 @@ impl Engine {
             xruns: self.xruns,
             cpu_load: None,
         });
-        let meters = self
-            .runtime
-            .as_ref()
-            .map(notwig_engine_meter_snapshot)
-            .unwrap_or_default();
-        for (track_id, peak_l, peak_r, rms_l, rms_r) in meters {
+        if let Some(runtime) = &self.runtime {
+            runtime.meter_snapshot_into(&mut self.meter_scratch);
+        } else {
+            self.meter_scratch.clear();
+        }
+        for index in 0..self.meter_scratch.len() {
+            let (track_id, peak_l, peak_r, rms_l, rms_r) = self.meter_scratch[index];
             self.push_event(RtEvent::Meters {
                 track_id,
                 peak_l,
@@ -762,10 +814,4 @@ fn samples_to_mus(samples: u64, tempo_bpm: f64, sample_rate: u32) -> TimeMus {
     }
     let beats = samples as f64 / samples_per_beat;
     TimeMus::new((beats * 1_000_000.0).round() as i64, 1_000_000)
-}
-
-fn notwig_engine_meter_snapshot(
-    plan: &ActivePlan,
-) -> Vec<(notwig_core::TrackId, f32, f32, f32, f32)> {
-    plan.meter_snapshot()
 }

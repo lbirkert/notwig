@@ -34,6 +34,57 @@ Dependency direction is inward:
   with extension devices.
 - `notwig-app` composes everything and owns process-level concerns.
 
+### Crate dependency graph
+
+The edges below come from the workspace `Cargo.toml` files. An edge means the
+crate names the other crate in `[dependencies]`; feature-gated, optional, and
+target-specific edges are marked.
+
+```text
+notwig-web
+  └─> notwig-app                         (wasm32 target; default-features = false)
+        ├─> notwig-ui
+        │     ├─> notwig-core
+        │     ├─> notwig-project         (optional, "app" feature) -> notwig-core
+        │     └─> notwig-ext-api         (optional, "app" feature) -> notwig-core,
+        │                                                          notwig-ext-macros
+        ├─> notwig-project -> notwig-core
+        ├─> notwig-engine
+        │     ├─> notwig-core
+        │     └─> notwig-plugins -> notwig-core
+        │                        └─> notwig-rack   (optional, separate workspace)
+        ├─> notwig-plugins -> notwig-core
+        ├─> notwig-ext
+        │     ├─> notwig-core
+        │     └─> notwig-ext-api -> notwig-core, notwig-ext-macros
+        ├─> notwig-ext-api -> notwig-core, notwig-ext-macros
+        └─> notwig-core
+
+notwig-ext-devices -> notwig-core, notwig-ext-api, notwig-ui (default-features = false)
+notwig-ext-cli     -> notwig-ext-api
+```
+
+Edges in detail:
+
+| Crate | Workspace dependencies | Notes |
+| --- | --- | --- |
+| `notwig-core` | none | Lowest layer. |
+| `notwig-project` | `notwig-core` | Bundle and asset I/O. |
+| `notwig-ext-macros` | none | Proc-macro crate. |
+| `notwig-ext-api` | `notwig-core`, `notwig-ext-macros` | Shared by hosts and guest devices. |
+| `notwig-ext` | `notwig-core`, `notwig-ext-api` | `native` (wasmtime/libloading) and `web` features. |
+| `notwig-ext-devices` | `notwig-core`, `notwig-ext-api`, `notwig-ui` | All without default features. |
+| `notwig-ext-cli` | `notwig-ext-api` | Scaffolding and packaging. |
+| `notwig-engine` | `notwig-core`, `notwig-plugins` | Real-time execution. |
+| `notwig-plugins` | `notwig-core`; optional `notwig-rack` | Format adapters are feature-gated. |
+| `notwig-ui` | `notwig-core`; optional `notwig-project`, `notwig-ext-api` | The `app` feature enables the optional edges. |
+| `notwig-app` | `notwig-core`, `notwig-project`, `notwig-ext-api`, `notwig-ext`, `notwig-engine`, `notwig-plugins`, `notwig-ui` | Native and wasm targets add their own platform dependencies. |
+| `notwig-web` | `notwig-app` | Browser entry point. |
+| `notwig-rack` | none (separate workspace) | Vendored plugin wrappers consumed by `notwig-plugins`. |
+
+The graph must stay acyclic. Shared boundary types belong in the lowest crate
+that needs them; most cross-layer types live in `notwig-core`.
+
 ## State model
 
 ```text
@@ -47,8 +98,8 @@ transport locates, and mixer/device parameter values. UI views are projections
 of `S_doc` plus `S_rt` observations.
 
 The engine owns the authoritative playhead during playback. The document stores
-the locate/last-saved playhead. Stop behavior is defined by the transport
-contract (loop start when looping, otherwise zero).
+the locate/last-saved playhead. Stop returns to the play start captured when
+playback began; looping does not change that return position.
 
 ## Data flow
 
@@ -67,7 +118,11 @@ pointer gesture
 
 The UI never mutates `ProjectDoc` directly. `notwig-app::Workspace` applies
 commands, records undo history, and decides whether the engine needs a full
-rebuild or a lightweight synchronization message.
+rebuild or a lightweight synchronization message. See
+[`Command Application and Undo`](13_command_application_and_undo.md) for the
+apply, batch, delta, and history contracts, and
+[`UI Contracts and Coordinates`](17_ui_contracts_and_coordinates.md) for the
+view/intent boundary.
 
 ### Engine builds
 
@@ -140,7 +195,9 @@ state blobs are written under `state/`; `peaks/` and `cache/` remain reserved.
 The app creates
 `session.lock` when a bundle is opened or saved and removes it on clean exit.
 When a lock and autosave snapshots are both present, the app offers to recover
-the latest autosave or discard it before continuing.
+the latest autosave or discard it before continuing. See
+[`Persistence and Recovery`](14_persistence_and_recovery.md) for the manifest,
+schema, atomic-write, autosave-selection, and recovery behaviour.
 
 User settings are stored separately from projects. Shortcut bindings and the
 audio driver, device, and block size live in per-user config files; the sample
@@ -164,7 +221,9 @@ Platform edges are selected by target:
   milestone.
 
 The browser bundle is static output. It needs no server headers and is deployed
-under `/app/` beside the mdBook documentation.
+under `/app/` beside the mdBook documentation. See
+[`Web Build and Storage`](20_web_build_and_storage.md) for the OPFS layout,
+storage keys, gesture gate, and deployment assumptions.
 
 ## Crates at a glance
 
@@ -209,6 +268,13 @@ under `/app/` beside the mdBook documentation.
 - **Web**: the browser build keeps the in-process engine; it has no native
   plugins or OS process isolation.
 
+The engine process handshake, message families, build queue, prepared-runtime
+swap, and restart policy are specified in
+[`Engine Process and Supervision`](15_engine_process_and_supervision.md). The
+plugin adapter and editor contract is in
+[`Plugin Hosting`](16_plugin_hosting.md). Startup and shutdown ordering is in
+[`Application Lifecycle`](18_app_lifecycle.md).
+
 ## Error handling
 
 - Domain and project boundaries return typed errors (`CoreError`,
@@ -237,7 +303,9 @@ under `/app/` beside the mdBook documentation.
   Notwig owns validation, resource limits, and rendering. `ui.panel` panels run a
   private guest egui context, use shared `notwig-ui` components, and send
   validated meshes/texture deltas for the host to composite, as described in
-  [`Extension Panels`](12_extension_panels.md). General clip/track
+  [`Extension Panels`](12_extension_panels.md). The ABI version policy, host
+  calls, call order, and native/WASM/browser differences are in
+  [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md). General clip/track
   drawing hooks remain future work.
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted

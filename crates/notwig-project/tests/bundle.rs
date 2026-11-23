@@ -71,6 +71,22 @@ fn autosave_writes_atomically_and_leaves_no_temporary_file() {
 }
 
 #[test]
+fn latest_autosave_uses_numeric_revision_order() {
+    let dir = temp_dir();
+    let bundle = dir.join("Song.notwig");
+    let mut doc = doc();
+
+    doc.revision = 9;
+    autosave(&doc, &bundle, 1).unwrap();
+    doc.revision = 10;
+    autosave(&doc, &bundle, 0).unwrap();
+
+    let latest = load_latest_autosave(&bundle).unwrap().unwrap();
+    assert_eq!(latest.revision, 10);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn wrapped_manifest_rejects_mismatched_payload_schema() {
     let dir = temp_dir();
     let bundle = dir.join("Song.notwig");

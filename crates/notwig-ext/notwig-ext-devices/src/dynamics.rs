@@ -27,9 +27,12 @@ fn gain_stroke() -> Color32 {
     Color32::from_rgba_unmultiplied(255, 190, 90, 220)
 }
 
+/// One meter history sample.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HistorySample {
+    /// Peak level in dBFS.
     pub level_db: f32,
+    /// Gain change in dB.
     pub gain_db: f32,
 }
 
@@ -61,17 +64,20 @@ impl Default for History {
 }
 
 impl History {
+    /// Creates an empty history.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Appends a sample, evicting the oldest when full.
     pub fn push(&mut self, sample: HistorySample) {
         self.samples[self.next] = sample;
         self.next = (self.next + 1) % HISTORY_LEN;
         self.len = (self.len + 1).min(HISTORY_LEN);
     }
 
+    /// Returns the number of retained samples.
     #[must_use]
     pub fn len(&self) -> usize {
         self.len

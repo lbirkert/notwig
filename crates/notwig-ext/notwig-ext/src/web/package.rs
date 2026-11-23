@@ -6,20 +6,27 @@ use notwig_ext_api::{ExtensionManifest, target};
 use crate::archive::{ExtensionArchive, read_archive, read_extension_files};
 use crate::error::ExtensionError;
 
+/// A browser-ready extension package containing its WASM entrypoint.
 pub struct WebExtensionPackage {
     pub(crate) manifest: ExtensionManifest,
     pub(crate) wasm: Vec<u8>,
 }
 
 impl WebExtensionPackage {
+    /// Builds a package from ZIP bytes, selecting the WASM entrypoint.
     pub fn from_zip(bytes: &[u8]) -> Result<Self, ExtensionError> {
         Self::from_archive(read_archive(bytes, None)?)
     }
 
+    /// Builds a package from an already extracted file tree.
     pub fn from_files(files: BTreeMap<PathBuf, Vec<u8>>) -> Result<Self, ExtensionError> {
         Self::from_archive(read_extension_files(files, None)?)
     }
 
+    /// Builds a package from a validated archive.
+    ///
+    /// Requires a `wasm` entrypoint that stays inside the package and starts
+    /// with the WebAssembly magic bytes.
     pub fn from_archive(archive: ExtensionArchive) -> Result<Self, ExtensionError> {
         let entry = archive.manifest.entry_for(target::is_wasm).ok_or_else(|| {
             ExtensionError::Manifest(
@@ -53,16 +60,19 @@ impl WebExtensionPackage {
         })
     }
 
+    /// Returns the extension id.
     #[must_use]
     pub fn id(&self) -> &str {
         &self.manifest.id
     }
 
+    /// Returns the extension display name.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.manifest.name
     }
 
+    /// Returns the extension version.
     #[must_use]
     pub fn version(&self) -> &str {
         &self.manifest.version

@@ -75,14 +75,14 @@ Dependencies worth planning around:
 | Render mixdown | ✅ Implemented | ⭐⭐⭐⭐⭐ | Offline stereo render with WAV/AIFF output, 16/24-bit PCM or 32-bit float, optional dithering and normalization, plus stem export. |
 | Export formats | ✅ Implemented | ⭐⭐⭐⭐ | WAV, AIFF, FLAC, MP3, and OGG Vorbis with bit depth where applicable, dithering, normalization, and stem export. |
 | Render progress and cancel | 📋 Planned | ⭐⭐⭐ | GUI render blocks the UI thread today. |
-| CLI commands | ✅ Implemented | ⭐⭐⭐ | `new`, `demo`, `render`, `info`, and `scan-plugins`. |
+| CLI commands | ✅ Implemented | ⭐⭐⭐ | `new`, `demo`, `render`, `info`, `scan-plugins`, and `loopback`. |
 | Background engine builds | ✅ Implemented | ⭐⭐⭐⭐ | One build runs and one is queued. |
 
 ## Transport and timing
 
 | Feature | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| Play, pause, stop | ✅ Implemented | ⭐⭐⭐⭐⭐ | Stop returns to loop start or zero and sends all-notes-off. |
+| Play, pause, stop | ✅ Implemented | ⭐⭐⭐⭐⭐ | Stop returns to the last play start and sends all-notes-off. |
 | Global tempo | ✅ Implemented | ⭐⭐⭐⭐⭐ | One BPM value. Unsliced audio clip ranges rescale so their sample duration stays fixed. |
 | Global time signature | ✅ Implemented | ⭐⭐⭐⭐ | One numerator and denominator. |
 | Global loop | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sample-accurate wrap, blocks split at the loop end. |
@@ -132,7 +132,7 @@ Dependencies worth planning around:
 | Marquee selection | 📋 Planned | ⭐⭐⭐ |  |
 | Time selection create and move | ✅ Implemented | ⭐⭐⭐⭐⭐ |  |
 | Time selection copy, cut, paste, duplicate, delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | Shared edit algebra with the app. |
-| Time selection edge trim | 📋 Planned | ⭐⭐⭐ | In and out markers are painted but not draggable. |
+| Time selection edge trim | ✅ Implemented | ⭐⭐⭐ | Drag either selection edge to extend or shorten the time range. |
 | Adaptive snap grid | ✅ Implemented | ⭐⭐⭐⭐ | Uses a 40 px minimum spacing and follows zoom. |
 | User grid and snap settings | ✅ Implemented | ⭐⭐⭐⭐ | Global snap toggle plus adaptive/manual levels from 2/1 to 1/65536. |
 | Zoom and pan | ✅ Implemented | ⭐⭐⭐⭐⭐ | Pinch zoom, middle-drag pan, and zoom to fit. |
@@ -228,14 +228,15 @@ Dependencies worth planning around:
 | Tool | ✅ Implemented | ⭐⭐⭐⭐ | Input gain, output gain, pan, width, polarity, and dry/wet. |
 | EQ | ✅ Implemented | ⭐⭐⭐⭐⭐ | Four bands with bell, shelves, high pass, and low pass, plus shift and output gain. |
 | Chain | ✅ Implemented | ⭐⭐⭐⭐ | Input gain, output gain, and dry/wet container. |
+| Extension container chains | ✅ Implemented | ⭐⭐⭐⭐ | Extension `DeviceKind::Container` devices get a host-owned serial child chain via `DeviceSpec::container`, including a wet FX chain. The bundled Reverb uses it. Parallel and sidechain routing remain unsupported. |
 | Stock instruments | 📋 Planned | ⭐⭐ | Start with one simple synth and one sampler. A WASM synth example ships in `notwig-ext-devices`, but no stock instrument exists yet. |
-| Stock effects | 📋 Planned | ⭐⭐⭐ | Delay, reverb, compressor, limiter, filter, saturation, and chorus. |
+| Stock effects | 📋 Planned | ⭐⭐⭐ | Core delay, compressor, filter, saturation, and chorus. Limiter, gate, and reverb already ship in the bundled extension pack. |
 | Device presets | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Device A/B compare | 🚫 Not Planned | ⭐⭐⭐ | Disable the plugin to compare A/B. |
 | Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | Insert points exist, drag does not. |
 | Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |
-| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM and native devices provide metadata, DSP, custom panels, and note events; `notwig-ext-devices` ships a limiter, gate, and a simple polyphonic synth. Device state blobs are still deferred. |
+| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM and native devices provide metadata, DSP, custom panels, note events, and host-owned container chains; `notwig-ext-devices` ships a limiter, gate, reverb with a wet FX chain, and a simple polyphonic synth. Device state blobs are still deferred. |
 
 ## Plugins
 

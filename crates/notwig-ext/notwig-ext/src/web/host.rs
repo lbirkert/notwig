@@ -10,6 +10,10 @@ use crate::web::panel::WebExtensionPanelHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionStatus};
 
+/// Browser host for WASM extension packages.
+///
+/// Loads packages with the platform WebAssembly API and mirrors the native
+/// host's device factory and panel interfaces.
 pub struct WebExtensionHost {
     loaded: Arc<WebLoadedExtensions>,
     errors: Vec<String>,
@@ -61,6 +65,7 @@ impl WebExtensionHost {
         }
     }
 
+    /// Returns the status of every supplied package.
     #[must_use]
     pub fn infos(&self) -> &[ExtensionInfo] {
         &self.loaded.infos
@@ -72,21 +77,25 @@ impl WebExtensionHost {
         &self.errors
     }
 
+    /// Returns deduplicated device specs from loaded packages.
     #[must_use]
     pub fn specs(&self) -> Vec<DeviceSpec> {
         self.loaded.specs()
     }
 
+    /// Returns `true` when a loaded package provides `type_id`.
     #[must_use]
     pub fn has_type(&self, type_id: &str) -> bool {
         self.loaded.by_type.contains_key(type_id)
     }
 
+    /// Creates a dynamic device factory for the loaded packages.
     #[must_use]
     pub fn factory(&self) -> Arc<dyn DeviceFactory> {
         Arc::new(WebExtensionDeviceFactory::new(Arc::clone(&self.loaded)))
     }
 
+    /// Creates a panel host that keeps per-device UI state.
     #[must_use]
     pub fn panel_host(&self) -> Box<dyn DevicePanelHost> {
         Box::new(WebExtensionPanelHost::new(Arc::clone(&self.loaded)))

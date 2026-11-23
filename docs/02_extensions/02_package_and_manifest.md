@@ -42,7 +42,7 @@ builds a ZIP:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 4,
+  "api_version": 5,
   "capabilities": ["device", "ui.panel"],
   "devices": [
     {
@@ -69,7 +69,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
 | `version` | yes | Package version string. |
-| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `4`. |
+| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `5`. |
 | `entrypoints` | installed only | Ordered target builds; the CLI adds it. The first supported entry wins. |
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
@@ -164,8 +164,10 @@ manifests omit it and `notwig-ext-cli` adds it.
 
 ### Native and WASM
 
-WASM extensions run in a sandboxed runtime with a memory limit and per-call fuel
-metering.
+WASM extensions run in a sandboxed runtime. Under the native host, wasmtime
+enforces a 64 MiB memory limit and 20 million fuel per call. The browser host
+uses the platform `WebAssembly` API and does not add a memory cap or fuel
+metering; it relies on the browser sandbox.
 
 Native shared libraries load into the Notwig process and have the same access as
 the application. There is no sandbox for native code. Only install native

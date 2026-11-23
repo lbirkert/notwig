@@ -1,3 +1,32 @@
+//! Author-facing SDK for building Notwig extension devices.
+//!
+//! An extension implements [`DeviceExtension`] for each device type, registers
+//! those types on an [`Extension`] runtime, and exposes one entrypoint
+//! annotated with [`notwig_extension`]. The macro generates the WASM or native
+//! ABI exports that the host uses to describe, create, prepare, process, and
+//! draw devices. Panels use the re-exported [`egui`] API and return a validated
+//! [`panel_frame::PanelFrame`].
+//!
+//! ```text
+//! use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
+//!
+//! struct MyDevice;
+//! impl DeviceExtension for MyDevice {
+//!     fn new() -> Self { Self }
+//!     fn spec() -> notwig_core::dsp::DeviceSpec { /* build the spec */ }
+//!     fn draw(&mut self, ui: &mut notwig_ext_api::egui::Ui, meter: notwig_ext_api::DeviceMeterSnapshot) { /* draw */ }
+//!     fn process(&mut self, samples: &mut [f32]) { /* in-place DSP */ }
+//! }
+//!
+//! #[notwig_extension]
+//! pub fn extension(extension: &mut Extension) {
+//!     extension.register_device::<MyDevice>();
+//! }
+//! ```
+//!
+//! The host requires an exact [`ABI_VERSION`] match. Changing an export
+//! signature, wire layout, or documented contract requires bumping that value.
+
 #![deny(unsafe_code)]
 
 pub mod abi;

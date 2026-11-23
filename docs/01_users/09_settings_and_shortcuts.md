@@ -41,27 +41,18 @@ to an available option and reports the problem on the page.
 
 ### Monitoring latency
 
-Live monitoring passes through an input buffer and an output buffer. With a
-device block of `B` frames, the software path is roughly:
-
-```text
-microphone -> input block B -> monitor path -> output block B -> speaker
-```
-
-So a 16-frame block adds about 32 frames of software buffering: roughly 0.67 ms
-at 48 kHz. Real microphone-to-speaker latency is higher because it also includes
-the audio interface, driver safety offsets, and converters.
-
+Live monitoring passes through an input buffer and an output buffer, so a smaller
+**Device Block Size** lowers the software part of microphone-to-speaker latency.
 When **Render the project in a higher block size than monitoring** is enabled,
-tracks in **Low Latency** mode also use the render-ahead worker's low ring. That
-ring keeps about 2 ms of monitor audio queued to avoid dropouts, so Low Latency
-monitoring has roughly 2 ms more delay than the inline path. When higher-block
-rendering is on, tracks in **Enabled** mode instead follow the High latency
-buffer. When higher-block project rendering is off, there is no low ring and Low
-Latency behaves like **Enabled**.
+tracks in **Low Latency** mode also use the render-ahead worker's low ring, which
+keeps a small amount of monitor audio queued to avoid dropouts. Tracks in
+**Enabled** mode instead follow the **High latency buffer**.
 
-The browser build always uses the in-process callback path and has no render
-worker or low ring.
+The full explanation of the two-block estimate, the low ring, the native worker
+paths, and the browser path lives in
+[Audio Engine §9](../03_development/02_audio_engine.md#9-monitoring-latency-and-recording-capture).
+The monitoring-mode semantics are also summarized in
+[Tracks and Mixing](03_tracks_and_mixing.md#track-controls).
 
 On the browser build the driver list includes **Web Audio**. It plays through
 the browser's default output. Enabling audio does not request microphone access;

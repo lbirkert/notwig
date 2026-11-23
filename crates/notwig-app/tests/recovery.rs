@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 
+use notwig_app::clock::{Duration, Instant};
 use notwig_app::workspace::Workspace;
 use notwig_app::workspace::project_registry;
 use notwig_core::ids::{DeviceChain, Track};
-use notwig_core::{Id, Meta, ProjectDoc, SampleRate};
+use notwig_core::protocol::CommandPayload;
+use notwig_core::{DeviceKind, Id, Meta, ProjectDoc, SampleRate};
 use uuid::Uuid;
 
 fn doc_named(name: &str) -> ProjectDoc {
@@ -119,6 +121,126 @@ fn corrupt_autosave_keeps_recovery_available_for_discard() {
     workspace.discard_recovery().unwrap();
     assert!(!workspace.recovery_offered);
     assert_eq!(notwig_project::list_autosaves(&bundle).len(), 0);
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn autosave_failure_does_not_advance_deadline() {
+    let dir = temp_dir();
+    let bundle = dir.join("Song.notwig");
+    notwig_project::save(&doc_named("Song"), &bundle).unwrap();
+
+    let mut workspace = Workspace::open(&bundle).unwrap();
+    workspace.dirty = true;
+    workspace.last_autosave = Instant::now().checked_sub(Duration::from_secs(61)).unwrap();
+    let blocked = dir.join("blocked");
+    std::fs::write(&blocked, b"not a directory").unwrap();
+    workspace.bundle = Some(blocked);
+
+    let before = workspace.last_autosave;
+    workspace.autosave_if_due();
+    assert_eq!(workspace.last_autosave, before);
+    assert!(
+        workspace
+            .status
+            .as_deref()
+            .is_some_and(|status| status.contains("Autosave failed"))
+    );
+
+    workspace.bundle = Some(bundle.clone());
+    workspace.dirty = true;
+    workspace.last_autosave = Instant::now().checked_sub(Duration::from_secs(61)).unwrap();
+    let before_success = workspace.last_autosave;
+    workspace.autosave_if_due();
+    assert!(workspace.last_autosave > before_success);
+    assert_eq!(notwig_project::list_autosaves(&bundle).len(), 1);
+
+    workspace.end_session();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn recovered_autosave_reloads_plugin_state_blobs() {
+    let dir = temp_dir();
+    let bundle = dir.join("Song.notwig");
+    let mut workspace = Workspace::new_empty().unwrap();
+    let master = workspace.doc.master_track().unwrap();
+    let chain = workspace.doc.tracks.get(&master).unwrap().main_chain;
+    workspace
+        .insert_stock(
+            chain,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
+            DeviceKind::AudioFx,
+            None,
+        )
+        .unwrap();
+    let device_id = *workspace
+        .doc
+        .devices
+        .iter()
+        .find(|(_, device)| device.type_id == notwig_core::dsp::stock::TOOL_TYPE_ID)
+        .map(|(id, _)| id)
+        .unwrap();
+    let state = notwig_plugins::PluginState {
+        format: notwig_plugins::PluginFormat::Vst3,
+        plugin_uid: "recovered-plugin".into(),
+        plugin_version: "2.0".into(),
+        blob: vec![5, 6, 7, 8],
+    };
+    workspace.set_plugin_state(device_id, state.clone());
+    let autosave_doc = workspace.doc.clone();
+    workspace.save(Some(&bundle)).unwrap();
+
+    workspace
+        .apply(CommandPayload::RemoveDevice { device_id })
+        .unwrap();
+    workspace.save(None).unwrap();
+    notwig_project::autosave(&autosave_doc, &bundle, 1).unwrap();
+    notwig_project::create_session_lock(&bundle).unwrap();
+
+    let mut reopened = Workspace::open(&bundle).unwrap();
+    assert!(reopened.plugin_state(device_id).is_none());
+    assert!(reopened.recovery_offered);
+    reopened.recover_latest_autosave().unwrap();
+    assert_eq!(reopened.plugin_state(device_id), Some(&state));
+
+    reopened.end_session();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn failed_candidate_recovery_keeps_lock_and_autosaves() {
+    let dir = temp_dir();
+    let bundle = dir.join("Song.notwig");
+    prepare_recovery(&bundle, "Recovered");
+    std::fs::write(bundle.join("autosave/snapshot-0-9.json"), b"not json").unwrap();
+
+    let mut workspace = Workspace::new_empty().unwrap();
+    assert!(workspace.recover_candidate(&bundle).is_err());
+    assert!(notwig_project::has_session_lock(&bundle));
+    assert_eq!(notwig_project::list_autosaves(&bundle).len(), 2);
+
+    workspace.discard_candidate(&bundle).unwrap();
+    assert!(!notwig_project::has_session_lock(&bundle));
+    assert_eq!(notwig_project::list_autosaves(&bundle).len(), 0);
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn failed_candidate_discard_keeps_lock_and_autosaves() {
+    let dir = temp_dir();
+    let bundle = dir.join("Song.notwig");
+    prepare_recovery(&bundle, "Recovered");
+    let lock = notwig_project::session_lock_path(&bundle);
+    std::fs::remove_file(&lock).unwrap();
+    std::fs::create_dir(&lock).unwrap();
+
+    let mut workspace = Workspace::new_empty().unwrap();
+    assert!(workspace.discard_candidate(&bundle).is_err());
+    assert!(notwig_project::has_session_lock(&bundle));
+    assert_eq!(notwig_project::list_autosaves(&bundle).len(), 1);
 
     std::fs::remove_dir_all(dir).unwrap();
 }

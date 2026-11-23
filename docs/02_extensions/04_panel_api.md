@@ -126,20 +126,26 @@ call `ui.ctx().request_repaint()` for animations and meters.
 
 ## Limits
 
-Host limits are enforced on the WASM boundary:
+Frame and package limits are enforced by both hosts. Resource limits are
+enforced only by the native wasmtime host:
 
-| Limit | Value |
-| --- | --- |
-| entrypoint file size | 64 MiB |
-| WASM linear memory | 64 MiB |
-| WASM fuel | 20,000,000 per call |
-| egui primitives per frame | 8192 |
-| vertices per frame | 262,144 |
-| indices per frame | 786,432 |
-| textures per frame | 256 |
-| texture side | 8192 px |
-| serialized panel frame | 8 MiB |
-| actions per frame | 256 |
+| Limit | Value | Enforced by |
+| --- | --- | --- |
+| entrypoint file size | 64 MiB | native and browser |
+| WASM linear memory | 64 MiB | native wasmtime only |
+| WASM fuel | 20,000,000 per call | native wasmtime only |
+| egui primitives per frame | 8192 | native and browser |
+| vertices per frame | 262,144 | native and browser |
+| indices per frame | 786,432 | native and browser |
+| textures per frame | 256 | native and browser |
+| texture side | 8192 px | native and browser |
+| serialized panel frame | 8 MiB | native and browser |
+| actions per frame | 256 | native and browser |
+
+The browser host uses the platform `WebAssembly` API, which provides neither
+fuel metering nor a host-configurable linear-memory cap, so it relies on the
+browser sandbox for compute and memory limits. It does cap `notwig.host.log`
+and `notwig.host.notify` copies at 8 KiB per call.
 
 `PanelFrame::validate()` enforces finite geometry, clip ordering, index bounds,
 texture sizes, command/action counts, and the frame budget. The host calls it

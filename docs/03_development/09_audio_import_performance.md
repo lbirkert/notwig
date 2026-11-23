@@ -205,7 +205,8 @@ technically available. It is still not the shortest route to a faster import:
   and a deterministic output contract;
 - the first dispatch pays shader compilation cost;
 - decoding remains on the CPU, so Amdahl's law caps the gain;
-- a table-based CPU resampler already turns 228 ms into 32.5 ms for this file.
+- a table-based CPU resampler prototype turned 228 ms into about 33 ms for this
+  file, while the adopted `rubato` path lands at about 56 ms.
 
 ### Duration analysis and header probing
 

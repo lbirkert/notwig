@@ -1,6 +1,9 @@
 # Testing edit operations
 
-Status: test contract for [`Editing`](03_editing.md). The tape model, property tests, adapter tests, lowering tests, and gesture tests are in place. Read the design contract first.
+Status: test contract for [`Editing`](03_editing.md). The tape model, property
+tests, lowering tests, and gesture tests are in place. The independent tape
+oracle and the reusable adapter contract suite are planned. Read the design
+contract first.
 
 ## 1. Test seam
 
@@ -21,7 +24,9 @@ The goal is not to test each editor separately. The goal is to prove that all ed
 | Fuzzing | No panics and no invariant breaks on large random inputs. | Nightly or on demand. |
 | Benchmarks | Plans stay linear in selection size. | Before release. |
 
-The first six layers are the gate. Fuzzing and benchmarks catch slow drift.
+The implemented layers are the gate. The tape oracle and adapter contract
+suite become gate tests when they are added. Fuzzing and benchmarks catch slow
+drift.
 
 ## 3. The tape model
 

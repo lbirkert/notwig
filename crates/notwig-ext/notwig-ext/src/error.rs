@@ -1,3 +1,4 @@
+/// Errors from discovery, loading, install, and runtime ABI calls.
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum ExtensionError {
     #[error("wasm error: {0}")]

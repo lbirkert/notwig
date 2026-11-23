@@ -1,12 +1,18 @@
 use serde::{Deserialize, Serialize};
 
 /// Bytes used by one encoded note event on the extension ABI.
+///
+/// Layout: `sample_offset` as little-endian `u32` at bytes `0..4`, kind at byte
+/// `4` (`0` off, `1` on), pitch at byte `5`, bytes `6..8` reserved, and velocity
+/// as little-endian `f32` at bytes `8..12`.
 pub const NOTE_EVENT_BYTES: usize = 12;
 
 /// Whether a note event starts or stops a note.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoteKind {
+    /// A note-off event.
     Off,
+    /// A note-on event.
     On,
 }
 
@@ -38,6 +44,8 @@ impl From<notwig_core::dsp::NoteEvent> for NoteEvent {
 }
 
 /// Encodes a note event into the fixed-size extension wire format.
+///
+/// See [`NOTE_EVENT_BYTES`] for the byte layout. Reserved bytes are zero.
 #[must_use]
 pub fn encode_note_event(event: &NoteEvent) -> [u8; NOTE_EVENT_BYTES] {
     let mut bytes = [0_u8; NOTE_EVENT_BYTES];
@@ -52,6 +60,9 @@ pub fn encode_note_event(event: &NoteEvent) -> [u8; NOTE_EVENT_BYTES] {
 }
 
 /// Decodes one fixed-size note event, returning `None` for invalid data.
+///
+/// Rejects slices shorter than [`NOTE_EVENT_BYTES`], unknown kind bytes, and
+/// non-finite velocities. Extra trailing bytes are ignored.
 #[must_use]
 pub fn decode_note_event(bytes: &[u8]) -> Option<NoteEvent> {
     if bytes.len() < NOTE_EVENT_BYTES {

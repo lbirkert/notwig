@@ -77,10 +77,10 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `time.rs` | Musical/audio time, ranges, tempo map, units, colors, schema version |
 | `tracks.rs` | Track kinds, routing, mixer, track forest/projections |
 | `sequencer.rs` | Arranger clips, MIDI/audio payloads, notes, audio slices |
-| `protocol.rs` | `CommandPayload`, `EngineMsg`, `RtEvent`, schedules, plan handles |
-| `apply.rs` | Pure-ish command application: document in, document + engine messages out |
-| `edit/` | Editor-agnostic editing algebra and arranger adapter |
-| `dsp/` | Device contracts, parameters, registry, plan compilation, stock devices, factories, monitoring |
+| `protocol/` | Command, delta, query, plan, schedule, engine-message, and runtime-event schemas in focused modules |
+| `apply/` | Pure-ish command application: dispatch, transport, tracks, clips, notes, devices, assets, audio math |
+| `edit/` | Editor-agnostic editing algebra (`algebra/`: materialize, delete, paste, move, trim) and arranger adapter |
+| `dsp/` | Device contracts, parameters, registry, plan compilation, extension container processing, stock devices (`stock/`: specs, tool, eq, chain, biquad), factories, monitoring |
 
 ### `notwig-project` — persistence and assets
 
@@ -103,14 +103,15 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `params.rs` | Parameter specs, ranges, smoothing, normalized mapping |
 | `registry.rs` | Type ID to device spec/processor resolution |
 | `graph.rs` | Compile `ProjectDoc` into a `CompiledPlan` (tracks, sends, chains, latency) |
-| `stock.rs` | Stock EQ, Tool, and Chain definitions/processors |
+| `container.rs` | Host-owned container processor for extension stages, child chains, and wet blending |
+| `stock/` | Stock device facade; specs, Tool, EQ, Chain, and shared biquad math |
 | `factory.rs` | `DeviceFactory` trait, stock factory, and composite factory |
 | `monitor.rs` | Lock-free per-device audio monitor ring for plugin editor meters |
 | `smoothing.rs` | Parameter smoothing primitives |
 
 ### `notwig-ext-api` — extension SDK and panel transport
 
-ABI v4 makes the guest panel the only extension panel path. Extensions run a private
+ABI v5 adds extension container metadata; the guest panel remains the only extension panel path. Extensions run a private
 `egui::Context` and return validated meshes, texture deltas, and host actions.
 
 | Module | Responsibility |
@@ -127,7 +128,7 @@ ABI v4 makes the guest panel the only extension panel path. Extensions run a pri
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
 | `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
 | `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device panel draw dispatch |
-| `abi.rs` | ABI version (`4`), status codes, pointer/length packing, helper re-exports |
+| `abi.rs` | ABI version (`5`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -159,7 +160,7 @@ ABI v4 makes the guest panel the only extension panel path. Extensions run a pri
 
 | Module | Responsibility |
 |---|---|
-| `build.rs` | Build one target entrypoint or package existing target artifacts together, transform the manifest, filter includes, and write the ZIP |
+| `build/` | `source` discovery and Cargo metadata, `compile` per-target builds, `package` ZIP/manifest assembly, `paths` package path rules |
 | `scaffold.rs` | `new`/`init`: Cargo.toml, `src/lib.rs`, source manifest, default icon |
 | `target.rs` | Canonical target to Rust triple, artifact suffix, and entrypoint naming |
 | `error.rs` | CLI errors |
@@ -172,10 +173,12 @@ describes the extension subsystem and crate boundaries.
 | Module | Responsibility |
 |---|---|
 | `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
-| `gate.rs` | Gate `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
-| `synth.rs` | Polyphonic synth `DeviceExtension` impl: oscillator, ADSR, note handling |
+| `gate/` | Gate `DeviceExtension` impl split into `params`, `spec`, `panel`, and `dsp` modules |
+| `synth/` | Polyphonic synth split into `params`, `spec`, `panel`, and `dsp` modules |
+| `reverb.rs` | Stereo algorithmic reverb, container spec, wet FX chain, and panel |
 | `gain.rs` | Small guest-egui gain example using shared `notwig-ui` controls |
 | `dynamics.rs` | Shared 50-frame peak/gain history and egui history-graph painter |
+| `ui.rs` | Shared knob caption helper |
 | `lib.rs` | `#[notwig_extension]` entrypoint registering all devices |
 
 ### `notwig-engine` — real-time execution
@@ -203,34 +206,33 @@ describes the extension subsystem and crate boundaries.
 | `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 adapters built on vendored `notwig-rack` |
 | `cache.rs` | Persisted plugin scan cache |
 | `types.rs` | Format-agnostic descriptors, metadata, states, capabilities, errors |
-| `native_editor.rs` | Native plugin editor window lifecycle |
+| `native_editor/` | Native plugin editor window lifecycle: editor/monitor pump, AppKit host, Space-key monitor, platform stub |
 | `rack.rs` | Vendored `notwig-rack` integration details and latency reporting |
 
 ### `notwig-ui` — views and interaction
 
 | Module | Responsibility |
 |---|---|
-| `views/shell.rs` | App bar, transport toolbar, status bar, layout, shortcuts, notifications |
-| `views/arranger/` | Track lanes, clip interaction, track headers, navigation, drop preview, edit helpers |
+| `views/shell/` | App bar, transport toolbar, status bar, layout, shortcuts, overlays, help, drag/drop |
+| `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, panel, actions, geometry, model, navigation |
-| `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation, panel |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; `extension.rs` builds the draw context, and `panel_render.rs` composites guest egui textures/meshes and bridges input |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation; panel split into range selection, slice paint, slice gestures |
+| `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
+| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
-| `views/settings/mod.rs` | Settings window and category navigation |
-| `views/settings/shortcuts.rs` | Shortcut editor page and key capture |
-| `commands.rs` | Shortcut command catalog, chords, bindings, and config |
+| `views/settings/` | Settings window/navigation plus audio, audio-channel, extension, and shortcut pages |
+| `commands/` | Shortcut command catalog, chords, bindings, and config |
+| `state/` | Selection, viewport, notifications, open editor, edit focus |
 | `views/render.rs` | Render mixdown window |
 | `components/` | Extension-facing knobs, faders, meters, labels, sections, toggles, dropdowns, and formatters |
 | `palette.rs` | Shared color constants for the app and guest components |
 | `widgets/` | App-only draggable numbers, form helpers, brand assets, icons, theme |
 | `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
-| `widgets/timeline/` | Shared beat strip, clip visuals, grid, snap controls, selection, drop preview, interaction math |
+| `widgets/timeline/` | Shared beat strip (`beat_strip/`: interaction and paint), clip visuals, grid, snap controls, selection, drop preview, interaction math |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
-| `state.rs` | Selection, viewport, global snap settings, open editor, notifications, edit focus |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
 
@@ -240,8 +242,8 @@ describes the extension subsystem and crate boundaries.
 |---|---|
 | `lib.rs` | Shared native/browser library surface and module wiring |
 | `main.rs` | Clap-based CLI entrypoint, demo/new/render/info/scan commands |
-| `gui.rs` | `eframe` app, intent handling, dialogs, plugin windows, runtime projection |
-| `workspace/mod.rs` | Project lifecycle, command application, undo/redo, tracks, devices, transport |
+| `gui/` | `eframe` app facade plus intents, audio supervision, recording, render, dialogs, plugin windows, extensions, platform edges |
+| `workspace/` | Project lifecycle facade plus command application, engine, persistence, transport, tracks, devices, clips, sample rate, render |
 | `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |
@@ -292,11 +294,11 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Panel wire validation | `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs` |
 | Panel bridge | `crates/notwig-ext/notwig-ext-api/tests/panel_bridge.rs` |
 | Extension ABI helpers | `crates/notwig-ext/notwig-ext-api/tests/abi_helpers.rs` |
-| Limiter, gate, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
+| Limiter, gate, reverb, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext/notwig-ext-api/tests/index_config.rs` |
 | Extension ZIP install | `crates/notwig-ext/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |
-| Built limiter/synth load through the host | `crates/notwig-ext/notwig-ext/tests/limiter_extension.rs` |
+| Built limiter/reverb/synth load through the host | `crates/notwig-ext/notwig-ext/tests/limiter_extension.rs` |
 | Extension panel transport | `crates/notwig-ext/notwig-ext/tests/abi.rs` |
 | Engine playback/rendering | `crates/notwig-engine/tests/render.rs` |
 | Control exchange and prepared runtimes | `crates/notwig-engine/tests/control.rs` |
@@ -331,17 +333,17 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 ### Add a document command
 
-1. Add the variant to `CommandPayload` in `notwig-core/src/protocol.rs`.
+1. Add the variant to `CommandPayload` in `notwig-core/src/protocol/commands.rs`.
 2. Update `requires_plan_rebuild` if the command changes graph topology.
-3. Implement application in `notwig-core/src/apply.rs`; emit `EngineMsg` only
+3. Implement application in the matching `notwig-core/src/apply/` submodule; emit `EngineMsg` only
    when the engine needs to react.
-4. Add a `Workspace` method in `notwig-app/src/workspace/`.
-5. Add a `UiIntent` variant and handle it in `gui.rs`.
+4. Add a `Workspace` method in the matching `notwig-app/src/workspace/` submodule.
+5. Add a `UiIntent` variant and handle it in `gui/intents.rs`.
 6. Add tests at the apply layer and, if UI-driven, at the workspace layer.
 
 ### Add a stock device
 
-1. Define the spec and processor in `notwig-core/src/dsp/stock.rs`.
+1. Define the spec in `notwig-core/src/dsp/stock/specs.rs` and the processor in the matching stock submodule.
 2. Register it in `stock_registry`.
 3. Add parameters with sensible ranges/defaults and smoothing.
 4. Add UI-specific presentation only if the generic device panel is insufficient.
@@ -350,8 +352,8 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 ### Add a keyboard shortcut
 
 1. Add a `ShortcutCommand` variant and its `CommandSpec` entry in
-   `notwig-ui/src/commands.rs`, including a stable id and defaults.
-2. Handle the command in `notwig-ui/src/views/shell.rs` (or the focused editor) with
+   `notwig-ui/src/commands/`, including a stable id and defaults.
+2. Handle the command in `notwig-ui/src/views/shell/` (or the focused editor) with
    `shortcuts.was_pressed(ctx, ShortcutCommand::YourCommand)`.
 3. Emit a `UiIntent` or call the existing workspace/UI behavior.
 4. Add the user-facing action to [`Roadmap`](06_roadmap.md) when it lands.
@@ -361,7 +363,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 1. Keep view code in `notwig-ui`.
 2. Emit `UiIntent`; do not mutate `ProjectDoc` directly.
-3. Put behavior in `Workspace` or `gui.rs`.
+3. Put behavior in `Workspace` or the matching `gui/` submodule.
 4. Reuse `widgets/`, `widgets/timeline/`, and `widgets/form.rs` helpers instead of local copies.
 5. Add a headless render test in `crates/notwig-ui/tests/`.
 
@@ -379,7 +381,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    emit parameter changes through `panel_frame::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship a source `extension.json` with `api_version: 4`, no `entrypoints`, the
+4. Ship a source `extension.json` with `api_version: 5`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
    with `notwig-ext-cli build --entrypoint <target>` on each platform, then run
@@ -402,48 +404,28 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 These are the largest or most mixed modules. Split along concrete seams when
 changing them; do not add unrelated responsibilities.
 
-- `crates/notwig-core/src/apply.rs` — dispatch, transport, tracks, clips, audio
-  math, notes, devices, and assets share one module. Split by command family and
-  move audio slice/trim math beside the edit algebra.
-- `crates/notwig-core/src/edit/algebra.rs` — materialize, copy/cut, delete/split,
-  paste/duplicate, move, and trim should become separate modules behind
-  `edit/mod.rs`.
-- `crates/notwig-core/src/protocol.rs` — commands, deltas, queries, plan handles,
-  schedules, engine messages, and runtime events are one schema module.
-- `crates/notwig-core/src/dsp/stock.rs` — device specs, Tool, EQ/biquad, and Chain
-  are independent; split them and share one biquad module.
-- `crates/notwig-ui/src/views/audio_editor/panel.rs` — view, gestures, lowering, and
-  clip-specific state are all in one module.
-- `crates/notwig-ui/src/views/arranger/mod.rs` — track lanes, clip interaction, and
-  timeline gestures are still coupled.
-- `crates/notwig-ui/src/views/arranger/track.rs` — row paint, header hit-testing,
-  drag/drop, lane gestures, and context menus should be split.
-- `crates/notwig-ui/src/views/midi_editor/panel.rs` — note drag, paint, velocity
-  lane, and audition geometry share one closure.
-- `crates/notwig-ui/src/views/settings/mod.rs` — audio device policy, channel
-  mapping, extension management, and settings navigation are one module.
-- `crates/notwig-ui/src/views/shell.rs` — app bar, transport toolbar, status bar, shortcuts, and windows.
-- `crates/notwig-app/src/gui.rs` — `NotwigApp` is a god object mixing lifecycle,
-  intent policy, recording, rendering, web bridge, dialogs, and platform edges.
-- `crates/notwig-app/src/workspace/mod.rs` — still owns several command groups;
-  asset, engine, and plugin concerns have already been extracted.
+- `crates/notwig-ui/src/views/arranger/mod.rs` — track lanes, clip interaction,
+  and timeline gestures are still coupled; it also rebuilds `TimelineGrid` four
+  times per frame.
 - `crates/notwig-engine/src/engine.rs` — control application and the real-time
   process loop are still large, but they are tightly coupled to private engine
   state. Split only if that area keeps changing.
 - `crates/notwig-app/src/engine_process/worker.rs` — build, recording, control,
   and snapshot relay are related but still share one worker lifecycle.
-- `crates/notwig-plugins/src/native_editor.rs` — editor instance, AppKit window
-  hosting, Space-key monitoring, and platform stubs are one module.
-- `crates/notwig-rack/*/src/lib.rs` — each format backend is a single large file
-  mixing scanning, plugin core, host callbacks, transport, MIDI, events, and
-  editor. Split per backend when changing one rather than all at once.
+- `crates/notwig-ext/notwig-ext/src/panel.rs` and `web/panel.rs` — panel
+  instance caching and frame relay remain paired but separate per transport.
+- `crates/notwig-core/src/apply/clips.rs` — `split_clip` and `edit_clip` remain
+  the largest single command implementations.
+- `crates/notwig-ui/src/views/shell/shortcuts.rs` and `top_bar.rs` — the
+  shortcut router and transport bar are still large even after the file split.
 
 Deferred structural work:
 
-- Split the clip editor and arranger by view/interaction/lowering.
 - Extract an `AudioSettingsDraft` type so driver/device/sample-rate reset policy
   is not spread across UI closures.
 - Add a shared popup-window builder for settings, render, DSP, and future dialogs.
+- Replace the arranger's repeated `TimelineGrid` construction with one shared
+  grid per frame.
 
 ## Conventions
 

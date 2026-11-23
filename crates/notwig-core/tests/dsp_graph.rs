@@ -344,3 +344,29 @@ fn solo_effective_agrees_across_core_and_plan() {
         &[(group, false), (child, false), (other, false)],
     );
 }
+
+#[test]
+fn registry_latest_uses_highest_schema_version_not_registration_order() {
+    let mut registry = DeviceRegistry::new();
+    let mut spec = notwig_core::dsp::stock::tool_spec();
+    spec.type_id = "test.versioned".into();
+
+    spec.version = SchemaVersion::new(0, 2);
+    registry.register(spec.clone());
+    spec.version = SchemaVersion::new(1, 0);
+    registry.register(spec.clone());
+    spec.version = SchemaVersion::new(0, 1);
+    registry.register(spec.clone());
+
+    assert_eq!(
+        registry.resolve_latest("test.versioned").unwrap().version,
+        SchemaVersion::new(1, 0)
+    );
+
+    spec.version = SchemaVersion::new(2, 0);
+    registry.register(spec);
+    // A later registration of a higher version also wins regardless of the
+    // order the bucket was populated in.
+    let latest = registry.resolve_latest("test.versioned").unwrap();
+    assert_eq!(latest.version, SchemaVersion::new(2, 0));
+}

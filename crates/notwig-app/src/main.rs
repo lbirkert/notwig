@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use clap::{Parser, Subcommand};
 use notwig_app::{gui, logging};
 use notwig_core::dsp::EngineCaps;
 use notwig_core::ids::{Asset, DeviceChain, Track};
@@ -20,8 +21,6 @@ use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("usage: {0}")]
-    Usage(String),
     #[error("project error: {0}")]
     Project(#[from] ProjectError),
     #[error("core error: {0}")]
@@ -38,38 +37,111 @@ enum AppError {
     Gui(String),
 }
 
+/// Notwig digital audio workstation.
+#[derive(Debug, Parser)]
+#[command(name = "notwig", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<CliCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+enum CliCommand {
+    /// Open the graphical editor.
+    Ui {
+        /// Project bundle to open.
+        #[arg(value_name = "BUNDLE")]
+        bundle: Option<PathBuf>,
+    },
+    /// Create a new project bundle.
+    New {
+        /// Path of the bundle to create.
+        #[arg(value_name = "BUNDLE")]
+        bundle: PathBuf,
+    },
+    /// Generate a demo project and render it to WAV.
+    Demo {
+        /// Directory for the bundle, source WAV, and rendered WAV.
+        #[arg(value_name = "DIR", default_value = "notwig-demo")]
+        dir: PathBuf,
+    },
+    /// Render a project bundle to WAV.
+    Render {
+        /// Project bundle to render.
+        #[arg(value_name = "BUNDLE")]
+        bundle: PathBuf,
+        /// Destination WAV file.
+        #[arg(value_name = "OUT")]
+        out: PathBuf,
+        /// Start beat.
+        #[arg(long, value_name = "BEATS", default_value_t = 0.0)]
+        start: f64,
+        /// End beat (defaults to the arrangement end).
+        #[arg(long, value_name = "BEATS")]
+        end: Option<f64>,
+    },
+    /// Print project information.
+    Info {
+        /// Project bundle to inspect.
+        #[arg(value_name = "BUNDLE")]
+        bundle: PathBuf,
+    },
+    /// Scan installed plugins into a cache file.
+    #[command(hide = true)]
+    ScanPlugins {
+        /// Destination cache file.
+        #[arg(value_name = "CACHE")]
+        cache: PathBuf,
+    },
+    /// Measure output-to-input loopback latency.
+    Loopback {
+        /// Audio driver name.
+        #[arg(long, value_name = "NAME")]
+        driver: Option<String>,
+        /// Output device name.
+        #[arg(long, value_name = "NAME")]
+        device: Option<String>,
+        /// Input device name.
+        #[arg(long, value_name = "NAME")]
+        input_device: Option<String>,
+        /// Sample rate in Hz.
+        #[arg(long, value_name = "HZ")]
+        rate: Option<u32>,
+        /// Measurement duration in seconds.
+        #[arg(long, value_name = "SECONDS", default_value_t = 6.0)]
+        duration: f64,
+        /// Click interval in milliseconds.
+        #[arg(long, value_name = "MS", default_value_t = 500)]
+        interval_ms: u64,
+        /// Save the captured input to a WAV file.
+        #[arg(long, value_name = "PATH")]
+        out: Option<PathBuf>,
+    },
+    /// Internal engine process entrypoint.
+    #[command(hide = true)]
+    EngineHost,
+    /// Internal plugin load probe entrypoint.
+    #[command(hide = true)]
+    LoadPlugin,
+    /// Internal plugin metadata probe entrypoint.
+    #[command(hide = true)]
+    ProbePlugin,
+}
+
 fn main() {
     logging::init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Err(err) = run(&args) {
+    let cli = Cli::parse();
+    if let Err(err) = run(cli) {
         eprintln!("error: {err}");
         std::process::exit(1);
     }
 }
 
-fn run(args: &[String]) -> Result<(), AppError> {
-    let Some(command) = args.first().map(String::as_str) else {
-        return gui::run(None).map_err(AppError::Gui);
-    };
-    match command {
-        "scan-plugins" => {
-            let path = args
-                .get(1)
-                .ok_or_else(|| AppError::Usage("scan-plugins <cache.json>".into()))?;
-            scan_plugins(Path::new(path))
-        }
-        "engine-host" => notwig_app::engine_process::run_engine_host().map_err(AppError::Gui),
-        "load-plugin" => load_plugin_probe(false),
-        "probe-plugin" => load_plugin_probe(true),
-        "ui" => {
-            let initial = args.get(1).map(PathBuf::from);
-            gui::run(initial).map_err(AppError::Gui)
-        }
-        "new" => {
-            let path = args
-                .get(1)
-                .ok_or_else(|| AppError::Usage("new <bundle.notwig>".into()))?;
-            let bundle = PathBuf::from(path);
+fn run(cli: Cli) -> Result<(), AppError> {
+    match cli.command {
+        None => gui::run(None).map_err(AppError::Gui),
+        Some(CliCommand::Ui { bundle }) => gui::run(bundle).map_err(AppError::Gui),
+        Some(CliCommand::New { bundle }) => {
             let name = bundle
                 .file_stem()
                 .and_then(|name| name.to_str())
@@ -79,126 +151,64 @@ fn run(args: &[String]) -> Result<(), AppError> {
             println!("created {}", saved.path.display());
             Ok(())
         }
-        "demo" => {
-            let dir = PathBuf::from(args.get(1).cloned().unwrap_or_else(|| "notwig-demo".into()));
-            run_demo(&dir)
+        Some(CliCommand::Demo { dir }) => run_demo(&dir),
+        Some(CliCommand::Render {
+            bundle,
+            out,
+            start,
+            end,
+        }) => render_bundle(&bundle, &out, start, end),
+        Some(CliCommand::Info { bundle }) => print_info(&bundle),
+        Some(CliCommand::ScanPlugins { cache }) => scan_plugins(&cache),
+        Some(CliCommand::Loopback {
+            driver,
+            device,
+            input_device,
+            rate,
+            duration,
+            interval_ms,
+            out,
+        }) => run_loopback(
+            driver,
+            device,
+            input_device,
+            rate,
+            duration,
+            interval_ms,
+            out,
+        ),
+        Some(CliCommand::EngineHost) => {
+            notwig_app::engine_process::run_engine_host().map_err(AppError::Gui)
         }
-        "render" => {
-            let bundle = args
-                .get(1)
-                .ok_or_else(|| AppError::Usage("render <bundle.notwig> <out.wav>".into()))?;
-            let out = args
-                .get(2)
-                .ok_or_else(|| AppError::Usage("render <bundle.notwig> <out.wav>".into()))?;
-            let mut start_beat = 0.0;
-            let mut end_beat = None;
-            let mut index = 3;
-            while index < args.len() {
-                match args[index].as_str() {
-                    "--start" => {
-                        start_beat = parse_f64(args.get(index + 1))?;
-                        index += 2;
-                    }
-                    "--end" => {
-                        end_beat = Some(parse_f64(args.get(index + 1))?);
-                        index += 2;
-                    }
-                    other => return Err(AppError::Argument(other.into())),
-                }
-            }
-            render_bundle(Path::new(bundle), Path::new(out), start_beat, end_beat)
-        }
-        "info" => {
-            let bundle = args
-                .get(1)
-                .ok_or_else(|| AppError::Usage("info <bundle.notwig>".into()))?;
-            print_info(Path::new(bundle))
-        }
-        "loopback" => run_loopback(&args[1..]),
-        "help" | "--help" | "-h" => {
-            print_help();
-            Ok(())
-        }
-        other => Err(AppError::Usage(format!("unknown command '{other}'"))),
+        Some(CliCommand::LoadPlugin) => load_plugin_probe(false),
+        Some(CliCommand::ProbePlugin) => load_plugin_probe(true),
     }
 }
 
-fn print_help() {
-    println!("notwig {}", env!("CARGO_PKG_VERSION"));
-    println!("usage:");
-    println!("  notwig ui [bundle.notwig]");
-    println!("  notwig new <bundle.notwig>");
-    println!("  notwig demo [dir]");
-    println!("  notwig render <bundle.notwig> <out.wav> [--start beats] [--end beats]");
-    println!("  notwig info <bundle.notwig>");
-    println!("  notwig loopback [--driver NAME] [--device NAME] [--input-device NAME]");
-    println!(
-        "                   [--rate HZ] [--duration SECONDS] [--interval-ms MS] [--out input.wav]"
-    );
-}
-
-fn run_loopback(args: &[String]) -> Result<(), AppError> {
+fn run_loopback(
+    driver: Option<String>,
+    device: Option<String>,
+    input_device: Option<String>,
+    rate: Option<u32>,
+    duration: f64,
+    interval_ms: u64,
+    out: Option<PathBuf>,
+) -> Result<(), AppError> {
     let saved = notwig_app::audio_config::load();
     let mut options = notwig_app::loopback::LoopbackOptions {
         driver: saved.driver,
         device: saved.device,
-        input_device: None,
-        sample_rate: saved.sample_rate.unwrap_or(48_000),
-        duration_ms: 6_000,
-        interval_ms: 500,
-        output: None,
+        input_device,
+        sample_rate: rate.unwrap_or_else(|| saved.sample_rate.unwrap_or(48_000)),
+        duration_ms: (duration.max(0.5) * 1000.0).round() as u64,
+        interval_ms: interval_ms.clamp(100, 10_000),
+        output: out,
     };
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--driver" => {
-                options.driver.clone_from(
-                    args.get(index + 1)
-                        .ok_or_else(|| AppError::Usage("--driver needs a value".into()))?,
-                );
-                index += 2;
-            }
-            "--device" => {
-                options.device.clone_from(
-                    args.get(index + 1)
-                        .ok_or_else(|| AppError::Usage("--device needs a value".into()))?,
-                );
-                index += 2;
-            }
-            "--input-device" => {
-                options.input_device = Some(
-                    args.get(index + 1)
-                        .ok_or_else(|| AppError::Usage("--input-device needs a value".into()))?
-                        .clone(),
-                );
-                index += 2;
-            }
-            "--rate" => {
-                options.sample_rate = parse_u32(args.get(index + 1))?;
-                index += 2;
-            }
-            "--duration" => {
-                let seconds = parse_f64(args.get(index + 1))?;
-                options.duration_ms = (seconds.max(0.5) * 1000.0).round() as u64;
-                index += 2;
-            }
-            "--interval-ms" => {
-                options.interval_ms = parse_u64(args.get(index + 1))?.clamp(100, 10_000);
-                index += 2;
-            }
-            "--out" => {
-                options.output =
-                    Some(PathBuf::from(args.get(index + 1).ok_or_else(|| {
-                        AppError::Usage("--out needs a path".into())
-                    })?));
-                index += 2;
-            }
-            other => {
-                return Err(AppError::Argument(format!(
-                    "unknown loopback option '{other}'"
-                )));
-            }
-        }
+    if let Some(driver) = driver {
+        options.driver = driver;
+    }
+    if let Some(device) = device {
+        options.device = device;
     }
     let report = notwig_app::loopback::run(&options).map_err(AppError::Argument)?;
     println!("{}", report.summary());
@@ -209,27 +219,6 @@ fn run_loopback(args: &[String]) -> Result<(), AppError> {
         println!("recorded input: {}", path.display());
     }
     Ok(())
-}
-
-fn parse_u32(value: Option<&String>) -> Result<u32, AppError> {
-    value
-        .ok_or_else(|| AppError::Usage("expected an integer".into()))?
-        .parse::<u32>()
-        .map_err(|error| AppError::Argument(error.to_string()))
-}
-
-fn parse_u64(value: Option<&String>) -> Result<u64, AppError> {
-    value
-        .ok_or_else(|| AppError::Usage("expected an integer".into()))?
-        .parse::<u64>()
-        .map_err(|error| AppError::Argument(error.to_string()))
-}
-
-fn parse_f64(value: Option<&String>) -> Result<f64, AppError> {
-    value
-        .ok_or_else(|| AppError::Usage("expected a number".into()))?
-        .parse::<f64>()
-        .map_err(|err| AppError::Argument(err.to_string()))
 }
 
 fn create_project(name: &str) -> Result<ProjectDoc, AppError> {

@@ -58,6 +58,33 @@ The extension runtime keeps one guest egui context per UI instance. Device state
 that is not a parameter belongs in the device struct and is rebuilt if the
 engine rebuilds instances.
 
+## Runtime and ABI rules
+
+- `process` runs on the audio path. Do not allocate, lock, block, perform I/O,
+  or log from it. Collect diagnostics and report them from a later host call or
+  through a parameter instead.
+- The generated ABI catches unwinding panics: status calls return
+  `AbiStatus::Error`, pointer calls return null/empty, and destroy is swallowed.
+  A `panic = "abort"` build still aborts, and a WASM trap is not recoverable, so
+  validate inputs and avoid `unwrap`/`panic` in callbacks.
+- The host may keep one instance for DSP and a separate instance for the panel.
+  Calls on one handle are serialized and are not reentrant. Do not call back
+  into the same device handle.
+- `notwig.host.log` and `notwig.host.notify` are available to WASM entrypoints,
+  including the browser host. They decode text lossily, ignore invalid
+  pointer/length pairs, and copy at most 8 KiB per call, marking longer messages
+  as truncated. Decoding is skipped when no tracing subscriber enables the
+  level, but they are still not a substitute for real-time-safe logging.
+- The ABI version must match the host exactly. Changing an export signature, a
+  wire layout, or this contract requires an ABI bump and a rebuild; there is no
+  compatibility negotiation.
+- Native wasmtime enforces a 64 MiB memory limit and 20 million fuel per call.
+  The browser host relies on the browser sandbox and does not configure an
+  explicit memory or fuel cap. Native libraries are trusted and unsandboxed.
+
+The runtime design and version policy are specified in
+[`Extension ABI and Hosts`](../03_development/19_extension_abi_and_hosts.md).
+
 ## Device spec
 
 `DeviceSpec` describes the device to the host and the device browser:
@@ -96,6 +123,7 @@ fn spec() -> DeviceSpec {
         name: "My Gain".into(),
         vendor: "Example".into(),
         ui: DeviceUiSpec::custom(format!("ext:{TYPE_ID}"), Some(180.0)),
+        container: None,
     }
 }
 ```
@@ -160,8 +188,9 @@ fn process(&mut self, samples: &mut [f32]) {
 - Do not allocate, lock, block, or perform I/O in `process`.
 - Keep all per-instance DSP state in the device struct.
 - Do not assume a fixed block size. The host may split large blocks.
-- Return promptly. WASM builds run under per-call fuel metering and a memory
-  limit; native builds run unmonitored.
+- Return promptly. WASM under the native wasmtime host runs with per-call fuel
+  metering and a memory limit; the browser host has neither and native
+  libraries run unmonitored.
 
 `prepare` is the place to compute coefficients that depend on sample rate or
 channel count:
@@ -240,6 +269,47 @@ more than can fit in the prepared event buffer.
 
 Declare an instrument with `DeviceKind::Instrument` and a `NoteEvent` input port.
 Instrument tracks may host at most one instrument.
+
+## Containers
+
+A device with `DeviceKind::Container` gets a host-owned child chain. The host
+owns routing, nesting, latency, nested parameters, and persistence; the
+extension supplies only the stage, parameters, and panel.
+
+```rust
+use notwig_core::dsp::{ContainerRouting, ContainerSpec};
+
+fn spec() -> DeviceSpec {
+    DeviceSpec {
+        kind: DeviceKind::Container,
+        // ...
+        container: Some(ContainerSpec {
+            routing: ContainerRouting::StageThenChildren,
+            wet_param: Some(mix_id()),
+        }),
+        // ...
+    }
+}
+```
+
+- `StageThenChildren` (default) runs `process`, then the child chain. Use it
+  when the chain should process the device output, such as a wet FX chain after
+  a reverb.
+- `ChildrenThenStage` runs the child chain, then `process`.
+- `wet_param = Some(id)` makes the container a wet path. The input is the dry
+  signal, the stage and child chain are the wet path, and the host crossfades
+  with the parameter's `0..=1` value. The stage's `process` must output the wet
+  signal only; do not apply dry/wet inside `process`. The parameter must also be
+  declared in `params`.
+- When no stage can be created, the child chain still processes and no wet blend
+  is applied.
+
+The stock `notwig.chain` device is separate and keeps its own processor. Users
+add or remove child devices through the normal device browser and the chain tab
+on the container card. Extensions cannot inspect or reorder child devices.
+
+Containers are serial only today. Parallel/split paths and sidechain inputs
+need a later routing ABI.
 
 ## Current limits
 

@@ -1,4 +1,3 @@
-#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -500,6 +499,14 @@ impl Workspace {
 #[cfg(target_arch = "wasm32")]
 #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
 impl Workspace {
+    pub fn import_audio(&mut self, _source: &Path) -> Result<AssetId, String> {
+        Err("use import_audio_bytes in the browser".into())
+    }
+
+    pub fn relink_asset(&mut self, _asset_id: AssetId, _path: &Path) -> Result<(), String> {
+        Err("asset relinking is not available in the browser".into())
+    }
+
     pub(super) fn load_assets(&mut self) {}
 
     pub(super) fn persist_asset_file(

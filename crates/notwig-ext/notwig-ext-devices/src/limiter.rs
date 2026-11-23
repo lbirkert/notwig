@@ -11,7 +11,9 @@ use crate::dynamics::{
     History, HistorySample, METER_MIN_DB, ThresholdCurve, follow_peak, linear_to_db,
     paint_history_graph,
 };
+use crate::ui::knob_label;
 
+/// Device type id for the stock limiter.
 pub const TYPE_ID: &str = "notwig.ext.devices.limiter";
 
 /// Fixed lookahead in samples (~1.33 ms at 48 kHz).
@@ -28,21 +30,13 @@ const MAX_THRESHOLD_DB: f64 = 0.0;
 const MIN_RELEASE_SECONDS: f64 = 0.01;
 const MAX_RELEASE_SECONDS: f64 = 0.5;
 
-fn knob_label(ui: &egui::Ui, rect: egui::Rect, label: &str) {
-    ui.painter().with_clip_rect(rect).text(
-        egui::pos2(rect.center().x, rect.bottom() + 8.0),
-        Align2::CENTER_TOP,
-        label,
-        FontId::proportional(10.0),
-        palette::TEXT_MUTED,
-    );
-}
-
+/// Returns the threshold parameter id.
 #[must_use]
 pub fn threshold_id() -> ParamId {
     ParamId::from_uuid(Uuid::from_u128(THRESHOLD_UUID))
 }
 
+/// Returns the release parameter id.
 #[must_use]
 pub fn release_id() -> ParamId {
     ParamId::from_uuid(Uuid::from_u128(RELEASE_UUID))
@@ -56,6 +50,7 @@ fn release_norm(seconds: f64) -> f32 {
     ((seconds - MIN_RELEASE_SECONDS) / (MAX_RELEASE_SECONDS - MIN_RELEASE_SECONDS)) as f32
 }
 
+/// Stock lookahead limiter device.
 #[derive(Debug, Clone)]
 pub struct LimiterDevice {
     sample_rate: f64,
@@ -222,6 +217,7 @@ impl DeviceExtension for LimiterDevice {
             name: "Limiter".into(),
             vendor: "Notwig".into(),
             ui: DeviceUiSpec::custom(format!("ext:{TYPE_ID}"), Some(240.0)),
+            container: None,
         }
     }
 

@@ -371,6 +371,72 @@ fn nested_chain_processes_child_devices() {
 }
 
 #[test]
+fn extension_container_processes_child_devices() {
+    let mut doc = base_doc();
+    let (track, chain) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 500, 24_000);
+    add_audio_clip(&mut doc, track, asset, 20, 1);
+    let child_chain = id::<DeviceChain>(400);
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<DeviceMarker>(300),
+            type_id: "test.container".into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::Container,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![child_chain],
+            name: None,
+        }),
+    )
+    .unwrap();
+    let result = apply(
+        &result.doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: id::<DeviceMarker>(301),
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
+            version: Some(SchemaVersion::V0),
+            kind: DeviceKind::AudioFx,
+            target_chain: child_chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: None,
+        }),
+    )
+    .unwrap();
+    let doc = result.doc;
+
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(24_000, 0.5))],
+        Arc::new(TestFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    engine
+        .apply(EngineMsg::SetParam {
+            device_id: id::<DeviceMarker>(301),
+            param_id: notwig_core::dsp::stock::p_output_gain(),
+            value: ParamValue::F64(-60.0),
+            ramp: None,
+        })
+        .unwrap();
+    engine
+        .apply(EngineMsg::UpdateSchedule {
+            schedule: Arc::new(PlaybackSchedule::from_doc(&doc)),
+        })
+        .unwrap();
+    let output = engine.render_offline(0, 24_000).unwrap();
+    let peak = output
+        .iter()
+        .fold(0.0_f32, |acc, value| acc.max(value.abs()));
+    assert!(
+        peak < 0.01,
+        "extension container should process its child chain, peak={peak}"
+    );
+}
+
+#[test]
 fn block_size_does_not_change_stock_audio() {
     let mut doc = base_doc();
     let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
@@ -471,6 +537,30 @@ impl DeviceProcessor for SineInstrument {
     }
 }
 
+struct PassThrough;
+
+impl DeviceProcessor for PassThrough {
+    fn prepare(
+        &mut self,
+        _config: notwig_core::dsp::RenderConfig,
+    ) -> Result<(), notwig_core::dsp::GraphError> {
+        Ok(())
+    }
+
+    fn reset(&mut self) {}
+
+    fn set_param(&mut self, _param_id: ParamId, _value: &ParamValue) {}
+
+    fn process(
+        &mut self,
+        _ctx: &ProcessContext<'_>,
+        _audio: &mut [f32],
+        _events: &[NoteEvent],
+    ) -> ProcessStatus {
+        ProcessStatus::default()
+    }
+}
+
 struct TestFactory;
 
 impl DeviceFactory for TestFactory {
@@ -481,6 +571,9 @@ impl DeviceFactory for TestFactory {
     ) -> Option<Box<dyn DeviceProcessor>> {
         if device.type_id == "test.sine" {
             return Some(Box::new(SineInstrument::new()));
+        }
+        if device.type_id == "test.container" {
+            return Some(Box::new(PassThrough));
         }
         instantiate_stock_params(&device.type_id, &device.spec, &device.param_values)
     }

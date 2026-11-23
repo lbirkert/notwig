@@ -1,5 +1,7 @@
 use notwig_core::TimeMus;
 
+use super::beats_to_time;
+
 /// Note-value relative to a whole note (e.g. `1/16` is a sixteenth note).
 ///
 /// `TimeMus` counts quarter notes, so a whole note is four beats.
@@ -234,8 +236,4 @@ fn integer_ratio(a: TimeMus, b: TimeMus) -> Option<i64> {
         return None;
     }
     i64::try_from(numerator / denominator).ok()
-}
-
-fn beats_to_time(beats: f64) -> TimeMus {
-    TimeMus::new((beats * 1_000_000.0).round() as i64, 1_000_000)
 }

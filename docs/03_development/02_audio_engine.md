@@ -8,7 +8,8 @@ live monitoring and recording paths, and the latency consequences of each
 execution mode.
 
 Related: [`Architecture`](00_architecture.md),
-[`Code Structure`](01_code_structure.md), and the
+[`Code Structure`](01_code_structure.md),
+[`Routing and Delay Compensation`](21_routing_and_pdc.md), and the
 `crates/notwig-engine/README.md`.
 
 ## Reading guide

@@ -16,14 +16,16 @@ Notwig can:
 - create, save, and reopen directory-based project bundles;
 - import WAV, AIFF, MP3, FLAC, and OGG audio, then arrange audio and MIDI clips;
 - edit audio clip events, MIDI notes, and time selections;
-- host stock Tool, EQ, and Chain devices plus VST3, VST2, AU, and WASM
-  extension devices;
+- host stock Tool, EQ, and Chain devices plus VST3, VST2, CLAP, LV2, and AU
+  plugins and WASM/native extension devices;
 - mix tracks with volume, pan, mute, and solo, with latency compensation;
+- record and monitor linear audio from per-track inputs;
 - loop playback and render an offline mixdown to several audio formats.
 
-Notwig cannot record audio or MIDI, monitor live input, edit automation, warp
-audio, or run on Windows and Linux yet. The [Roadmap](03_development/06_roadmap.md)
-records the exact status of every feature.
+Notwig cannot record MIDI, edit automation, warp audio, use take lanes or
+monitoring modes, or run on Windows and Linux yet. The
+[Roadmap](03_development/06_roadmap.md) records the exact status of every
+feature.
 
 ## Documentation paths
 
@@ -39,10 +41,11 @@ does without assuming knowledge of the Rust code.
 ### Building an extension
 
 Start with the [Extension Overview](02_extensions/00_overview.md) and the
-[Quickstart](02_extensions/01_quickstart.md). Extensions are core WebAssembly
-modules written in Rust against `notwig-ext-api`. They add devices with their
-own DSP and custom panels. The guide covers the package format, the device
-trait, the immediate-mode panel API, host limits, testing, and distribution.
+[Quickstart](02_extensions/01_quickstart.md). Extensions are Rust crates
+written against `notwig-ext-api` and built as WebAssembly modules or native
+shared libraries. They add devices with their own DSP and custom panels. The
+guide covers the package format, the device trait, the immediate-mode panel
+API, host limits, testing, and distribution.
 
 ### Developing Notwig
 

@@ -6,28 +6,45 @@ use crate::error::ExtensionError;
 
 const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
 
+/// An extension directory with a validated manifest and loadable entrypoint.
 #[derive(Debug, Clone)]
 pub struct DiscoveredExtension {
+    /// Parsed and validated manifest.
     pub manifest: ExtensionManifest,
+    /// Extension directory.
     pub dir: PathBuf,
+    /// Absolute path to the selected entrypoint binary.
     pub entry_path: PathBuf,
+    /// Canonical target of the selected entrypoint.
     pub target: String,
 }
 
+/// One extension directory that could not be discovered.
 #[derive(Debug, Clone)]
 pub struct DiscoveryFailure {
+    /// Manifest id when it was readable.
     pub id: Option<String>,
+    /// Fallback directory name used for display.
     pub name: String,
+    /// Directory that failed.
     pub path: PathBuf,
+    /// Human-readable failure reason.
     pub error: String,
 }
 
+/// Result of scanning an extensions directory.
 #[derive(Debug, Clone, Default)]
 pub struct DiscoveryReport {
+    /// Successfully discovered extensions.
     pub extensions: Vec<DiscoveredExtension>,
+    /// Directories that failed validation or entrypoint selection.
     pub failures: Vec<DiscoveryFailure>,
 }
 
+/// Scans `root` for extension subdirectories.
+///
+/// A missing root yields an empty report. Per-extension problems are reported as
+/// `DiscoveryFailure` entries rather than aborting the scan.
 pub fn discover(root: &Path) -> Result<DiscoveryReport, ExtensionError> {
     let mut report = DiscoveryReport::default();
     let entries = match std::fs::read_dir(root) {

@@ -51,6 +51,10 @@ impl From<Rational> for RawRational {
 }
 
 impl Rational {
+    /// Builds a reduced rational.
+    ///
+    /// `den` must be non-zero; invalid input returns a validation error rather
+    /// than panicking.
     pub fn try_new(num: i64, den: u32) -> Result<Self, CoreError> {
         if den == 0 {
             return Err(CoreError::ValidationFailed {
@@ -64,6 +68,11 @@ impl Rational {
         })
     }
 
+    /// Builds a reduced rational.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `den == 0`; use [`Self::try_new`] for fallible input.
     #[must_use]
     pub fn new(num: i64, den: u32) -> Self {
         Self::try_new(num, den).expect("valid rational denominator")
@@ -139,6 +148,9 @@ fn rational_from_i128(mut num: i128, mut den: i128) -> Rational {
     let gcd = gcd_i128(num, den);
     num /= gcd;
     den /= gcd;
+    // Reduction happens in i128 to avoid intermediate overflow. On conversion
+    // back, values that no longer fit saturate (i64::MIN/MAX, u32::MAX) instead
+    // of wrapping, so extreme arithmetic degrades predictably.
     let num = i64::try_from(num).unwrap_or(if num.is_negative() {
         i64::MIN
     } else {
@@ -156,6 +168,7 @@ fn gcd_i128(a: i128, b: i128) -> i128 {
         b = a % b;
         a = t;
     }
+    // gcd(0, 0) has no meaningful value; return 1 so callers never divide by 0.
     if a == 0 {
         1
     } else {
@@ -377,6 +390,9 @@ impl TempoMap {
         f64::from(self.sample_rate.value()) * 60.0 / self.tempo_bpm
     }
 
+    /// Converts musical time to whole samples.
+    ///
+    /// Rounds to the nearest sample and clamps negative times to zero.
     #[must_use]
     pub fn mus_to_samples(self, time: TimeMus) -> u64 {
         let samples = time.as_f64() * self.samples_per_beat();
@@ -387,12 +403,21 @@ impl TempoMap {
         }
     }
 
+    /// Converts samples to musical time at micro-beat (1e-6) resolution.
+    ///
+    /// Quantizing to a fixed fine grid keeps the rational denominator bounded
+    /// as sample counts and tempo vary, instead of exposing tempo-dependent
+    /// denominators everywhere.
     #[must_use]
     pub fn samples_to_mus(self, samples: u64) -> TimeMus {
         let beats = samples as f64 / self.samples_per_beat();
         Rational::new((beats * 1_000_000.0).round() as i64, 1_000_000)
     }
 
+    /// Signed sample delta for a musical interval.
+    ///
+    /// Unlike [`Self::mus_to_samples`] this preserves the sign so callers can
+    /// trim in either direction.
     pub fn samples_delta(self, delta: TimeMus) -> i64 {
         (delta.as_f64() * self.samples_per_beat()).round() as i64
     }

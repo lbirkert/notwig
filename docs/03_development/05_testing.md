@@ -54,8 +54,9 @@ tables below summarize test groups. One row can cover several test functions.
 | Test | Status | Importance | Notes |
 | --- | --- | --- | --- |
 | CLI demo creates a bundle and renders audio | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-app/tests/cli.rs::demo_creates_bundle_and_renders_audio` covers import, devices, save, and render. |
+| CLI help, version, and bad commands | ✅ Implemented | ⭐⭐⭐⭐ | `cli.rs::help_lists_commands_and_versions` checks visible commands and version output; `cli.rs::unknown_command_is_rejected` checks clap error handling. |
 | New project CLI creates a valid bundle | 📋 Planned | ⭐⭐⭐⭐ | The `new` path has no test. |
-| Info CLI reports counts and load issues | 📋 Planned | ⭐⭐⭐ | |
+| Info CLI reports counts and load issues | ✅ Implemented | ⭐⭐⭐ | `cli.rs::demo_creates_bundle_and_renders_audio` checks `info` track and clip counts. Asset load issues are not asserted. |
 | Render CLI honors start and end flags | 🧪 Partial | ⭐⭐⭐⭐ | The demo covers the default range. `--start` and `--end` are untested. |
 | Save, reopen, and render a project | ✅ Implemented | ⭐⭐⭐⭐⭐ | `workspace.rs::create_clip_save_and_render`. |
 | Device parameters change offline render | ✅ Implemented | ⭐⭐⭐⭐⭐ | `workspace.rs::device_parameters_affect_offline_render`. |
@@ -63,7 +64,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Full GUI startup with a project | 🧪 Partial | ⭐⭐⭐⭐ | The shell renders headlessly. Full app startup with an audio device is untested. |
 | Autosave recovery through the app | 🧪 Partial | ⭐⭐⭐⭐ | `notwig-app/tests/recovery.rs` covers lock/autosave offer rules, recover, discard, and corrupt autosaves. The modal itself has no headless render test. |
 | Corrupt or missing project file handling | 📋 Planned | ⭐⭐⭐⭐⭐ | |
-| Bad CLI arguments and missing paths | 📋 Planned | ⭐⭐⭐ | |
+| Missing CLI paths | 📋 Planned | ⭐⭐⭐ | Path existence and shape are untested. |
 
 ## Integration and contract tests
 
@@ -142,7 +143,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Clipboard and edit helpers | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/edit.rs` and `clip_chrome.rs`. |
 | Widget and waveform primitives | ✅ Implemented | ⭐⭐⭐ | `notwig-ui/tests/widgets.rs`, `waveform.rs`, and `device_browser.rs`. |
 | Arranger zoom and pan | ✅ Implemented | ⭐⭐⭐ | |
-| Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | 40 tests in `audio_editor.rs`. |
+| Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | 49 tests in `audio_editor.rs`. |
 | Audio editor trim and clip bounds | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Audio editor copy, cut, paste, duplicate, delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Drop target resolution | ✅ Implemented | ⭐⭐⭐⭐ | |

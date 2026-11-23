@@ -21,6 +21,10 @@ The `notwig-ext-devices` limiter and gate are the reference projects:
   frame output, threshold limiting, release recovery, and parameter rejection.
 - `crates/notwig-ext/notwig-ext-devices/tests/gate.rs` exercises the gate spec, panel frame
   output, open/close behavior, and parameter rejection.
+- `crates/notwig-ext/notwig-ext-devices/tests/reverb.rs` exercises the container
+  spec and wet parameter, pre-delay, tail decay, and parameter rejection.
+- `crates/notwig-core/tests/dsp_container.rs` exercises host-owned container
+  routing, wet blending, nested parameters, and latency.
 - `crates/notwig-ext/notwig-ext-devices/tests/synth.rs` exercises the synth spec, egui
   frame output, oscillator modes, note on/off, ADSR release, and parameter
   rejection.
@@ -142,7 +146,7 @@ An index entry looks like:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 4,
+  "api_version": 5,
   "capabilities": ["device", "ui.panel"],
   "devices": [
     { "name": "Example Gain", "type_id": "com.example.gain.fx" }
@@ -184,7 +188,7 @@ Extension index settings are stored in browser local storage.
 2. Build every published target in release mode.
 3. Run the SDK, device, host, and UI tests.
 4. Package each target ZIP and verify that it contains one valid
-   `extension.json` with the right target and `api_version: 4`.
+   `extension.json` with the right target and `api_version: 5`.
 5. Install the ZIPs through the extension explorer and insert the device.
 6. Save, reopen, and render a project that uses the device.
 7. Publish the ZIPs, fill or verify the hashes in `docs/extensions.csv`, and

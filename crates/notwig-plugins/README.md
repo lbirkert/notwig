@@ -64,7 +64,7 @@ do not need plugin SDKs.
 | `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 implementations |
 | `cache.rs` | `PluginCache`, scan records |
 | `types.rs` | Format-agnostic descriptors/state/errors |
-| `native_editor.rs` | Native editor windows |
+| `native_editor/` | Native editor windows (facade, editor pump, AppKit host, Space-key monitor, stub) |
 | `rack.rs` | `notwig-rack` integration |
 
 ## Tests

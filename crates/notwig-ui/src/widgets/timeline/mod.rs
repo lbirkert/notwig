@@ -13,6 +13,8 @@ use notwig_core::TimeMus;
 
 use crate::theme;
 
+use super::beats_to_time;
+
 pub(crate) use beat_strip::{BeatStrip, BeatStripAction, draw_playhead};
 pub(crate) use clip::*;
 pub(crate) use clip_chrome::{ClipChrome, ClipChromeDrag, ClipChromeEdge, draw_clip_chrome};
@@ -52,10 +54,7 @@ pub(crate) fn horizontal_scrollbar(
     {
         let fraction = f64::from(((pos.x - track.left()) / track.width()).clamp(0.0, 1.0));
         let max_start = (content - visible).max(0.0);
-        return Some(TimeMus::new(
-            ((fraction * max_start) * 1_000_000.0).round() as i64,
-            1_000_000,
-        ));
+        return Some(beats_to_time(fraction * max_start));
     }
     None
 }

@@ -42,7 +42,7 @@ DeviceExtension::draw ──►  PanelFrame + actions    ───►  panels
   artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
-version is `4`. The WASM and native ABIs are different transport layers around
+version is `5`. The WASM and native ABIs are different transport layers around
 the same Rust API.
 
 ## What an extension can do
@@ -53,6 +53,8 @@ An extension can:
 - read and write interleaved `f32` audio;
 - declare continuous, boolean, enum, and discrete parameters;
 - report processing latency;
+- declare a serial container device with a host-owned child chain, including a
+  wet FX chain;
 - draw a custom panel with the real egui API inside its own context;
 - use shared `notwig-ui` controls and the shared color palette;
 - request a repaint or a cursor change.
@@ -62,8 +64,11 @@ A sandboxed WASM extension cannot:
 - access the filesystem, network, threads, or wall clock;
 - read or mutate the project document;
 - load native plugins;
-- create host tabs, windows, or arbitrary host UI;
-- allocate unbounded memory or run without fuel limits.
+- create host tabs, windows, or arbitrary host UI.
+
+The native wasmtime host enforces a 64 MiB memory limit and fuel per call. The
+browser host runs inside the browser sandbox but does not add an explicit
+memory or fuel cap, so those limits are not available there.
 
 A native extension is not sandboxed and runs with the application's privileges.
 Install native extensions only from trusted sources.
@@ -78,5 +83,5 @@ Install native extensions only from trusted sources.
 4. [Panel API](04_panel_api.md) covers the guest panel, shared components,
    input, and actions.
 5. [Testing and Distribution](05_testing_and_distribution.md) covers tests,
-   the example limiter, gate, synth, and gain devices, packaging, and index
-   publishing.
+   the example limiter, gate, reverb, synth, and gain devices, packaging, and
+   index publishing.

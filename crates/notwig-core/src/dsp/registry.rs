@@ -33,7 +33,11 @@ impl DeviceRegistry {
 
     #[must_use]
     pub fn resolve_latest(&self, type_id: &str) -> Option<&DeviceSpec> {
-        self.specs.get(type_id).and_then(|bucket| bucket.last())
+        self.specs.get(type_id).and_then(|bucket| {
+            bucket
+                .iter()
+                .max_by_key(|spec| (spec.version.major, spec.version.minor))
+        })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &DeviceSpec> {

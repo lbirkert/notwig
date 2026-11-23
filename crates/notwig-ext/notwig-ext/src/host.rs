@@ -16,11 +16,21 @@ use crate::instance::ExtensionInstance;
 use crate::native::NativeLibrary;
 use crate::panel::ExtensionPanelHost;
 
+/// Loaded extension registry and entry point for host integration.
+///
+/// Load with [`ExtensionHost::load`], then use [`factory`](Self::factory) to
+/// create audio processors and [`panel_host`](Self::panel_host) to draw device
+/// panels. Loaded extensions are shared behind an `Arc`.
 pub struct ExtensionHost {
     loaded: Arc<LoadedExtensions>,
 }
 
 impl ExtensionHost {
+    /// Discovers and loads extensions under `root` using persisted settings.
+    ///
+    /// Failures are recorded as [`ExtensionInfo`] entries with
+    /// [`ExtensionStatus::Failed`] instead of aborting the load. Disabled
+    /// extensions are reported without being instantiated.
     pub fn load(
         root: &Path,
         settings: &BTreeMap<String, ExtensionSettings>,
@@ -75,26 +85,31 @@ impl ExtensionHost {
         })
     }
 
+    /// Returns the status of every discovered extension, including failures.
     #[must_use]
     pub fn infos(&self) -> &[ExtensionInfo] {
         &self.loaded.infos
     }
 
+    /// Returns deduplicated device specs from all loaded extensions.
     #[must_use]
     pub fn specs(&self) -> Vec<DeviceSpec> {
         self.loaded.specs()
     }
 
+    /// Returns `true` when a loaded extension provides `type_id`.
     #[must_use]
     pub fn has_type(&self, type_id: &str) -> bool {
         self.loaded.by_type.contains_key(type_id)
     }
 
+    /// Creates a dynamic device factory for the loaded extensions.
     #[must_use]
     pub fn factory(&self) -> Arc<dyn DeviceFactory> {
         Arc::new(ExtensionDeviceFactory::new(Arc::clone(&self.loaded)))
     }
 
+    /// Creates a panel host that keeps per-device UI state.
     #[must_use]
     pub fn panel_host(&self) -> Box<dyn DevicePanelHost> {
         Box::new(ExtensionPanelHost::new(Arc::clone(&self.loaded)))

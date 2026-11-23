@@ -105,6 +105,7 @@ fn track_info_shows_total_device_chain_latency() {
         name: "Latency Test".into(),
         vendor: "Notwig".into(),
         ui: DeviceUiSpec::Generic,
+        container: None,
     });
     let doc = apply(
         &doc,

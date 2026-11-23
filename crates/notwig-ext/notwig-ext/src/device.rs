@@ -12,6 +12,10 @@ use crate::compiled::LoadedExtensions;
 use crate::instance::ExtensionInstance;
 use crate::native::NativeInstance;
 
+/// Device factory that creates processors backed by extension instances.
+///
+/// Obtain one from [`crate::ExtensionHost::factory`]. It logs and skips devices
+/// that fail to instantiate rather than panicking on the audio path setup.
 pub struct ExtensionDeviceFactory {
     loaded: Arc<LoadedExtensions>,
 }

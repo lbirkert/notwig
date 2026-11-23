@@ -92,6 +92,13 @@ Extension devices are installed from **Settings > Extensions**. Once installed
 and loaded, they appear under **EXTENSIONS** in the Add Device browser.
 
 - Extension devices provide their own DSP and can provide a custom panel.
+- The bundled `notwig.ext.devices` pack adds Limiter, Gate, Reverb, Synth, and
+  Gain devices.
+- Reverb is a container with a wet FX chain: expand the chain tab on its card
+  and insert devices to process the reverb's wet signal. The device's Mix knob
+  blends the processed wet signal with the dry input.
+- Extension containers use the same chain tab and nested device editing as the
+  stock Chain device. Nested parameters, latency, and bypass work the same way.
 - If an extension cannot draw a custom panel, Notwig uses the generic
   parameter view as a fallback.
 - On desktop, the app uses the first package target it can run, preferring a
@@ -121,6 +128,8 @@ See [Extension Overview](../02_extensions/00_overview.md) for installation and
 
 The engine compensates device latency across tracks, group chains, sends, and
 bypassed devices. Inactive tracks are excluded from processing, and a track
-that is re-enabled rejoins the compensated mix.
+that is re-enabled rejoins the compensated mix. See
+[Routing and Delay Compensation](../03_development/21_routing_and_pdc.md) for
+the latency labels and the known limits.
 
 Next: [Transport, Loop, and Render](08_transport_and_render.md).

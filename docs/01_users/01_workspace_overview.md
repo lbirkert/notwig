@@ -18,6 +18,15 @@ arranger, an optional bottom editor, and a status bar.
 └──────────────────────────────────────────────────────────────┘
 ```
 
+| Region | What it shows | Read more |
+| --- | --- | --- |
+| **App bar** | Project card, centered Notwig title, native window controls. | [App bar and top bar](#app-bar-and-top-bar) |
+| **Top bar** | File menu, transport, tempo, time signature, position, CPU load, master meter. | [App bar and top bar](#app-bar-and-top-bar) |
+| **Info panel** (left) | Selected track, clip, device, time range, or file. | [Info panel](#info-panel) |
+| **Arranger** (centre) | Track headers, timeline, clip lanes, master track. | [Arranger](#arranger), [Arranger guide](04_arranger.md) |
+| **Bottom editor** | Device chain, audio clip editor, or MIDI editor — one at a time. | [Bottom editors](#bottom-editors), [Devices](07_devices.md) |
+| **Status bar** | Info/editor toggles and the current device-editor button. | [Status bar](#status-bar) |
+
 ## App bar and top bar
 
 The app bar is always visible. It shows the project card on the left, derived
@@ -33,7 +42,7 @@ The transport toolbar sits directly below the app bar:
 | **FILE** | New, open, save, save as, import audio, audio settings, and render. |
 | **Play / pause** | Starts playback or pauses at the current position. |
 | **Stop** | Stops playback and returns to the play start. |
-| **Record** | Painted as a future control. Recording is not implemented. |
+| **Record** | Starts playback and recording, or toggles recording while playing. |
 | **Loop** | Turns the transport loop on or off. |
 | **Metronome** | Turns the click on or off. |
 | **CPU load** | Shows engine load. Click it to open the DSP analysis window. |

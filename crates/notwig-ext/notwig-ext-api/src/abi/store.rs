@@ -36,6 +36,10 @@ impl<T> DeviceStore<T> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// Stores `device` and returns a new nonzero handle.
+    ///
+    /// Handles wrap to avoid zero and are never reused. This allocates and takes
+    /// the store lock, so it must not be called from the audio callback.
     pub fn create(&self, device: T) -> i32 {
         let mut inner = self.lock();
         inner.next_handle = inner.next_handle.wrapping_add(1).max(1);
@@ -44,6 +48,11 @@ impl<T> DeviceStore<T> {
         handle
     }
 
+    /// Removes and returns the device for `handle`, or `None` if absent.
+    ///
+    /// Returns `None` while another instance still holds the device lock and
+    /// keeps its `Arc` alive, in which case the entry is removed but the value is
+    /// dropped elsewhere.
     pub fn remove(&self, handle: i32) -> Option<T> {
         let slot = self.lock().devices.remove(&handle)?;
         let mutex = Arc::try_unwrap(slot).ok()?;

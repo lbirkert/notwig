@@ -161,6 +161,10 @@ and boundaries. Start there when working inside a crate.
 - Keep technical pages current with the code. If the code and a development page
   disagree, fix the page (or the code) before merging. These pages lock the
   design in place.
+- `docs/03_development` must document every major design specific: state
+  machines, protocols, lifecycle ordering, threading and real-time contracts,
+  coordinate systems, persistence and recovery rules, and boundary invariants.
+  A design that exists only in code is undocumented and incomplete.
 - Use `<number>_` prefixes for page files and register every page in
   [`docs/SUMMARY.md`](docs/SUMMARY.md). Keep links relative to the page.
 - For documentation-only changes, verify links and referenced paths, and run

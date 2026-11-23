@@ -1,14 +1,17 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample, StreamConfig};
+use crossbeam_queue::ArrayQueue;
 use notwig_core::SampleRate;
 
 use crate::audio::{SYSTEM_OUT_DEVICE_ID, resolve_device, resolve_host, resolve_input_device};
+
+const MAX_INPUT_BLOCKS: usize = 1 << 16;
 
 #[derive(Debug, Clone)]
 pub struct LoopbackOptions {
@@ -127,11 +130,18 @@ pub fn run(options: &LoopbackOptions) -> Result<LoopbackReport, String> {
         })
         .collect();
     let click = Arc::new(click);
-    let clicks = Arc::new(Mutex::new(Vec::<u64>::new()));
-    let input = Arc::new(Mutex::new(Vec::<f32>::new()));
-    let input_timeline = Arc::new(Mutex::new(Vec::<(usize, u64)>::new()));
+    let click_capacity = usize::try_from(options.duration_ms / options.interval_ms.max(1))
+        .unwrap_or(usize::MAX)
+        .saturating_add(16)
+        .max(1);
+    let clicks = Arc::new(ArrayQueue::<u64>::new(click_capacity));
+    let input_capacity = input_sample_capacity(rate, options.duration_ms);
+    let input = Arc::new(ArrayQueue::<f32>::new(input_capacity));
+    let input_timeline = Arc::new(ArrayQueue::<(usize, u64)>::new(MAX_INPUT_BLOCKS));
+    let samples_written = Arc::new(AtomicU64::new(0));
     let frames_emitted = Arc::new(AtomicU64::new(0));
     let running = Arc::new(AtomicBool::new(true));
+    let stream_failed = Arc::new(AtomicBool::new(false));
 
     let output_config = output_stream_config(&output_device, rate)?;
     let input_config = input_stream_config(&input_device, rate)?;
@@ -145,6 +155,7 @@ pub fn run(options: &LoopbackOptions) -> Result<LoopbackReport, String> {
             Arc::clone(&clicks),
             Arc::clone(&frames_emitted),
             Arc::clone(&running),
+            Arc::clone(&stream_failed),
             interval_samples,
             lead_in_samples,
         )
@@ -157,7 +168,9 @@ pub fn run(options: &LoopbackOptions) -> Result<LoopbackReport, String> {
             input_config.0,
             Arc::clone(&input),
             Arc::clone(&input_timeline),
+            Arc::clone(&samples_written),
             Arc::clone(&running),
+            Arc::clone(&stream_failed),
         )
     )?;
 
@@ -172,18 +185,12 @@ pub fn run(options: &LoopbackOptions) -> Result<LoopbackReport, String> {
     drop(output_stream);
     drop(input_stream);
 
-    let click_times = clicks
-        .lock()
-        .map_err(|_| "click timestamp lock poisoned".to_string())?
-        .clone();
-    let samples = input
-        .lock()
-        .map_err(|_| "input lock poisoned".to_string())?
-        .clone();
-    let timeline = input_timeline
-        .lock()
-        .map_err(|_| "input timeline lock poisoned".to_string())?
-        .clone();
+    if stream_failed.load(Ordering::Relaxed) {
+        tracing::warn!("a loopback audio stream reported an error; capture may be incomplete");
+    }
+    let click_times = drain(&clicks);
+    let samples = drain(&input);
+    let timeline = drain(&input_timeline);
     if samples.is_empty() {
         return Err("recording produced no input samples".into());
     }
@@ -249,13 +256,28 @@ fn input_stream_config(
     candidate.ok_or_else(|| format!("input device does not support {rate} Hz"))
 }
 
+fn input_sample_capacity(rate: u32, duration_ms: u64) -> usize {
+    let expected = u128::from(duration_ms.max(500)) * u128::from(rate) / 1000;
+    let margin = u128::from(rate) * 2;
+    usize::try_from(expected.saturating_add(margin)).unwrap_or(usize::MAX)
+}
+
+fn drain<T>(queue: &ArrayQueue<T>) -> Vec<T> {
+    let mut items = Vec::with_capacity(queue.len());
+    while let Some(item) = queue.pop() {
+        items.push(item);
+    }
+    items
+}
+
 fn build_output<T>(
     device: &cpal::Device,
     config: StreamConfig,
     click: Arc<Vec<f32>>,
-    clicks: Arc<Mutex<Vec<u64>>>,
+    clicks: Arc<ArrayQueue<u64>>,
     frames_emitted: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
+    stream_failed: Arc<AtomicBool>,
     interval_samples: u64,
     lead_in_samples: u64,
 ) -> Result<cpal::Stream, String>
@@ -273,48 +295,68 @@ where
                     return;
                 }
                 let start = frames_emitted.load(Ordering::Relaxed);
-                let playback = info.timestamp().playback.as_nanos();
-                let mut recorded_clicks = Vec::new();
-                for frame in 0..(data.len() / channels) {
-                    let position = start + frame as u64;
-                    let (phase, click_start) = if position >= lead_in_samples {
-                        ((position - lead_in_samples) % interval_samples, true)
-                    } else {
-                        (0, false)
-                    };
-                    let sample = if click_start {
-                        click.get(phase as usize).copied().unwrap_or(0.0)
-                    } else {
-                        0.0
-                    };
-                    if click_start && phase == 0 {
-                        let host_nanos =
-                            playback + (frame as u128 * 1_000_000_000 / u128::from(rate));
-                        recorded_clicks.push(u64::try_from(host_nanos).unwrap_or(u64::MAX));
-                    }
-                    for channel in 0..channels {
-                        data[frame * channels + channel] = T::from_sample(sample);
-                    }
-                }
+                render_output_block(
+                    data,
+                    channels,
+                    rate,
+                    start,
+                    info.timestamp().playback.as_nanos(),
+                    &click,
+                    &clicks,
+                    interval_samples,
+                    lead_in_samples,
+                );
                 frames_emitted.fetch_add((data.len() / channels) as u64, Ordering::Relaxed);
-                if !recorded_clicks.is_empty()
-                    && let Ok(mut click_times) = clicks.lock()
-                {
-                    click_times.extend(recorded_clicks);
-                }
             },
-            |error| eprintln!("loopback output error: {error}"),
+            move |_error| stream_failed.store(true, Ordering::Relaxed),
             None,
         )
         .map_err(|error| format!("build loopback output: {error}"))
 }
 
+fn render_output_block<T>(
+    data: &mut [T],
+    channels: usize,
+    rate: u32,
+    start: u64,
+    playback_nanos: u128,
+    click: &[f32],
+    clicks: &ArrayQueue<u64>,
+    interval_samples: u64,
+    lead_in_samples: u64,
+) where
+    T: Sample + FromSample<f32>,
+{
+    for (frame, frame_data) in data.chunks_mut(channels).enumerate() {
+        let position = start + frame as u64;
+        let (phase, click_start) = if position >= lead_in_samples {
+            ((position - lead_in_samples) % interval_samples, true)
+        } else {
+            (0, false)
+        };
+        let sample = if click_start {
+            click.get(phase as usize).copied().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        if click_start && phase == 0 {
+            let host_nanos = playback_nanos + (frame as u128 * 1_000_000_000 / u128::from(rate));
+            let _ = clicks.push(u64::try_from(host_nanos).unwrap_or(u64::MAX));
+        }
+        for sample_slot in frame_data.iter_mut() {
+            *sample_slot = T::from_sample(sample);
+        }
+    }
+}
+
 fn build_input<T>(
     device: &cpal::Device,
     config: StreamConfig,
-    input: Arc<Mutex<Vec<f32>>>,
-    timeline: Arc<Mutex<Vec<(usize, u64)>>>,
+    input: Arc<ArrayQueue<f32>>,
+    timeline: Arc<ArrayQueue<(usize, u64)>>,
+    samples_written: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
+    stream_failed: Arc<AtomicBool>,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + Copy,
@@ -330,22 +372,39 @@ where
                 }
                 let capture =
                     u64::try_from(info.timestamp().capture.as_nanos()).unwrap_or(u64::MAX);
-                let first_index = input.lock().map_or(0, |samples| samples.len());
-                if let Ok(mut samples) = input.lock() {
-                    for frame in data.chunks(channels) {
-                        if let Some(sample) = frame.first() {
-                            samples.push(f32::from_sample(*sample));
-                        }
-                    }
-                }
-                if let Ok(mut timeline) = timeline.lock() {
-                    timeline.push((first_index, capture));
-                }
+                capture_input_block(data, channels, &input, &timeline, &samples_written, capture);
             },
-            |error| eprintln!("loopback input error: {error}"),
+            move |_error| stream_failed.store(true, Ordering::Relaxed),
             None,
         )
         .map_err(|error| format!("build loopback input: {error}"))
+}
+
+fn capture_input_block<T>(
+    data: &[T],
+    channels: usize,
+    input: &ArrayQueue<f32>,
+    timeline: &ArrayQueue<(usize, u64)>,
+    samples_written: &AtomicU64,
+    capture: u64,
+) where
+    T: Sample,
+    f32: FromSample<T>,
+{
+    let first_index =
+        usize::try_from(samples_written.load(Ordering::Relaxed)).unwrap_or(usize::MAX);
+    let mut written = 0u64;
+    for frame in data.chunks(channels) {
+        let Some(sample) = frame.first() else {
+            break;
+        };
+        if input.push(f32::from_sample(*sample)).is_err() {
+            break;
+        }
+        written += 1;
+    }
+    samples_written.fetch_add(written, Ordering::Relaxed);
+    let _ = timeline.push((first_index, capture));
 }
 
 fn detect_onsets(samples: &[f32], rate: usize) -> Vec<usize> {
@@ -412,5 +471,31 @@ mod tests {
             samples[index + 1] = 0.4;
         }
         assert_eq!(detect_onsets(&samples, 48_000), vec![100, 2000, 3900]);
+    }
+
+    #[test]
+    fn render_output_block_queues_clicks_without_growing_storage() {
+        let click = vec![0.5_f32; 8];
+        let clicks = ArrayQueue::new(4);
+        let mut data = vec![0.0_f32; 200];
+        render_output_block(&mut data, 1, 1000, 0, 10_000_000, &click, &clicks, 100, 0);
+
+        assert_eq!(data[0], 0.5);
+        assert_eq!(data[100], 0.5);
+        assert_eq!(drain(&clicks), vec![10_000_000, 110_000_000]);
+    }
+
+    #[test]
+    fn capture_input_block_uses_preallocated_queue_and_timeline() {
+        let input = ArrayQueue::new(3);
+        let timeline = ArrayQueue::new(4);
+        let written = AtomicU64::new(0);
+
+        capture_input_block(&[0.1_f32, 0.2], 1, &input, &timeline, &written, 123);
+        capture_input_block(&[0.3_f32, 0.4], 1, &input, &timeline, &written, 456);
+
+        assert_eq!(written.load(Ordering::Relaxed), 3);
+        assert_eq!(drain(&input), vec![0.1, 0.2, 0.3]);
+        assert_eq!(drain(&timeline), vec![(0, 123), (2, 456)]);
     }
 }

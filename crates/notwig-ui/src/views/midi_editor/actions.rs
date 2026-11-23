@@ -1,7 +1,7 @@
 use notwig_core::edit;
 use notwig_core::{ClipEntity, MidiClipData, RangeMus, TimeMus};
 
-use crate::commands::{KeyChord, ShortcutCommand};
+use crate::commands::ShortcutCommand;
 use crate::intent::UiIntent;
 use crate::shell::NotwigUi;
 use crate::state::EditFocus;
@@ -34,37 +34,7 @@ pub(super) fn handle_midi_editor_actions(
     }
     sync_global_time_selection(ui, state, clip, midi);
     state.sync_notes(&midi.notes);
-    let (copy_native, cut_native, paste_native) = ctx.input(|input| {
-        (
-            input
-                .events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Copy)),
-            input
-                .events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Cut)),
-            input
-                .events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Paste(_))),
-        )
-    });
-    let copy = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Copy)
-        || (copy_native
-            && ui
-                .shortcuts
-                .has_binding(ShortcutCommand::Copy, KeyChord::command(egui::Key::C)));
-    let cut = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Cut)
-        || (cut_native
-            && ui
-                .shortcuts
-                .has_binding(ShortcutCommand::Cut, KeyChord::command(egui::Key::X)));
-    let paste = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Paste)
-        || (paste_native
-            && ui
-                .shortcuts
-                .has_binding(ShortcutCommand::Paste, KeyChord::command(egui::Key::V)));
+    let (copy, cut, paste) = ui.shortcuts.copy_cut_paste_pressed(ctx);
     let duplicate = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate);
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);
     let select_all = ui.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll);

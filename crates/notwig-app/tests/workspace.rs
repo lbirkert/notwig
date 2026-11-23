@@ -25,6 +25,7 @@ fn extension_instrument_spec() -> notwig_core::dsp::DeviceSpec {
         name: "Phase".into(),
         vendor: "Test".into(),
         ui: notwig_core::dsp::DeviceUiSpec::default(),
+        container: None,
     }
 }
 

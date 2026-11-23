@@ -6,12 +6,19 @@ use notwig_ext_api::ExtensionManifest;
 use crate::archive::{MAX_ARCHIVE_BYTES, read_archive, validate_extension_id};
 use crate::error::ExtensionError;
 
+/// An extension installed from a ZIP package.
 #[derive(Debug, Clone)]
 pub struct InstalledExtension {
+    /// Manifest read from the package.
     pub manifest: ExtensionManifest,
+    /// Install directory (`root/id`).
     pub path: PathBuf,
 }
 
+/// Installs a ZIP file from disk under `root`.
+///
+/// When `expected_id` is set, the package id must match. Existing installs are
+/// replaced through a staging directory and backup.
 pub fn install_zip_file(
     root: &Path,
     path: &Path,
@@ -22,6 +29,11 @@ pub fn install_zip_file(
     install_zip_bytes(root, &bytes, expected_id)
 }
 
+/// Installs a ZIP package from memory under `root`.
+///
+/// Validates the archive and manifest before writing, stages files in a hidden
+/// directory, and atomically renames them into place. When `expected_id` is set,
+/// the package id must match.
 pub fn install_zip_bytes(
     root: &Path,
     bytes: &[u8],
@@ -71,6 +83,9 @@ pub fn install_zip_bytes(
     })
 }
 
+/// Removes the installed extension directory for `id`, if present.
+///
+/// Validates the id before deleting so it cannot escape `root`.
 pub fn uninstall(root: &Path, id: &str) -> Result<(), ExtensionError> {
     validate_extension_id(id)?;
     let target = root.join(id);

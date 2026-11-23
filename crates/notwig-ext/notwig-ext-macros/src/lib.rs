@@ -1,3 +1,9 @@
+//! Procedural macros for defining Notwig extension entrypoints.
+//!
+//! This crate provides [`notwig_extension`], which wraps a single registration
+//! function with the generated WASM or native ABI exports. It is re-exported by
+//! `notwig-ext-api`; extension authors normally use that re-export.
+
 #![forbid(unsafe_code)]
 
 use proc_macro::TokenStream;
@@ -20,6 +26,31 @@ use syn::{ItemFn, parse_macro_input};
 /// native shared-library ABI for every other target. Native exports pass
 /// ordinary process pointers, so audio is processed in the host's buffer
 /// without a copy.
+///
+/// # Entrypoint signature
+///
+/// The annotated function must be a non-`async` function taking exactly one
+/// `&mut notwig_ext_api::Extension` argument. The macro takes no options. A
+/// duplicate annotation in one crate produces conflicting `notwig_*` exports at
+/// link time, so exactly one entrypoint may exist per compiled extension.
+///
+/// # Generated exports
+///
+/// Both ABIs export `notwig_abi_version`, `notwig_device_describe`,
+/// `notwig_device_create`, `notwig_device_destroy`, `notwig_device_prepare`,
+/// `notwig_device_set_param`, `notwig_device_process`, `notwig_device_latency`,
+/// and `notwig_device_draw`. The WASM build additionally exports
+/// `notwig_alloc` and `notwig_free` for the host scratch heap.
+///
+/// # ABI and panics
+///
+/// The host requires an exact `notwig_ext_api::ABI_VERSION` match. The generated
+/// exports wrap recoverable bodies in `std::panic::catch_unwind`: status calls
+/// return `AbiStatus::Error`, pointer-returning calls return null/empty, and
+/// `destroy` swallows the panic. This only helps builds that unwind; a
+/// `panic = "abort"` WASM module or native library still aborts, and a WASM trap
+/// cannot be recovered by the host. Return `notwig_ext_api::AbiStatus` errors
+/// instead of panicking for recoverable failures.
 #[proc_macro_attribute]
 pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
@@ -49,10 +80,12 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             ctx_ptr: i32,
             ctx_len: i32,
         ) -> i64 {
-            with_bytes(ctx_ptr, ctx_len, |bytes| {
-                extension().draw_pointer(handle, bytes)
+            catch_value(0, || {
+                with_bytes(ctx_ptr, ctx_len, |bytes| {
+                    extension().draw_pointer(handle, bytes)
+                })
+                .unwrap_or(0)
             })
-            .unwrap_or(0)
         }
     };
     let native_draw_exports = quote! {
@@ -62,14 +95,37 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             ctx_ptr: *const u8,
             ctx_len: usize,
         ) -> NotwigNativeBytes {
-            with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
-                extension()
-                    .draw_bytes(handle, bytes)
-                    .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
-                        NotwigNativeBytes { ptr, len }
+            catch_value(NotwigNativeBytes::empty(), || {
+                unsafe {
+                    with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
+                        extension()
+                            .draw_bytes(handle, bytes)
+                            .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
+                                NotwigNativeBytes { ptr, len }
+                            })
                     })
+                }
+                .unwrap_or_else(NotwigNativeBytes::empty)
             })
-            .unwrap_or_else(NotwigNativeBytes::empty)
+        }
+    };
+    let panic_guards = quote! {
+        fn catch_status(f: impl FnOnce() -> i32) -> i32 {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+                Ok(status) => status,
+                Err(_) => AbiStatus::Error.as_i32(),
+            }
+        }
+
+        fn catch_value<T>(fallback: T, f: impl FnOnce() -> T) -> T {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+                Ok(value) => value,
+                Err(_) => fallback,
+            }
+        }
+
+        fn catch_unit(f: impl FnOnce()) {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
         }
     };
     let expanded = quote! {
@@ -96,6 +152,8 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 })
             }
 
+            #panic_guards
+
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_abi_version() -> i32 {
                 i32::try_from(ABI_VERSION).unwrap_or(1)
@@ -103,33 +161,37 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_alloc(len: i32) -> i32 {
-                alloc(len)
+                catch_value(-1, || alloc(len))
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_free(ptr: i32, len: i32) {
-                free(ptr, len);
+                catch_unit(|| free(ptr, len));
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_describe(type_ptr: i32, type_len: i32) -> i64 {
-                with_str(type_ptr, type_len, |type_id| {
-                    extension().describe_pointer(type_id)
+                catch_value(0, || {
+                    with_str(type_ptr, type_len, |type_id| {
+                        extension().describe_pointer(type_id)
+                    })
+                    .unwrap_or(0)
                 })
-                .unwrap_or(0)
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_create(type_ptr: i32, type_len: i32) -> i32 {
-                with_str(type_ptr, type_len, |type_id| {
-                    extension().create_device(type_id)
+                catch_value(-1, || {
+                    with_str(type_ptr, type_len, |type_id| {
+                        extension().create_device(type_id)
+                    })
+                    .unwrap_or(-1)
                 })
-                .unwrap_or(-1)
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_destroy(handle: i32) {
-                extension().destroy_device(handle);
+                catch_unit(|| extension().destroy_device(handle));
             }
 
             #[unsafe(no_mangle)]
@@ -139,16 +201,18 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 _max_block: i32,
                 channels: i32,
             ) -> i32 {
-                let Ok(sample_rate) = u32::try_from(sample_rate) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                let Ok(channels) = u16::try_from(channels) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                match extension().prepare(handle, sample_rate, channels) {
-                    Ok(()) => AbiStatus::Ok.as_i32(),
-                    Err(status) => status.as_i32(),
-                }
+                catch_status(|| {
+                    let Ok(sample_rate) = u32::try_from(sample_rate) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    let Ok(channels) = u16::try_from(channels) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    match extension().prepare(handle, sample_rate, channels) {
+                        Ok(()) => AbiStatus::Ok.as_i32(),
+                        Err(status) => status.as_i32(),
+                    }
+                })
             }
 
             #[unsafe(no_mangle)]
@@ -159,14 +223,16 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 _tag: i32,
                 value: f64,
             ) -> i32 {
-                let Some(param_id) = read_param_id(param_ptr, param_len) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                match extension().set_param(handle, param_id, value) {
-                    Ok(true) => AbiStatus::Ok.as_i32(),
-                    Ok(false) => AbiStatus::InvalidArgument.as_i32(),
-                    Err(status) => status.as_i32(),
-                }
+                catch_status(|| {
+                    let Some(param_id) = read_param_id(param_ptr, param_len) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    match extension().set_param(handle, param_id, value) {
+                        Ok(true) => AbiStatus::Ok.as_i32(),
+                        Ok(false) => AbiStatus::InvalidArgument.as_i32(),
+                        Err(status) => status.as_i32(),
+                    }
+                })
             }
 
             #[unsafe(no_mangle)]
@@ -179,37 +245,38 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 _sample_position: i64,
                 _playing: i32,
             ) -> i32 {
-                let Ok(frames) = usize::try_from(frames) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                if frames == 0 {
-                    return AbiStatus::Ok.as_i32();
-                }
-                let status = if event_count == 0 {
-                    match extension().process(handle, audio_ptr, frames, &[]) {
-                        Ok(()) => AbiStatus::Ok,
-                        Err(status) => status,
-                    }
-                } else {
-                    let Some(events_len) =
-                        event_count.checked_mul(NOTE_EVENT_BYTES as i32)
-                    else {
+                catch_status(|| {
+                    let Ok(frames) = usize::try_from(frames) else {
                         return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    if frames == 0 {
+                        return AbiStatus::Ok.as_i32();
+                    }
+                    if event_count == 0 {
+                        return match extension().process(handle, audio_ptr, frames, &[]) {
+                            Ok(()) => AbiStatus::Ok.as_i32(),
+                            Err(status) => status.as_i32(),
+                        };
+                    }
+                    let events_len = match event_count.checked_mul(NOTE_EVENT_BYTES as i32) {
+                        Some(len) => len,
+                        None => return AbiStatus::InvalidArgument.as_i32(),
                     };
                     with_bytes(events_ptr, events_len, |events| {
                         match extension().process(handle, audio_ptr, frames, events) {
-                            Ok(()) => AbiStatus::Ok,
-                            Err(status) => status,
+                            Ok(()) => AbiStatus::Ok.as_i32(),
+                            Err(status) => status.as_i32(),
                         }
                     })
-                    .unwrap_or(AbiStatus::InvalidArgument)
-                };
-                status.as_i32()
+                    .unwrap_or(AbiStatus::InvalidArgument.as_i32())
+                })
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_latency(handle: i32) -> i32 {
-                i32::try_from(extension().latency(handle)).unwrap_or(0)
+                catch_value(0, || {
+                    i32::try_from(extension().latency(handle)).unwrap_or(0)
+                })
             }
            #wasm_draw_exports
         }
@@ -236,6 +303,8 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                     extension
                 })
             }
+
+            #panic_guards
 
             /// Two-word pointer/length result shared with the native host.
             #[repr(C)]
@@ -270,12 +339,17 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 type_ptr: *const u8,
                 type_len: usize,
             ) -> NotwigNativeBytes {
-                with_str_ptr(type_ptr, type_len, |type_id| {
-                    extension()
-                        .describe_bytes(type_id)
-                        .map_or_else(NotwigNativeBytes::empty, NotwigNativeBytes::from_bytes)
+                catch_value(NotwigNativeBytes::empty(), || {
+                    unsafe {
+                        with_str_ptr(type_ptr, type_len, |type_id| {
+                            extension().describe_bytes(type_id).map_or_else(
+                                NotwigNativeBytes::empty,
+                                NotwigNativeBytes::from_bytes,
+                            )
+                        })
+                    }
+                    .unwrap_or_else(NotwigNativeBytes::empty)
                 })
-                .unwrap_or_else(NotwigNativeBytes::empty)
             }
 
             #[unsafe(no_mangle)]
@@ -283,15 +357,19 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 type_ptr: *const u8,
                 type_len: usize,
             ) -> i32 {
-                with_str_ptr(type_ptr, type_len, |type_id| {
-                    extension().create_device(type_id)
+                catch_value(-1, || {
+                    unsafe {
+                        with_str_ptr(type_ptr, type_len, |type_id| {
+                            extension().create_device(type_id)
+                        })
+                    }
+                    .unwrap_or(-1)
                 })
-                .unwrap_or(-1)
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_destroy(handle: i32) {
-                extension().destroy_device(handle);
+                catch_unit(|| extension().destroy_device(handle));
             }
 
             #[unsafe(no_mangle)]
@@ -301,16 +379,18 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 _max_block: i32,
                 channels: i32,
             ) -> i32 {
-                let Ok(sample_rate) = u32::try_from(sample_rate) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                let Ok(channels) = u16::try_from(channels) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                match extension().prepare(handle, sample_rate, channels) {
-                    Ok(()) => AbiStatus::Ok.as_i32(),
-                    Err(status) => status.as_i32(),
-                }
+                catch_status(|| {
+                    let Ok(sample_rate) = u32::try_from(sample_rate) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    let Ok(channels) = u16::try_from(channels) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    match extension().prepare(handle, sample_rate, channels) {
+                        Ok(()) => AbiStatus::Ok.as_i32(),
+                        Err(status) => status.as_i32(),
+                    }
+                })
             }
 
             #[unsafe(no_mangle)]
@@ -321,14 +401,16 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 _tag: i32,
                 value: f64,
             ) -> i32 {
-                let Some(param_id) = read_param_id_ptr(param_ptr, param_len) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                match extension().set_param(handle, param_id, value) {
-                    Ok(true) => AbiStatus::Ok.as_i32(),
-                    Ok(false) => AbiStatus::InvalidArgument.as_i32(),
-                    Err(status) => status.as_i32(),
-                }
+                catch_status(|| {
+                    let Some(param_id) = (unsafe { read_param_id_ptr(param_ptr, param_len) }) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    match extension().set_param(handle, param_id, value) {
+                        Ok(true) => AbiStatus::Ok.as_i32(),
+                        Ok(false) => AbiStatus::InvalidArgument.as_i32(),
+                        Err(status) => status.as_i32(),
+                    }
+                })
             }
 
             #[unsafe(no_mangle)]
@@ -341,38 +423,46 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 _sample_position: i64,
                 _playing: i32,
             ) -> i32 {
-                let Ok(frames) = usize::try_from(frames) else {
-                    return AbiStatus::InvalidArgument.as_i32();
-                };
-                if frames == 0 {
-                    return AbiStatus::Ok.as_i32();
-                }
-                let status = if event_count == 0 {
-                    match extension().process_ptr(handle, audio_ptr, frames, &[]) {
-                        Ok(()) => AbiStatus::Ok,
-                        Err(status) => status,
+                catch_status(|| {
+                    let Ok(frames) = usize::try_from(frames) else {
+                        return AbiStatus::InvalidArgument.as_i32();
+                    };
+                    if frames == 0 {
+                        return AbiStatus::Ok.as_i32();
                     }
-                } else {
-                    let Ok(event_count) = usize::try_from(event_count) else {
-                        return AbiStatus::InvalidArgument.as_i32();
+                    if event_count == 0 {
+                        return match unsafe {
+                            extension().process_ptr(handle, audio_ptr, frames, &[])
+                        } {
+                            Ok(()) => AbiStatus::Ok.as_i32(),
+                            Err(status) => status.as_i32(),
+                        };
+                    }
+                    let event_count = match usize::try_from(event_count) {
+                        Ok(count) => count,
+                        Err(_) => return AbiStatus::InvalidArgument.as_i32(),
                     };
-                    let Some(events_len) = event_count.checked_mul(NOTE_EVENT_BYTES) else {
-                        return AbiStatus::InvalidArgument.as_i32();
+                    let events_len = match event_count.checked_mul(NOTE_EVENT_BYTES) {
+                        Some(len) => len,
+                        None => return AbiStatus::InvalidArgument.as_i32(),
                     };
-                    with_bytes_ptr(events_ptr, events_len, |events| {
-                        match extension().process_ptr(handle, audio_ptr, frames, events) {
-                            Ok(()) => AbiStatus::Ok,
-                            Err(status) => status,
-                        }
-                    })
-                    .unwrap_or(AbiStatus::InvalidArgument)
-                };
-                status.as_i32()
+                    unsafe {
+                        with_bytes_ptr(events_ptr, events_len, |events| {
+                            match extension().process_ptr(handle, audio_ptr, frames, events) {
+                                Ok(()) => AbiStatus::Ok.as_i32(),
+                                Err(status) => status.as_i32(),
+                            }
+                        })
+                    }
+                    .unwrap_or(AbiStatus::InvalidArgument.as_i32())
+                })
             }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_device_latency(handle: i32) -> i32 {
-                i32::try_from(extension().latency(handle)).unwrap_or(0)
+                catch_value(0, || {
+                    i32::try_from(extension().latency(handle)).unwrap_or(0)
+                })
             }
            #native_draw_exports
         }

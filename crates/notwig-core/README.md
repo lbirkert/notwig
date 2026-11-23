@@ -48,14 +48,14 @@ or commands uses the types in this crate.
 | `time.rs` | `TimeMus`, `TimeAudio`, `RangeMus`, `Rational`, `TempoMap`, units |
 | `tracks.rs` | Track kinds, mixer, routing, `TrackForest` |
 | `sequencer.rs` | `ClipEntity`, `MidiClipData`, `AudioClipData`, `AudioSlice` |
-| `protocol.rs` | Commands, engine messages, RT events, schedules |
-| `apply.rs` | Command application and validation |
-| `edit/` | Editor-agnostic edit algebra and arranger adapter |
+| `protocol/` | Commands, deltas, queries, plans, schedules, engine messages, RT events |
+| `apply/` | Command application by family: transport, tracks, clips, notes, devices, assets, audio; `apply` enforces an end-state document validation |
+| `edit/` | Edit algebra (`algebra/`: materialize, delete, paste, move, trim) and arranger adapter |
 | `dsp/devices.rs` | Device/processor traits, ports, process context |
 | `dsp/params.rs` | Parameter specs, ranges, smoothing, normalized mapping |
-| `dsp/registry.rs` | Type ID resolution |
+| `dsp/registry.rs` | Type ID and highest-version resolution |
 | `dsp/graph.rs` | `compile` and `CompiledPlan` |
-| `dsp/stock.rs` | EQ/Tool/Chain specs and processors |
+| `dsp/stock/` | Stock specs, Tool, EQ, Chain, and shared biquad math |
 | `dsp/factory.rs` | `DeviceFactory`, stock factory, and composite factory |
 | `dsp/monitor.rs` | Lock-free audio monitor ring for plugin editor instances |
 | `dsp/smoothing.rs` | Smoothing primitives |
@@ -72,10 +72,13 @@ Integration tests live in `tests/`:
 
 - `edit_algebra.rs` — algebra unit tests, laws, and property tests.
 - `domain_flow.rs` — command application and document flows.
+- `apply_validation.rs` — end-state validation at the `apply` boundary.
+- `tempo_audio.rs` — sample-locked audio rescaling and lane overlap resolution.
 - `midi_notes.rs` — MIDI note command validation and editing.
 - `schedule_emission.rs` — playback schedule extraction from the document.
-- `dsp_stock.rs` — stock device behavior and plan compilation.
-- `dsp_graph.rs` — bypass, nested-chain, and inactive-track latency.
+- `dsp_stock.rs` — stock device behavior, including allocation-free chain blocks.
+- `dsp_graph.rs` — bypass, nested-chain, latency, and registry version selection.
+- `dsp_container.rs` — host-owned container routing, wet path, and nesting.
 - `time.rs`, `ids.rs` — time and identity behavior.
 
 ## Benchmarks

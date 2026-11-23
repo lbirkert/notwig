@@ -68,7 +68,6 @@ impl ClipEditorState {
             viewport: Viewport {
                 start: TimeMus::zero(),
                 pixels_per_beat: 80.0,
-                scroll_track: 0,
             },
             selected: SelectionGroup::default(),
             bar_selection: None,

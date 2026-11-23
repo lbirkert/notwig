@@ -5,6 +5,7 @@ use notwig_core::{ClipId, Norm01, NoteEntity, NoteId, RangeMus, TimeMus, TrackId
 
 use crate::state::{SelectionGroup, Viewport};
 use crate::timeline::ClipChromeDrag;
+use crate::widgets::beats_to_time;
 
 use super::model::Pitch;
 
@@ -81,8 +82,7 @@ pub(super) const MAX_PREVIEW_SECONDS: f64 = 0.25;
 
 pub(super) fn capped_preview_length(length: TimeMus, tempo_bpm: f64) -> TimeMus {
     let max_beats = MAX_PREVIEW_SECONDS * tempo_bpm.max(1.0) / 60.0;
-    let max = TimeMus::new((max_beats * 1_000_000.0).round() as i64, 1_000_000);
-    length.min(max)
+    length.min(beats_to_time(max_beats))
 }
 
 pub(super) fn preview_highlight_seconds(length: TimeMus, tempo_bpm: f64) -> f64 {
@@ -96,7 +96,6 @@ impl MidiEditorState {
             viewport: Viewport {
                 start: TimeMus::zero(),
                 pixels_per_beat: 80.0,
-                scroll_track: 0,
             },
             pitch_scroll: 36.0,
             selected: SelectionGroup::default(),

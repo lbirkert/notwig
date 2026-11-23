@@ -42,6 +42,39 @@ impl DeviceUiSpec {
     }
 }
 
+/// How a container's child chain is positioned relative to the device stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum ContainerRouting {
+    /// The device stage runs first, then the child chain processes its output.
+    ///
+    /// Use this for devices whose child chain should process the wet signal,
+    /// such as a reverb with a wet FX chain.
+    #[default]
+    StageThenChildren,
+    /// The child chain runs first, then the device stage processes the result.
+    ChildrenThenStage,
+}
+
+/// Container wiring declared by a [`DeviceSpec`] with [`DeviceKind::Container`].
+///
+/// The host owns the child chain. Extension devices supply only the stage,
+/// parameters, and panel. `wet_param` makes the whole container a wet path:
+/// the input is copied to a dry buffer, the stage and child chain process the
+/// wet path, and the host crossfades between them using the parameter's
+/// normalized value.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ContainerSpec {
+    /// Position of the child chain relative to the device stage.
+    #[serde(default)]
+    pub routing: ContainerRouting,
+    /// Optional parameter that controls the container's dry/wet blend.
+    ///
+    /// The parameter must also appear in [`DeviceSpec::params`]. The host reads
+    /// its `0..=1` value; the stage's `process` must output the wet signal only.
+    #[serde(default)]
+    pub wet_param: Option<ParamId>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeviceSpec {
     pub type_id: String,
@@ -54,6 +87,9 @@ pub struct DeviceSpec {
     pub vendor: String,
     #[serde(default)]
     pub ui: DeviceUiSpec,
+    /// Container wiring for [`DeviceKind::Container`]. `None` uses defaults.
+    #[serde(default)]
+    pub container: Option<ContainerSpec>,
 }
 
 impl DeviceSpec {
@@ -131,9 +167,20 @@ pub struct ProcessStatus {
 }
 
 pub trait DeviceProcessor: Send {
+    /// Prepares the processor for `config` before any [`Self::process`] call.
+    ///
+    /// This runs off the audio thread when an engine is built or reconfigured,
+    /// so implementations may allocate or resize state here. They must not do
+    /// that in `process`.
     fn prepare(&mut self, config: RenderConfig) -> Result<(), super::GraphError>;
     fn reset(&mut self);
     fn set_param(&mut self, param_id: ParamId, value: &ParamValue);
+    /// Processes one in-place, interleaved stereo block.
+    ///
+    /// `audio.len()` is expected to be even and no larger than
+    /// `config.max_block_size * 2` from the preceding [`Self::prepare`];
+    /// implementations commonly walk it with `chunks_exact_mut(2)`. Must not
+    /// allocate, block, or perform I/O on the audio thread.
     fn process(
         &mut self,
         ctx: &ProcessContext<'_>,

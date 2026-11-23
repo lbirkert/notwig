@@ -2,8 +2,8 @@ use notwig_core::dsp::DeviceProcessor;
 use notwig_core::dsp::devices::{DeviceSpec, ProcessContext, RenderConfig, TransportInfo};
 use notwig_core::dsp::params::{ParamSpec, Unit};
 use notwig_core::dsp::stock::{
-    EqProcessor, ToolProcessor, band_param, chain_spec, eq_spec, p_dry_wet, p_eq_output_gain,
-    p_input_gain, p_output_gain, p_polarity_l, tool_spec,
+    ChainProcessor, EqProcessor, ToolProcessor, band_param, chain_spec, eq_spec, p_dry_wet,
+    p_eq_output_gain, p_input_gain, p_output_gain, p_polarity_l, p_swap_lr, tool_spec,
 };
 use notwig_core::{ParamId, ParamValue, TimeMus};
 
@@ -82,6 +82,25 @@ fn tool_gain_changes_are_smoothed() {
 }
 
 #[test]
+fn tool_swap_lr_swaps_channels() {
+    let spec = tool_spec();
+    let swap = param(&spec, p_swap_lr());
+    assert_eq!(swap.name, "Swap L/R");
+    assert_eq!(swap.default, ParamValue::Bool(false));
+
+    let mut tool = ToolProcessor::new(&spec);
+    tool.prepare(config()).unwrap();
+    tool.set_param(p_swap_lr(), &ParamValue::Bool(true));
+    let mut audio = Vec::new();
+    for _ in 0..4096 {
+        audio.extend_from_slice(&[0.5, -0.5]);
+    }
+    tool.process(&ctx(config()), &mut audio, &[]);
+    assert!(audio[8190] < 0.0, "left channel should carry the old right");
+    assert!(audio[8191] > 0.0, "right channel should carry the old left");
+}
+
+#[test]
 fn stock_gain_specs_keep_their_contract() {
     let tool = tool_spec();
     assert_db_param(&tool, p_input_gain(), "Input Gain");
@@ -157,4 +176,55 @@ fn eq_highpass_attenuates_dc() {
     let mut audio = vec![1.0; 4096];
     eq.process(&ctx(config()), &mut audio, &[]);
     assert!(audio[4090].abs() < 0.05);
+}
+
+struct Double;
+
+impl DeviceProcessor for Double {
+    fn prepare(&mut self, _config: RenderConfig) -> Result<(), notwig_core::dsp::GraphError> {
+        Ok(())
+    }
+
+    fn reset(&mut self) {}
+
+    fn set_param(&mut self, _param_id: ParamId, _value: &ParamValue) {}
+
+    fn process(
+        &mut self,
+        _ctx: &ProcessContext<'_>,
+        audio: &mut [f32],
+        _events: &[notwig_core::dsp::NoteEvent],
+    ) -> notwig_core::dsp::ProcessStatus {
+        for sample in audio {
+            *sample *= 2.0;
+        }
+        notwig_core::dsp::ProcessStatus::default()
+    }
+}
+
+#[test]
+fn chain_processes_oversized_blocks_without_resizing_its_dry_buffer() {
+    let spec = chain_spec();
+    let mut chain = ChainProcessor::new(&spec);
+    chain.add_child(notwig_core::DeviceId::nil(), Box::new(Double));
+    let mut small = config();
+    small.max_block_size = 4;
+    chain.prepare(small).unwrap();
+
+    // The prepared dry buffer holds four stereo frames; process four times that
+    // many frames to exercise the oversized defensive path.
+    let mut one_go = vec![0.25_f32; 32];
+    chain.process(&ctx(small), &mut one_go, &[]);
+
+    let mut split = ChainProcessor::new(&spec);
+    split.add_child(notwig_core::DeviceId::nil(), Box::new(Double));
+    split.prepare(small).unwrap();
+    let mut first = vec![0.25_f32; 8];
+    let mut rest = vec![0.25_f32; 24];
+    split.process(&ctx(small), &mut first, &[]);
+    split.process(&ctx(small), &mut rest, &[]);
+
+    let expected: Vec<f32> = first.into_iter().chain(rest).collect();
+    assert_eq!(one_go, expected);
+    assert!(one_go.iter().all(|sample| (*sample - 0.5).abs() < 1e-6));
 }

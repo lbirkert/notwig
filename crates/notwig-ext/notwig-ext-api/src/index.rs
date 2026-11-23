@@ -7,9 +7,12 @@ use crate::abi::ABI_VERSION;
 use crate::manifest::{ExtensionCapability, ManifestError};
 use crate::target;
 
+/// A device advertised by an extension index entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionIndexDevice {
+    /// Display name.
     pub name: String,
+    /// Device type id.
     pub type_id: String,
 }
 
@@ -24,26 +27,39 @@ pub struct ExtensionIndexUrl {
     pub targets: Vec<String>,
 }
 
+/// One installable extension listed in an extension index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionIndexEntry {
+    /// Stable extension id.
     pub id: String,
+    /// Display name.
     pub name: String,
+    /// Vendor string.
     pub vendor: String,
+    /// Human-readable version.
     pub version: String,
+    /// ABI version; must exactly equal [`crate::ABI_VERSION`].
     pub api_version: u32,
+    /// Downloadable packages for different target sets.
     #[serde(default)]
     pub urls: Vec<ExtensionIndexUrl>,
+    /// Declared capabilities.
     #[serde(default)]
     pub capabilities: Vec<ExtensionCapability>,
+    /// Advertised devices.
     #[serde(default)]
     pub devices: Vec<ExtensionIndexDevice>,
+    /// Optional description.
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional relative image path.
     #[serde(default)]
     pub image: Option<String>,
 }
 
 impl ExtensionIndexEntry {
+    /// Validates ids, versions, URLs, hashes, targets, image path, ABI version,
+    /// and device uniqueness.
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.id.trim().is_empty() {
             return Err(ManifestError::Invalid(

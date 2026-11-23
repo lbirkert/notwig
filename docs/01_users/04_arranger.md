@@ -13,9 +13,8 @@ MIDI and audio clips on the right, ordered by beat.
   selected and no time selection, it sets the loop to their combined bounds.
   With neither, it toggles the loop.
 
-The playhead moves during playback. Stop returns to the loop start when looping
-is enabled, otherwise to the play start. Playback wraps at the loop end with
-sample accuracy.
+The playhead moves during playback. Stop returns to the last play start
+regardless of looping. Playback wraps at the loop end with sample accuracy.
 
 ## Creating clips
 

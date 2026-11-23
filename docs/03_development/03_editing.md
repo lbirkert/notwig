@@ -811,12 +811,12 @@ The clip editor is closed by dragging its top handle down. Its height remains re
 The algebra was built first, then each editor moved onto it one at a time. The
 steps below record that path.
 
-1. Add `crates/notwig-core/src/edit/` with `mod.rs` (selection, extract, plan, and model types), `algebra.rs`, and `arranger.rs`. Export the types from `notwig-core`.
+1. Add `crates/notwig-core/src/edit/` with `mod.rs` (selection, extract, plan, and model types), `algebra/` (materialize, delete, paste, move, trim), and `arranger.rs`. Export the types from `notwig-core`.
 2. Add the tape model, property tests, and explicit snapshot tests from [`Editing Testing`](04_editing_testing.md) before any adapter exists. The pure tests are the reference.
 3. Add the arranger model (`ClipId`, `TrackId`, clip payloads) and lowering in `notwig-app/src/edit_lowering.rs`.
-4. Replace the clip-level editing functions in `notwig-app/src/workspace/mod.rs`: `copy_clips`, `copy_time_range`, `cut_selection`, `paste_clips`, `delete_time_range`, `duplicate_time_range`, and the duplicate helpers. The app keeps asset and notification concerns.
+4. Replace the clip-level editing functions in `notwig-app/src/workspace/clips.rs`: `copy_clips`, `copy_time_range`, `cut_selection`, `paste_clips`, `delete_time_range`, `duplicate_time_range`, and the duplicate helpers. The app keeps asset and notification concerns.
 5. Add the audio clip editor model (`SliceId`, one clip lane) and slice lowering in `notwig-ui/src/views/audio_editor/`. Delete the old copy, paste, and delete helpers.
-6. Move the shared selection state from `notwig-ui/src/state.rs` and the slice editor into the core `Selection` type. Keep view state such as viewport, cursor, and drag origin in the UI.
+6. Move the shared selection state from `notwig-ui/src/state/selection.rs` and the slice editor into the core `Selection` type. Keep view state such as viewport, cursor, and drag origin in the UI.
 7. Replace the helpers in `notwig-ui/src/views/arranger/edit.rs` with the algebra and the gesture helpers. `EditTarget`, `ClipboardMode`, `duplicate_plan`, `paste_target`, `clamp_node_shift`, `clamp_bar_shift`, and `duplicate_bar_range` all disappear.
 8. The MIDI adapter is wired through `MidiModel`. The automation adapter remains; it should not need new algebra.
 

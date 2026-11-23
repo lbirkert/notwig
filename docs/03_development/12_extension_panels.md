@@ -67,6 +67,8 @@ host pointer. Only the serialized frame and input snapshot cross the boundary.
   - `notwig_device_draw(handle, context_ptr, context_len) -> pointer/len`
 - ABI version 4 removed the command-panel IR and the capability query, and
   renamed the guest panel wire types to `Panel*`.
+- ABI version 5 added the optional `DeviceSpec` container metadata; the panel
+  wire format is unchanged.
 
 Frames use `postcard`, not JSON. A first frame can include a ~1 MiB font atlas
 and mesh data; JSON would inflate both.
@@ -218,7 +220,8 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 - `src/extension.rs`: `DeviceExtension::draw`, per-slot egui context and
   frame buffer.
 - `src/manifest.rs`: `ui.panel` capability.
-- `src/abi.rs`: ABI version and export names.
+- `src/abi.rs`: ABI version, export names, status codes, and the heap/store/pointer
+  helper facade.
 
 `crates/notwig-ext/notwig-ext-macros`:
 
@@ -226,8 +229,8 @@ sandboxed and fuel-limited. The host validates frames in both cases.
 
 `crates/notwig-ext/notwig-ext`:
 
-- `abi.rs`, `native.rs`, `web/instance.rs`: egui exports, frame budget, decode
-  and validation.
+- `abi/` and `web/instance/`: host imports, memory access, ABI calls, and status
+  decoding split by transport; `native.rs`: native shared-library calls.
 - `instance.rs`, `panel.rs`, `web/panel.rs`: route capable extensions through
   the panel path.
 

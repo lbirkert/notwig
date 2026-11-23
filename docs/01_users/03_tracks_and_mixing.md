@@ -62,11 +62,14 @@ audio device selected there.
 The **MONITORING** section below the input picker selects how an armed audio
 track is monitored:
 
-- **Disabled**: record without monitoring the input.
-- **Enabled**: monitor through the track's device chain, mixer, and routing.
-- **Low Latency**: monitor through the track's device chain at the device's
-  small callback buffer, bypassing groups, sends, and master processing. Track
-  volume, pan, mute, and solo still apply.
+| Mode | Signal path | Use when |
+| --- | --- | --- |
+| **Disabled** | Input is not monitored. | You want to record silently. |
+| **Enabled** | Track device chain → mixer → groups → master. | You need to hear the full mix path. |
+| **Low Latency** | Track device chain at the device's small callback buffer; groups, sends, and master are bypassed. Track volume, pan, mute, and solo still apply. | You need the shortest monitoring delay. |
+
+The device buffering and monitoring-latency details are in
+[Audio Engine §9](../03_development/02_audio_engine.md#9-monitoring-latency-and-recording-capture).
 
 Arm tracks before enabling record mode; clips grow in place while playback runs.
 

@@ -16,6 +16,11 @@ use notwig_core::dsp::DeviceFactory;
 
 const PREVIEW_POOL_CAPACITY: usize = 32;
 
+/// Upper bound on per-block device faults recorded without allocating. A block
+/// with more failing devices than this keeps the first entries and skips the
+/// rest; the cap only matters when many devices fail at once.
+const MAX_RUNTIME_FAULTS: usize = 32;
+
 mod clips;
 mod events;
 mod graph;
@@ -96,6 +101,24 @@ pub struct DeviceMeterRuntime {
     pub input_peak_r: f32,
     pub output_peak_l: f32,
     pub output_peak_r: f32,
+}
+
+/// A device that reported a failed/overloaded block during the last render.
+///
+/// The engine drains these after each block and turns them into
+/// [`notwig_core::RtEvent::Error`] so a misbehaving processor is observable in
+/// the audio snapshot instead of being silently ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeFault {
+    pub device_id: DeviceId,
+}
+
+/// A device in a low-latency monitor chain that could not be prepared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LowLatencyMonitorFailure {
+    pub track_id: TrackId,
+    pub device_id: DeviceId,
+    pub reason: String,
 }
 
 #[derive(Debug)]
@@ -186,6 +209,8 @@ pub struct ActivePlan {
     tempo_bpm: f64,
     sample_rate: u32,
     route_scratch: Vec<f32>,
+    runtime_faults: Vec<RuntimeFault>,
+    low_monitor_failures: Vec<LowLatencyMonitorFailure>,
     low_latency_monitoring: bool,
     measure_meters: bool,
 }
@@ -238,6 +263,7 @@ impl ActivePlan {
             chains.insert(*chain, devices.clone());
         }
         let mut low_monitors = BTreeMap::new();
+        let mut low_monitor_failures = Vec::new();
         for (id, track) in &plan.tracks {
             if track.monitor != notwig_core::MonitorMode::LowLatency {
                 continue;
@@ -248,8 +274,13 @@ impl ActivePlan {
             let mut roots = Vec::new();
             for device_id in chain {
                 if let Some(mut processor) = graph::build_processor(plan, *device_id, factory) {
-                    if processor.prepare(config).is_ok() {
-                        roots.push((*device_id, processor));
+                    match processor.prepare(config) {
+                        Ok(()) => roots.push((*device_id, processor)),
+                        Err(err) => low_monitor_failures.push(LowLatencyMonitorFailure {
+                            track_id: *id,
+                            device_id: *device_id,
+                            reason: err.to_string(),
+                        }),
                     }
                 }
             }
@@ -277,6 +308,8 @@ impl ActivePlan {
             tempo_bpm: plan.config.tempo_bpm,
             sample_rate: plan.config.sample_rate,
             route_scratch: vec![0.0; config.max_block_size.max(1) * 2],
+            runtime_faults: Vec::with_capacity(MAX_RUNTIME_FAULTS),
+            low_monitor_failures,
             low_latency_monitoring: true,
             measure_meters: true,
         })
@@ -411,10 +444,35 @@ impl ActivePlan {
     }
 
     pub fn meter_snapshot(&self) -> Vec<(TrackId, f32, f32, f32, f32)> {
-        self.tracks
-            .iter()
-            .map(|(id, track)| (*id, track.peak_l, track.peak_r, track.rms_l, track.rms_r))
-            .collect()
+        let mut out = Vec::with_capacity(self.tracks.len());
+        self.meter_snapshot_into(&mut out);
+        out
+    }
+
+    /// Copy the current meter values into `out` without allocating.
+    ///
+    /// `out` keeps its capacity across blocks so the audio thread stays out of
+    /// the allocator when it publishes meters.
+    pub fn meter_snapshot_into(&self, out: &mut Vec<(TrackId, f32, f32, f32, f32)>) {
+        out.clear();
+        out.extend(
+            self.tracks
+                .iter()
+                .map(|(id, track)| (*id, track.peak_l, track.peak_r, track.rms_l, track.rms_r)),
+        );
+    }
+
+    /// Append the device faults recorded during the last block into `out`.
+    ///
+    /// This swaps out the runtime's queue so the next block starts clean.
+    pub(crate) fn take_faults_into(&mut self, out: &mut Vec<RuntimeFault>) {
+        out.clear();
+        out.append(&mut self.runtime_faults);
+    }
+
+    /// Take the low-latency monitor prepare failures recorded at build time.
+    pub(crate) fn take_low_monitor_failures(&mut self) -> Vec<LowLatencyMonitorFailure> {
+        std::mem::take(&mut self.low_monitor_failures)
     }
 
     pub fn device_meter_snapshot(&self) -> Vec<(DeviceId, DeviceMeterRuntime)> {
@@ -475,6 +533,7 @@ impl ActivePlan {
         input_bus: Option<&InputBus>,
         input_routes: &[Option<(TrackId, u16)>; MAX_INPUT_TRACKS],
     ) {
+        self.runtime_faults.clear();
         for track in self.tracks.values_mut() {
             track.buffer[..frames * 2].fill(0.0);
             track.pre_fader[..frames * 2].fill(0.0);
@@ -565,11 +624,30 @@ impl ActivePlan {
                         if let Some(processor) = self.processors[index].as_mut() {
                             let (input_peak_l, input_peak_r) =
                                 stereo_peaks(&track.buffer[..frames * 2]);
-                            let _ = processor.process(
+                            let status = processor.process(
                                 &ctx,
                                 &mut track.buffer[..frames * 2],
                                 &track_events,
                             );
+                            // A device that reports silence has no valid output
+                            // for this block. Zeroing avoids passing the
+                            // pre-device buffer through as stale audio.
+                            if status.produced_silence {
+                                track.buffer[..frames * 2].fill(0.0);
+                            }
+                            // Overload/error output may contain garbage. Drop
+                            // non-finite samples here; finite peaks are still
+                            // handled by the final safety clip.
+                            if status.overloaded {
+                                for sample in &mut track.buffer[..frames * 2] {
+                                    if !sample.is_finite() {
+                                        *sample = 0.0;
+                                    }
+                                }
+                                if self.runtime_faults.len() < MAX_RUNTIME_FAULTS {
+                                    self.runtime_faults.push(RuntimeFault { device_id });
+                                }
+                            }
                             let (output_peak_l, output_peak_r) =
                                 stereo_peaks(&track.buffer[..frames * 2]);
                             self.device_meters.insert(

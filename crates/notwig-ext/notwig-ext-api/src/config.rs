@@ -4,16 +4,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::status::ExtensionSettings;
 
+/// Official extension index used when none is configured.
 pub const DEFAULT_INDEX_URL: &str = "https://notwig.lbirkert.com/extensions.json";
+
+/// Current persisted extension-config schema version.
 pub const CONFIG_VERSION: u32 = 3;
 
+/// Persisted extension index list and per-extension settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionConfig {
+    /// Schema version; configs newer than [`CONFIG_VERSION`] are rejected.
     #[serde(default = "default_version")]
     pub version: u32,
+    /// Extension index URLs, defaults to [`DEFAULT_INDEX_URL`].
     #[serde(default)]
     pub indexes: Vec<String>,
+    /// Per-extension settings keyed by extension id.
     #[serde(default)]
     pub settings: BTreeMap<String, ExtensionSettings>,
 }
@@ -33,6 +40,10 @@ impl Default for ExtensionConfig {
 }
 
 impl ExtensionConfig {
+    /// Parses JSON config text.
+    ///
+    /// Accepts the full config object or a legacy bare settings map. Returns an
+    /// error for invalid JSON or a version newer than [`CONFIG_VERSION`].
     pub fn from_json(text: &str) -> Result<Self, String> {
         if let Ok(config) = serde_json::from_str::<Self>(text) {
             if config.version <= CONFIG_VERSION {
@@ -53,6 +64,7 @@ impl ExtensionConfig {
         Err("invalid extension config".into())
     }
 
+    /// Serializes this config as pretty-printed JSON.
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self)
             .map_err(|error| format!("encode extension config: {error}"))

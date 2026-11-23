@@ -3,7 +3,7 @@
   "name": "Notwig Stock Devices",
   "vendor": "Notwig",
   "version": "0.1.0",
-  "api_version": 4,
+  "api_version": 5,
   "capabilities": [
     "device",
     "ui.panel"
@@ -18,6 +18,10 @@
       "type_id": "notwig.ext.devices.gate"
     },
     {
+      "name": "Notwig Stock Reverb",
+      "type_id": "notwig.ext.devices.reverb"
+    },
+    {
       "name": "Notwig Stock Synth",
       "type_id": "notwig.ext.devices.synth"
     },
@@ -26,6 +30,6 @@
       "type_id": "notwig.ext.devices.gain"
     }
   ],
-  "description": "Stereo-linked limiter, gate, a simple polyphonic synthesizer, and a gain example.",
+  "description": "Stereo-linked limiter, gate, algorithmic reverb with a wet FX chain, a simple polyphonic synthesizer, and a gain example.",
   "image": "icon.png"
 }

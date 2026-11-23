@@ -1,19 +1,26 @@
 use notwig_ext_api::target;
 
+/// One supported build target and its Cargo artifact naming.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildTarget {
+    /// Canonical Notwig target identifier.
     pub canonical: &'static str,
+    /// Rust target triple passed to Cargo and `rustup`.
     pub rust_triple: &'static str,
+    /// Platform artifact extension without the dot.
     pub extension: &'static str,
+    /// Platform library prefix (`lib` or empty).
     pub lib_prefix: &'static str,
 }
 
 impl BuildTarget {
+    /// Returns the Cargo artifact file name for `stem`.
     #[must_use]
     pub fn artifact_name(self, stem: &str) -> String {
         format!("{}{stem}.{}", self.lib_prefix, self.extension)
     }
 
+    /// Returns the packaged entrypoint file name for `stem`.
     #[must_use]
     pub fn entrypoint_name(self, stem: &str) -> String {
         format!("{stem}.{}", self.extension)
@@ -65,6 +72,7 @@ const TARGETS: [BuildTarget; 7] = [
     },
 ];
 
+/// Resolves a target identifier, alias, or Rust triple to a [`BuildTarget`].
 #[must_use]
 pub fn resolve(raw: &str) -> Option<BuildTarget> {
     let canonical = target::canonical(raw)?;
@@ -74,6 +82,7 @@ pub fn resolve(raw: &str) -> Option<BuildTarget> {
         .find(|target| target.canonical == canonical)
 }
 
+/// Returns every supported build target.
 #[must_use]
 pub fn all() -> &'static [BuildTarget] {
     &TARGETS

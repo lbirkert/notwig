@@ -1,3 +1,18 @@
+//! Host-side discovery, loading, and integration of Notwig extensions.
+//!
+//! [`ExtensionHost`] scans an extensions directory, validates installed
+//! manifests, loads WASM modules through `wasmtime` or native shared libraries,
+//! and exposes device factories and panel hosts to the rest of the app. The
+//! crate also provides archive validation, ZIP install/uninstall helpers, and
+//! the browser-specific `WebExtensionHost` for WASM-only packages.
+//!
+//! ```text
+//! let host = notwig_ext::ExtensionHost::load(extensions_dir, &settings)?;
+//! let specs = host.specs();
+//! let factory = host.factory();
+//! let panel_host = host.panel_host();
+//! ```
+
 #![deny(unsafe_code)]
 
 mod archive;
@@ -42,4 +57,5 @@ pub use panel::ExtensionPanelHost;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub use web::{WebExtensionHost, WebExtensionPackage};
 
+/// Alias used by host integrations for [`ExtensionError`].
 pub type HostError = ExtensionError;

@@ -10,7 +10,6 @@ fn zoom_keeps_the_beat_under_the_pointer_while_zooming_in() {
     let mut viewport = Viewport {
         start: TimeMus::new(3, 1),
         pixels_per_beat: 80.0,
-        scroll_track: 0,
     };
     let content_left = 56.0;
     let pointer = 640.0;
@@ -33,7 +32,6 @@ fn zooming_in_and_back_out_returns_to_the_same_view() {
     let mut viewport = Viewport {
         start: TimeMus::new(2, 1),
         pixels_per_beat: 80.0,
-        scroll_track: 0,
     };
     let original = viewport;
     let content_left = 56.0;
@@ -60,7 +58,6 @@ fn zoom_never_creates_a_negative_start() {
     let mut viewport = Viewport {
         start: TimeMus::zero(),
         pixels_per_beat: 64.0,
-        scroll_track: 0,
     };
     for _ in 0..40 {
         viewport.zoom_at(0.0, 100.0, 2.0);

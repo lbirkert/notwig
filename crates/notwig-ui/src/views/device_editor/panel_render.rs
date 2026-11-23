@@ -19,6 +19,8 @@ pub(super) fn panel_input(ui: &egui::Ui, target: Rect, size: Vec2, focused: bool
         } else {
             events.push(PanelEvent::PointerGone);
         }
+        // Pointer events always forward; keyboard, text, and clipboard events
+        // are gated on focus so a background panel cannot steal input.
         for event in &input.events {
             match event {
                 egui::Event::PointerMoved(pos) => events.push(PanelEvent::PointerMoved {
@@ -76,6 +78,8 @@ pub(super) fn panel_input(ui: &egui::Ui, target: Rect, size: Vec2, focused: bool
         pixels_per_point: ui.ctx().pixels_per_point(),
         time: Some(time),
         focused,
+        // Clamp the adapter's ceiling to the panel texture limit so extensions
+        // cannot request textures the renderer cannot allocate.
         max_texture_side: u32::try_from(max_texture_side)
             .unwrap_or(4096)
             .clamp(1, notwig_ext_api::panel_frame::MAX_PANEL_TEXTURE_DIM),
@@ -179,6 +183,8 @@ pub(super) fn to_cursor(cursor: CursorIcon) -> egui::CursorIcon {
 }
 
 fn local_point(pos: Pos2, target: Rect) -> [f32; 2] {
+    // Extension panels work in a local space with (0, 0) at the target's
+    // top-left, matching the reported `width`/`height`.
     [pos.x - target.min.x, pos.y - target.min.y]
 }
 
