@@ -2183,3 +2183,163 @@ fn duplicated_track_is_not_auto_named() {
     assert_eq!(workspace.doc.tracks[&copy].name, "Phase copy");
     assert!(!workspace.doc.tracks[&copy].name_is_auto);
 }
+
+#[test]
+fn move_device_reorders_and_crosses_lanes() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let first = workspace.create_track(TrackKind::Audio).unwrap();
+    let second = workspace.create_track(TrackKind::Audio).unwrap();
+    let first_chain = workspace.doc.tracks[&first].main_chain;
+    let second_chain = workspace.doc.tracks[&second].main_chain;
+    workspace
+        .insert_stock(
+            first_chain,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
+            DeviceKind::AudioFx,
+            None,
+        )
+        .unwrap();
+    let device = workspace.doc.chains[&first_chain].devices[0];
+    workspace.move_device(device, second_chain, 0).unwrap();
+    assert_eq!(workspace.doc.chains[&first_chain].devices, Vec::new());
+    assert_eq!(workspace.doc.chains[&second_chain].devices, vec![device]);
+    workspace.undo().unwrap();
+    assert_eq!(workspace.doc.chains[&first_chain].devices, vec![device]);
+    assert_eq!(workspace.doc.chains[&second_chain].devices, Vec::new());
+}
+
+#[test]
+fn copy_paste_and_cut_device_use_one_undo_entry_each() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Audio).unwrap();
+    let chain = workspace.doc.tracks[&track].main_chain;
+    workspace
+        .insert_stock(
+            chain,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
+            DeviceKind::AudioFx,
+            None,
+        )
+        .unwrap();
+    let source = workspace.doc.chains[&chain].devices[0];
+    workspace
+        .apply(CommandPayload::SetDeviceBypass {
+            device_id: source,
+            bypass: true,
+        })
+        .unwrap();
+
+    assert_eq!(workspace.copy_devices(&[source]), 1);
+    let pasted = workspace.paste_devices(chain, 1).unwrap();
+    assert_eq!(pasted.len(), 1);
+    assert_ne!(pasted[0], source);
+    assert_eq!(workspace.doc.chains[&chain].devices.len(), 2);
+    assert!(workspace.doc.devices[&pasted[0]].bypass);
+    assert_eq!(
+        workspace.doc.devices[&pasted[0]].type_id,
+        workspace.doc.devices[&source].type_id
+    );
+
+    workspace.undo().unwrap();
+    assert_eq!(workspace.doc.chains[&chain].devices, vec![source]);
+    workspace.redo().unwrap();
+    assert_eq!(workspace.doc.chains[&chain].devices.len(), 2);
+
+    let pasted_id = workspace.doc.chains[&chain].devices[1];
+    assert_eq!(workspace.cut_devices(&[pasted_id]), 1);
+    assert_eq!(workspace.doc.chains[&chain].devices, vec![source]);
+    workspace.undo().unwrap();
+    assert_eq!(workspace.doc.chains[&chain].devices.len(), 2);
+}
+
+#[test]
+fn copying_a_container_preserves_its_child_chain() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Audio).unwrap();
+    let chain = workspace.doc.tracks[&track].main_chain;
+    workspace
+        .insert_device(
+            chain,
+            notwig_core::dsp::stock::CHAIN_TYPE_ID,
+            notwig_core::SchemaVersion::V0,
+            DeviceKind::Container,
+            None,
+        )
+        .unwrap();
+    let container = workspace.doc.chains[&chain].devices[0];
+    let child_chain = workspace.doc.devices[&container].child_chains[0];
+    workspace
+        .insert_stock(
+            child_chain,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
+            DeviceKind::AudioFx,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(workspace.copy_devices(&[container]), 1);
+    let pasted = workspace.paste_devices(chain, 1).unwrap();
+    assert_eq!(pasted.len(), 1);
+    let pasted_device = &workspace.doc.devices[&pasted[0]];
+    assert_ne!(pasted_device.id, container);
+    assert_eq!(pasted_device.child_chains.len(), 1);
+    assert_ne!(pasted_device.child_chains[0], child_chain);
+    let pasted_children = &workspace.doc.chains[&pasted_device.child_chains[0]].devices;
+    assert_eq!(pasted_children.len(), 1);
+    assert_ne!(
+        pasted_children[0],
+        workspace.doc.chains[&child_chain].devices[0]
+    );
+}
+
+#[test]
+fn device_activation_is_structural_and_undoes_as_a_batch() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Audio).unwrap();
+    let chain = workspace.doc.tracks[&track].main_chain;
+    for _ in 0..2 {
+        workspace
+            .insert_stock(
+                chain,
+                notwig_core::dsp::stock::TOOL_TYPE_ID,
+                DeviceKind::AudioFx,
+                None,
+            )
+            .unwrap();
+    }
+    let devices = workspace.doc.chains[&chain].devices.clone();
+    let before = workspace.engine_build_requests();
+    workspace.set_devices_active(&devices, false).unwrap();
+    assert_eq!(workspace.engine_build_requests(), before + 1);
+    assert!(devices.iter().all(|id| !workspace.doc.devices[id].active));
+    workspace.undo().unwrap();
+    assert!(devices.iter().all(|id| workspace.doc.devices[id].active));
+}
+
+#[test]
+fn device_bypass_does_not_request_an_engine_rebuild() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Audio).unwrap();
+    let chain = workspace.doc.tracks[&track].main_chain;
+    workspace
+        .insert_stock(
+            chain,
+            notwig_core::dsp::stock::TOOL_TYPE_ID,
+            DeviceKind::AudioFx,
+            None,
+        )
+        .unwrap();
+    let device = workspace.doc.chains[&chain].devices[0];
+    let before = workspace.engine_build_requests();
+    workspace
+        .apply(CommandPayload::SetDeviceBypass {
+            device_id: device,
+            bypass: true,
+        })
+        .unwrap();
+    assert_eq!(workspace.engine_build_requests(), before);
+    assert!(workspace.doc.devices[&device].bypass);
+    workspace.undo().unwrap();
+    assert_eq!(workspace.engine_build_requests(), before);
+    assert!(!workspace.doc.devices[&device].bypass);
+}

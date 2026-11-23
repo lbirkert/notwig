@@ -49,6 +49,8 @@ pub struct PlanDevice {
     pub spec: DeviceSpec,
     pub param_values: BTreeMap<ParamId, ParamValue>,
     pub bypass: bool,
+    /// Inactive devices are absent from the runtime processor tree.
+    pub active: bool,
     pub child_chains: Vec<DeviceChainId>,
     pub latency_samples: u32,
     pub resolved: bool,
@@ -145,10 +147,10 @@ pub fn compile(
                 false,
             ),
         };
-        let latency_samples = if instance.bypass {
-            0
-        } else {
+        let latency_samples = if instance.active {
             spec.latency_samples
+        } else {
+            0
         };
         devices.insert(
             instance.id,
@@ -163,6 +165,7 @@ pub fn compile(
                     .map(|(k, v)| (*k, v.clone()))
                     .collect(),
                 bypass: instance.bypass,
+                active: instance.active,
                 child_chains: instance.child_chains.clone(),
                 latency_samples,
                 resolved,
@@ -247,7 +250,7 @@ fn chain_latency(
             let Some(device) = devices.get(id) else {
                 continue;
             };
-            if device.bypass {
+            if !device.active {
                 continue;
             }
             total = total.saturating_add(device.latency_samples);

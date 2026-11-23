@@ -168,7 +168,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Automation editor interaction | 📋 Planned | ⭐⭐⭐⭐⭐ | |
 | Mixer view interaction | 🚫 Not Planned | ⭐⭐ | No mixer view in the core. |
 | Marquee selection | 📋 Planned | ⭐⭐⭐ | |
-| Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | |
+| Device drag reorder | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Undo and redo across panels | 🧪 Partial | ⭐⭐⭐⭐⭐ | Document undo is tested. UI surface coverage is incomplete. |
 | Startup without an audio device | 📋 Planned | ⭐⭐⭐⭐ | |
 | Window scaling and high DPI | 📋 Planned | ⭐⭐ | |

@@ -1592,3 +1592,147 @@ fn command_j_joins_clips_intersected_by_a_time_selection() {
         .expect("Cmd+J with a time selection should join the intersected clips");
     assert_eq!(clips, vec![id::<Clip>(20), id::<Clip>(21)]);
 }
+
+#[test]
+fn dragging_a_device_to_an_insertion_point_emits_move_device() {
+    let mut doc = doc();
+    let track = id::<Track>(2);
+    let chain = id::<DeviceChain>(102);
+    let first = id::<Device>(300);
+    let second = id::<Device>(301);
+    for device in [first, second] {
+        doc = apply(
+            &doc,
+            &Command::new(CommandPayload::InsertDevice {
+                id: device,
+                type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
+                version: None,
+                kind: DeviceKind::AudioFx,
+                target_chain: chain,
+                index: None,
+                child_chain_ids: Vec::new(),
+                name: None,
+            }),
+        )
+        .unwrap()
+        .doc;
+    }
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_track(track, false);
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let gap = notwig_ui::test_api::device_editor::insertion_rect(&ui, chain, 0)
+        .expect("device insertion point should be rendered");
+    notwig_ui::test_api::device_editor::begin_device_drag(&mut ui, second, chain);
+    ui.set_platform_pointer(Some(gap.center()));
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::PointerButton {
+                pos: gap.center(),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::MoveDevice { device_id, to_chain, index: 0 }
+            if *device_id == second && *to_chain == chain
+    )));
+}
+
+#[test]
+fn dragging_a_device_onto_an_arranger_lane_appends_to_its_chain() {
+    let mut doc = doc();
+    let source_track = id::<Track>(2);
+    let source_chain = id::<DeviceChain>(102);
+    let target_track = id::<Track>(3);
+    let target_chain = id::<DeviceChain>(103);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: target_track,
+            chain_id: target_chain,
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: None,
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let device = id::<Device>(300);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: device,
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
+            version: None,
+            kind: DeviceKind::AudioFx,
+            target_chain: source_chain,
+            index: None,
+            child_chain_ids: Vec::new(),
+            name: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_track(source_track, false);
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let row = notwig_ui::test_api::shell::row_rect(&ui, target_track)
+        .expect("target track row should be rendered");
+    let pointer = egui::pos2(row.right() - 10.0, row.center().y);
+    notwig_ui::test_api::device_editor::begin_device_drag(&mut ui, device, source_chain);
+    ui.set_platform_pointer(Some(pointer));
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![egui::Event::PointerButton {
+                pos: pointer,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::MoveDevice { device_id, to_chain, index: 0 }
+            if *device_id == device && *to_chain == target_chain
+    )));
+}

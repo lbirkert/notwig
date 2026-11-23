@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::CoreError;
 use crate::domain::{DeviceChain, DeviceInstance, DeviceKind, ProjectDoc};
 use crate::ids::{DeviceChainId, DeviceId, ParamId};
@@ -65,6 +67,21 @@ pub(super) fn set_device_bypass(
         .get_mut(&device_id)
         .ok_or_else(|| not_found(&device_id))?;
     device.bypass = bypass;
+    changes.device(device_id);
+    Ok(Vec::new())
+}
+
+pub(super) fn set_device_active(
+    doc: &mut ProjectDoc,
+    device_id: DeviceId,
+    active: bool,
+    changes: &mut Changes,
+) -> Result<Vec<EngineMsg>, CoreError> {
+    let device = doc
+        .devices
+        .get_mut(&device_id)
+        .ok_or_else(|| not_found(&device_id))?;
+    device.active = active;
     changes.device(device_id);
     Ok(Vec::new())
 }
@@ -149,34 +166,7 @@ fn insert_device(
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_owned);
-    if let Some(track) = &owner {
-        match kind {
-            DeviceKind::Instrument => {
-                if track.kind != TrackKind::Instrument {
-                    return Err(CoreError::ValidationFailed {
-                        reason: "instrument devices require an Instrument track".into(),
-                    });
-                }
-                if chain.devices.iter().any(|device_id| {
-                    doc.devices
-                        .get(device_id)
-                        .is_some_and(|d| d.kind == DeviceKind::Instrument)
-                }) {
-                    return Err(CoreError::ValidationFailed {
-                        reason: "an Instrument track may host at most one instrument".into(),
-                    });
-                }
-            }
-            DeviceKind::NoteFx => {
-                if track.kind != TrackKind::Instrument {
-                    return Err(CoreError::ValidationFailed {
-                        reason: "NoteFx devices require an Instrument track".into(),
-                    });
-                }
-            }
-            DeviceKind::AudioFx | DeviceKind::Container => {}
-        }
-    }
+    validate_device_target(doc, kind, target_chain, &chain.devices, None)?;
 
     for child in child_chain_ids {
         doc.chains.insert(*child, DeviceChain::new(*child));
@@ -192,6 +182,7 @@ fn insert_device(
         param_values: indexmap::IndexMap::new(),
         state_ref: None,
         bypass: false,
+        active: true,
         child_chains: child_chain_ids.to_vec(),
     };
     doc.devices.insert(id, instance);
@@ -259,12 +250,24 @@ fn move_device(
     index: usize,
     changes: &mut Changes,
 ) -> Result<(), CoreError> {
-    if !doc.devices.contains_key(&device_id) {
-        return Err(not_found(&device_id));
+    let device = doc
+        .devices
+        .get(&device_id)
+        .cloned()
+        .ok_or_else(|| not_found(&device_id))?;
+    let target_devices = doc
+        .chains
+        .get(&to_chain)
+        .map(|chain| chain.devices.clone())
+        .ok_or_else(|| not_found(&to_chain))?;
+    let mut owned_chains = BTreeSet::new();
+    collect_device_chains(doc, &device, &mut owned_chains);
+    if owned_chains.contains(&to_chain) {
+        return Err(CoreError::ValidationFailed {
+            reason: "a device cannot move into its own child chain".into(),
+        });
     }
-    if !doc.chains.contains_key(&to_chain) {
-        return Err(not_found(&to_chain));
-    }
+    validate_device_target(doc, device.kind, to_chain, &target_devices, Some(device_id))?;
     for chain in doc.chains.values_mut() {
         chain.devices.retain(|id| *id != device_id);
     }
@@ -274,4 +277,69 @@ fn move_device(
     changes.device(device_id);
     changes.push(DocChange::ChainUpserted(to_chain));
     doc.validate()
+}
+
+fn validate_device_target(
+    doc: &ProjectDoc,
+    kind: DeviceKind,
+    target_chain: DeviceChainId,
+    target_devices: &[DeviceId],
+    moving: Option<DeviceId>,
+) -> Result<(), CoreError> {
+    let Some(track) = doc
+        .tracks
+        .values()
+        .find(|track| track.main_chain == target_chain)
+    else {
+        return Ok(());
+    };
+    match kind {
+        DeviceKind::Instrument => {
+            if track.kind != TrackKind::Instrument {
+                return Err(CoreError::ValidationFailed {
+                    reason: "instrument devices require an Instrument track".into(),
+                });
+            }
+            if target_devices.iter().any(|device_id| {
+                Some(*device_id) != moving
+                    && doc
+                        .devices
+                        .get(device_id)
+                        .is_some_and(|d| d.kind == DeviceKind::Instrument)
+            }) {
+                return Err(CoreError::ValidationFailed {
+                    reason: "an Instrument track may host at most one instrument".into(),
+                });
+            }
+        }
+        DeviceKind::NoteFx => {
+            if track.kind != TrackKind::Instrument {
+                return Err(CoreError::ValidationFailed {
+                    reason: "NoteFx devices require an Instrument track".into(),
+                });
+            }
+        }
+        DeviceKind::AudioFx | DeviceKind::Container => {}
+    }
+    Ok(())
+}
+
+fn collect_device_chains(
+    doc: &ProjectDoc,
+    device: &DeviceInstance,
+    chains: &mut BTreeSet<DeviceChainId>,
+) {
+    for child in &device.child_chains {
+        if !chains.insert(*child) {
+            continue;
+        }
+        let Some(chain) = doc.chains.get(child) else {
+            continue;
+        };
+        for device_id in &chain.devices {
+            if let Some(child_device) = doc.devices.get(device_id) {
+                collect_device_chains(doc, child_device, chains);
+            }
+        }
+    }
 }

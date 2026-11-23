@@ -14,7 +14,7 @@ Open the device editor in any of these ways:
 The editor shows the selected track's main device chain. Each card represents
 one device, left to right in processing order.
 
-## Adding and removing devices
+## Adding, moving, and removing devices
 
 - Click a **+** insertion point between device cards to open the Add Device
   browser.
@@ -23,12 +23,34 @@ one device, left to right in processing order.
 - Stock devices, extension devices, and scanned plugins are grouped separately.
 - Click a device card to select it.
 - Double-click a card to collapse or expand it.
-- Right-click a card and choose **Remove device** to remove it.
-- Click the power button on the card handle to bypass or enable the device.
-- Bypassed devices keep their state and are skipped by the engine.
+- Drag a card by its handle and drop it on an insertion point to reorder it,
+  including between nested Chain children.
+- Drag a card onto an arranger lane to append it to that track's main chain.
+  MIDI-only devices are rejected by incompatible lanes.
+- Right-click a card to **Copy device**, **Cut device**, **Paste device**,
+  **Deactivate device**, or **Remove device**. Cmd+C, Cmd+X, and Cmd+V operate
+  on the selected devices when a device selection is active.
+- Click the power button on the card handle to enable or disable (bypass) the
+  device. Disabled devices keep their state and stay loaded, but their audio
+  processing is skipped.
+- Press **Alt+A** to activate or deactivate the selected devices, or the
+  selected tracks when no device is selected. Deactivation unloads the device
+  (including its plugin) to release CPU and memory. Deactivated cards are dimmed
+  and keep their document state. Shortcuts do nothing while a clip or MIDI
+  editor has focus.
 
-Device drag reordering is not implemented. To change order, remove and reinsert
-the device at the desired insertion point.
+## Device activation and bypass
+
+Notwig has two independent device switches:
+
+| Switch | Shortcut / control | Plugin lifecycle | Audio |
+| --- | --- | --- | --- |
+| Enable / disable (bypass) | Power button | Stays loaded | Dry signal, no DSP |
+| Activate / deactivate | **Alt+A** | Deactivated plugins unload | Deactivated devices are absent from the chain |
+
+Bypassed devices keep their planned latency so enabling and disabling does not
+shift latency compensation. Copied and pasted devices receive new IDs, including
+new IDs for the child chains of a Chain container.
 
 ## Stock devices
 
@@ -127,8 +149,10 @@ See [Extension Overview](../02_extensions/00_overview.md) for installation and
 ## Latency and processing
 
 The engine compensates device latency across tracks, group chains, sends, and
-bypassed devices. Inactive tracks are excluded from processing, and a track
-that is re-enabled rejoins the compensated mix. See
+bypassed devices. Bypassed devices keep their planned latency so toggling them
+does not shift the mix. Deactivated devices are not instantiated and contribute
+no latency until they are activated again. Inactive tracks are excluded from
+processing, and a track that is re-enabled rejoins the compensated mix. See
 [Routing and Delay Compensation](../03_development/21_routing_and_pdc.md) for
 the latency labels and the known limits.
 

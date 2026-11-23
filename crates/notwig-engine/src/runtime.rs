@@ -21,6 +21,7 @@ const PREVIEW_POOL_CAPACITY: usize = 32;
 /// rest; the cap only matters when many devices fail at once.
 const MAX_RUNTIME_FAULTS: usize = 32;
 
+mod bypass;
 mod clips;
 mod events;
 mod graph;
@@ -418,6 +419,23 @@ impl ActivePlan {
         }
         for monitor in self.low_monitors.values_mut() {
             monitor.set_param(device_id, param_id, value);
+        }
+    }
+
+    pub fn set_device_bypass(&mut self, device_id: DeviceId, bypass: bool) {
+        if let Some(index) = self.processor_index.get(&device_id).copied() {
+            if let Some(processor) = self.processors[index].as_mut() {
+                processor.set_bypass(device_id, bypass);
+            }
+        } else {
+            for processor in self.processors.iter_mut().flatten() {
+                if processor.set_bypass(device_id, bypass) {
+                    break;
+                }
+            }
+        }
+        for monitor in self.low_monitors.values_mut() {
+            monitor.set_bypass(device_id, bypass);
         }
     }
 

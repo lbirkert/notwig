@@ -182,6 +182,10 @@ pub struct StateBlobRef {
     pub encoding: String,
 }
 
+const fn device_active_by_default() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceInstance {
     pub id: DeviceId,
@@ -192,6 +196,10 @@ pub struct DeviceInstance {
     pub param_values: OrderedMap<ParamId, ParamValue>,
     pub state_ref: Option<StateBlobRef>,
     pub bypass: bool,
+    /// Inactive devices keep their document state but are not instantiated. An
+    /// inactive plugin is unloaded to release its CPU and memory.
+    #[serde(default = "device_active_by_default")]
+    pub active: bool,
     pub child_chains: Vec<DeviceChainId>,
 }
 

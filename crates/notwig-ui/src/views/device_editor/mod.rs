@@ -7,6 +7,7 @@ use notwig_core::{
 };
 
 use crate::icons::{Icon, icon_button_sized};
+use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
 use crate::theme;
@@ -34,6 +35,26 @@ const DEVICE_PANEL_HEIGHT: f32 = 260.0;
 const OVERLINE_SPACE: f32 = 10.0;
 const HANDLE_WIDTH: f32 = 32.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DeviceDrag {
+    pub device_id: DeviceId,
+    pub source_chain: DeviceChainId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeviceInsertion {
+    pub chain_id: DeviceChainId,
+    pub index: usize,
+    pub rect: Rect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DeviceDropLocation {
+    chain_id: DeviceChainId,
+    index: usize,
+    lane_track: Option<TrackId>,
+}
+
 impl NotwigUi {
     pub(crate) fn device_panel(
         &mut self,
@@ -54,6 +75,7 @@ impl NotwigUi {
                 handle_tooltip: "Drag down to close",
             },
             |ui| {
+                self.device_insertions.clear();
                 let Some(track_id) = self.selected_track(doc) else {
                     ui.label(
                         RichText::new("Select an Arrangement Lane to edit.")
@@ -125,7 +147,7 @@ impl NotwigUi {
             let Some(device) = doc.devices.get(device_id).cloned() else {
                 continue;
             };
-            let card_rect = self.device_card(ui, doc, runtime, &device, track_id, depth);
+            let card_rect = self.device_card(ui, doc, runtime, &device, track_id, chain_id, depth);
             first_element.get_or_insert(card_rect);
             if !self.collapsed_devices.contains(&device.id) && device.kind == DeviceKind::Container
             {
@@ -166,6 +188,11 @@ impl NotwigUi {
         index: usize,
     ) -> Rect {
         let (rect, _) = ui.allocate_exact_size(Vec2::new(18.0, DEVICE_CARD_HEIGHT), Sense::hover());
+        self.device_insertions.push(DeviceInsertion {
+            chain_id,
+            index,
+            rect,
+        });
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space((DEVICE_CARD_HEIGHT - 18.0) / 2.0);
@@ -177,6 +204,116 @@ impl NotwigUi {
             });
         });
         rect
+    }
+
+    fn device_drop_location(
+        &self,
+        doc: &ProjectDoc,
+        pointer: egui::Pos2,
+    ) -> Option<DeviceDropLocation> {
+        if let Some(insertion) = self
+            .device_insertions
+            .iter()
+            .find(|insertion| insertion.rect.contains(pointer))
+        {
+            return Some(DeviceDropLocation {
+                chain_id: insertion.chain_id,
+                index: insertion.index,
+                lane_track: None,
+            });
+        }
+        if !self.arranger_rect.contains(pointer) || pointer.x < self.timeline_left {
+            return None;
+        }
+        let track_id = self.track_at(pointer.y)?;
+        let track = doc.tracks.get(&track_id)?;
+        let index = doc
+            .chains
+            .get(&track.main_chain)
+            .map_or(0, |chain| chain.devices.len());
+        Some(DeviceDropLocation {
+            chain_id: track.main_chain,
+            index,
+            lane_track: Some(track_id),
+        })
+    }
+
+    pub(crate) fn draw_device_drag_preview(&self, ctx: &egui::Context, doc: &ProjectDoc) {
+        if self.device_drag.is_none() {
+            return;
+        }
+        let Some(pointer) = self
+            .last_pointer
+            .or_else(|| ctx.input(|input| input.pointer.latest_pos()))
+        else {
+            return;
+        };
+        let overlay = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("device-drag-preview"),
+        ));
+        let Some(location) = self.device_drop_location(doc, pointer) else {
+            return;
+        };
+        if let Some(track_id) = location.lane_track {
+            if let Some(row) = self.row_rect(track_id) {
+                overlay.rect_stroke(
+                    row.shrink(1.0),
+                    egui::CornerRadius::same(3),
+                    egui::Stroke::new(2.0_f32, theme::ACCENT),
+                    StrokeKind::Inside,
+                );
+            }
+            return;
+        }
+        if let Some(insertion) = self.device_insertions.iter().find(|insertion| {
+            insertion.chain_id == location.chain_id && insertion.index == location.index
+        }) {
+            let x = insertion.rect.center().x;
+            overlay.line_segment(
+                [
+                    egui::pos2(x, insertion.rect.top() + 8.0),
+                    egui::pos2(x, insertion.rect.bottom() - 8.0),
+                ],
+                egui::Stroke::new(2.0_f32, theme::ACCENT),
+            );
+        }
+    }
+
+    pub(crate) fn finish_device_drag(&mut self, ctx: &egui::Context, doc: &ProjectDoc) {
+        let Some(drag) = self.device_drag else {
+            return;
+        };
+        if !ctx.input(|input| input.pointer.any_released()) {
+            return;
+        }
+        let pointer = self
+            .last_pointer
+            .or_else(|| ctx.input(|input| input.pointer.latest_pos()));
+        if let Some(pointer) = pointer
+            && let Some(location) = self.device_drop_location(doc, pointer)
+        {
+            let source_index = doc
+                .chains
+                .get(&drag.source_chain)
+                .and_then(|chain| chain.devices.iter().position(|id| *id == drag.device_id));
+            let mut index = location.index;
+            if let Some(source_index) = source_index {
+                if location.chain_id == drag.source_chain && source_index < index {
+                    index = index.saturating_sub(1);
+                }
+                if location.chain_id == drag.source_chain && index == source_index {
+                    self.device_drag = None;
+                    return;
+                }
+            }
+            self.emit(UiIntent::MoveDevice {
+                device_id: drag.device_id,
+                to_chain: location.chain_id,
+                index,
+            });
+        }
+        self.device_drag = None;
     }
 }
 
@@ -210,5 +347,27 @@ impl NotwigUi {
 pub mod test_api {
     pub fn plugin_format_tag(type_id: &str) -> Option<&'static str> {
         super::plugin_kind::format_tag(type_id)
+    }
+
+    pub fn begin_device_drag(
+        ui: &mut crate::shell::NotwigUi,
+        device_id: notwig_core::DeviceId,
+        source_chain: notwig_core::DeviceChainId,
+    ) {
+        ui.device_drag = Some(super::DeviceDrag {
+            device_id,
+            source_chain,
+        });
+    }
+
+    pub fn insertion_rect(
+        ui: &crate::shell::NotwigUi,
+        chain_id: notwig_core::DeviceChainId,
+        index: usize,
+    ) -> Option<egui::Rect> {
+        ui.device_insertions
+            .iter()
+            .find(|insertion| insertion.chain_id == chain_id && insertion.index == index)
+            .map(|insertion| insertion.rect)
     }
 }

@@ -14,7 +14,7 @@ use crate::runtime::RuntimeView;
 use crate::state::{EditFocus, OpenedEditor, UiState};
 use crate::theme;
 use crate::views::audio_editor::ClipEditorState;
-use crate::views::device_editor::{DeviceBrowserState, EqDrag};
+use crate::views::device_editor::{DeviceBrowserState, DeviceDrag, DeviceInsertion, EqDrag};
 use crate::views::midi_editor::MidiEditorState;
 
 mod app_bar;
@@ -78,6 +78,8 @@ pub struct NotwigUi {
     pub last_touched_param: BTreeMap<notwig_core::DeviceId, notwig_core::ParamId>,
     pub collapsed_devices: BTreeSet<notwig_core::DeviceId>,
     pub device_browser: Option<DeviceBrowserState>,
+    pub(crate) device_drag: Option<DeviceDrag>,
+    pub(crate) device_insertions: Vec<DeviceInsertion>,
     pub show_info: bool,
     pub currently_opened: Option<OpenedEditor>,
     pub settings_open: bool,
@@ -154,6 +156,8 @@ impl Default for NotwigUi {
             last_touched_param: BTreeMap::new(),
             collapsed_devices: BTreeSet::new(),
             device_browser: None,
+            device_drag: None,
+            device_insertions: Vec::new(),
             show_info: true,
             currently_opened: Some(OpenedEditor::DeviceEditor),
             settings_open: false,
@@ -240,6 +244,8 @@ impl NotwigUi {
                     .inner_margin(egui::Margin::same(0)),
             )
             .show(ctx, |ui| self.arranger_view(ui, doc, runtime));
+        self.draw_device_drag_preview(ctx, doc);
+        self.finish_device_drag(ctx, doc);
         if self.settings_open {
             self.settings_window(ctx, runtime);
         }
@@ -451,6 +457,16 @@ impl NotwigUi {
             .selection
             .devices
             .retain(|id| doc.devices.contains_key(id));
+        if self.currently_opened != Some(OpenedEditor::DeviceEditor)
+            || self
+                .device_drag
+                .is_some_and(|drag| !doc.devices.contains_key(&drag.device_id))
+        {
+            self.device_drag = None;
+        }
+        if self.currently_opened != Some(OpenedEditor::DeviceEditor) {
+            self.device_insertions.clear();
+        }
         match self.currently_opened {
             Some(OpenedEditor::ClipEditor) => {
                 let selected = self.selected_audio_clip(doc);
@@ -507,5 +523,9 @@ pub mod test_api {
 
     pub fn capture_shortcut(ui: &mut NotwigUi, ctx: &egui::Context) {
         ui.capture_shortcut(ctx);
+    }
+
+    pub fn row_rect(ui: &NotwigUi, track: TrackId) -> Option<egui::Rect> {
+        ui.row_rect(track)
     }
 }

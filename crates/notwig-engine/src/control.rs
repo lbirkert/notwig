@@ -42,6 +42,12 @@ pub struct ParamUpdate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceBypassUpdate {
+    pub device_id: DeviceId,
+    pub bypass: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputRoute {
     pub track_id: TrackId,
     pub slot: u16,
@@ -77,6 +83,7 @@ pub struct EngineControlUpdate {
     pub assets: Option<Arc<BTreeMap<AssetId, Arc<AudioAssetBuffer>>>>,
     pub track_states: Vec<TrackStateUpdate>,
     pub params: Vec<ParamUpdate>,
+    pub device_bypasses: Vec<DeviceBypassUpdate>,
     pub preview_notes: Vec<PreviewNote>,
     pub preview_offs: Vec<(TrackId, NoteId)>,
     pub transport: Option<TransportUpdate>,
@@ -101,6 +108,7 @@ pub struct EngineData {
     pub(crate) schedule: Option<Arc<PlaybackSchedule>>,
     pub(crate) track_states: Vec<TrackStateUpdate>,
     pub(crate) params: Vec<ParamUpdate>,
+    pub(crate) device_bypasses: Vec<DeviceBypassUpdate>,
     pub(crate) preview_notes: Vec<PreviewNote>,
     pub(crate) preview_offs: Vec<(TrackId, NoteId)>,
     pub(crate) transport: Option<TransportUpdate>,
@@ -152,6 +160,10 @@ impl EngineData {
         self.params.push(update);
     }
 
+    pub fn push_device_bypass(&mut self, update: DeviceBypassUpdate) {
+        self.device_bypasses.push(update);
+    }
+
     pub fn push_preview_note(&mut self, preview: PreviewNote) {
         self.preview_notes.push(preview);
     }
@@ -168,6 +180,7 @@ impl EngineData {
             assets: self.assets.take(),
             track_states: std::mem::take(&mut self.track_states),
             params: std::mem::take(&mut self.params),
+            device_bypasses: std::mem::take(&mut self.device_bypasses),
             preview_notes: std::mem::take(&mut self.preview_notes),
             preview_offs: std::mem::take(&mut self.preview_offs),
             transport: self.transport.take(),

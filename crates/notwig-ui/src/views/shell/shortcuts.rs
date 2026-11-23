@@ -61,6 +61,7 @@ impl NotwigUi {
             .as_ref()
             .map(|time| (time.range, time.tracks.iter().copied().collect::<Vec<_>>()));
         let clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
+        let devices: Vec<_> = self.state.selection.devices.iter().copied().collect();
         let target = self.state.selection.to_edit_selection().mode();
         let copy_time = if target == Some(SelectionMode::Time) {
             time.clone()
@@ -69,24 +70,56 @@ impl NotwigUi {
         };
         let (copy, cut, paste) = self.shortcuts.copy_cut_paste_pressed(ctx);
         if copy && !editor_focused {
-            ctx.copy_text("notwig-clipboard".into());
-            self.emit(UiIntent::CopySelection {
-                clips: clips.clone(),
-                time: copy_time.clone(),
-            });
+            if devices.is_empty() {
+                ctx.copy_text("notwig-clipboard".into());
+                self.emit(UiIntent::CopySelection {
+                    clips: clips.clone(),
+                    time: copy_time.clone(),
+                });
+            } else {
+                self.emit(UiIntent::CopyDevices(devices.clone()));
+            }
         }
         if cut && !editor_focused {
-            ctx.copy_text("notwig-clipboard".into());
-            self.emit(UiIntent::CutSelection {
-                clips: clips.clone(),
-                time: copy_time.clone(),
-            });
+            if devices.is_empty() {
+                ctx.copy_text("notwig-clipboard".into());
+                self.emit(UiIntent::CutSelection {
+                    clips: clips.clone(),
+                    time: copy_time.clone(),
+                });
+            } else {
+                self.emit(UiIntent::CutDevices(devices.clone()));
+            }
         }
         if paste && !editor_focused {
-            let at = time
-                .as_ref()
-                .map_or(runtime.playhead, |(range, _)| range.start);
-            self.emit(UiIntent::PasteClips { at });
+            if devices.is_empty() {
+                let at = time
+                    .as_ref()
+                    .map_or(runtime.playhead, |(range, _)| range.start);
+                self.emit(UiIntent::PasteClips { at });
+            } else {
+                let device_id = self
+                    .state
+                    .selection
+                    .devices
+                    .primary()
+                    .or_else(|| devices.first().copied());
+                if let Some(device_id) = device_id
+                    && let Some((chain_id, index)) = device_chain_location(doc, device_id)
+                    && let Some(track_id) = self
+                        .state
+                        .selection
+                        .tracks
+                        .primary()
+                        .or_else(|| self.selected_track(doc))
+                {
+                    self.emit(UiIntent::PasteDevices {
+                        track_id,
+                        chain_id,
+                        index: index + 1,
+                    });
+                }
+            }
         }
         if self.shortcuts.was_pressed(ctx, ShortcutCommand::Record) {
             self.emit(UiIntent::ToggleRecord);
@@ -195,28 +228,39 @@ impl NotwigUi {
                 self.emit(UiIntent::GroupTracks { tracks });
             }
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::ToggleTrackActive)
+        if !editor_focused
+            && self
+                .shortcuts
+                .was_pressed(ctx, ShortcutCommand::ToggleTrackActive)
         {
-            let tracks: Vec<_> = self
-                .state
-                .selection
-                .tracks
-                .iter()
-                .copied()
-                .filter(|track| {
-                    doc.tracks
-                        .get(track)
-                        .is_some_and(|track| track.kind != TrackKind::Master)
-                })
-                .collect();
-            let active = tracks
-                .iter()
-                .any(|track| doc.tracks.get(track).is_some_and(|track| track.active));
-            for track in tracks {
-                self.emit(UiIntent::SetTrackActive {
-                    track_id: track,
+            if devices.is_empty() {
+                let tracks: Vec<_> = self
+                    .state
+                    .selection
+                    .tracks
+                    .iter()
+                    .copied()
+                    .filter(|track| {
+                        doc.tracks
+                            .get(track)
+                            .is_some_and(|track| track.kind != TrackKind::Master)
+                    })
+                    .collect();
+                let active = tracks
+                    .iter()
+                    .any(|track| doc.tracks.get(track).is_some_and(|track| track.active));
+                for track in tracks {
+                    self.emit(UiIntent::SetTrackActive {
+                        track_id: track,
+                        active: !active,
+                    });
+                }
+            } else {
+                let active = devices
+                    .iter()
+                    .any(|id| doc.devices.get(id).is_some_and(|device| device.active));
+                self.emit(UiIntent::SetDevicesActive {
+                    device_ids: devices.clone(),
                     active: !active,
                 });
             }
@@ -327,4 +371,17 @@ impl NotwigUi {
             self.emit(UiIntent::Quit);
         }
     }
+}
+
+fn device_chain_location(
+    doc: &ProjectDoc,
+    device_id: notwig_core::DeviceId,
+) -> Option<(notwig_core::DeviceChainId, usize)> {
+    doc.chains.iter().find_map(|(chain_id, chain)| {
+        chain
+            .devices
+            .iter()
+            .position(|id| *id == device_id)
+            .map(|index| (*chain_id, index))
+    })
 }

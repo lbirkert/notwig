@@ -328,6 +328,9 @@ impl EngineWorker {
         for param in update.params {
             data.push_param(param);
         }
+        for bypass in update.device_bypasses {
+            data.push_device_bypass(bypass);
+        }
         for preview in update.preview_notes {
             data.push_preview_note(preview);
         }

@@ -19,6 +19,7 @@ use crate::engine_process::EngineClientHandle;
 mod assets;
 mod clips;
 mod commands;
+mod device_clipboard;
 mod devices;
 mod engine;
 mod persistence;
@@ -67,6 +68,7 @@ pub struct Workspace {
     #[cfg(not(target_arch = "wasm32"))]
     pub recovery_candidates: Vec<project_registry::RecoveryCandidate>,
     clipboard: Clipboard,
+    device_clipboard: Option<device_clipboard::DeviceClipboard>,
     history: History,
     engine_build: EngineBuild,
     #[cfg(not(target_arch = "wasm32"))]
@@ -148,6 +150,7 @@ impl Workspace {
             #[cfg(not(target_arch = "wasm32"))]
             recovery_candidates: Vec::new(),
             clipboard: Clipboard::default(),
+            device_clipboard: None,
             history: History::default(),
             engine_build: EngineBuild::new(),
             #[cfg(not(target_arch = "wasm32"))]

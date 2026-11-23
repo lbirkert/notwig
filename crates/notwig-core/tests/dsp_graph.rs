@@ -168,7 +168,7 @@ fn insert_device(
 }
 
 #[test]
-fn bypassed_device_contributes_no_chain_latency() {
+fn bypassed_device_keeps_planned_latency() {
     let (doc, track, chain) = add_audio_track(&doc(), 2);
     let doc = insert_device(&doc, 300, "test.latent32", chain, vec![]);
 
@@ -185,13 +185,32 @@ fn bypassed_device_contributes_no_chain_latency() {
         },
     );
     let plan = compile(&doc, &latent_registry(), caps()).unwrap();
+    assert_eq!(plan.devices[&id::<Device>(300)].latency_samples, 32);
+    assert_eq!(plan.tracks[&track].latency_samples, 32);
+    assert_eq!(plan.total_latency, 32);
+}
+
+#[test]
+fn inactive_device_contributes_no_chain_latency() {
+    let (doc, track, chain) = add_audio_track(&doc(), 2);
+    let doc = insert_device(&doc, 300, "test.latent32", chain, vec![]);
+
+    let doc = apply_ok(
+        &doc,
+        CommandPayload::SetDeviceActive {
+            device_id: id::<Device>(300),
+            active: false,
+        },
+    );
+    let plan = compile(&doc, &latent_registry(), caps()).unwrap();
+    assert!(!plan.devices[&id::<Device>(300)].active);
     assert_eq!(plan.devices[&id::<Device>(300)].latency_samples, 0);
     assert_eq!(plan.tracks[&track].latency_samples, 0);
     assert_eq!(plan.total_latency, 0);
 }
 
 #[test]
-fn nested_chain_latency_sums_children_and_respects_bypass() {
+fn nested_chain_latency_sums_children_and_keeps_bypass_latency() {
     let (doc, track, chain) = add_audio_track(&doc(), 2);
     let child_chain = id::<DeviceChain>(400);
     let doc = insert_device(
@@ -216,8 +235,8 @@ fn nested_chain_latency_sums_children_and_respects_bypass() {
         },
     );
     let plan = compile(&doc, &latent_registry(), caps()).unwrap();
-    assert_eq!(plan.tracks[&track].latency_samples, 16);
-    assert_eq!(plan.total_latency, 16);
+    assert_eq!(plan.tracks[&track].latency_samples, 48);
+    assert_eq!(plan.total_latency, 48);
 
     let doc = apply_ok(
         &doc,
@@ -227,8 +246,8 @@ fn nested_chain_latency_sums_children_and_respects_bypass() {
         },
     );
     let plan = compile(&doc, &latent_registry(), caps()).unwrap();
-    assert_eq!(plan.tracks[&track].latency_samples, 16);
-    assert_eq!(plan.total_latency, 16);
+    assert_eq!(plan.tracks[&track].latency_samples, 48);
+    assert_eq!(plan.total_latency, 48);
 }
 
 #[test]

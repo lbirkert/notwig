@@ -5,6 +5,8 @@ use notwig_core::{DeviceId, TrackId, TrackOutput};
 
 use crate::engine::EngineError;
 
+use super::bypass::BypassProcessor;
+
 pub(super) fn output_target(track: &PlanTrack, master: TrackId) -> Option<TrackId> {
     match track.output {
         TrackOutput::Track(target) => Some(target),
@@ -80,7 +82,7 @@ pub(super) fn build_processor(
     factory: &dyn DeviceFactory,
 ) -> Option<Box<dyn DeviceProcessor>> {
     let device = plan.devices.get(&device_id)?;
-    if device.bypass {
+    if !device.active {
         return None;
     }
     if device.type_id == notwig_core::dsp::stock::CHAIN_TYPE_ID {
@@ -100,7 +102,11 @@ pub(super) fn build_processor(
                 }
             }
         }
-        return Some(Box::new(chain));
+        return Some(Box::new(BypassProcessor::new(
+            device.id,
+            device.bypass,
+            Box::new(chain),
+        )));
     }
     if device.kind == notwig_core::DeviceKind::Container {
         let mut container = notwig_core::dsp::ContainerProcessor::new(&device.spec);
@@ -119,11 +125,19 @@ pub(super) fn build_processor(
                 }
             }
         }
-        return Some(Box::new(container));
+        return Some(Box::new(BypassProcessor::new(
+            device.id,
+            device.bypass,
+            Box::new(container),
+        )));
     }
     let mut processor = factory.create(plan, device)?;
     for (id, value) in &device.param_values {
         processor.set_param(*id, value);
     }
-    Some(processor)
+    Some(Box::new(BypassProcessor::new(
+        device.id,
+        device.bypass,
+        processor,
+    )))
 }

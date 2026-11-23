@@ -546,6 +546,169 @@ fn device_placement_rules_are_enforced() {
 }
 
 #[test]
+fn move_device_reorders_within_a_chain() {
+    let mut doc = new_doc();
+    let (_track, chain) = add_track(&mut doc, 2, TrackKind::Audio);
+    for n in 300..303 {
+        doc = apply(
+            &doc,
+            &Command::new(CommandPayload::InsertDevice {
+                id: id::<Device>(n),
+                type_id: "notwig.tool".into(),
+                version: None,
+                kind: DeviceKind::AudioFx,
+                target_chain: chain,
+                index: None,
+                child_chain_ids: vec![],
+                name: None,
+            }),
+        )
+        .unwrap()
+        .doc;
+    }
+    assert_eq!(
+        doc.chains[&chain].devices,
+        vec![id::<Device>(300), id::<Device>(301), id::<Device>(302)]
+    );
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::MoveDevice {
+            device_id: id::<Device>(302),
+            to_chain: chain,
+            index: 0,
+        }),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(
+        doc.chains[&chain].devices,
+        vec![id::<Device>(302), id::<Device>(300), id::<Device>(301)]
+    );
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::MoveDevice {
+            device_id: id::<Device>(302),
+            to_chain: chain,
+            index: 3,
+        }),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(
+        doc.chains[&chain].devices,
+        vec![id::<Device>(300), id::<Device>(301), id::<Device>(302)]
+    );
+}
+
+#[test]
+fn move_device_crosses_chains_and_enforces_track_placement() {
+    let mut doc = new_doc();
+    let (_instrument_track, instrument_chain) = add_track(&mut doc, 2, TrackKind::Instrument);
+    let (_audio_track, audio_chain) = add_track(&mut doc, 3, TrackKind::Audio);
+    let instrument = id::<Device>(300);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: instrument,
+            type_id: "notwig.synth".into(),
+            version: None,
+            kind: DeviceKind::Instrument,
+            target_chain: instrument_chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+
+    assert!(matches!(
+        apply(
+            &doc,
+            &Command::new(CommandPayload::MoveDevice {
+                device_id: instrument,
+                to_chain: audio_chain,
+                index: 0,
+            })
+        ),
+        Err(CoreError::ValidationFailed { .. })
+    ));
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::MoveDevice {
+            device_id: instrument,
+            to_chain: instrument_chain,
+            index: 0,
+        }),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(doc.chains[&instrument_chain].devices, vec![instrument]);
+
+    let fx = id::<Device>(301);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: fx,
+            type_id: "notwig.tool".into(),
+            version: None,
+            kind: DeviceKind::AudioFx,
+            target_chain: instrument_chain,
+            index: None,
+            child_chain_ids: vec![],
+            name: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::MoveDevice {
+            device_id: fx,
+            to_chain: audio_chain,
+            index: 0,
+        }),
+    )
+    .unwrap()
+    .doc;
+    assert_eq!(doc.chains[&audio_chain].devices, vec![fx]);
+}
+
+#[test]
+fn move_device_rejects_its_own_child_chain() {
+    let mut doc = new_doc();
+    let (_track, chain) = add_track(&mut doc, 2, TrackKind::Audio);
+    let container = id::<Device>(300);
+    let child_chain = id::<DeviceChainMarker>(400);
+    doc = apply(
+        &doc,
+        &Command::new(CommandPayload::InsertDevice {
+            id: container,
+            type_id: notwig_core::dsp::stock::CHAIN_TYPE_ID.into(),
+            version: None,
+            kind: DeviceKind::Container,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: vec![child_chain],
+            name: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    assert!(matches!(
+        apply(
+            &doc,
+            &Command::new(CommandPayload::MoveDevice {
+                device_id: container,
+                to_chain: child_chain,
+                index: 0,
+            })
+        ),
+        Err(CoreError::ValidationFailed { .. })
+    ));
+}
+
+#[test]
 fn routing_cycles_are_rejected() {
     let mut doc = new_doc();
     let (a, _) = add_track(&mut doc, 2, TrackKind::Audio);

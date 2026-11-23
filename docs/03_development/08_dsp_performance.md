@@ -257,8 +257,10 @@ happens.
    hardcoded per device.
 3. **No NaN/Inf guard.** A faulty device or plugin can poison downstream
    buffers. Stock devices are safe, but the boundary does not sanitize.
-4. **Bypass is structural.** Bypassing a device rebuilds the runtime rather
-   than crossfading, so bypass changes can click.
+4. **Bypass is a runtime switch.** Enable/disable keeps the processor and plugin
+   loaded and skips its DSP, using a latency-sized dry delay so compensation
+   stays stable. Deactivation is structural and unloads the processor. Neither
+   path crossfades, so abrupt switches can still click.
 5. **EQ coefficient interpolation has no stability guard.** Linear interpolation
    between stable coefficient sets is common but is not a formal guarantee for
    extreme parameter jumps.

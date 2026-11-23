@@ -199,4 +199,13 @@ pub trait DeviceProcessor: Send {
     ) -> bool {
         false
     }
+
+    /// Toggles runtime bypass for the device named by `device_id`.
+    ///
+    /// Returns `true` when this processor (or one of its nested children) owns
+    /// the device. The processor must stay loaded; bypass only stops audio
+    /// processing.
+    fn set_bypass(&mut self, _device_id: DeviceId, _bypass: bool) -> bool {
+        false
+    }
 }

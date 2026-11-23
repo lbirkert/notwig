@@ -54,6 +54,12 @@ impl Workspace {
                     bypass: true,
                 })?;
             }
+            if !device.active {
+                self.apply(CommandPayload::SetDeviceActive {
+                    device_id: new_device,
+                    active: false,
+                })?;
+            }
             self.apply(CommandPayload::SetDeviceState {
                 device_id: new_device,
                 state_ref: device.state_ref.clone(),
@@ -78,6 +84,43 @@ impl Workspace {
         index: Option<usize>,
     ) -> Result<(), String> {
         self.insert_device(chain_id, type_id, SchemaVersion::V0, kind, index)
+    }
+
+    pub fn move_device(
+        &mut self,
+        device_id: DeviceId,
+        to_chain: DeviceChainId,
+        index: usize,
+    ) -> Result<(), String> {
+        self.apply(CommandPayload::MoveDevice {
+            device_id,
+            to_chain,
+            index,
+        })
+    }
+
+    pub fn set_devices_active(
+        &mut self,
+        device_ids: &[DeviceId],
+        active: bool,
+    ) -> Result<(), String> {
+        let payloads: Vec<CommandPayload> = device_ids
+            .iter()
+            .filter(|id| {
+                self.doc
+                    .devices
+                    .get(id)
+                    .is_some_and(|device| device.active != active)
+            })
+            .map(|id| CommandPayload::SetDeviceActive {
+                device_id: *id,
+                active,
+            })
+            .collect();
+        if payloads.is_empty() {
+            return Ok(());
+        }
+        self.apply_batch(payloads)
     }
 
     pub fn insert_device(

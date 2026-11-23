@@ -122,7 +122,7 @@ command catalog and are not rebindable.
 | Arrangement | Add Instrument Track | Cmd+T |
 | Arrangement | Add Audio Track | Cmd+Shift+T |
 | Arrangement | Group Tracks | Cmd+G |
-| Arrangement | Disable Track | Alt+A |
+| Arrangement | Activate / Deactivate | Alt+A |
 | Arrangement | Fit Arrangement | Cmd+0 |
 | View | Open Settings | Cmd+, |
 | View | Cancel / close editor | Esc |

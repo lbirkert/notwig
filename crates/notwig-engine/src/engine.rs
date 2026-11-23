@@ -563,6 +563,15 @@ impl Engine {
             self.apply_metronome(metronome);
         }
 
+        if let Some(plan) = &mut self.plan {
+            let plan = Arc::make_mut(plan);
+            for update in &self.control_data.device_bypasses {
+                if let Some(device) = plan.devices.get_mut(&update.device_id) {
+                    device.bypass = update.bypass;
+                }
+            }
+        }
+
         if let Some(runtime) = &mut self.runtime {
             for update in &self.control_data.track_states {
                 runtime.set_track_state(
@@ -576,6 +585,9 @@ impl Engine {
             }
             for update in &self.control_data.params {
                 runtime.set_param(update.device_id, update.param_id, &update.value);
+            }
+            for update in &self.control_data.device_bypasses {
+                runtime.set_device_bypass(update.device_id, update.bypass);
             }
             for preview in self.control_data.preview_notes.drain(..) {
                 runtime.queue_preview_note(preview);

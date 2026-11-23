@@ -204,6 +204,10 @@ pub enum CommandPayload {
         device_id: DeviceId,
         bypass: bool,
     },
+    SetDeviceActive {
+        device_id: DeviceId,
+        active: bool,
+    },
     SetDeviceState {
         device_id: DeviceId,
         state_ref: Option<crate::domain::StateBlobRef>,
@@ -258,7 +262,7 @@ impl CommandPayload {
                 | Self::InsertDevice { .. }
                 | Self::RemoveDevice { .. }
                 | Self::MoveDevice { .. }
-                | Self::SetDeviceBypass { .. }
+                | Self::SetDeviceActive { .. }
                 | Self::SetDeviceState { .. }
                 | Self::SetTrackMonitorMode { .. }
         )

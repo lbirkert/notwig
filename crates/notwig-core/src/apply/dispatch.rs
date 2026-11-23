@@ -255,6 +255,9 @@ fn apply_payload(
         CommandPayload::SetDeviceBypass { device_id, bypass } => {
             devices::set_device_bypass(doc, *device_id, *bypass, changes)
         }
+        CommandPayload::SetDeviceActive { device_id, active } => {
+            devices::set_device_active(doc, *device_id, *active, changes)
+        }
         CommandPayload::SetClipSlices { clip_id, slices } => {
             clips::set_clip_slices(doc, *clip_id, slices, changes)
         }

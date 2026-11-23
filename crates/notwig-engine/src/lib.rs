@@ -7,8 +7,8 @@ mod input;
 mod runtime;
 
 pub use control::{
-    ControlHandle, EngineControl, EngineControlUpdate, EngineData, InputRoute, ParamUpdate,
-    PreparedRuntime, PreviewNote, RuntimeLoader, TrackStateUpdate, TransportUpdate,
+    ControlHandle, DeviceBypassUpdate, EngineControl, EngineControlUpdate, EngineData, InputRoute,
+    ParamUpdate, PreparedRuntime, PreviewNote, RuntimeLoader, TrackStateUpdate, TransportUpdate,
 };
 pub use engine::{
     DEFAULT_CONTROL_SYNC_FRAMES, Engine, EngineConfig, EngineError, TransportRuntime,

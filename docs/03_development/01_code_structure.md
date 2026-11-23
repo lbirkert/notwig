@@ -219,7 +219,7 @@ describes the extension subsystem and crate boundaries.
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
 | `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
-| `views/device_editor/` | Device panel, browser, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
+| `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/` | Settings window/navigation plus audio, audio-channel, extension, and shortcut pages |
 | `commands/` | Shortcut command catalog, chords, bindings, and config |
@@ -243,7 +243,7 @@ describes the extension subsystem and crate boundaries.
 | `lib.rs` | Shared native/browser library surface and module wiring |
 | `main.rs` | Clap-based CLI entrypoint, demo/new/render/info/scan commands |
 | `gui/` | `eframe` app facade plus intents, audio supervision, recording, render, dialogs, plugin windows, extensions, platform edges |
-| `workspace/` | Project lifecycle facade plus command application, engine, persistence, transport, tracks, devices, clips, sample rate, render |
+| `workspace/` | Project lifecycle facade plus command application, engine, persistence, transport, tracks, devices, device clipboard, clips, sample rate, render |
 | `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |

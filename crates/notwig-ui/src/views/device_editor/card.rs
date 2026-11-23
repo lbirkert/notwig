@@ -12,7 +12,9 @@ use crate::theme;
 
 use super::bracket::chain_tab;
 use super::plugin_kind::is_plugin_device;
-use super::{DEVICE_CARD_HEIGHT, DeviceRendererKind, HANDLE_WIDTH, card_width, device_renderer};
+use super::{
+    DEVICE_CARD_HEIGHT, DeviceDrag, DeviceRendererKind, HANDLE_WIDTH, card_width, device_renderer,
+};
 
 impl NotwigUi {
     #[allow(clippy::too_many_arguments)]
@@ -23,6 +25,7 @@ impl NotwigUi {
         runtime: &RuntimeView,
         device: &DeviceInstance,
         track_id: TrackId,
+        chain_id: notwig_core::DeviceChainId,
         depth: usize,
     ) -> Rect {
         let selected = self.state.selection.devices.contains(&device.id);
@@ -53,8 +56,10 @@ impl NotwigUi {
                             ui.horizontal_top(|ui| {
                                 self.device_handle(
                                     ui,
+                                    doc,
                                     device,
                                     track_id,
+                                    chain_id,
                                     body_height,
                                     selected,
                                     collapsed,
@@ -76,21 +81,31 @@ impl NotwigUi {
             })
             .response
             .rect;
+        if !device.active {
+            ui.painter().rect_filled(
+                response.shrink(1.0),
+                CornerRadius::same(5),
+                Color32::from_black_alpha(120),
+            );
+        }
         ui.add_space(2.0);
         response
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn device_handle(
         &mut self,
         ui: &mut egui::Ui,
+        doc: &notwig_core::ProjectDoc,
         device: &DeviceInstance,
         track_id: TrackId,
+        chain_id: notwig_core::DeviceChainId,
         height: f32,
         selected: bool,
         collapsed: bool,
     ) {
         let (rect, response) =
-            ui.allocate_exact_size(Vec2::new(HANDLE_WIDTH, height), Sense::click());
+            ui.allocate_exact_size(Vec2::new(HANDLE_WIDTH, height), Sense::click_and_drag());
         let painter = ui.painter();
         painter.rect_filled(
             rect,
@@ -197,7 +212,71 @@ impl NotwigUi {
                 .selection
                 .select_device(device.id, track_id, additive);
         }
+        if response.drag_started_by(egui::PointerButton::Primary)
+            && !power.clicked()
+            && !window_clicked
+        {
+            let additive = ui.input(|i| i.modifiers.command || i.modifiers.shift);
+            self.state
+                .selection
+                .select_device(device.id, track_id, additive);
+            self.device_drag = Some(DeviceDrag {
+                device_id: device.id,
+                source_chain: chain_id,
+            });
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+        let selected_devices: Vec<_> = {
+            let devices: Vec<_> = self.state.selection.devices.iter().copied().collect();
+            if devices.contains(&device.id) {
+                devices
+            } else {
+                vec![device.id]
+            }
+        };
+        let paste_index = doc
+            .chains
+            .get(&chain_id)
+            .and_then(|chain| {
+                chain
+                    .devices
+                    .iter()
+                    .position(|id| *id == device.id)
+                    .map(|index| index + 1)
+            })
+            .unwrap_or(0);
         response.context_menu(|ui| {
+            if ui.button("Copy device").clicked() {
+                self.emit(UiIntent::CopyDevices(selected_devices.clone()));
+                ui.close();
+            }
+            if ui.button("Cut device").clicked() {
+                self.emit(UiIntent::CutDevices(selected_devices.clone()));
+                ui.close();
+            }
+            if ui.button("Paste device").clicked() {
+                self.emit(UiIntent::PasteDevices {
+                    track_id,
+                    chain_id,
+                    index: paste_index,
+                });
+                ui.close();
+            }
+            ui.separator();
+            if ui
+                .button(if device.active {
+                    "Deactivate device"
+                } else {
+                    "Activate device"
+                })
+                .clicked()
+            {
+                self.emit(UiIntent::SetDevicesActive {
+                    device_ids: selected_devices.clone(),
+                    active: !device.active,
+                });
+                ui.close();
+            }
             if ui.button("Remove device").clicked() {
                 self.emit(UiIntent::RemoveDevice(device.id));
                 ui.close();

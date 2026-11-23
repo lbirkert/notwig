@@ -35,6 +35,8 @@ regardless of looping. Playback wraps at the loop end with sample accuracy.
 - Drag a clip's title bar to move it in time. Drag it vertically onto a
   compatible track to move it across tracks. MIDI clips accept instrument
   tracks; audio clips accept audio tracks.
+- Drag a device card from the device editor onto a lane to append it to that
+  track's main device chain. Incompatible devices are rejected.
 - Drag across a clip body to create a time selection without moving the clip.
 - Drag a group selection to move all selected clips by the same amount. Group
   moves keep relative offsets and stay to the right of beat zero.

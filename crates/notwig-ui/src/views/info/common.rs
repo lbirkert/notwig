@@ -9,8 +9,9 @@ pub(super) fn section_header(ui: &mut egui::Ui, label: &str) {
 
 /// Total processing latency of a device chain, including nested child chains.
 ///
-/// Bypassed devices are ignored, matching the DSP plan's latency accounting.
-/// Devices without resolved metadata contribute zero, like the plan fallback.
+/// Inactive devices are skipped because they are not instantiated. Bypassed
+/// devices keep their planned latency so toggling bypass does not move the
+/// latency-compensation baseline.
 pub(super) fn chain_latency(
     doc: &ProjectDoc,
     registry: &DeviceRegistry,
@@ -24,7 +25,7 @@ pub(super) fn chain_latency(
         let Some(device) = doc.devices.get(id) else {
             continue;
         };
-        if device.bypass {
+        if !device.active {
             continue;
         }
         if let Some(spec) = registry.resolve(&device.type_id, device.version) {

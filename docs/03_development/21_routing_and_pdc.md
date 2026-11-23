@@ -72,7 +72,7 @@ preallocated at `max_block_size`.
         ├──────────────► pre-fader send tap ──────────────┐
         ▼                                                 │
  device chain (main_chain, nested Chain containers)       │
-        │   bypassed devices are not built                 │
+        │   inactive devices are not built                 │
         ▼                                                 │
  track gain + pan (post-fader)                            │
         │                                                 │
@@ -87,22 +87,26 @@ preallocated at `max_block_size`.
 Gain and pan are applied after devices. The master track is not panned. Metering
 runs after routing on the post-gain buffer.
 
-## 3. Bypass and inactive tracks
+## 3. Bypass, deactivation, and inactive tracks
 
-Two different switches remove processing, and they are not the same:
+Several switches remove processing, and they are not the same:
 
 | State | Device processing | Latency contribution | Routing |
 | --- | --- | --- | --- |
-| Device `bypass` | Processor is not built for that device. | Device latency becomes `0`; the chain sums only active devices. | The dry signal passes through the remaining chain. |
+| Device `bypass` | Processor and plugin stay built and loaded, but DSP is skipped. | Device latency stays in the plan; the bypass wrapper delays the dry signal by that latency. | The dry signal passes through the remaining chain aligned with other paths. |
+| Device `active = false` | Processor is not built for that device. | Device latency becomes `0`; the chain sums only active devices. | The dry signal passes through the remaining chain; a structural rebuild unloads the instance. |
 | Track `active = false` | No main-chain processors are built for the track and the render loop skips its device chain. | Track latency becomes `0`; the plan recomputes labels without it. | The track still reaches its main route and enabled sends; gain, pan, mute, and solo apply on the main and post-fader paths. |
 | Track `mute` | Devices still process. | Unchanged. | Main and post-fader sends carry silence; pre-fader sends keep the input tap. |
 | Track not soloed | Devices still process. | Unchanged. | Main and post-fader sends are silenced by the effective solo state. |
 
 An inactive track is therefore an unprocessed pass-through at zero latency, not
 a muted track. Re-enabling it rebuilds the plan so its devices and latency
-rejoin the compensation. Nested `Chain` devices apply their own child bypass
-rules recursively; `ContainerProcessor::latency` and `ChainProcessor::latency`
-sum only the children that exist.
+rejoin the compensation. Device deactivation is also structural and removes the
+processor from the runtime. Device bypass is non-structural: the engine receives
+a runtime control update, keeps the loaded instance, and switches the wrapper to
+a delayed dry path. Nested `Chain` devices apply their own child rules
+recursively; `ContainerProcessor::latency` and `ChainProcessor::latency` sum only
+the children that exist.
 
 ## 4. Latency labels and delay lines
 
@@ -110,7 +114,7 @@ Graph compilation assigns four latency fields to every `PlanTrack`:
 
 | Field | Meaning |
 | --- | --- |
-| `latency_samples` | Sum of active, non-bypassed device latency in the track's main chain, including nested chains. |
+| `latency_samples` | Sum of active device latency in the track's main chain, including nested chains. Bypassed devices keep their latency. |
 | `input_latency` | The latest arrival label among all main-routed and enabled send inputs; clip/input material starts at label `0`. |
 | `output_latency` | `input_latency + latency_samples`. |
 | `latency_to_master` | `total_latency - input_latency`; the maximum over all tracks equals the plan's `total_latency`. |
@@ -154,7 +158,7 @@ Hosted plugin latency flows through three stages:
    `capabilities.latency_samples` into the plugin's `DeviceSpec`.
 3. `notwig-core::dsp::compile` copies `DeviceSpec::latency_samples` into
    `PlanDevice`, then `chain_latency` sums it into `PlanTrack.latency_samples`.
-   Bypassed devices contribute zero.
+   Inactive devices contribute zero; bypassed devices keep their latency.
 
 The vendored wrappers implement `PluginCore::latency_samples` for the formats
 that expose a query:

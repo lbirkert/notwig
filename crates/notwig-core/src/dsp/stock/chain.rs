@@ -92,6 +92,15 @@ impl DeviceProcessor for ChainProcessor {
         false
     }
 
+    fn set_bypass(&mut self, device_id: DeviceId, bypass: bool) -> bool {
+        for (_, child) in &mut self.children {
+            if child.set_bypass(device_id, bypass) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn process(
         &mut self,
         ctx: &ProcessContext<'_>,

@@ -6,7 +6,8 @@ use crate::engine_process::EngineClientHandle;
 use notwig_core::dsp::EngineCaps;
 use notwig_core::protocol::PlaybackSchedule;
 use notwig_engine::{
-    ControlHandle, Engine, ParamUpdate, PreparedRuntime, TrackStateUpdate, TransportUpdate,
+    ControlHandle, DeviceBypassUpdate, Engine, ParamUpdate, PreparedRuntime, TrackStateUpdate,
+    TransportUpdate,
 };
 
 use super::{OFFLINE_BLOCK_SIZE, Workspace};
@@ -297,6 +298,10 @@ impl Workspace {
                     ramp: None,
                 });
             }
+            data.push_device_bypass(DeviceBypassUpdate {
+                device_id: device.id,
+                bypass: device.bypass,
+            });
         }
         if let Some(transport) = transport {
             data.set_transport(transport);

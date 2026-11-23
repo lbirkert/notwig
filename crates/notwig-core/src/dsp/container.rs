@@ -123,6 +123,20 @@ impl DeviceProcessor for ContainerProcessor {
         false
     }
 
+    fn set_bypass(&mut self, device_id: DeviceId, bypass: bool) -> bool {
+        if let Some(stage) = &mut self.stage
+            && stage.set_bypass(device_id, bypass)
+        {
+            return true;
+        }
+        for (_, child) in &mut self.children {
+            if child.set_bypass(device_id, bypass) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn process(
         &mut self,
         ctx: &ProcessContext<'_>,

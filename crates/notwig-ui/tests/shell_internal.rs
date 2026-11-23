@@ -464,3 +464,149 @@ fn loop_selection_without_a_selection_toggles_the_loop() {
 
     assert_eq!(intents, vec![UiIntent::ToggleLoop]);
 }
+
+fn device_doc() -> (ProjectDoc, notwig_core::TrackId, notwig_core::DeviceId) {
+    let doc = timeline_doc();
+    let track = notwig_core::TrackId::from_uuid(uuid::Uuid::from_u128(2));
+    let chain = notwig_core::DeviceChainId::from_uuid(uuid::Uuid::from_u128(102));
+    let device = notwig_core::DeviceId::from_uuid(uuid::Uuid::from_u128(300));
+    let doc = notwig_core::apply(
+        &doc,
+        &notwig_core::protocol::Command::new(notwig_core::protocol::CommandPayload::InsertDevice {
+            id: device,
+            type_id: notwig_core::dsp::stock::TOOL_TYPE_ID.into(),
+            version: None,
+            kind: notwig_core::DeviceKind::AudioFx,
+            target_chain: chain,
+            index: None,
+            child_chain_ids: Vec::new(),
+            name: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+    (doc, track, device)
+}
+
+fn run_shortcut(
+    ui: &mut NotwigUi,
+    doc: &ProjectDoc,
+    events: Vec<egui::Event>,
+    modifiers: egui::Modifiers,
+) -> Vec<UiIntent> {
+    let runtime = RuntimeView::default();
+    let ctx = egui::Context::default();
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            modifiers,
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            handle_shortcuts(ui, ctx, doc, &runtime);
+            intents = std::mem::take(&mut ui.intents);
+        },
+    );
+    intents
+}
+
+#[test]
+fn alt_a_toggles_selected_device_instead_of_its_track() {
+    let (doc, track, device) = device_doc();
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_device(device, track, false);
+    ui.edit_focus = EditFocus::Timeline;
+    let modifiers = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let intents = run_shortcut(
+        &mut ui,
+        &doc,
+        vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        modifiers,
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::SetDevicesActive { device_ids, active: false } if device_ids == &vec![device]
+    )));
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetTrackActive { .. }))
+    );
+}
+
+#[test]
+fn alt_a_does_not_toggle_devices_or_tracks_while_an_editor_is_focused() {
+    let (doc, track, device) = device_doc();
+    let clip = notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(20));
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_device(device, track, false);
+    ui.open_midi_editor(clip);
+    let modifiers = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let intents = run_shortcut(
+        &mut ui,
+        &doc,
+        vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        modifiers,
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetDevicesActive { .. }))
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, UiIntent::SetTrackActive { .. }))
+    );
+}
+
+#[test]
+fn device_copy_cut_and_paste_shortcuts_emit_device_intents() {
+    let (doc, track, device) = device_doc();
+    let mut ui = NotwigUi::default();
+    ui.state.selection.select_device(device, track, false);
+    ui.edit_focus = EditFocus::Timeline;
+    let command = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let copy = run_shortcut(&mut ui, &doc, vec![egui::Event::Copy], command);
+    assert!(matches!(
+        copy.as_slice(),
+        [UiIntent::CopyDevices(ids)] if ids == &vec![device]
+    ));
+    let cut = run_shortcut(&mut ui, &doc, vec![egui::Event::Cut], command);
+    assert!(matches!(
+        cut.as_slice(),
+        [UiIntent::CutDevices(ids)] if ids == &vec![device]
+    ));
+    let paste = run_shortcut(
+        &mut ui,
+        &doc,
+        vec![egui::Event::Paste(String::new())],
+        command,
+    );
+    assert!(matches!(
+        paste.as_slice(),
+        [UiIntent::PasteDevices { track_id, index: 1, .. }] if *track_id == track
+    ));
+}

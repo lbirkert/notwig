@@ -66,13 +66,19 @@ impl NotwigUi {
             });
         });
         ui.label(
-            RichText::new(if device.bypass { "Bypassed" } else { "Active" })
-                .small()
-                .color(if device.bypass {
-                    theme::TEXT_MUTED
-                } else {
-                    theme::ACCENT
-                }),
+            RichText::new(if !device.active {
+                "Deactivated"
+            } else if device.bypass {
+                "Disabled (bypassed)"
+            } else {
+                "Enabled"
+            })
+            .small()
+            .color(if device.active && !device.bypass {
+                theme::ACCENT
+            } else {
+                theme::TEXT_MUTED
+            }),
         );
         ui.separator();
         let spec = self

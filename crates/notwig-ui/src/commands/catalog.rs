@@ -327,8 +327,8 @@ pub const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         command: ShortcutCommand::ToggleTrackActive,
         id: "toggle_track_active",
-        label: "Disable Track",
-        description: "Toggle the active state of the selected tracks.",
+        label: "Activate / Deactivate",
+        description: "Toggle activation of selected devices, or tracks when no device is selected.",
         category: CommandCategory::Arrangement,
         defaults: &[KeyChord {
             key: Key::A,

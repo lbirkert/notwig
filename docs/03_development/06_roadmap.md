@@ -223,7 +223,7 @@ Dependencies worth planning around:
 
 | Feature | Status | Importance | Notes |
 | --- | --- | --- | --- |
-| Device chains | 🧪 Partial | ⭐⭐⭐⭐⭐ | Insert, move, remove, bypass, and parameter commands exist. The UI cannot reorder devices. |
+| Device chains | ✅ Implemented | ⭐⭐⭐⭐⭐ | Insert, move, remove, bypass, copy/cut/paste, activate/deactivate, and parameter commands work in nested chains. |
 | Nested Chain container | ✅ Implemented | ⭐⭐⭐⭐ | Recursive device chains with dry/wet. |
 | Tool | ✅ Implemented | ⭐⭐⭐⭐ | Input gain, output gain, pan, width, polarity, and dry/wet. |
 | EQ | ✅ Implemented | ⭐⭐⭐⭐⭐ | Four bands with bell, shelves, high pass, and low pass, plus shift and output gain. |
@@ -233,8 +233,9 @@ Dependencies worth planning around:
 | Stock effects | 📋 Planned | ⭐⭐⭐ | Core delay, compressor, filter, saturation, and chorus. Limiter, gate, and reverb already ship in the bundled extension pack. |
 | Device presets | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Device A/B compare | 🚫 Not Planned | ⭐⭐⭐ | Disable the plugin to compare A/B. |
-| Device drag reorder | 📋 Planned | ⭐⭐⭐⭐ | Insert points exist, drag does not. |
-| Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. |
+| Device drag reorder | ✅ Implemented | ⭐⭐⭐⭐ | Drag handles reorder within and across nested chains; dropping on an arranger lane appends to its main chain. |
+| Device activation | ✅ Implemented | ⭐⭐⭐⭐ | Alt+A toggles selected devices; deactivation unloads processors while keeping document state. Enable/disable keeps plugins loaded. |
+| Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. Bypass keeps planned latency stable without rebuilding. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |
 | Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM and native devices provide metadata, DSP, custom panels, note events, and host-owned container chains; `notwig-ext-devices` ships a limiter, gate, reverb with a wet FX chain, and a simple polyphonic synth. Device state blobs are still deferred. |
 

@@ -40,6 +40,14 @@ impl LowLatencyMonitorRuntime {
             }
         }
     }
+
+    pub(super) fn set_bypass(&mut self, device_id: DeviceId, bypass: bool) {
+        for (_, processor) in &mut self.roots {
+            if processor.set_bypass(device_id, bypass) {
+                break;
+            }
+        }
+    }
 }
 
 impl ActivePlan {

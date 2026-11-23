@@ -445,10 +445,59 @@ impl NotwigApp {
                 let _ = self.report(result);
             }
             UiIntent::OpenPluginWindow { device_id } => self.open_plugin_window(device_id),
+            UiIntent::MoveDevice {
+                device_id,
+                to_chain,
+                index,
+            } => {
+                let result = self.workspace.move_device(device_id, to_chain, index);
+                let _ = self.report(result);
+            }
+            UiIntent::CopyDevices(device_ids) => {
+                self.workspace.copy_devices(&device_ids);
+            }
+            UiIntent::CutDevices(device_ids) => {
+                let count = self.workspace.cut_devices(&device_ids);
+                if count > 0 {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if let Some(audio) = &self.audio {
+                        for device_id in &device_ids {
+                            audio.close_editor(*device_id);
+                        }
+                    }
+                }
+            }
+            UiIntent::PasteDevices {
+                track_id,
+                chain_id,
+                index,
+            } => match self.workspace.paste_devices(chain_id, index) {
+                Ok(device_ids) => {
+                    for (offset, device_id) in device_ids.iter().copied().enumerate() {
+                        self.ui
+                            .state
+                            .selection
+                            .select_device(device_id, track_id, offset > 0);
+                    }
+                }
+                Err(err) => self.notify_error(err),
+            },
             UiIntent::SetDeviceBypass { device_id, bypass } => {
                 let result = self
                     .workspace
                     .apply(CommandPayload::SetDeviceBypass { device_id, bypass });
+                let _ = self.report(result);
+            }
+            UiIntent::SetDevicesActive { device_ids, active } => {
+                let result = self.workspace.set_devices_active(&device_ids, active);
+                if result.is_ok() && !active {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if let Some(audio) = &self.audio {
+                        for device_id in &device_ids {
+                            audio.close_editor(*device_id);
+                        }
+                    }
+                }
                 let _ = self.report(result);
             }
             UiIntent::SetParam {

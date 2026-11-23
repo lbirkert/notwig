@@ -76,15 +76,16 @@ published before the whole batch succeeds.
 | Most track/device structure | none or `UpdateSchedule` |
 
 `Workspace` extracts only `SetTransport` and `AllNotesOff` (`control_updates`).
-It then republishes the complete playback schedule, track state, and parameters
-from the new document. Asset updates use their own publish path. Structural
+It then republishes the complete playback schedule, track state, parameters, and
+device bypass flags from the new document. Asset updates use their own publish path. Structural
 commands take a different path: their messages are ignored and
 `request_engine_rebuild` starts an asynchronous build.
 
 `CommandPayload::requires_plan_rebuild` is true for tempo, time signature, track
-active/create/delete/move, routing, sends, device insert/remove/move/bypass/
-state, and monitor mode. Mixer, parameter, clip, note, recording, and asset
-commands are not structural.
+active/create/delete/move, routing, sends, device insert/remove/move/active/
+state, and monitor mode. Mixer, parameter, device bypass, clip, note, recording,
+and asset commands are not structural. Bypass is applied at runtime so the
+plugin instance stays loaded; deactivation is structural and unloads it.
 
 ## 5. History policy
 

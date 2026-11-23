@@ -219,6 +219,7 @@ fn plan_for(spec: notwig_core::dsp::DeviceSpec) -> (CompiledPlan, PlanDevice) {
         spec,
         param_values: BTreeMap::new(),
         bypass: false,
+        active: true,
         child_chains: Vec::new(),
         latency_samples: 0,
         resolved: true,

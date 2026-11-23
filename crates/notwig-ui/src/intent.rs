@@ -240,9 +240,25 @@ pub enum UiIntent {
         asset_id: AssetId,
     },
     RemoveDevice(DeviceId),
+    MoveDevice {
+        device_id: DeviceId,
+        to_chain: DeviceChainId,
+        index: usize,
+    },
+    CopyDevices(Vec<DeviceId>),
+    CutDevices(Vec<DeviceId>),
+    PasteDevices {
+        track_id: TrackId,
+        chain_id: DeviceChainId,
+        index: usize,
+    },
     SetDeviceBypass {
         device_id: DeviceId,
         bypass: bool,
+    },
+    SetDevicesActive {
+        device_ids: Vec<DeviceId>,
+        active: bool,
     },
     OpenPluginWindow {
         device_id: DeviceId,
