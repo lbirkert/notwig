@@ -51,8 +51,10 @@ crate.
 | `au` | Audio Unit v2 adapter (macOS) |
 | `au3` | Audio Unit v3 adapter (macOS) |
 
-Features are opt-in at the crate level. `notwig-app` enables all of them on
-native macOS builds.
+Features are opt-in at the crate level. `notwig-app` enables AU, CLAP, and VST
+by default on native builds; LV2 is opt-in because it needs the system `lilv`
+library. The app can also be built with no format features so integration tests
+do not need plugin SDKs.
 
 ## Module map
 

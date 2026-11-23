@@ -29,7 +29,7 @@ events. The document is never mutated here.
 ## Does not own
 
 - `ProjectDoc` mutation or project persistence.
-- The OS audio stream (see `notwig-app/src/audio.rs`).
+- The OS audio stream (see `notwig-app/src/audio/`).
 - Device specifications or graph compilation (see `notwig-core::dsp`).
 - Plugin scanning or loading policy (see `notwig-plugins`).
 - UI state or meters rendering.
@@ -48,9 +48,16 @@ engine build/plugin-loader thread, never on the audio thread. See
 
 | Module | Contents |
 |---|---|
-| `engine.rs` | `Engine`, transport, control sync, process/offline render |
+| `engine.rs` | `Engine`, transport, control sync, block processing |
+| `engine/metronome.rs` | Metronome state and click rendering |
+| `engine/offline.rs` | Offline render entry points |
 | `control.rs` | `EngineData`, `EngineControl`, `ControlHandle`, `PreparedRuntime`, `RuntimeLoader` |
-| `runtime.rs` | `ActivePlan`, `TrackRuntime`, event collection |
+| `runtime.rs` | `ActivePlan` ownership, build orchestration, `TrackRuntime` |
+| `runtime/clips.rs` | Audio clip and slice rendering |
+| `runtime/events.rs` | MIDI event collection and note priming |
+| `runtime/graph.rs` | Processing order, routing targets, processor construction |
+| `runtime/low_latency.rs` | Low-latency monitor chains and device-block rendering |
+| `runtime/routing.rs` | Gain/pan, main/send routing, metering |
 | `factory.rs` | `DeviceFactory`, stock and plugin factories |
 
 ## Tests

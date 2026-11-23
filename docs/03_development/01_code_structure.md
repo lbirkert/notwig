@@ -182,10 +182,17 @@ describes the extension subsystem and crate boundaries.
 
 | Module | Responsibility |
 |---|---|
-| `engine.rs` | Transport, plan/schedule application, block processing, offline render |
+| `engine.rs` | `Engine`, transport, plan/schedule application, block processing, control sync |
+| `engine/metronome.rs` | Metronome state and click rendering |
+| `engine/offline.rs` | Offline render entry points |
 | `control.rs` | `EngineData`, `EngineControl`, `ControlHandle`, `PreparedRuntime`, `RuntimeLoader`, input routes |
 | `input.rs` | Bounded monitoring and recording queues for per-track input capture |
-| `runtime.rs` | Active plan instances, track/device runtime state, track and per-device meter snapshots, event collection |
+| `runtime.rs` | Active-plan ownership, build orchestration, track/device runtime state |
+| `runtime/clips.rs` | Audio clip and slice rendering |
+| `runtime/events.rs` | MIDI event collection and note priming |
+| `runtime/graph.rs` | Processing order, routing targets, and processor construction |
+| `runtime/low_latency.rs` | Duplicate low-latency monitor chains and their device-block render path |
+| `runtime/routing.rs` | Track gain/pan, main/send routing, and metering |
 | `factory.rs` | Stock and plugin device factories |
 
 ### `notwig-plugins` — plugin hosting
@@ -232,7 +239,7 @@ describes the extension subsystem and crate boundaries.
 | Module | Responsibility |
 |---|---|
 | `lib.rs` | Shared native/browser library surface and module wiring |
-| `main.rs` | CLI entrypoint, demo/new/render/info/scan commands |
+| `main.rs` | Clap-based CLI entrypoint, demo/new/render/info/scan commands |
 | `gui.rs` | `eframe` app, intent handling, dialogs, plugin windows, runtime projection |
 | `workspace/mod.rs` | Project lifecycle, command application, undo/redo, tracks, devices, transport |
 | `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
@@ -241,8 +248,8 @@ describes the extension subsystem and crate boundaries.
 | `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |
 | `clock.rs` | Native/browser clock selection |
 | `engine_build.rs` | Async engine build request/queue/poll lifecycle; native wire-build preparation |
-| `engine_process/` | Native engine child process, IPC protocol, parent client, and editor hosting |
-| `audio.rs` | CPAL audio service, device options, snapshot, DSP timing |
+| `engine_process/` | Native engine child composition, worker/build lifecycle, IPC protocol, parent client, and editor hosting |
+| `audio/` | `settings` for device/config policy, `snapshot` for telemetry, `stream` for CPAL callbacks, `sample_format` for format dispatch, and `service` for wiring |
 | `audio_input/` | Shared input requests, CPAL input streams on native, Web Audio microphone capture in the browser, and input queue routing |
 | `recording.rs` | Recording-session writer and capture-buffer lifecycle |
 | `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |
@@ -387,7 +394,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 1. Decide whether it belongs to asset import, engine execution, or app audio I/O.
 2. Keep file decoding and resampling in `notwig-project`.
 3. Keep real-time processing in `notwig-engine` and device contracts in `notwig-core::dsp`.
-4. Keep device/stream selection and snapshots in `notwig-app/src/audio.rs`.
+4. Keep device/stream selection in `notwig-app/src/audio/settings.rs`, stream callbacks in `stream.rs`, snapshots in `snapshot.rs`, and service wiring in `service.rs`.
 5. Follow the real-time rules in `AGENTS.md` and [`Architecture`](00_architecture.md).
 
 ## Known structural hotspots
@@ -395,13 +402,41 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 These are the largest or most mixed modules. Split along concrete seams when
 changing them; do not add unrelated responsibilities.
 
+- `crates/notwig-core/src/apply.rs` — dispatch, transport, tracks, clips, audio
+  math, notes, devices, and assets share one module. Split by command family and
+  move audio slice/trim math beside the edit algebra.
+- `crates/notwig-core/src/edit/algebra.rs` — materialize, copy/cut, delete/split,
+  paste/duplicate, move, and trim should become separate modules behind
+  `edit/mod.rs`.
+- `crates/notwig-core/src/protocol.rs` — commands, deltas, queries, plan handles,
+  schedules, engine messages, and runtime events are one schema module.
+- `crates/notwig-core/src/dsp/stock.rs` — device specs, Tool, EQ/biquad, and Chain
+  are independent; split them and share one biquad module.
 - `crates/notwig-ui/src/views/audio_editor/panel.rs` — view, gestures, lowering, and
   clip-specific state are all in one module.
 - `crates/notwig-ui/src/views/arranger/mod.rs` — track lanes, clip interaction, and
   timeline gestures are still coupled.
+- `crates/notwig-ui/src/views/arranger/track.rs` — row paint, header hit-testing,
+  drag/drop, lane gestures, and context menus should be split.
+- `crates/notwig-ui/src/views/midi_editor/panel.rs` — note drag, paint, velocity
+  lane, and audition geometry share one closure.
+- `crates/notwig-ui/src/views/settings/mod.rs` — audio device policy, channel
+  mapping, extension management, and settings navigation are one module.
 - `crates/notwig-ui/src/views/shell.rs` — app bar, transport toolbar, status bar, shortcuts, and windows.
+- `crates/notwig-app/src/gui.rs` — `NotwigApp` is a god object mixing lifecycle,
+  intent policy, recording, rendering, web bridge, dialogs, and platform edges.
 - `crates/notwig-app/src/workspace/mod.rs` — still owns several command groups;
   asset, engine, and plugin concerns have already been extracted.
+- `crates/notwig-engine/src/engine.rs` — control application and the real-time
+  process loop are still large, but they are tightly coupled to private engine
+  state. Split only if that area keeps changing.
+- `crates/notwig-app/src/engine_process/worker.rs` — build, recording, control,
+  and snapshot relay are related but still share one worker lifecycle.
+- `crates/notwig-plugins/src/native_editor.rs` — editor instance, AppKit window
+  hosting, Space-key monitoring, and platform stubs are one module.
+- `crates/notwig-rack/*/src/lib.rs` — each format backend is a single large file
+  mixing scanning, plugin core, host callbacks, transport, MIDI, events, and
+  editor. Split per backend when changing one rather than all at once.
 
 Deferred structural work:
 

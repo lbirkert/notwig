@@ -31,15 +31,36 @@ assets, or other copyrighted material is used in this project.
 
 ## Scope
 
-Notwig is an early-stage, playback/edit-only macOS prototype. Current features,
-candidate next milestones, and deferred scope live in the
+Notwig is an early-stage macOS application with arranging, editing, mixing,
+linear audio recording, and offline rendering. Current features, candidate next
+milestones, and deferred scope live in the
 [roadmap](docs/03_development/06_roadmap.md).
 
 ## Build and run
 
 Requirements: a recent Rust toolchain, macOS, and the platform audio/plugin SDKs
-needed by `cpal` and the vendored `notwig-rack` host. LV2 support also needs the
-system `lilv` library (`brew install lilv`).
+needed by `cpal` and the vendored `notwig-rack` host.
+
+Native plugin formats are Cargo features on `notwig-app`:
+
+| Feature | Formats |
+| --- | --- |
+| `au` | AU v2 and AU v3 |
+| `clap` | CLAP |
+| `vst` | VST3 and VST2 |
+| `lv2` | LV2 (opt-in; needs system `lilv`, e.g. `brew install lilv`) |
+
+The default native build enables AU, CLAP, and VST. Enable LV2 explicitly:
+
+```sh
+cargo run -p notwig-app --features lv2
+```
+
+To build or test without any native plugin format:
+
+```sh
+cargo test -p notwig-app --no-default-features --features native
+```
 
 ```sh
 cargo run -p notwig-app
@@ -78,6 +99,7 @@ cargo run -p notwig-app -- new path/to/project.notwig
 cargo run -p notwig-app -- demo
 cargo run -p notwig-app -- render path/to/project.notwig out.wav [--start BEATS] [--end BEATS]
 cargo run -p notwig-app -- info path/to/project.notwig
+cargo run -p notwig-app -- loopback
 ```
 
 Checks:
@@ -86,6 +108,9 @@ Checks:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+
+# Without native plugin formats or their system libraries:
+cargo test -p notwig-app --no-default-features --features native
 ```
 
 ## Documentation

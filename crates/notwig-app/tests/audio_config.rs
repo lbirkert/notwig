@@ -125,7 +125,9 @@ fn settings_view_warns_when_system_out_is_selected() {
     let system_out = settings_view(Vec::new(), &settings("", SYSTEM_OUT_DEVICE_ID, 512), None);
     assert_eq!(
         system_out.warning.as_deref(),
-        Some("System Out follows the operating system's default output device.")
+        Some(
+            "System Out follows the operating system's default output device. If that output has no inputs, recording uses the default input device on a separate clock."
+        )
     );
 
     let hardware = settings_view(Vec::new(), &settings("", "Speakers", 512), None);

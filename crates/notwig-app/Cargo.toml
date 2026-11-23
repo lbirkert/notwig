@@ -12,8 +12,12 @@ path = "src/main.rs"
 required-features = ["native"]
 
 [features]
-default = ["native"]
+default = ["native", "au", "clap", "vst"]
 native = []
+au = ["notwig-plugins/au", "notwig-plugins/au3"]
+clap = ["notwig-plugins/clap"]
+vst = ["notwig-plugins/vst2", "notwig-plugins/vst3"]
+lv2 = ["notwig-plugins/lv2"]
 web = []
 
 [dependencies]
@@ -42,17 +46,11 @@ rfd.workspace = true
 wgpu.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+clap.workspace = true
 mouse_position.workspace = true
 ureq.workspace = true
 tracing-subscriber.workspace = true
-notwig-plugins = { workspace = true, features = [
-  "vst3",
-  "vst2",
-  "au",
-  "au3",
-  "clap",
-  "lv2",
-] }
+notwig-plugins.workspace = true
 notwig-ext = { workspace = true, features = ["native"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

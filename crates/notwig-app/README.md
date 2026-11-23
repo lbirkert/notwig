@@ -38,6 +38,24 @@ domain or DSP logic belongs in lower crates, not here.
 - Native plugin editor windows.
 - Dialog and drag-drop coordination.
 
+## Features
+
+| Feature | Meaning |
+| --- | --- |
+| `native` | Native binary and platform integration |
+| `au` | AU v2 and AU v3 hosting |
+| `clap` | CLAP hosting |
+| `vst` | VST3 and VST2 hosting |
+| `lv2` | LV2 hosting; requires system `lilv` |
+| `web` | Browser target support |
+
+The default native build enables `au`, `clap`, and `vst`, but not `lv2`.
+Integration tests can run without native plugin formats:
+
+```sh
+cargo test -p notwig-app --no-default-features --features native
+```
+
 ## Does not own
 
 - Domain types, validation, or command semantics (see `notwig-core`).
@@ -52,7 +70,7 @@ domain or DSP logic belongs in lower crates, not here.
 | Module | Contents |
 |---|---|
 | `lib.rs` | Shared native/browser library surface |
-| `main.rs` | CLI, demo project, offline render/info commands |
+| `main.rs` | Clap-based CLI, demo project, offline render/info commands |
 | `gui.rs` | `eframe` app, intent handling, native dialogs, plugin windows |
 | `web/mod.rs` | Browser app construction |
 | `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |
@@ -61,7 +79,7 @@ domain or DSP logic belongs in lower crates, not here.
 | `workspace/assets.rs` | Asset load/import/relink/peaks/engine prepare |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `engine_build.rs` | Async engine build lifecycle |
-| `audio.rs` | CPAL stream, options, snapshot, DSP timing |
+| `audio/` | Audio settings and device enumeration, snapshots and DSP timing, CPAL stream builders, sample-format dispatch, and `AudioService` wiring |
 | `audio_worker.rs` | Render-ahead project/monitor worker and ring handoff |
 | `loopback.rs` | Native loopback latency and clock-drift measurement |
 | `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |

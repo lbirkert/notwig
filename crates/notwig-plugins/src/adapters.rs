@@ -129,6 +129,7 @@ fn load_plugin_inner(
     }
 }
 
+#[cfg(any(feature = "vst3", feature = "vst2", feature = "clap"))]
 fn scan_with<S>(
     scanner: &S,
     format: PluginFormat,
@@ -160,6 +161,11 @@ where
 /// Formats that discover through a registry rather than a filesystem path
 /// (Audio Unit, LV2) always walk the full registry; the host's scan paths do
 /// not apply.
+#[cfg(any(
+    feature = "lv2",
+    all(feature = "au", target_vendor = "apple"),
+    all(feature = "au3", target_vendor = "apple")
+))]
 fn scan_registry<S>(scanner: &S, format: PluginFormat) -> Result<Vec<PluginDescriptor>, PluginError>
 where
     S: notwig_rack::core::scanner::PluginScanner,

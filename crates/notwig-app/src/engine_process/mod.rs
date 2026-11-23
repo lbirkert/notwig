@@ -1,6 +1,8 @@
 mod child;
+mod editor;
 mod parent;
 mod protocol;
+mod worker;
 
 pub(crate) use parent::{EngineClient, EngineClientHandle, EngineEvent};
 pub(crate) use protocol::WireBuild;

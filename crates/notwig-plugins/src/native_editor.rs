@@ -1,9 +1,29 @@
 #![allow(unsafe_code)]
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+)))]
 use crate::types::{PluginDescriptor, PluginError, PluginState};
 
-#[cfg(target_os = "macos")]
+#[cfg(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+))]
 mod imp {
     use std::cell::{Cell, RefCell};
     use std::collections::{BTreeMap, BTreeSet};
@@ -583,19 +603,69 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+))]
 pub use imp::{NativePluginWindow, prepare_window_host, pump_window_host};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+)))]
 pub fn prepare_window_host() {}
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+)))]
 pub fn pump_window_host() {}
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+)))]
 pub struct NativePluginWindow;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "au",
+        feature = "au3",
+        feature = "clap",
+        feature = "lv2"
+    )
+)))]
 impl NativePluginWindow {
     pub fn open(
         descriptor: &PluginDescriptor,

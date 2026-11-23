@@ -337,7 +337,7 @@ device:
 | On | Device block equal | Output callback | Dedicated monitor chain | No |
 | Browser | No native worker | Output callback | Dedicated chain when enabled | No |
 
-The worker path is selected by the condition in `crates/notwig-app/src/audio.rs`:
+The worker path is selected by the condition in `crates/notwig-app/src/audio/service.rs`:
 
 ```rust
 settings.low_latency_monitoring && device_block < project_frames

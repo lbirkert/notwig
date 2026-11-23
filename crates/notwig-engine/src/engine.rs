@@ -8,6 +8,9 @@ use crate::control::{ControlHandle, EngineData, InputRoute, PreparedRuntime};
 use crate::input::{InputBus, MAX_INPUT_TRACKS};
 use crate::runtime::ActivePlan;
 
+mod metronome;
+mod offline;
+
 /// The audio thread checks the shared control slot once per this many frames.
 /// This is deterministic and keeps the lock attempt off most callbacks.
 pub const DEFAULT_CONTROL_SYNC_FRAMES: u64 = 256;
@@ -739,50 +742,6 @@ impl Engine {
         Ok(())
     }
 
-    fn apply_metronome(&mut self, metronome: notwig_core::protocol::MetronomeState) {
-        self.metronome_enabled = metronome.enabled;
-        self.metronome_beats_per_bar = metronome.beats_per_bar.max(1);
-        self.metronome_beat_length = metronome.beat_length;
-        self.metronome_bar_length = metronome.bar_length.max(metronome.beat_length);
-    }
-
-    fn mix_metronome(&self, buffer: &mut [f32], start_sample: u64, frames: usize) {
-        if !self.metronome_enabled {
-            return;
-        }
-        let Some(plan) = &self.plan else {
-            return;
-        };
-        let rate = f64::from(self.config.sample_rate.max(1));
-        let samples_per_quarter = rate * 60.0 / plan.config.tempo_bpm.max(1e-6);
-        let beat_length = self.metronome_beat_length.as_f64().max(1e-9);
-        let bar_length = self.metronome_bar_length.as_f64().max(beat_length);
-        let samples_per_pulse = samples_per_quarter * beat_length;
-        let samples_per_bar = samples_per_quarter * bar_length;
-        if samples_per_pulse <= 0.0 || samples_per_bar <= 0.0 {
-            return;
-        }
-        let click_len = (0.03 * rate).max(1.0).min(samples_per_pulse);
-        for index in 0..frames {
-            let absolute = start_sample as f64 + index as f64;
-            let pulse_position = absolute % samples_per_pulse;
-            if pulse_position >= click_len {
-                continue;
-            }
-            let bar_position = absolute % samples_per_bar;
-            let accent = bar_position < click_len;
-            let frequency = if accent { 1760.0 } else { 880.0 };
-            let envelope = (1.0 - pulse_position / click_len).powi(2);
-            let amplitude = if accent { 0.35 } else { 0.22 };
-            let seconds = pulse_position / rate;
-            let sample = (seconds * frequency * std::f64::consts::TAU).sin() as f32
-                * envelope as f32
-                * amplitude;
-            buffer[index * 2] += sample;
-            buffer[index * 2 + 1] += sample;
-        }
-    }
-
     fn transport_tick(&mut self) {
         let samples = self.playhead_samples();
         let playhead_mus = self.plan.as_ref().map_or(TimeMus::zero(), |plan| {
@@ -793,48 +752,6 @@ impl Engine {
             playhead_mus,
             playing: self.transport.playing,
         });
-    }
-
-    pub fn begin_offline_render(&mut self, start_sample: u64) {
-        self.transport.playing = true;
-        self.transport.playhead_samples = start_sample as f64;
-        self.transport.loop_enabled = false;
-        self.all_notes_off = true;
-        self.offline = true;
-        self.events.clear();
-        if let Some(runtime) = &mut self.runtime {
-            runtime.reset();
-            runtime.set_measure_meters(false);
-            runtime.prime_notes_at(start_sample);
-        }
-    }
-
-    pub fn render_offline_block(&mut self, frames: usize) -> Result<Vec<f32>, EngineError> {
-        let frames = frames.clamp(1, self.config.max_block_size.max(1));
-        let mut output = vec![0.0; frames * 2];
-        self.process(&mut output, frames)?;
-        Ok(output)
-    }
-
-    pub fn render_offline(
-        &mut self,
-        start_sample: u64,
-        end_sample: u64,
-    ) -> Result<Vec<f32>, EngineError> {
-        if end_sample <= start_sample {
-            return Ok(Vec::new());
-        }
-        self.begin_offline_render(start_sample);
-        let total = usize::try_from(end_sample - start_sample).unwrap_or(0);
-        let mut output = vec![0.0; total * 2];
-        let block = self.config.max_block_size.max(1);
-        let mut offset = 0usize;
-        while offset < total {
-            let frames = block.min(total - offset);
-            self.process(&mut output[offset * 2..(offset + frames) * 2], frames)?;
-            offset += frames;
-        }
-        Ok(output)
     }
 }
 

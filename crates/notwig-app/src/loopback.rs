@@ -135,8 +135,10 @@ pub fn run(options: &LoopbackOptions) -> Result<LoopbackReport, String> {
 
     let output_config = output_stream_config(&output_device, rate)?;
     let input_config = input_stream_config(&input_device, rate)?;
-    let output_stream = match output_config.1 {
-        SampleFormat::F32 => build_output::<f32>(
+    let output_stream = crate::audio::with_output_sample_format!(
+        output_config.1,
+        T,
+        build_output::<T>(
             &output_device,
             output_config.0,
             Arc::clone(&click),
@@ -145,84 +147,19 @@ pub fn run(options: &LoopbackOptions) -> Result<LoopbackReport, String> {
             Arc::clone(&running),
             interval_samples,
             lead_in_samples,
-        ),
-        SampleFormat::I16 => build_output::<i16>(
-            &output_device,
-            output_config.0,
-            Arc::clone(&click),
-            Arc::clone(&clicks),
-            Arc::clone(&frames_emitted),
-            Arc::clone(&running),
-            interval_samples,
-            lead_in_samples,
-        ),
-        SampleFormat::U16 => build_output::<u16>(
-            &output_device,
-            output_config.0,
-            Arc::clone(&click),
-            Arc::clone(&clicks),
-            Arc::clone(&frames_emitted),
-            Arc::clone(&running),
-            interval_samples,
-            lead_in_samples,
-        ),
-        SampleFormat::I32 => build_output::<i32>(
-            &output_device,
-            output_config.0,
-            Arc::clone(&click),
-            Arc::clone(&clicks),
-            Arc::clone(&frames_emitted),
-            Arc::clone(&running),
-            interval_samples,
-            lead_in_samples,
-        ),
-        other => Err(format!("unsupported loopback output sample format {other}")),
-    }?;
-    let input_stream = match input_config.1 {
-        SampleFormat::F32 => build_input::<f32>(
+        )
+    )?;
+    let input_stream = crate::audio::with_input_sample_format!(
+        input_config.1,
+        T,
+        build_input::<T>(
             &input_device,
             input_config.0,
             Arc::clone(&input),
             Arc::clone(&input_timeline),
             Arc::clone(&running),
-        ),
-        SampleFormat::I16 => build_input::<i16>(
-            &input_device,
-            input_config.0,
-            Arc::clone(&input),
-            Arc::clone(&input_timeline),
-            Arc::clone(&running),
-        ),
-        SampleFormat::U16 => build_input::<u16>(
-            &input_device,
-            input_config.0,
-            Arc::clone(&input),
-            Arc::clone(&input_timeline),
-            Arc::clone(&running),
-        ),
-        SampleFormat::I32 => build_input::<i32>(
-            &input_device,
-            input_config.0,
-            Arc::clone(&input),
-            Arc::clone(&input_timeline),
-            Arc::clone(&running),
-        ),
-        SampleFormat::I8 => build_input::<i8>(
-            &input_device,
-            input_config.0,
-            Arc::clone(&input),
-            Arc::clone(&input_timeline),
-            Arc::clone(&running),
-        ),
-        SampleFormat::U8 => build_input::<u8>(
-            &input_device,
-            input_config.0,
-            Arc::clone(&input),
-            Arc::clone(&input_timeline),
-            Arc::clone(&running),
-        ),
-        other => Err(format!("unsupported loopback input sample format {other}")),
-    }?;
+        )
+    )?;
 
     output_stream
         .play()

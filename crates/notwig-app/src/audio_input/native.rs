@@ -130,15 +130,11 @@ impl InputHub {
             .collect();
         let bus = Arc::clone(&self.bus);
         let error = Arc::clone(&self.error);
-        match sample_format {
-            SampleFormat::F32 => build_input::<f32>(&device, config, bus, targets, error),
-            SampleFormat::I16 => build_input::<i16>(&device, config, bus, targets, error),
-            SampleFormat::U16 => build_input::<u16>(&device, config, bus, targets, error),
-            SampleFormat::I32 => build_input::<i32>(&device, config, bus, targets, error),
-            SampleFormat::I8 => build_input::<i8>(&device, config, bus, targets, error),
-            SampleFormat::U8 => build_input::<u8>(&device, config, bus, targets, error),
-            other => Err(format!("unsupported input sample format {other}")),
-        }
+        crate::audio::with_input_sample_format!(
+            sample_format,
+            T,
+            build_input::<T>(&device, config, bus, targets, error)
+        )
     }
 }
 
