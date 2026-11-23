@@ -28,9 +28,13 @@ use audio::{AUDIO_RESTART_INITIAL_DELAY, AudioImportRequest, MeterSmoother};
 use dialogs::DialogAction;
 #[cfg(target_arch = "wasm32")]
 use platform::WebProjectPicker;
-use platform::{available_audio_options, load_recent_projects, platform_pointer};
+use platform::{available_audio_options, load_recent_projects};
+#[cfg(not(target_arch = "wasm32"))]
+use platform::platform_pointer;
 use recording::{ActiveRecording, append_captures};
-use render::{RenderEncodeResult, RenderJob, StemsRenderResult};
+use render::RenderJob;
+#[cfg(not(target_arch = "wasm32"))]
+use render::{RenderEncodeResult, StemsRenderResult};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
