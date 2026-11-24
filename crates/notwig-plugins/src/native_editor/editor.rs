@@ -203,6 +203,13 @@ impl NativePluginWindow {
         self.open
     }
 
+    /// Current content size of the hosted editor window.
+    ///
+    /// Updated from the plugin editor's reported size on every [`Self::pump`].
+    pub fn size(&self) -> (u32, u32) {
+        self.window_size
+    }
+
     /// Returns and clears a playback-toggle request recorded while a plugin
     /// window was key. The Space key that triggered it is swallowed by the
     /// event monitor and never reaches the plugin editor.

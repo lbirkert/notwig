@@ -1,0 +1,14 @@
+[vendor]
+name = "Notwig Tests"
+id = "com.notwig.tests"
+url = "https://notwig.example"
+au_manufacturer = "Ntwg"
+
+[[plugin]]
+name = "Notwig Test Plugin"
+bundle_id = "notwig-test-plugin"
+crate = "notwig-test-plugin"
+category = "effect"
+fourcc = "Ntst"
+au_tag = "Effects"
+vst3_subcategory = "Tools"

@@ -1,0 +1,32 @@
+[package]
+name = "notwig-test-plugin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+publish = false
+
+# This fixture is built by `cargo truce` outside the Notwig workspace so the
+# truce plugin-side dependency graph never becomes a workspace dependency.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["clap", "vst3", "vst2", "lv2"]
+clap = ["dep:truce-clap", "dep:clap-sys"]
+vst3 = ["dep:truce-vst3"]
+vst2 = ["dep:truce-vst2"]
+lv2 = ["dep:truce-lv2"]
+au = ["dep:truce-au"]
+
+[dependencies]
+truce = { version = "=6.3.0" }
+truce-gui-types = { version = "=6.3.0" }
+truce-gui = { version = "=6.3.0" }
+truce-clap = { version = "=6.3.0", optional = true }
+truce-vst3 = { version = "=6.3.0", optional = true }
+truce-vst2 = { version = "=6.3.0", optional = true }
+truce-lv2 = { version = "=6.3.0", optional = true }
+truce-au = { version = "=6.3.0", optional = true }
+clap-sys = { version = "0.5", optional = true }

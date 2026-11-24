@@ -70,5 +70,12 @@ do not need plugin SDKs.
 ## Tests
 
 `tests/` covers cache, descriptor, probe-ordering, and probe-failure behavior.
-Plugin loading is platform- and installation-dependent; avoid tests that require
-a specific third-party plugin.
+`tests/host.rs` and `tests/types.rs` run in the normal workspace suite.
+
+`tests/plugin_integration.rs` and `tests/plugin_editor.rs` are manual-only
+because they build a real truce plugin from
+`tests/fixtures/truce_test_plugin` and load native binaries. Run them through
+`scripts/test-plugins.sh`; it builds the available formats, sets `LV2_PATH`,
+and invokes the ignored tests. The fixture covers CLAP, VST3, VST2, LV2, AU v2,
+and AU v3 where the host platform supports them. Native editor windows are
+macOS-only; other platforms assert the backend-unavailable stub.

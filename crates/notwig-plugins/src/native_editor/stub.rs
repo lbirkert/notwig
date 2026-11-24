@@ -23,6 +23,10 @@ impl NativePluginWindow {
         false
     }
 
+    pub fn size(&self) -> (u32, u32) {
+        (0, 0)
+    }
+
     pub fn take_playback_toggle(&mut self) -> bool {
         false
     }

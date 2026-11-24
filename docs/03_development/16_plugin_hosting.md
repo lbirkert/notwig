@@ -148,3 +148,40 @@ targets. Format enablement in `PluginFormat::enabled` is compiled-feature based.
   Latency compensation therefore trusts a zero for those formats.
 - The engine process uses no subprocess probe. A plugin that hard-crashes during
   DSP load or process takes down `engine-host`; the UI survives and can restart it.
+
+## 8. Integration fixture and manual matrix
+
+`crates/notwig-plugins/tests/fixtures/truce_test_plugin` is a local truce
+plugin with three parameters (gain, bypass, mode) and an editor. It is built
+outside the Notwig workspace by `scripts/test-plugins.sh`, which selects the
+formats available on the host, sets `LV2_PATH` to a dedicated directory, and
+runs the ignored integration tests.
+
+| Test file | Covers |
+| --- | --- |
+| `tests/plugin_integration.rs` | Per-format discovery, descriptor shape, load, capabilities, editor capability, latency expectations, parameter updates, state round-trip, wrong-UID rejection, corrupt-state safety, re-prepare at another rate/block size, zero-frame and silent blocks, and repeated instantiation. |
+| `tests/plugin_editor.rs` | macOS `NativePluginWindow` open/size/pump/focus, host-to-editor parameter change, editor state save/load, and reopen. Off macOS it asserts `BackendUnavailable`. |
+
+The format matrix is intentionally explicit about adapter gaps:
+
+| Format | Host test | Parameters | State | Editor |
+| --- | --- | --- | --- | --- |
+| CLAP | yes | native units | yes | macOS only |
+| VST3 | yes | normalized `[0, 1]` | yes | macOS only |
+| VST2 | yes | normalized `[0, 1]` | yes | macOS only |
+| LV2 | yes (needs lilv + `LV2_PATH`) | not enumerated | not wired | macOS only |
+| AU v2 | macOS, component must be installed | native units | yes | macOS only |
+| AU v3 | macOS, extension must be installed | native units | yes | macOS only |
+
+VST3 and VST2 currently expose normalized parameter values while CLAP and AU
+expose native units. The tests translate to each adapter's wire form instead
+of hiding that difference. Host `EnumIndex` values are not yet mapped through
+normalized adapters' step counts, so enum coverage uses the raw wire value.
+
+Run the matrix manually:
+
+```sh
+cargo install cargo-truce --version 6.3.0
+scripts/test-plugins.sh
+NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh   # macOS AU v3 as well
+```
