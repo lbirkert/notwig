@@ -17,7 +17,7 @@ runs these steps in order:
 | 3 | Validate audio settings | Enumerates drivers/devices, then `audio_config::validated` drops unavailable selections. Workspace block size and low-latency monitoring are reconciled and a rebuild is requested if they changed. |
 | 4 | Start background workers | Two long-lived threads: audio import and audio analysis, each with request/result channels. |
 | 5 | Load extensions | `ExtensionManager::load` loads settings and the native extension host on the UI thread. |
-| 6 | Construct UI state | Builds `NotwigUi`, loads shortcuts, and retains the document playhead as the fallback playhead. |
+| 6 | Construct UI state | Builds `NotwigUi`, loads shortcuts, starts the 1.5 s wordmark splash timer, and retains the document playhead as the fallback playhead. |
 | 7 | Synchronise extensions | `sync_extensions` installs device specs, the engine extension runtime, and the panel host. Installing specs requests an engine rebuild while no audio process exists yet. |
 | 8 | Start audio | `restart_audio` starts the engine process, performs the handshake and device open, installs the remote control sink, republishes transport, requests another rebuild, and configures recording inputs. |
 
@@ -41,7 +41,7 @@ schedules a retry.
 | 7 | Drain engine events | Build results, plugin editors, parameter edits, transport toggles, and recording chunks. |
 | 8 | Take audio snapshot | Updates the stored playhead, checks device loss, reports crashes, and advances the fallback playhead when the engine is not running. |
 | 9 | Refresh derived UI data | Recording waveforms and smoothed meters. |
-| 10 | Build runtime view and show UI | Registers device specs, then `ui.show` returns `UiIntent`s that `handle_intent` processes. |
+| 10 | Build runtime view and show UI | Registers device specs, then `ui.show` returns `UiIntent`s that `handle_intent` processes. The startup wordmark overlay is painted above the normal UI while its fade window is active. |
 | 11 | Show recovery modal | Runs after intents and before autosave. |
 | 12 | Save shortcuts and autosave | Autosave is due after 60 s of dirty state, with a bundle path, and no pending audio import. |
 | 13 | Schedule repaint | Fast while rendering or playing; slower while idle or while the engine builds. |

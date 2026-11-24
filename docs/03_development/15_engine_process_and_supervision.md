@@ -4,14 +4,17 @@ The native desktop app runs the audio engine in a child process. The UI owns
 `ProjectDoc`, undo history, persistence, and the plugin catalog; the `engine-host`
 child owns CPAL, the engine, plugin DSP instances, and native editor windows.
 Related: [`Audio Engine`](02_audio_engine.md),
-[`Plugin Hosting`](16_plugin_hosting.md), [`Architecture`](00_architecture.md).
+[`Plugin Hosting`](16_plugin_hosting.md), [`Architecture`](00_architecture.md),
+and [`Logging and Diagnostics`](22_logging.md).
 
 ## 1. Process boundary
 
 `EngineClient::start` spawns the current executable with the hidden `engine-host`
-argument. Stdin/stdout are piped; stderr is inherited. The child runs an IPC
-reader, an IPC writer, an `EngineWorker` control thread, a loader thread, and a
-main loop that owns editor windows (main-thread AppKit requirement).
+argument. Stdin/stdout are piped; stderr is inherited. The child initializes its
+own `engine-<timestamp>-<pid>.log` in the Notwig app directory before entering
+the host loop. The child runs an IPC reader, an IPC writer, an `EngineWorker`
+control thread, a loader thread, and a main loop that owns editor windows
+(main-thread AppKit requirement).
 
 ```text
 UI process                                  engine-host child

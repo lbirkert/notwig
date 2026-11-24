@@ -93,7 +93,7 @@ fn scan_dir_into(dir: &Path, out: &mut Vec<PluginInfo>) {
             continue;
         }
         if let Err(err) = scan_bundle_into(&path, out) {
-            eprintln!("[notwig-rack-vst3] skipping {}: {err}", path.display());
+            tracing::debug!(path = %path.display(), error = %err, "skipping VST3 plugin");
         }
     }
 }

@@ -108,12 +108,7 @@ pub fn recovery_candidates_in(bundles: &[PathBuf]) -> Vec<RecoveryCandidate> {
 }
 
 fn config_path() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    #[cfg(target_os = "macos")]
-    let path = home.join("Library/Application Support/notwig/projects.json");
-    #[cfg(not(target_os = "macos"))]
-    let path = home.join(".config/notwig/projects.json");
-    Some(path)
+    crate::app_paths::data_dir().map(|dir| dir.join("projects.json"))
 }
 
 fn read_registry(path: &Path) -> PersistedRegistry {

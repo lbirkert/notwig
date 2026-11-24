@@ -83,6 +83,7 @@ cargo test -p notwig-app --no-default-features --features native
 | `audio_worker.rs` | Render-ahead project/monitor worker and ring handoff |
 | `loopback.rs` | Native loopback latency and clock-drift measurement |
 | `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |
+| `app_paths.rs` | Canonical per-user app, cache, and log directories |
 | `audio_input/mod.rs` | Shared input requests and platform input-hub selection |
 | `audio_input/native.rs` | CPAL input streams and hardware input enumeration |
 | `audio_input/web.rs` | Web Audio microphone capture and browser input enumeration |
@@ -96,7 +97,7 @@ cargo test -p notwig-app --no-default-features --features native
 | `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Edit plan to command lowering |
 | `history.rs` | Undo/redo stack |
-| `logging.rs` | Tracing setup |
+| `logging.rs` | Tracing setup, timestamped app/engine files, and OPFS app logs |
 
 ## Tests
 

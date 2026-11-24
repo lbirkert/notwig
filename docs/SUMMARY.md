@@ -48,3 +48,4 @@
 - [Extension ABI and Hosts](03_development/19_extension_abi_and_hosts.md)
 - [Web Build and Storage](03_development/20_web_build_and_storage.md)
 - [Routing and Delay Compensation](03_development/21_routing_and_pdc.md)
+- [Logging and Diagnostics](03_development/22_logging.md)

@@ -135,7 +135,9 @@ fn scan_path_into(path: &Path, out: &mut Vec<PluginInfo>, depth: usize) {
 fn scan_bundle_into(path: &Path, out: &mut Vec<PluginInfo>) {
     match Vst2Plugin::load_path(path, 0) {
         Ok(plugin) => out.extend(plugin.class_infos()),
-        Err(err) => eprintln!("[notwig-rack-vst2] skipping {}: {err}", path.display()),
+        Err(err) => {
+            tracing::debug!(path = %path.display(), error = %err, "skipping VST2 plugin");
+        }
     }
 }
 

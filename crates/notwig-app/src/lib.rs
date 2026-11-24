@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+#[cfg(not(target_arch = "wasm32"))]
+mod app_paths;
 pub mod audio;
 pub mod audio_config;
 mod audio_input;

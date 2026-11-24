@@ -157,7 +157,7 @@ pub(crate) struct EngineProcessBuild {
 impl EngineProcessBuild {
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
-        tracing::info!(
+        tracing::debug!(
             generation = self.requests,
             sample_rate = request.sample_rate,
             block_size = request.max_block_size,
@@ -206,7 +206,7 @@ impl EngineProcessBuild {
             .spawn(move || {
                 let started = Instant::now();
                 let outcome = request.prepare_wire();
-                tracing::info!(
+                tracing::debug!(
                     generation,
                     elapsed_ms = started.elapsed().as_millis(),
                     success = outcome.is_ok(),
@@ -243,7 +243,7 @@ impl EngineBuild {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
-        tracing::info!(
+        tracing::debug!(
             generation = self.requests,
             sample_rate = request.sample_rate,
             block_size = request.max_block_size,
@@ -261,7 +261,7 @@ impl EngineBuild {
     #[allow(clippy::unnecessary_wraps)]
     pub(crate) fn request(&mut self, request: EngineBuildRequest) -> Result<(), String> {
         self.requests = self.requests.saturating_add(1);
-        tracing::info!(
+        tracing::debug!(
             generation = self.requests,
             sample_rate = request.sample_rate,
             block_size = request.max_block_size,
@@ -269,7 +269,7 @@ impl EngineBuild {
         );
         let started = crate::clock::Instant::now();
         let prepared = request.prepare();
-        tracing::info!(
+        tracing::debug!(
             generation = self.requests,
             elapsed_ms = started.elapsed().as_millis(),
             success = prepared.is_ok(),
@@ -331,7 +331,7 @@ impl EngineBuild {
             .spawn(move || {
                 let started = Instant::now();
                 let outcome = request.prepare();
-                tracing::info!(
+                tracing::debug!(
                     generation,
                     elapsed_ms = started.elapsed().as_millis(),
                     success = outcome.is_ok(),

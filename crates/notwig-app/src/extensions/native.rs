@@ -385,21 +385,11 @@ fn fetch_url(source: &str) -> Result<Vec<u8>, String> {
 }
 
 fn extensions_dir() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    #[cfg(target_os = "macos")]
-    let path = home.join("Library/Application Support/notwig/extensions");
-    #[cfg(not(target_os = "macos"))]
-    let path = home.join(".config/notwig/extensions");
-    Some(path)
+    crate::app_paths::data_dir().map(|dir| dir.join("extensions"))
 }
 
 fn config_path() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    #[cfg(target_os = "macos")]
-    let path = home.join("Library/Application Support/notwig/extensions.json");
-    #[cfg(not(target_os = "macos"))]
-    let path = home.join(".config/notwig/extensions.json");
-    Some(path)
+    crate::app_paths::data_dir().map(|dir| dir.join("extensions.json"))
 }
 
 fn load_config() -> ExtensionConfig {

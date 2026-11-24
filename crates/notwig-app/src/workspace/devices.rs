@@ -267,7 +267,7 @@ impl Workspace {
         };
         let params = metadata.params;
         let capabilities = metadata.capabilities;
-        tracing::info!(
+        tracing::debug!(
             plugin = %descriptor.name,
             params = params.len(),
             latency = capabilities.latency_samples,

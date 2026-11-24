@@ -37,6 +37,12 @@ impl Workspace {
             Ok(result) => {
                 self.doc = result.doc;
                 self.dirty = true;
+                tracing::debug!(
+                    revision = self.doc.revision,
+                    structural,
+                    undo = record_undo,
+                    "applied project command"
+                );
                 if let Some(before) = before {
                     self.history.record(before, structural);
                 }
@@ -67,6 +73,7 @@ impl Workspace {
         };
         self.doc = entry.doc;
         self.dirty = true;
+        tracing::debug!(revision = self.doc.revision, "undid project command");
         if entry.structural {
             self.request_engine_rebuild();
         } else {
@@ -82,6 +89,7 @@ impl Workspace {
         };
         self.doc = entry.doc;
         self.dirty = true;
+        tracing::debug!(revision = self.doc.revision, "redid project command");
         if entry.structural {
             self.request_engine_rebuild();
         } else {
@@ -95,6 +103,7 @@ impl Workspace {
         if payloads.is_empty() {
             return Ok(());
         }
+        let command_count = payloads.len();
         let before = self.doc.clone();
         let mut doc = self.doc.clone();
         let mut structural = false;
@@ -107,6 +116,12 @@ impl Workspace {
         }
         self.doc = doc;
         self.dirty = true;
+        tracing::debug!(
+            revision = self.doc.revision,
+            commands = command_count,
+            structural,
+            "applied project command batch"
+        );
         self.history.record(before, structural);
         if structural {
             self.request_engine_rebuild();

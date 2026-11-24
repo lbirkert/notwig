@@ -66,8 +66,36 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     .map_err(|err| err.to_string())
 }
 
+const STARTUP_SPLASH_DURATION: f32 = 1.5;
+const STARTUP_SPLASH_FADE_IN: f32 = 0.25;
+const STARTUP_SPLASH_FADE_OUT: f32 = 0.4;
+
+struct StartupSplash {
+    started: Instant,
+}
+
+impl StartupSplash {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+        }
+    }
+
+    fn opacity(&self) -> Option<f32> {
+        let elapsed = self.started.elapsed().as_secs_f32();
+        if elapsed >= STARTUP_SPLASH_DURATION {
+            return None;
+        }
+        let fade_in = (elapsed / STARTUP_SPLASH_FADE_IN).clamp(0.0, 1.0);
+        let fade_out =
+            ((STARTUP_SPLASH_DURATION - elapsed) / STARTUP_SPLASH_FADE_OUT).clamp(0.0, 1.0);
+        Some(fade_in.min(fade_out))
+    }
+}
+
 pub struct NotwigApp {
     workspace: Workspace,
+    startup_splash: StartupSplash,
     ui: NotwigUi,
     extensions: crate::extensions::ExtensionManager,
     #[cfg(not(target_arch = "wasm32"))]
@@ -197,6 +225,7 @@ impl NotwigApp {
         let extensions = crate::extensions::ExtensionManager::load();
         let mut app = Self {
             workspace,
+            startup_splash: StartupSplash::new(),
             ui: NotwigUi::default(),
             extensions,
             audio: None,
@@ -252,6 +281,7 @@ impl NotwigApp {
             mpsc::channel::<(AssetId, Result<notwig_project::ImportedAsset, String>)>();
         let mut app = Self {
             workspace,
+            startup_splash: StartupSplash::new(),
             ui: NotwigUi::default(),
             extensions: crate::extensions::ExtensionManager::load(),
             audio: None,
@@ -499,6 +529,8 @@ impl eframe::App for NotwigApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(target_arch = "wasm32")]
+        crate::logging::flush_web();
         self.workspace.poll_engine_build();
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -690,6 +722,10 @@ impl eframe::App for NotwigApp {
             }
         }
         self.show_recovery_dialog(ctx);
+        if let Some(opacity) = self.startup_splash.opacity() {
+            self.ui.show_startup_splash(ctx, opacity);
+            ctx.request_repaint();
+        }
         if self.ui.take_shortcuts_dirty() {
             let result = crate::shortcuts::save(self.ui.shortcuts());
             let _ = self.report(result);

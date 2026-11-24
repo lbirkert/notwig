@@ -113,7 +113,7 @@ fn scan_dir_into(dir: &Path, out: &mut Vec<PluginInfo>) {
         // Failure to scan one bundle should not abort the whole
         // walk — the host still wants the plugins it can see.
         if let Err(err) = scan_bundle_into(&path, out) {
-            eprintln!("[notwig-rack-clap] skipping {}: {err}", path.display());
+            tracing::debug!(path = %path.display(), error = %err, "skipping CLAP plugin");
         }
     }
 }

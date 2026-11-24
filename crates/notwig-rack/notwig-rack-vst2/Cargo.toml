@@ -16,6 +16,7 @@ path = "src/lib.rs"
 crossbeam-queue = "0.3"
 libloading = "0.8"
 notwig-rack-core = { path = "../notwig-rack-core" }
+tracing = "0.1"
 
 [lints.clippy.pedantic]
 level = "warn"

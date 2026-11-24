@@ -49,6 +49,7 @@ impl PluginProbe for SubprocessProbe {
         if let Ok(cache) = probe_cache().lock()
             && let Some(result) = cache.get(&key)
         {
+            tracing::trace!(plugin = %descriptor.name, "using cached plugin metadata");
             return result.clone();
         }
         let result = Self::probe_uncached(descriptor);
@@ -61,6 +62,12 @@ impl PluginProbe for SubprocessProbe {
 
 impl SubprocessProbe {
     fn probe_uncached(descriptor: &PluginDescriptor) -> Result<PluginMetadata, PluginError> {
+        tracing::debug!(
+            plugin = %descriptor.name,
+            format = ?descriptor.format,
+            path = %descriptor.path.display(),
+            "probing plugin metadata"
+        );
         let exe = std::env::current_exe().map_err(|err| PluginError::Io(err.to_string()))?;
         let input = serde_json::to_vec(descriptor)
             .map_err(|err| PluginError::Load(format!("encode plugin descriptor: {err}")))?;
@@ -68,7 +75,7 @@ impl SubprocessProbe {
             .arg("load-plugin")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|err| PluginError::Io(format!("start plugin probe: {err}")))?;
         if let Some(mut stdin) = child.stdin.take() {
@@ -83,6 +90,11 @@ impl SubprocessProbe {
                 bytes
             })
         });
+        let helper_label = format!("plugin-probe:{}", descriptor.name);
+        let stderr_reader = child
+            .stderr
+            .take()
+            .map(|stderr| forward_helper_stderr(helper_label, stderr));
         let deadline = Instant::now() + PROBE_TIMEOUT;
         let status = loop {
             match child.try_wait() {
@@ -91,6 +103,10 @@ impl SubprocessProbe {
                     if Instant::now() >= deadline {
                         let _ = child.kill();
                         let _ = child.wait();
+                        tracing::warn!(
+                            plugin = %descriptor.name,
+                            "plugin metadata probe timed out"
+                        );
                         return Err(PluginError::Load(format!(
                             "plugin probe timed out: {}",
                             descriptor.name
@@ -108,7 +124,15 @@ impl SubprocessProbe {
         let output = reader
             .and_then(|reader| reader.join().ok())
             .unwrap_or_default();
+        if let Some(reader) = stderr_reader {
+            let _ = reader.join();
+        }
         if !status.success() {
+            tracing::warn!(
+                plugin = %descriptor.name,
+                status = %status,
+                "plugin metadata probe process failed"
+            );
             return Err(PluginError::Load(format!(
                 "plugin probe failed for {}: {status}",
                 descriptor.name
@@ -124,12 +148,39 @@ impl SubprocessProbe {
                     descriptor.name
                 ))
             })?;
-        serde_json::from_slice(metadata).map_err(|err| {
+        let metadata: PluginMetadata = serde_json::from_slice(metadata).map_err(|err| {
             PluginError::Load(format!(
                 "invalid plugin metadata for {}: {err}",
                 descriptor.name
             ))
-        })
+        })?;
+        tracing::debug!(
+            plugin = %descriptor.name,
+            params = metadata.params.len(),
+            latency = metadata.capabilities.latency_samples,
+            "probed plugin metadata"
+        );
+        Ok(metadata)
+    }
+}
+
+fn forward_helper_stderr(
+    label: String,
+    mut stderr: impl Read + Send + 'static,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stderr.read_to_end(&mut bytes);
+        forward_helper_output(&label, &bytes);
+    })
+}
+
+fn forward_helper_output(label: &str, bytes: &[u8]) {
+    for line in String::from_utf8_lossy(bytes).lines() {
+        let line = line.trim_end();
+        if !line.is_empty() {
+            tracing::debug!(helper = label, "{line}");
+        }
     }
 }
 
@@ -152,25 +203,47 @@ impl PluginCatalog {
                 .and_then(|path| PluginCache::load(&path).ok())
                 .map(|cache| cache.descriptors())
                 .unwrap_or_default();
-            tracing::info!(count = cache.len(), "loaded cached audio plugin registry");
+            tracing::debug!(count = cache.len(), "loaded cached audio plugin registry");
             let (tx, rx) = mpsc::channel();
             let cache_path = plugin_cache_path();
             std::thread::spawn(move || {
                 if let Some(path) = cache_path {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let status = std::process::Command::new(exe)
+                    let started = Instant::now();
+                    tracing::info!("scanning audio plugins");
+                    match std::env::current_exe() {
+                        Ok(exe) => match Command::new(exe)
                             .arg("scan-plugins")
                             .arg(&path)
-                            .status();
-                        if !status.is_ok_and(|status| status.success()) {
-                            tracing::warn!("plugin scanner process failed");
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::piped())
+                            .output()
+                        {
+                            Ok(output) => {
+                                forward_helper_output("plugin-scanner", &output.stderr);
+                                if !output.status.success() {
+                                    tracing::warn!(
+                                        status = %output.status,
+                                        "plugin scanner process failed"
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "could not start plugin scanner process");
+                            }
+                        },
+                        Err(error) => {
+                            tracing::warn!(%error, "could not locate the plugin scanner executable");
                         }
                     }
                     let descriptors = PluginCache::load(&path)
                         .ok()
                         .map(|cache| cache.descriptors())
                         .unwrap_or_default();
-                    tracing::info!(count = descriptors.len(), "scanned audio plugins");
+                    tracing::info!(
+                        count = descriptors.len(),
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "scanned audio plugins"
+                    );
                     let _ = tx.send(descriptors);
                 }
             });
@@ -212,13 +285,7 @@ impl PluginCatalog {
 }
 
 fn plugin_cache_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let home = PathBuf::from(home);
-    #[cfg(target_os = "macos")]
-    let path = home.join("Library/Caches/notwig/plugin-cache.json");
-    #[cfg(not(target_os = "macos"))]
-    let path = home.join(".cache/notwig/plugin-cache.json");
-    Some(path)
+    crate::app_paths::cache_dir().map(|dir| dir.join("plugin-cache.json"))
 }
 
 pub(crate) fn plugin_entries(descriptors: &[PluginDescriptor]) -> Vec<PluginEntry> {

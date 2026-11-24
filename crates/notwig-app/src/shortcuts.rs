@@ -34,12 +34,7 @@ pub(crate) fn save(shortcuts: &Shortcuts) -> Result<(), String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn config_path() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    #[cfg(target_os = "macos")]
-    let path = home.join("Library/Application Support/notwig/shortcuts.json");
-    #[cfg(not(target_os = "macos"))]
-    let path = home.join(".config/notwig/shortcuts.json");
-    Some(path)
+    crate::app_paths::data_dir().map(|dir| dir.join("shortcuts.json"))
 }
 
 #[cfg(target_arch = "wasm32")]

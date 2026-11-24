@@ -11,7 +11,7 @@ use super::protocol::{EngineReply, EngineRequest, PROTOCOL_VERSION, read_frame, 
 use super::worker::{EngineWorker, WorkerCommand};
 
 pub(crate) fn run_engine_host() -> Result<(), String> {
-    tracing::info!("audio engine host starting");
+    tracing::debug!("audio engine host starting");
     let running = Arc::new(AtomicBool::new(true));
     let (worker_tx, worker_rx) = mpsc::channel();
     let (editor_tx, editor_rx) = mpsc::channel();

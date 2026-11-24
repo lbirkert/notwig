@@ -146,7 +146,7 @@ impl ExtensionManager {
         };
         self.load_rx = None;
         self.loading = false;
-        tracing::info!(
+        tracing::debug!(
             count = outcome.host.infos().len(),
             errors = outcome.errors.len(),
             "loaded browser extensions"

@@ -130,9 +130,10 @@ enum CliCommand {
 
 fn main() {
     logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Notwig starting");
     let cli = Cli::parse();
     if let Err(err) = run(cli) {
-        eprintln!("error: {err}");
+        tracing::error!(error = %err, "notwig failed");
         std::process::exit(1);
     }
 }
@@ -383,16 +384,23 @@ fn render_bundle(
 ) -> Result<(), AppError> {
     let loaded = open(bundle)?;
     for issue in &loaded.issues {
-        eprintln!("warning: {}: {}", issue.entity, issue.message);
+        tracing::warn!(entity = %issue.entity, message = %issue.message, "project issue");
     }
     render_doc(&loaded.doc, bundle, out, start_beat, end_beat)
 }
 
 fn scan_plugins(cache_path: &Path) -> Result<(), AppError> {
+    let started = std::time::Instant::now();
     let mut host = notwig_plugins::PluginHost::new();
-    let _ = host.scan(&plugin_scan_paths());
+    let descriptors = host.scan(&plugin_scan_paths());
     host.save_cache(cache_path)
-        .map_err(|err| AppError::Gui(err.to_string()))
+        .map_err(|err| AppError::Gui(err.to_string()))?;
+    tracing::info!(
+        count = descriptors.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "scanned audio plugins"
+    );
+    Ok(())
 }
 
 fn load_plugin_probe(use_probe: bool) -> Result<(), AppError> {
@@ -402,6 +410,12 @@ fn load_plugin_probe(use_probe: bool) -> Result<(), AppError> {
         .map_err(AppError::Io)?;
     let descriptor: notwig_plugins::PluginDescriptor =
         serde_json::from_str(&text).map_err(|err| AppError::Argument(err.to_string()))?;
+    tracing::debug!(
+        plugin = %descriptor.name,
+        format = ?descriptor.format,
+        probe = use_probe,
+        "running plugin helper"
+    );
     let metadata = if use_probe {
         notwig_app::probe_plugin_metadata(&descriptor)
             .map_err(|err| AppError::Gui(err.to_string()))?
@@ -420,6 +434,7 @@ fn load_plugin_probe(use_probe: bool) -> Result<(), AppError> {
         notwig_plugins::PLUGIN_METADATA_PREFIX,
         serde_json::to_string(&metadata).map_err(|err| AppError::Argument(err.to_string()))?
     );
+    tracing::debug!(plugin = %descriptor.name, "plugin helper finished");
     Ok(())
 }
 
@@ -509,11 +524,18 @@ fn render_doc(
                     buffer: Arc::new(buffer),
                 })?;
             }
-            Err(err) => eprintln!("warning: asset {}: {err}", entry.id),
+            Err(err) => {
+                tracing::warn!(asset = %entry.id, error = %err, "could not load audio asset");
+            }
         }
     }
     let output = engine.render_offline(start_samples, end_samples)?;
     write_wav_f32(out, sample_rate, 2, &output)?;
+    tracing::info!(
+        path = %out.display(),
+        frames = output.len() / 2,
+        "rendered project to WAV"
+    );
     Ok(())
 }
 

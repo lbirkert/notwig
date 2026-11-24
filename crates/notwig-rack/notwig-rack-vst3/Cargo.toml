@@ -16,6 +16,7 @@ path = "src/lib.rs"
 libloading = "0.8"
 notwig-rack-core = { path = "../notwig-rack-core" }
 thiserror = "2.0"
+tracing = "0.1"
 vst3 = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -14,6 +14,7 @@ use super::Workspace;
 impl Workspace {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&mut self, as_path: Option<&Path>) -> Result<PathBuf, String> {
+        let started = Instant::now();
         let path = match as_path {
             Some(path) => path.to_path_buf(),
             None => self
@@ -76,6 +77,11 @@ impl Workspace {
         self.dirty = false;
         self.begin_session();
         self.status = Some(format!("Saved {}", path.display()));
+        tracing::info!(
+            path = %path.display(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "saved project"
+        );
         Ok(path)
     }
 

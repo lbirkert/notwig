@@ -215,7 +215,7 @@ impl EngineClient {
                             }
                         }
                         EngineReply::BuildFinished(result) => {
-                            tracing::info!(?result, "engine process build finished");
+                            tracing::debug!(?result, "engine process build finished");
                             let _ = reader_events.send(EngineEvent::BuildFinished(result));
                         }
                         EngineReply::EditorOpened { device_id } => {

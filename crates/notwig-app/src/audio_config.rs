@@ -314,12 +314,7 @@ fn default_settings() -> AudioSettings {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn config_path() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    #[cfg(target_os = "macos")]
-    let path = home.join("Library/Application Support/notwig/audio.json");
-    #[cfg(not(target_os = "macos"))]
-    let path = home.join(".config/notwig/audio.json");
-    Some(path)
+    crate::app_paths::data_dir().map(|dir| dir.join("audio.json"))
 }
 
 #[cfg(target_arch = "wasm32")]

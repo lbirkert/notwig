@@ -52,6 +52,7 @@ impl NotwigApp {
             budget -= 1;
         }
         if let Some(err) = error {
+            tracing::warn!(%err, "mixdown render failed");
             self.notify_error(err);
             self.ui.render_progress = None;
             self.render_playhead = None;
@@ -134,12 +135,22 @@ impl NotwigApp {
                     .state
                     .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
                 match encoded.result {
-                    Ok(()) => self.notify_info(format!(
-                        "Rendered {} frames to {}",
-                        encoded.total_frames,
-                        encoded.path.display()
-                    )),
-                    Err(err) => self.notify_error(err),
+                    Ok(()) => {
+                        tracing::info!(
+                            path = %encoded.path.display(),
+                            frames = encoded.total_frames,
+                            "rendered mixdown"
+                        );
+                        self.notify_info(format!(
+                            "Rendered {} frames to {}",
+                            encoded.total_frames,
+                            encoded.path.display()
+                        ));
+                    }
+                    Err(err) => {
+                        tracing::warn!(%err, "mixdown encoding failed");
+                        self.notify_error(err);
+                    }
                 }
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -166,12 +177,22 @@ impl NotwigApp {
                     .state
                     .remove_notification_by_tag(RENDER_ENCODING_NOTIFICATION_TAG);
                 match completed.result {
-                    Ok(stems) => self.notify_info(format!(
-                        "Rendered {} stems to {}",
-                        stems.len(),
-                        completed.directory.display()
-                    )),
-                    Err(err) => self.notify_error(err),
+                    Ok(stems) => {
+                        tracing::info!(
+                            directory = %completed.directory.display(),
+                            count = stems.len(),
+                            "rendered stems"
+                        );
+                        self.notify_info(format!(
+                            "Rendered {} stems to {}",
+                            stems.len(),
+                            completed.directory.display()
+                        ));
+                    }
+                    Err(err) => {
+                        tracing::warn!(%err, "stem rendering failed");
+                        self.notify_error(err);
+                    }
                 }
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -202,11 +223,20 @@ impl NotwigApp {
                     .and_then(|name| name.to_str())
                     .unwrap_or("mixdown.wav");
                 match crate::web::storage::download_bytes(name, "audio/wav", &bytes) {
-                    Ok(()) => self.notify_info(format!("Rendered {total} frames.")),
-                    Err(error) => self.notify_error(error),
+                    Ok(()) => {
+                        tracing::info!(path = %job.path.display(), frames = total, "rendered browser mixdown");
+                        self.notify_info(format!("Rendered {total} frames."));
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "browser mixdown download failed");
+                        self.notify_error(error);
+                    }
                 }
             }
-            Err(error) => self.notify_error(error.to_string()),
+            Err(error) => {
+                tracing::warn!(%error, "browser mixdown encoding failed");
+                self.notify_error(error.to_string());
+            }
         }
     }
 }

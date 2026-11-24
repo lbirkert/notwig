@@ -2636,6 +2636,7 @@ dependencies = [
  "libloading",
  "notwig-rack-core",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
@@ -2671,6 +2672,7 @@ dependencies = [
  "crossbeam-queue",
  "libloading",
  "notwig-rack-core",
+ "tracing",
 ]
 
 [[package]]
@@ -2682,6 +2684,7 @@ dependencies = [
  "libloading",
  "notwig-rack-core",
  "thiserror 2.0.21",
+ "tracing",
  "vst3",
 ]
 

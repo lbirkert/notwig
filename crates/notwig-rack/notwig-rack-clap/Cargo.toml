@@ -17,6 +17,7 @@ clap-sys = "0.5"
 libloading = "0.8"
 notwig-rack-core = { path = "../notwig-rack-core" }
 thiserror = "2.0"
+tracing = "0.1"
 
 [lints.clippy.pedantic]
 level = "warn"

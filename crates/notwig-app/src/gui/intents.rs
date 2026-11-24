@@ -209,7 +209,7 @@ impl NotwigApp {
             UiIntent::CopySelection { clips, time } => {
                 let count = self.workspace.copy_selection(&clips, time);
                 if count > 0 {
-                    tracing::info!(count, "copied selection");
+                    tracing::debug!(count, "copied selection");
                     self.notify_info(format!("Copied {count} clip(s)."));
                 } else {
                     self.notify_error("Nothing to copy.".into());
@@ -218,7 +218,7 @@ impl NotwigApp {
             UiIntent::CutSelection { clips, time } => {
                 let count = self.workspace.cut_selection(&clips, time.clone());
                 if count > 0 {
-                    tracing::info!(count, "cut selection");
+                    tracing::debug!(count, "cut selection");
                     self.notify_info(format!("Cut {count} clip(s)."));
                     if time.is_none() {
                         self.ui.state.selection.clips.clear();
@@ -230,7 +230,7 @@ impl NotwigApp {
             UiIntent::PasteClips { at } => match self.workspace.paste_clips(at) {
                 Ok(info) if !info.is_empty() => {
                     let count = info.objects.len().max(usize::from(info.time.is_some()));
-                    tracing::info!(count, "pasted selection");
+                    tracing::debug!(count, "pasted selection");
                     self.notify_info(format!("Pasted {count} object(s)."));
                     self.ui.state.selection.apply_info(&info);
                 }

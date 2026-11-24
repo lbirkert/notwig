@@ -7,9 +7,9 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    File, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemRemoveOptions, FileSystemWritableFileStream, Request,
-    RequestCache, RequestInit,
+    File, FileSystemCreateWritableOptions, FileSystemDirectoryHandle, FileSystemFileHandle,
+    FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemRemoveOptions,
+    FileSystemWritableFileStream, Request, RequestCache, RequestInit,
 };
 
 const PROJECTS_DIR: &str = "Projects";
@@ -488,6 +488,53 @@ pub(crate) fn fallback_file_input(
         .map_err(js_error)?;
     cancel_closure.forget();
     input.click();
+    Ok(())
+}
+
+pub(crate) async fn append_opfs_file(path: &str, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let root = opfs_root().await?;
+    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let Some((file_name, dirs)) = parts.split_last() else {
+        return Err("empty file path".into());
+    };
+    let mut dir = root;
+    for part in dirs {
+        let options = FileSystemGetDirectoryOptions::new();
+        options.set_create(true);
+        let value = JsFuture::from(dir.get_directory_handle_with_options(part, &options))
+            .await
+            .map_err(js_error)?;
+        dir = value.unchecked_into();
+    }
+    let options = FileSystemGetFileOptions::new();
+    options.set_create(true);
+    let value = JsFuture::from(dir.get_file_handle_with_options(file_name, &options))
+        .await
+        .map_err(js_error)?;
+    let handle: FileSystemFileHandle = value.unchecked_into();
+    let file: File = JsFuture::from(handle.get_file())
+        .await
+        .map_err(js_error)?
+        .unchecked_into();
+    let size = file.size();
+    let options = FileSystemCreateWritableOptions::new();
+    options.set_keep_existing_data(true);
+    let value = JsFuture::from(handle.create_writable_with_options(&options))
+        .await
+        .map_err(js_error)?;
+    let stream: FileSystemWritableFileStream = value.unchecked_into();
+    if size > 0.0 {
+        JsFuture::from(stream.seek_with_f64(size).map_err(js_error)?)
+            .await
+            .map_err(js_error)?;
+    }
+    JsFuture::from(stream.write_with_u8_array(bytes).map_err(js_error)?)
+        .await
+        .map_err(js_error)?;
+    JsFuture::from(stream.close()).await.map_err(js_error)?;
     Ok(())
 }
 

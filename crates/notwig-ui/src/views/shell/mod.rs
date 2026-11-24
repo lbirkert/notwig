@@ -23,6 +23,7 @@ mod help;
 mod layout;
 mod overlays;
 mod shortcuts;
+mod splash;
 mod status_bar;
 mod top_bar;
 

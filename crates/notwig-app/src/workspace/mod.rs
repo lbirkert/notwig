@@ -95,11 +95,14 @@ impl Workspace {
             Id::from_uuid(Uuid::new_v4()),
         )
         .map_err(|err| err.to_string())?;
+        tracing::debug!("created new empty project workspace");
         Ok(Self::from_doc(doc, None, true))
     }
 
     pub fn open(bundle: &Path) -> Result<Self, String> {
+        let started = Instant::now();
         let loaded = notwig_project::open(bundle).map_err(|err| err.to_string())?;
+        let issue_count = loaded.issues.len();
         let mut workspace = Self::from_doc(loaded.doc, Some(bundle.to_path_buf()), false);
         if !loaded.issues.is_empty() {
             let summary = loaded
@@ -108,6 +111,10 @@ impl Workspace {
                 .map(|issue| format!("{}: {}", issue.entity, issue.message))
                 .collect::<Vec<_>>()
                 .join("; ");
+            tracing::warn!(
+                issues = issue_count,
+                "project loaded with issues: {summary}"
+            );
             workspace.status = Some(format!("Project loaded with issues: {summary}"));
         }
         workspace.recovery_offered = loaded.recovery_offered;
@@ -115,6 +122,15 @@ impl Workspace {
             workspace.status = Some("Recovery autosaves are available.".into());
         }
         workspace.begin_session();
+        tracing::info!(
+            path = %bundle.display(),
+            elapsed_ms = started.elapsed().as_millis(),
+            tracks = workspace.doc.tracks.len(),
+            clips = workspace.doc.arranger.clips.len(),
+            devices = workspace.doc.devices.len(),
+            issues = issue_count,
+            "opened project"
+        );
         Ok(workspace)
     }
 

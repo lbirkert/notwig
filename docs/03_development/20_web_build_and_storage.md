@@ -42,8 +42,10 @@ deploys.
 
 `notwig-web` is a `cdylib` exporting `WebApp`. Its constructor initializes
 `eframe::WebLogger`; `start(canvas)` calls `eframe::WebRunner::start` with
-`WebOptions::default()` and `notwig_app::web::create_app`, which builds
-`NotwigApp`. `web/index.html` awaits wasm init, constructs `WebApp`, starts it on
+`WebOptions::default()` and `notwig_app::web::create_app`, which initializes the
+tracing subscriber and builds `NotwigApp`. The browser subscriber sends `info`
+and above to the console while buffering `debug` and above for OPFS.
+`web/index.html` awaits wasm init, constructs `WebApp`, starts it on
 `notwig-canvas`, and reveals the audio button. `WebApp` also exposes
 `enable_audio`, `has_panicked`, and `panic_message`; the page installs drag
 helpers read by `web::take_drag_pointer`.
@@ -65,14 +67,20 @@ is the root; the app creates and lists a `Projects` folder under it:
 OPFS root
   Projects/
     demo/{project.json, assets/<asset>.wav, state/<device>.json}
+  notwig/
+    logs/app-<timestamp>.log
   notwig-extensions/
     <extension-id>/{manifest.json, ...package files}
 ```
 
 Paths are slash-separated relative strings. Read and write helpers split on `/`,
-ignore empty segments, and create intermediate directories on write. Project
-names replace `/`, `\`, NUL, and control characters with `-`, trim spaces and
-dots, and fall back to `Untitled`; no `.notwig` suffix is added. Opened projects
+ignore empty segments, and create intermediate directories on write. Browser
+logs are appended through a keep-existing-data writable stream; the frame loop
+flushes the bounded in-memory log buffer into `notwig/logs` with an async local
+task. See [`Logging and Diagnostics`](22_logging.md).
+
+Project names replace `/`, `\`, NUL, and control characters with `-`, trim spaces
+and dots, and fall back to `Untitled`; no `.notwig` suffix is added. Opened projects
 are mounted as `browser://<name>`. Listing `Projects` skips dot-prefixed entries
 and returns sorted directory names.
 

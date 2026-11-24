@@ -155,7 +155,7 @@ impl EngineWorker {
     fn start_build(&mut self, build: WireBuild) {
         self.build_generation = self.build_generation.wrapping_add(1);
         let generation = self.build_generation;
-        tracing::info!("audio engine host building runtime");
+        tracing::debug!("audio engine host building runtime");
         let (sender, receiver) = mpsc::channel();
         let monitors = Arc::clone(&self.monitors);
         let spawned = std::thread::Builder::new()
@@ -196,7 +196,7 @@ impl EngineWorker {
                             if self.service.is_some() {
                                 self.control.data_mut().set_prepared_runtime(runtime);
                                 self.control.flush();
-                                tracing::info!(
+                                tracing::debug!(
                                     generation = pending.generation,
                                     elapsed_ms,
                                     "Engine runtime installed"

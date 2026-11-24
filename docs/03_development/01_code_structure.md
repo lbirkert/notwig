@@ -261,6 +261,7 @@ describes the extension subsystem and crate boundaries.
 | `audio_input/` | Shared input requests, CPAL input streams on native, Web Audio microphone capture in the browser, and input queue routing |
 | `recording.rs` | Recording-session writer and capture-buffer lifecycle |
 | `audio_config.rs` | Persisted audio driver/device/block-size, named-channel, and master-output config |
+| `app_paths.rs` | Canonical per-user app, cache, and log directories |
 | `plugins/mod.rs` | Target-selected plugin catalog exports |
 | `plugins/native.rs` | Plugin catalog, scan subprocess, crash-isolated load probe, and cache glue |
 | `plugins/web.rs` | Empty browser plugin catalog |
@@ -271,7 +272,7 @@ describes the extension subsystem and crate boundaries.
 | `shortcuts.rs` | User shortcut config load/save |
 | `edit_lowering.rs` | Convert edit plans into `CommandPayload`s |
 | `history.rs` | Undo/redo stack with structural/non-structural entries |
-| `logging.rs` | `tracing` initialization |
+| `logging.rs` | `tracing` initialization, timestamped native app/engine logs, helper-process forwarding, and OPFS browser logs |
 
 ### `notwig-web` — browser entry
 

@@ -15,8 +15,10 @@ There are two ways to run it:
   generated static files. Native plugins and native extension libraries are
   unavailable; only `wasm` extension targets run in the browser.
 
-The repository `README.md` contains the exact build commands. The rest of this
-page assumes the application is already running.
+The repository `README.md` contains the exact build commands. On launch, a brief
+full-screen **NOTWIG** wordmark fades in and out while the workspace and audio
+engine start underneath. The rest of this page assumes the application is
+already running.
 
 ## Create or open a project
 
@@ -76,5 +78,12 @@ for the full behavior.
 If the audio engine stops unexpectedly, an overlay appears above the arranger.
 Use **Restart engine** to rebuild it. If no audio device is available, open
 **FILE > Settings…** and select a working driver and device.
+
+Notwig keeps timestamped diagnostic logs in its app directory. On macOS they are
+under `~/Library/Application Support/notwig/logs/`; on Linux they are under
+`~/.config/notwig/logs/`. The app log records UI and project activity, while the
+engine log records audio-engine startup, device changes, builds, and plugin
+editors. The browser build stores its app log under `notwig/logs/` in the
+browser's OPFS storage. Attach the newest log files when reporting a problem.
 
 Next: [Workspace Overview](01_workspace_overview.md).
