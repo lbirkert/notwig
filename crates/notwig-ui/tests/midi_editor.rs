@@ -208,7 +208,7 @@ fn assert_no_black_editor_frame(
 }
 
 fn editor_scrollbar_strip(output: &egui::FullOutput, content: egui::Rect) -> egui::Rect {
-    let panel_light = egui::Color32::from_rgb(31, 33, 39);
+    let panel_light = notwig_ui::palette::PANEL_LIGHT;
     for clipped in &output.shapes {
         if let egui::Shape::Rect(shape) = &clipped.shape {
             let rect = shape.rect;

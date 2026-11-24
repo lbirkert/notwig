@@ -128,15 +128,12 @@ impl NotwigUi {
             header_rect,
             CornerRadius::ZERO,
             if selected_track {
-                Color32::from_rgb(38, 40, 46)
+                theme::PANEL_LIGHT
             } else {
-                Color32::BLACK
+                theme::APP_BAR
             },
         );
-        let track_color = track.color.map_or_else(
-            || track_color(track.kind),
-            |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
-        );
+        let track_color = crate::timeline::resolved_track_color(doc, track);
         painter.rect_filled(
             Rect::from_min_size(
                 egui::pos2(header_rect.left(), row_rect.top()),
@@ -145,7 +142,7 @@ impl NotwigUi {
             CornerRadius::ZERO,
             track_color,
         );
-        draw_track_prefixes(painter, doc, track, row_rect, depth);
+        draw_track_prefixes(painter, doc, track, row_rect, header_rect.left(), depth);
         if has_children {
             let collapsed = self.collapsed_tracks.contains(&track_id);
             let center = twisty_rect.center();
@@ -479,31 +476,34 @@ fn draw_track_prefixes(
     doc: &ProjectDoc,
     track: &Track,
     row_rect: Rect,
+    child_left: f32,
     depth: f32,
 ) {
     let mut ancestor = track.parent;
-    let mut level = depth as usize;
+    let mut remaining = depth as usize;
+    let mut stripe_right = child_left;
     while let Some(parent_id) = ancestor {
-        if level == 0 {
+        if remaining == 0 {
             break;
         }
-        level -= 1;
+        remaining -= 1;
         let Some(parent) = doc.tracks.get(&parent_id) else {
             break;
         };
-        let color = parent.color.map_or_else(
-            || track_color(parent.kind),
-            |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
-        );
-        let x = row_rect.left() + level as f32 * 14.0;
+        let color = crate::timeline::resolved_track_color(doc, parent);
+        let left = stripe_right - 4.0;
+        if left < row_rect.left() {
+            break;
+        }
         painter.rect_filled(
             Rect::from_min_size(
-                egui::pos2(x, row_rect.top()),
+                egui::pos2(left, row_rect.top()),
                 Vec2::new(4.0, row_rect.height()),
             ),
             CornerRadius::ZERO,
             color,
         );
+        stripe_right = left;
         ancestor = parent.parent;
     }
 }
@@ -520,14 +520,4 @@ fn draw_track_icon(painter: &egui::Painter, rect: Rect, kind: TrackKind, color: 
         TrackKind::BusFx | TrackKind::Master => crate::icons::Icon::Device,
     };
     crate::icons::paint(painter, rect, icon, color);
-}
-
-fn track_color(kind: TrackKind) -> Color32 {
-    match kind {
-        TrackKind::Audio => theme::CLIP_AUDIO,
-        TrackKind::Instrument => theme::CLIP_MIDI,
-        TrackKind::Group => Color32::from_rgb(116, 120, 136),
-        TrackKind::BusFx => Color32::from_rgb(154, 122, 190),
-        TrackKind::Master => theme::ACCENT,
-    }
 }

@@ -57,6 +57,14 @@ notifications, peak hold), editor state (`ClipEditorState`,
 origins, content rectangles, and extension caches. They may not insert, remove,
 rename, trim, or reorder anything in `ProjectDoc`.
 
+Color is presentation state stored on the entity as `Option<Color>`, where
+`None` means inherit. The UI resolves a clip's inherited color from its track,
+then the track's parent groups, then the track-kind fallback. The UI never
+writes an inherited color back into the document; choosing the `×` swatch emits
+a color intent with `None`. Clip name and color changes use the existing
+`EditClip`/`SetClipColor` commands through `UiIntent::RenameClip` and
+`UiIntent::SetClipColor`, so they participate in the normal undo history.
+
 ## 3. Selection, focus, and editor exclusivity
 
 Selection is a group of tracks, clips, devices, and a time selection. Each

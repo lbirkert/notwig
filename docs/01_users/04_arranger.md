@@ -27,6 +27,15 @@ regardless of looping. Playback wraps at the loop end with sample accuracy.
   asset**.
 - Right-click **+ Add track** or a track header to create a new track.
 
+## Clip appearance and colors
+
+Clips inherit their color by default. The inherited color comes from the track
+lane, which itself inherits from its parent group and finally from the
+track-kind color. Select a color in the info panel to override the inherited
+value, or click the `×` swatch to restore inheritance. The same color row is
+used for tracks and clips, and the clip info panel also edits the clip name and
+toggles the clip with its power button.
+
 ## Selecting and moving
 
 - Click a clip to select it. Cmd-click or Shift-click adds clips to the

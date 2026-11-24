@@ -97,6 +97,14 @@ pub enum UiIntent {
         clip_id: ClipId,
         muted: bool,
     },
+    SetClipColor {
+        clip_id: ClipId,
+        color: Option<Color>,
+    },
+    RenameClip {
+        clip_id: ClipId,
+        name: String,
+    },
     DuplicateClip {
         clip_id: ClipId,
     },
@@ -271,6 +279,7 @@ pub enum UiIntent {
     RelinkAsset(AssetId),
     Quit,
     NewProject,
+    CloseProject,
     OpenProject,
     OpenProjectFolder,
     OpenProjectNamed(String),

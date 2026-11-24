@@ -31,7 +31,8 @@ arranger, an optional bottom editor, and a status bar.
 
 The app bar is always visible. It shows the project card on the left, derived
 from the saved bundle file name and marked with `*` while the project is dirty,
-and the Notwig mark and `NOTWIG` title centered. On macOS the native window
+and the Notwig mark and `NOTWIG` title centered. The card's close button closes
+the current project and returns to an empty session. On macOS the native window
 buttons remain visible next to the project card; on other platforms they stay
 in the system title bar.
 
@@ -39,7 +40,7 @@ The transport toolbar sits directly below the app bar:
 
 | Area | What it does |
 | --- | --- |
-| **FILE** | New, open, save, save as, import audio, audio settings, and render. |
+| **FILE** | Icon-labelled entries for new, open, save, save as, import audio, audio settings, and render. |
 | **Play / pause** | Starts playback or pauses at the current position. |
 | **Stop** | Stops playback and returns to the play start. |
 | **Record** | Starts playback and recording, or toggles recording while playing. |
@@ -74,6 +75,10 @@ The master track sits below the other tracks: at the bottom of the arranger
 while the lane list fits, and pushed down into the scroll flow once the list
 grows beyond the visible area.
 
+Drag the vertical boundary between the track headers and the timeline to resize
+the arranger sidebar. Clip title headers, MIDI note previews, and audio
+waveforms stay visible much further into the zoomed-out range than before.
+
 ## Info panel
 
 The info panel shows the current selection and mirrors the relevant controls.
@@ -81,7 +86,9 @@ It is toggled from the status bar.
 
 - **Track** shows name, color, comment, active state, devices, mute, solo, pan,
   and volume with a peak meter.
-- **Clip** shows the clip type, track, start, length, and mute or delete actions.
+- **Clip** shows an editable name, a color picker with an inherit option, the
+  enable/disable power button, track, start, length, and duplicate or delete
+  actions.
 - **Device** shows the device name, type, bypass state, and parameters. The EQ
   device has a dedicated band view.
 - **Time selection** shows start, end, length, and the selected lanes.

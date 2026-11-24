@@ -87,7 +87,46 @@ fn clip_color_prefers_clip_then_track_then_kind() {
     let uncolored = doc_with_track_color(None);
     assert_eq!(
         clip_color(&uncolored, &clip(None)),
-        egui::Color32::from_rgb(62, 142, 189)
+        notwig_ui::palette::CLIP_AUDIO
+    );
+}
+
+#[test]
+fn clip_color_inherits_from_group_ancestry() {
+    let group_color = color(40, 90, 160);
+    let doc = ProjectDoc::new_template(meta(), id::<Track>(1), id::<DeviceChain>(100)).unwrap();
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: id::<Track>(3),
+            chain_id: id::<DeviceChain>(103),
+            kind: TrackKind::Group,
+            name: "Group".into(),
+            parent: None,
+            index: None,
+            color: Some(group_color),
+        }),
+    )
+    .unwrap()
+    .doc;
+    let doc = apply(
+        &doc,
+        &Command::new(CommandPayload::CreateTrack {
+            id: id::<Track>(2),
+            chain_id: id::<DeviceChain>(102),
+            kind: TrackKind::Audio,
+            name: "Audio".into(),
+            parent: Some(id::<Track>(3)),
+            index: None,
+            color: None,
+        }),
+    )
+    .unwrap()
+    .doc;
+
+    assert_eq!(
+        clip_color(&doc, &clip(None)),
+        egui::Color32::from_rgb(40, 90, 160)
     );
 }
 

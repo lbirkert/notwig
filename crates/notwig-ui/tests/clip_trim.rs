@@ -143,7 +143,7 @@ fn clip_color_prefers_the_track_color_and_falls_back_to_the_kind() {
     let uncolored = audio_doc(&clip, None);
     assert_eq!(
         clip_base_color(&uncolored, &clip),
-        egui::Color32::from_rgb(62, 142, 189)
+        notwig_ui::palette::CLIP_AUDIO
     );
 }
 

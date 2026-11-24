@@ -64,22 +64,54 @@ pub fn apply(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = PANEL;
     visuals.window_fill = PANEL_LIGHT;
-    visuals.extreme_bg_color = Color32::from_rgb(16, 17, 21);
+    visuals.window_stroke = Stroke::new(1.0_f32, GRID_STRONG);
+    visuals.extreme_bg_color = Color32::from_rgb(16, 16, 18);
     visuals.faint_bg_color = LANE;
     visuals.selection.bg_fill = ACCENT_DIM;
     visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.inactive.bg_fill = PANEL_LIGHT;
-    visuals.widgets.hovered.bg_fill = Color32::from_rgb(48, 52, 62);
+    visuals.widgets.inactive.weak_bg_fill = PANEL_LIGHT;
+    visuals.widgets.hovered.bg_fill = Color32::from_rgb(54, 54, 60);
+    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(54, 54, 60);
     visuals.widgets.active.bg_fill = ACCENT_DIM;
+    visuals.widgets.active.weak_bg_fill = ACCENT_DIM;
     visuals.widgets.noninteractive.bg_fill = PANEL;
+    // Buttons and combo boxes share the same rounded, outlined treatment so a
+    // dropdown reads as a button that opens a list.
+    for widget in [
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.noninteractive,
+    ] {
+        widget.corner_radius = CornerRadius::same(5);
+    }
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, GRID);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, GRID_STRONG);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
+    // The title bar of default egui windows uses this fill when the window
+    // frame is not overridden, so it matches the application header.
+    visuals.widgets.open.weak_bg_fill = APP_BAR;
+    visuals.widgets.open.corner_radius = CornerRadius::same(5);
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, GRID_STRONG);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
     visuals.window_corner_radius = CornerRadius::same(6);
+    visuals.menu_corner_radius = CornerRadius::same(4);
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.style()).clone();
     style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-    style.spacing.button_padding = egui::vec2(8.0, 3.0);
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
     style.spacing.slider_width = 120.0;
-    style.spacing.interact_size.y = 22.0;
+    style.spacing.interact_size.y = 24.0;
+    style.spacing.combo_width = 180.0;
+    // Compact window chrome; the header color is set through
+    // `widgets.open.weak_bg_fill` above.
+    style.spacing.window_margin = egui::Margin::symmetric(8, 4);
+    style.spacing.menu_margin = egui::Margin::symmetric(6, 4);
     style.text_styles.insert(
         TextStyle::Small,
         FontId::new(10.0, FontFamily::Proportional),

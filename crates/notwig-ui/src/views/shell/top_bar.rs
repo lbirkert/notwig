@@ -12,9 +12,15 @@ const TOP_BAR_HEIGHT: f32 = 34.0;
 const TOP_BAR_ICON: f32 = 30.0;
 const TOP_BAR_FONT: f32 = 12.0;
 const TOP_BAR_READOUT_FONT: f32 = 11.0;
+const CLOSE_PROJECT_REQUEST: &str = "notwig-close-project-request";
 
 impl NotwigUi {
     pub(super) fn top_bar(&mut self, ctx: &egui::Context, doc: &ProjectDoc, runtime: &RuntimeView) {
+        // The app bar has no intent channel; it queues close requests that are
+        // drained here later in the same frame.
+        if take_close_project_request(ctx) {
+            self.emit(UiIntent::CloseProject);
+        }
         egui::TopBottomPanel::top("notwig_top")
             .frame(
                 egui::Frame::new()
@@ -281,7 +287,10 @@ impl NotwigUi {
             Color32::WHITE,
         );
         egui::Popup::menu(&response).show(|ui| {
-            ui.menu_button("Recent Projects", |ui| {
+            ui.set_width(210.0);
+            let recent = file_menu_row(ui, Icon::History, "Recent Projects", true);
+            egui::containers::menu::SubMenu::new().show(ui, &recent, |ui| {
+                ui.set_width(200.0);
                 if runtime.recent_projects.is_empty() {
                     ui.add_enabled(false, egui::Button::new("No recent projects"));
                 } else {
@@ -293,42 +302,97 @@ impl NotwigUi {
                     }
                 }
             });
-            if ui.button("New Project").clicked() {
+            if file_menu_entry(ui, Icon::FilePlus, "New Project") {
                 self.emit(UiIntent::NewProject);
                 ui.close();
             }
-            if ui.button("Open Project").clicked() {
+            if file_menu_entry(ui, Icon::FolderOpen, "Open Project") {
                 self.emit(UiIntent::OpenProject);
                 ui.close();
             }
-            if ui.button("Save Project").clicked() {
+            if file_menu_entry(ui, Icon::Save, "Save Project") {
                 self.emit(UiIntent::Save);
                 ui.close();
             }
-            if ui.button("Save As").clicked() {
+            if file_menu_entry(ui, Icon::SaveAll, "Save As") {
                 self.emit(UiIntent::SaveAs);
                 ui.close();
             }
             #[cfg(target_arch = "wasm32")]
-            if ui.button("Download Project").clicked() {
+            if file_menu_entry(ui, Icon::Download, "Download Project") {
                 self.emit(UiIntent::DownloadProject);
                 ui.close();
             }
             ui.separator();
-            if ui.button("Import Audio…").clicked() {
+            if file_menu_entry(ui, Icon::FileAudio, "Import Audio…") {
                 self.emit(UiIntent::ImportAudio);
                 ui.close();
             }
-            if ui.button("Settings…").clicked() {
+            if file_menu_entry(ui, Icon::Settings, "Settings…") {
                 self.open_settings(runtime);
                 ui.close();
             }
-            if ui.button("Render Mixdown…").clicked() {
+            if file_menu_entry(ui, Icon::FileDown, "Render Mixdown…") {
                 self.open_render(doc);
                 ui.close();
             }
         });
     }
+}
+
+fn file_menu_entry(ui: &mut egui::Ui, icon: Icon, label: &str) -> bool {
+    file_menu_row(ui, icon, label, false).clicked()
+}
+
+fn file_menu_row(ui: &mut egui::Ui, icon: Icon, label: &str, has_submenu: bool) -> egui::Response {
+    let height = ui.spacing().interact_size.y.max(20.0);
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let painter = ui.painter();
+    if response.hovered() {
+        painter.rect_filled(rect, egui::CornerRadius::same(3), theme::GRID_STRONG);
+    }
+    let icon_color = if response.hovered() {
+        theme::TEXT_PRIMARY
+    } else {
+        theme::TEXT_MUTED
+    };
+    let icon_rect = Rect::from_center_size(
+        egui::pos2(rect.left() + 14.0, rect.center().y),
+        egui::Vec2::splat(18.0),
+    );
+    crate::icons::paint(painter, icon_rect, icon, icon_color);
+    painter.text(
+        egui::pos2(rect.left() + 27.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(12.0),
+        theme::TEXT_PRIMARY,
+    );
+    if has_submenu {
+        painter.text(
+            egui::pos2(rect.right() - 8.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            egui::containers::menu::SubMenuButton::RIGHT_ARROW,
+            egui::FontId::proportional(11.0),
+            theme::TEXT_MUTED,
+        );
+    }
+    response
+}
+
+pub(super) fn request_close_project(ctx: &egui::Context) {
+    ctx.data_mut(|data| {
+        data.insert_temp(egui::Id::new(CLOSE_PROJECT_REQUEST), true);
+    });
+}
+
+fn take_close_project_request(ctx: &egui::Context) -> bool {
+    ctx.data_mut(|data| {
+        data.remove_temp::<bool>(egui::Id::new(CLOSE_PROJECT_REQUEST))
+            .unwrap_or(false)
+    })
 }
 
 pub(crate) fn cpu_component(ui: &mut egui::Ui, cpu: f32) -> egui::Response {

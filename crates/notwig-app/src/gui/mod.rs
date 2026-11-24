@@ -28,9 +28,9 @@ use audio::{AUDIO_RESTART_INITIAL_DELAY, AudioImportRequest, MeterSmoother};
 use dialogs::DialogAction;
 #[cfg(target_arch = "wasm32")]
 use platform::WebProjectPicker;
-use platform::{available_audio_options, load_recent_projects};
 #[cfg(not(target_arch = "wasm32"))]
 use platform::platform_pointer;
+use platform::{available_audio_options, load_recent_projects};
 use recording::{ActiveRecording, append_captures};
 use render::RenderJob;
 #[cfg(not(target_arch = "wasm32"))]
@@ -257,6 +257,7 @@ impl NotwigApp {
             audio: None,
             audio_settings: crate::audio::AudioSettings {
                 block_size: 512,
+                low_latency_monitoring: cfg!(not(target_arch = "wasm32")),
                 ..crate::audio::AudioSettings::default()
             },
             audio_options: available_audio_options(),

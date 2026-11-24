@@ -145,7 +145,7 @@ impl Workspace {
             last_autosave: Instant::now(),
             play_start: None,
             audio_block_size: 512,
-            low_latency_monitoring: true,
+            low_latency_monitoring: cfg!(not(target_arch = "wasm32")),
             recovery_offered: false,
             #[cfg(not(target_arch = "wasm32"))]
             recovery_candidates: Vec::new(),

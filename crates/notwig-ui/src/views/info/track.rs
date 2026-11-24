@@ -1,6 +1,6 @@
 use egui::{Align2, Color32, FontId, Rect, RichText, Sense, Stroke, Vec2};
 use notwig_core::tracks::Track;
-use notwig_core::{Color, Db, Pan, ProjectDoc, TrackId, TrackKind};
+use notwig_core::{Db, Pan, ProjectDoc, TrackId, TrackKind};
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -8,61 +8,17 @@ use crate::shell::NotwigUi;
 use crate::theme;
 use crate::widgets::format_db;
 
-use super::common::{chain_latency, latency_label};
+use super::common::{chain_latency, color_swatch_row, latency_label};
 
 impl NotwigUi {
     fn track_color_editor(&mut self, ui: &mut egui::Ui, track: &Track) {
         ui.add_space(6.0);
-        ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
-        ui.horizontal_wrapped(|ui| {
-            for color in TRACK_COLORS {
-                let color = Color {
-                    r: color[0],
-                    g: color[1],
-                    b: color[2],
-                    a: 255,
-                };
-                let (rect, response) =
-                    ui.allocate_exact_size(Vec2::new(18.0, 16.0), Sense::click());
-                let fill = Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a);
-                ui.painter()
-                    .rect_filled(rect, egui::CornerRadius::same(2), fill);
-                if track.color == Some(color) {
-                    ui.painter().rect_stroke(
-                        rect,
-                        egui::CornerRadius::same(2),
-                        Stroke::new(2.0_f32, Color32::WHITE),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-                if response.clicked() {
-                    self.emit(UiIntent::SetTrackColor {
-                        track_id: track.id,
-                        color: Some(color),
-                    });
-                }
-            }
-            let (rect, response) = ui.allocate_exact_size(Vec2::new(18.0, 16.0), Sense::click());
-            ui.painter().rect_filled(
-                rect,
-                egui::CornerRadius::same(2),
-                Color32::from_rgb(22, 24, 29),
-            );
-            ui.painter().text(
-                rect.center(),
-                Align2::CENTER_CENTER,
-                "×",
-                FontId::proportional(12.0),
-                theme::TEXT_MUTED,
-            );
-            if response.clicked() {
-                self.emit(UiIntent::SetTrackColor {
-                    track_id: track.id,
-                    color: None,
-                });
-            }
-        });
-        ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+        if let Some(color) = color_swatch_row(ui, track.color) {
+            self.emit(UiIntent::SetTrackColor {
+                track_id: track.id,
+                color,
+            });
+        }
     }
 
     fn track_input_editor(&mut self, ui: &mut egui::Ui, track: &Track, runtime: &RuntimeView) {
@@ -411,39 +367,6 @@ impl NotwigUi {
         });
     }
 }
-
-const TRACK_COLORS: [[u8; 3]; 30] = [
-    [86, 86, 88],
-    [120, 121, 124],
-    [164, 166, 170],
-    [96, 128, 194],
-    [116, 96, 176],
-    [176, 108, 72],
-    [184, 152, 88],
-    [92, 164, 112],
-    [214, 95, 91],
-    [192, 74, 154],
-    [224, 123, 64],
-    [232, 168, 62],
-    [212, 210, 86],
-    [143, 203, 96],
-    [86, 190, 146],
-    [68, 188, 202],
-    [82, 156, 226],
-    [103, 124, 228],
-    [143, 106, 226],
-    [195, 100, 220],
-    [250, 129, 140],
-    [246, 146, 88],
-    [244, 190, 89],
-    [218, 222, 88],
-    [162, 214, 96],
-    [90, 204, 112],
-    [77, 200, 160],
-    [68, 198, 209],
-    [81, 166, 232],
-    [125, 139, 238],
-];
 
 fn track_kind_title(kind: TrackKind) -> &'static str {
     match kind {

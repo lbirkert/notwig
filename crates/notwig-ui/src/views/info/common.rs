@@ -1,10 +1,103 @@
+use egui::{Align2, Color32, FontId, Sense, Stroke, Vec2};
 use notwig_core::dsp::DeviceRegistry;
-use notwig_core::{DeviceChainId, ProjectDoc};
+use notwig_core::{Color, DeviceChainId, ProjectDoc};
 
 use crate::theme;
 
 pub(super) fn section_header(ui: &mut egui::Ui, label: &str) {
     ui.label(theme::heading(ui.ctx(), label));
+}
+
+const TRACK_COLORS: [[u8; 3]; 30] = [
+    [86, 86, 88],
+    [120, 121, 124],
+    [164, 166, 170],
+    [96, 128, 194],
+    [116, 96, 176],
+    [176, 108, 72],
+    [184, 152, 88],
+    [92, 164, 112],
+    [214, 95, 91],
+    [192, 74, 154],
+    [224, 123, 64],
+    [232, 168, 62],
+    [212, 210, 86],
+    [143, 203, 96],
+    [86, 190, 146],
+    [68, 188, 202],
+    [82, 156, 226],
+    [103, 124, 228],
+    [143, 106, 226],
+    [195, 100, 220],
+    [250, 129, 140],
+    [246, 146, 88],
+    [244, 190, 89],
+    [218, 222, 88],
+    [162, 214, 96],
+    [90, 204, 112],
+    [77, 200, 160],
+    [68, 198, 209],
+    [81, 166, 232],
+    [125, 139, 238],
+];
+
+/// Renders the shared color swatches. The final "inherit" swatch clears an
+/// explicit color. Returns `None` when nothing was clicked.
+pub(super) fn color_swatch_row(ui: &mut egui::Ui, current: Option<Color>) -> Option<Option<Color>> {
+    let mut picked = None;
+    let spacing = ui.spacing().item_spacing;
+    ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
+    ui.horizontal_wrapped(|ui| {
+        for rgb in TRACK_COLORS {
+            let color = Color {
+                r: rgb[0],
+                g: rgb[1],
+                b: rgb[2],
+                a: 255,
+            };
+            let (rect, response) = ui.allocate_exact_size(Vec2::new(18.0, 16.0), Sense::click());
+            let fill = Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a);
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(2), fill);
+            if current == Some(color) {
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(2),
+                    Stroke::new(2.0_f32, Color32::WHITE),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            if response.clicked() {
+                picked = Some(Some(color));
+            }
+        }
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(18.0, 16.0), Sense::click());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(2),
+            Color32::from_rgb(22, 24, 29),
+        );
+        if current.is_none() {
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius::same(2),
+                Stroke::new(2.0_f32, Color32::WHITE),
+                egui::StrokeKind::Inside,
+            );
+        }
+        ui.painter().text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            "×",
+            FontId::proportional(12.0),
+            theme::TEXT_MUTED,
+        );
+        if response.clicked() {
+            picked = Some(None);
+        }
+    });
+    ui.spacing_mut().item_spacing = spacing;
+    picked
 }
 
 /// Total processing latency of a device chain, including nested child chains.

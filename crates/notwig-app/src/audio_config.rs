@@ -37,7 +37,7 @@ impl Default for PersistedAudioSettings {
             device: String::new(),
             block_size: DEFAULT_BLOCK_SIZE,
             low_latency_block_size: DEFAULT_LOW_LATENCY_BLOCK_SIZE,
-            low_latency_monitoring: true,
+            low_latency_monitoring: default_low_latency_monitoring(),
             channels: Vec::new(),
             master_output: None,
         }
@@ -57,7 +57,7 @@ const fn default_low_latency_block_size() -> u32 {
 }
 
 const fn default_low_latency_monitoring() -> bool {
-    true
+    cfg!(not(target_arch = "wasm32"))
 }
 
 impl From<&AudioSettings> for PersistedAudioSettings {
@@ -77,15 +77,17 @@ impl From<&AudioSettings> for PersistedAudioSettings {
 
 impl From<PersistedAudioSettings> for AudioSettings {
     fn from(settings: PersistedAudioSettings) -> Self {
+        let low_latency_block_size = settings
+            .low_latency_block_size
+            .clamp(16, notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY);
         let block_size = if settings.block_size == 0 {
             DEFAULT_BLOCK_SIZE
         } else {
             settings.block_size
         };
-        let low_latency_block_size = settings
-            .low_latency_block_size
-            .clamp(1, block_size)
-            .max(DEFAULT_LOW_LATENCY_BLOCK_SIZE.min(block_size));
+        let block_size = block_size
+            .clamp(16, notwig_ui::MAX_AUDIO_BLOCK_SIZE)
+            .max(low_latency_block_size);
         let driver = if settings.driver.is_empty() {
             crate::audio::default_driver_name()
         } else {
@@ -102,7 +104,8 @@ impl From<PersistedAudioSettings> for AudioSettings {
             sample_rate: None,
             block_size,
             low_latency_block_size,
-            low_latency_monitoring: settings.low_latency_monitoring,
+            low_latency_monitoring: settings.low_latency_monitoring
+                && cfg!(not(target_arch = "wasm32")),
             channels: settings.channels,
             master_output: settings.master_output,
         }
@@ -245,18 +248,16 @@ pub fn validated(
     if settings.block_size == 0 {
         settings.block_size = DEFAULT_BLOCK_SIZE;
     }
-    settings.block_size = settings
-        .block_size
-        .clamp(16, notwig_ui::MAX_AUDIO_BLOCK_SIZE);
-    let device_max = if settings.low_latency_monitoring {
-        settings.block_size
-    } else {
-        notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
-    };
     settings.low_latency_block_size = settings
         .low_latency_block_size
-        .clamp(1, device_max)
-        .max(DEFAULT_LOW_LATENCY_BLOCK_SIZE.min(device_max));
+        .clamp(16, notwig_ui::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY);
+    settings.block_size = settings
+        .block_size
+        .clamp(16, notwig_ui::MAX_AUDIO_BLOCK_SIZE)
+        .max(settings.low_latency_block_size);
+    if cfg!(target_arch = "wasm32") {
+        settings.low_latency_monitoring = false;
+    }
     if settings.master_output.as_ref().is_some_and(|id| {
         !settings.channels.iter().any(|channel| {
             channel.direction == notwig_ui::AudioChannelDirection::Output && channel.id == *id

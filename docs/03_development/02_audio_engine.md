@@ -253,6 +253,12 @@ that are easy to confuse:
 | Low ring | Worker-to-callback queue for **Low Latency** track monitoring. |
 | InputBus | Preallocated queues between the input callback, the engine, and the recorder. |
 
+Validation keeps the device block in `16..=2048` independently of the project
+block, and keeps the high block in `16..=8192` with `H >= B`. When a device
+block change would violate `H >= B`, validation raises `H` instead of lowering
+`B`. Browser settings force higher-block project rendering off and default the
+block size to 512.
+
 All block values are frames. Convert to time with:
 
 ```text

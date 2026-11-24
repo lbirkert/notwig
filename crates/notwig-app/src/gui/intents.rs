@@ -173,6 +173,27 @@ impl NotwigApp {
                 });
                 let _ = self.report(result);
             }
+            UiIntent::SetClipColor { clip_id, color } => {
+                let result = self
+                    .workspace
+                    .apply(CommandPayload::SetClipColor { clip_id, color });
+                let _ = self.report(result);
+            }
+            UiIntent::RenameClip { clip_id, name } => {
+                let name = name.trim();
+                if !name.is_empty() {
+                    let result = self.workspace.apply(CommandPayload::EditClip {
+                        clip_id,
+                        range: None,
+                        name: Some(Some(name.to_owned())),
+                        muted: None,
+                        content_start: None,
+                        content_length: None,
+                        audio: None,
+                    });
+                    let _ = self.report(result);
+                }
+            }
             UiIntent::DuplicateClip { clip_id } => match self.workspace.duplicate_clip(clip_id) {
                 Ok(new_id) => {
                     if let Some(track) = self
@@ -572,23 +593,30 @@ impl NotwigApp {
                     self.notify_info("Audio settings applied.".into());
                 }
             }
-            UiIntent::NewProject => match Workspace::new_empty() {
-                Ok(workspace) => {
-                    self.workspace.end_session();
-                    self.workspace = workspace;
-                    self.recovery_error = None;
-                    self.fallback_playhead = 0.0;
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        self.web_project = None;
-                        self.web_picker = None;
-                        self.sync_extensions();
+            UiIntent::NewProject | UiIntent::CloseProject => {
+                let closed = matches!(intent, UiIntent::CloseProject);
+                match Workspace::new_empty() {
+                    Ok(workspace) => {
+                        self.workspace.end_session();
+                        self.workspace = workspace;
+                        self.recovery_error = None;
+                        self.fallback_playhead = 0.0;
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            self.web_project = None;
+                            self.web_picker = None;
+                            self.sync_extensions();
+                        }
+                        self.restart_audio();
+                        if closed {
+                            self.notify_info("Project closed.".into());
+                        } else {
+                            self.notify_info("New project created.".into());
+                        }
                     }
-                    self.restart_audio();
-                    self.notify_info("New project created.".into());
+                    Err(err) => self.notify_error(err),
                 }
-                Err(err) => self.notify_error(err),
-            },
+            }
             #[cfg(not(target_arch = "wasm32"))]
             UiIntent::OpenProject => {
                 self.spawn_dialog(DialogAction::OpenProject, || {

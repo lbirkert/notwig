@@ -18,14 +18,15 @@ The Audio page selects the output system:
 - **Sample rate**: automatic or a rate reported by the device.
 - **Render the project in a higher block size than monitoring**: enables the
   separate low-latency monitor path, the render-ahead worker, and the small
-  device callback buffer.
-- **Device Block Size**: the output device callback block. With higher-block
-  project rendering enabled it can range from 16 samples up to the High latency
-  buffer size. With it disabled, it is the single project/device block and is
-  capped at 2048 samples.
-- **High latency buffer**: the large project render block, always 16 to 8192
-  samples in steps of 16. This control is disabled when higher-block project
-  rendering is off.
+  device callback buffer. This option is disabled in the browser build, where
+  project audio runs in the output callback.
+- **Device Block Size**: the output device callback block. Its range is fixed at
+  16 to 2048 samples in steps of 16 and does not depend on the project buffer.
+- **High latency buffer**: the large project render block, 16 to 8192 samples in
+  steps of 16, and never smaller than the Device Block Size. Raising the device
+  block above the high-latency buffer raises the latter to match; the device
+  block is never lowered automatically. This control is disabled when
+  higher-block project rendering is off.
 - **Apply** opens the selected device and rebuilds the engine.
 - **Revert** restores the last applied values.
 
@@ -55,7 +56,8 @@ The monitoring-mode semantics are also summarized in
 [Tracks and Mixing](03_tracks_and_mixing.md#track-controls).
 
 On the browser build the driver list includes **Web Audio**. It plays through
-the browser's default output. Enabling audio does not request microphone access;
+the browser's default output. The browser defaults to a 512-sample block with
+higher-block project rendering off. Enabling audio does not request microphone access;
 permission is requested only when an armed track first opens its input. The
 input picker shows generic microphone entries until permission is granted.
 

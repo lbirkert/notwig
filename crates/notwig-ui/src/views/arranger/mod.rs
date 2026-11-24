@@ -9,7 +9,9 @@ use crate::shell::NotwigUi;
 use crate::theme;
 use crate::timeline::TimelineGrid;
 
-const HEADER_W: f32 = 230.0;
+const MIN_HEADER_W: f32 = 160.0;
+const MAX_HEADER_W: f32 = 520.0;
+const RESIZE_HANDLE_W: f32 = 6.0;
 const ROW_H: f32 = 64.0;
 const RULER_H: f32 = 38.0;
 const SCROLLBAR_H: f32 = 18.0;
@@ -89,7 +91,11 @@ impl NotwigUi {
         let snap = self.state.snap;
         let grid = snap.step(ppb, bar_length);
         let width = ui.available_width().max(320.0);
-        let header_w = HEADER_W.min(width * 0.45);
+        let max_header_w = (width - 80.0).max(0.0);
+        let header_w = self
+            .arranger_header_width
+            .clamp(MIN_HEADER_W, MAX_HEADER_W)
+            .min(max_header_w);
         self.timeline_width = (width - header_w).max(80.0);
         self.arranger_rect = ui.max_rect();
         self.timeline_left = self.arranger_rect.left() + header_w;
@@ -142,7 +148,7 @@ impl NotwigUi {
             egui::pos2(ruler_rect.right(), rows_top + rows_height),
         );
         let background = ui.painter();
-        background.rect_filled(tree_rect, CornerRadius::ZERO, Color32::BLACK);
+        background.rect_filled(tree_rect, CornerRadius::ZERO, theme::APP_BAR);
         background.rect_filled(content_bg, CornerRadius::ZERO, theme::ARRANGER_BG);
         TimelineGrid::new(start, ppb, bar_length, beat_length, snap).draw(background, content_bg);
         ui.allocate_ui_with_layout(
@@ -272,6 +278,41 @@ impl NotwigUi {
         let (bar_rect, _) = ui.allocate_exact_size(Vec2::new(width, SCROLLBAR_H), Sense::hover());
         self.draw_drop_preview(ui, doc, header_w);
         self.timeline_scrollbar(ui, bar_rect, doc, header_w, ppb);
+        self.draw_arranger_resize_handle(ui);
+    }
+
+    fn draw_arranger_resize_handle(&mut self, ui: &mut egui::Ui) {
+        let boundary = self.timeline_left;
+        let handle_rect = Rect::from_min_max(
+            egui::pos2(boundary - RESIZE_HANDLE_W * 0.5, self.arranger_rect.top()),
+            egui::pos2(
+                boundary + RESIZE_HANDLE_W * 0.5,
+                self.arranger_rect.bottom(),
+            ),
+        );
+        let response = ui.interact(
+            handle_rect,
+            Id::new("arranger-sidebar-resize"),
+            Sense::click_and_drag(),
+        );
+        let dragging = response.dragged_by(egui::PointerButton::Primary);
+        if response.hovered() || dragging {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            let line = Rect::from_min_max(
+                egui::pos2(boundary - 0.5, self.arranger_rect.top()),
+                egui::pos2(boundary + 0.5, self.arranger_rect.bottom()),
+            );
+            ui.painter().with_clip_rect(self.arranger_rect).rect_filled(
+                line,
+                CornerRadius::ZERO,
+                theme::GRID_STRONG,
+            );
+        }
+        if dragging {
+            let delta = ui.input(|input| input.pointer.delta().x);
+            self.arranger_header_width =
+                (self.arranger_header_width + delta).clamp(MIN_HEADER_W, MAX_HEADER_W);
+        }
     }
 }
 

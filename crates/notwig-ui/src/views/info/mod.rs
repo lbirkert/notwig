@@ -6,7 +6,7 @@ mod midi_clip;
 mod time;
 mod track;
 
-use egui::{RichText, Vec2};
+use egui::{Color32, RichText, Vec2};
 use notwig_core::{ClipEntity, ClipId, ClipPayload, ProjectDoc};
 
 use crate::intent::UiIntent;
@@ -15,7 +15,7 @@ use crate::shell::NotwigUi;
 use crate::theme;
 use crate::widgets::format_beats;
 
-use common::section_header;
+use common::{color_swatch_row, section_header};
 
 impl NotwigUi {
     pub(crate) fn info_panel(
@@ -113,23 +113,29 @@ impl NotwigUi {
                     .small()
                     .color(theme::TEXT_MUTED),
             );
-            ui.separator();
         }
-        clip_header(ui, doc, &clip);
+        self.clip_header(ui, doc, &clip);
+        self.clip_color_editor(ui, &clip);
         match &clip.payload {
             ClipPayload::Midi(midi) => self.midi_clip_info(ui, midi),
             ClipPayload::Audio(audio) => self.audio_clip_info(ui, doc, audio),
         }
-        self.clip_actions(ui, clip_id, clip.muted);
+        self.clip_actions(ui, clip_id);
     }
 
-    fn clip_actions(&mut self, ui: &mut egui::Ui, clip_id: ClipId, muted: bool) {
+    fn clip_color_editor(&mut self, ui: &mut egui::Ui, clip: &ClipEntity) {
+        ui.add_space(4.0);
+        if let Some(color) = color_swatch_row(ui, clip.color) {
+            self.emit(UiIntent::SetClipColor {
+                clip_id: clip.id,
+                color,
+            });
+        }
+    }
+
+    fn clip_actions(&mut self, ui: &mut egui::Ui, clip_id: ClipId) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let mut muted = muted;
-            if ui.toggle_value(&mut muted, "Muted").changed() {
-                self.emit(UiIntent::SetClipMuted { clip_id, muted });
-            }
             if ui.button("Duplicate").clicked() {
                 self.emit(UiIntent::DuplicateClip { clip_id });
             }
@@ -138,42 +144,78 @@ impl NotwigUi {
             }
         });
     }
-}
 
-fn clip_header(ui: &mut egui::Ui, doc: &ProjectDoc, clip: &ClipEntity) {
-    let name = clip.name.clone().unwrap_or_else(|| "Clip".into());
-    ui.label(RichText::new(name).strong().size(15.0));
-    ui.label(
-        RichText::new(match &clip.payload {
-            ClipPayload::Midi(_) => "MIDI CLIP",
-            ClipPayload::Audio(_) => "AUDIO CLIP",
-        })
-        .small()
-        .monospace()
-        .color(theme::TEXT_MUTED),
-    );
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Track").small().color(theme::TEXT_MUTED));
-        ui.label(
-            doc.tracks
-                .get(&clip.track_id)
-                .map_or("Unknown", |track| track.name.as_str()),
+    fn clip_header(&mut self, ui: &mut egui::Ui, doc: &ProjectDoc, clip: &ClipEntity) {
+        ui.horizontal(|ui| {
+            let title = match &clip.payload {
+                ClipPayload::Midi(_) => "MIDI",
+                ClipPayload::Audio(_) => "AUDIO",
+            };
+            ui.label(theme::heading(ui.ctx(), title).color(if clip.muted {
+                Color32::from_rgb(104, 108, 120)
+            } else {
+                theme::HEADING
+            }));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::icons::icon_button_sized(
+                    ui,
+                    crate::icons::Icon::Power,
+                    Vec2::new(26.0, 22.0),
+                    !clip.muted,
+                    if clip.muted {
+                        "Activate clip"
+                    } else {
+                        "Deactivate clip"
+                    },
+                )
+                .clicked()
+                {
+                    self.emit(UiIntent::SetClipMuted {
+                        clip_id: clip.id,
+                        muted: !clip.muted,
+                    });
+                }
+            });
+        });
+        let mut name = clip.name.clone().unwrap_or_default();
+        let response = ui.add(
+            egui::TextEdit::singleline(&mut name)
+                .hint_text("Clip name")
+                .desired_width(f32::INFINITY),
         );
-    });
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Start").small().color(theme::TEXT_MUTED));
-        ui.label(format_beats(
-            clip.range.start,
-            doc.meta.bar_length(),
-            doc.meta.beat_length(),
-        ));
-    });
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Length").small().color(theme::TEXT_MUTED));
-        ui.label(format_beats(
-            clip.range.length(),
-            doc.meta.bar_length(),
-            doc.meta.beat_length(),
-        ));
-    });
+        if response.changed() && !name.trim().is_empty() {
+            self.emit(UiIntent::RenameClip {
+                clip_id: clip.id,
+                name,
+            });
+        }
+        let track_name = doc
+            .tracks
+            .get(&clip.track_id)
+            .map_or("Unknown", |track| track.name.as_str());
+        for (label, value) in [
+            ("Track", track_name.to_owned()),
+            (
+                "Start",
+                format_beats(
+                    clip.range.start,
+                    doc.meta.bar_length(),
+                    doc.meta.beat_length(),
+                ),
+            ),
+            (
+                "Length",
+                format_beats(
+                    clip.range.length(),
+                    doc.meta.bar_length(),
+                    doc.meta.beat_length(),
+                ),
+            ),
+        ] {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(label).small().color(theme::TEXT_MUTED));
+                ui.label(value);
+            });
+        }
+    }
 }

@@ -21,11 +21,15 @@ pub enum Icon {
     Info,
     Device,
     Folder,
+    FolderOpen,
+    FilePlus,
     Save,
+    SaveAll,
     Settings,
     Record,
     Metronome,
     Audio,
+    FileAudio,
     Instrument,
     Menu,
     ExternalLink,
@@ -34,36 +38,47 @@ pub enum Icon {
     Clip,
     MoveHorizontal,
     Snap,
+    Download,
+    FileDown,
+    History,
+    Close,
 }
 
 impl Icon {
     pub(crate) fn glyph(self) -> char {
         match self {
-            Self::Play => '\u{e13c}',                   // play
-            Self::Pause => '\u{e12e}',                  // pause
-            Self::Stop => '\u{e167}',                   // square
-            Self::Loop => '\u{e146}',                   // repeat
-            Self::Power => '\u{e140}',                  // power
-            Self::Fit => '\u{e113}',                    // maximize-2
-            Self::Plus => '\u{e13d}',                   // plus
-            Self::Minus => '\u{e11c}',                  // minus
-            Self::Render => '\u{e0b2}',                 // download
-            Self::Help => '\u{e082}',                   // circle-help
-            Self::Info => '\u{e0f9}',                   // info
-            Self::Device | Self::Sliders => '\u{e29a}', // sliders-horizontal
-            Self::Folder => '\u{e0d7}',                 // folder
-            Self::Save => '\u{e14d}',                   // save
-            Self::Settings => '\u{e154}',               // settings
-            Self::Record => '\u{e076}',                 // circle
-            Self::Metronome => '\u{e6bc}',              // metronome
-            Self::Audio => '\u{e55a}',                  // audio-lines
-            Self::Instrument => '\u{e561}',             // piano
-            Self::Menu => '\u{e0b6}',                   // ellipsis
-            Self::ExternalLink => '\u{e0b9}',           // external-link
-            Self::Search => '\u{e151}',                 // search
-            Self::Clip => '\u{e29b}',                   // clapperboard
-            Self::MoveHorizontal => '\u{e1c6}',         // move-horizontal
-            Self::Snap => '\u{e2b5}',                   // magnet
+            Self::Play => '\u{e13c}',                    // play
+            Self::Pause => '\u{e12e}',                   // pause
+            Self::Stop => '\u{e167}',                    // square
+            Self::Loop => '\u{e146}',                    // repeat
+            Self::Power => '\u{e140}',                   // power
+            Self::Fit => '\u{e113}',                     // maximize-2
+            Self::Plus => '\u{e13d}',                    // plus
+            Self::Minus => '\u{e11c}',                   // minus
+            Self::Render | Self::Download => '\u{e0b2}', // download
+            Self::Help => '\u{e082}',                    // circle-help
+            Self::Info => '\u{e0f9}',                    // info
+            Self::Device | Self::Sliders => '\u{e29a}',  // sliders-horizontal
+            Self::Folder => '\u{e0d7}',                  // folder
+            Self::FolderOpen => '\u{e247}',              // folder-open
+            Self::FilePlus => '\u{e0c9}',                // file-plus
+            Self::Save => '\u{e14d}',                    // save
+            Self::SaveAll => '\u{e40f}',                 // save-all
+            Self::Settings => '\u{e154}',                // settings
+            Self::Record => '\u{e076}',                  // circle
+            Self::Metronome => '\u{e6bc}',               // metronome
+            Self::Audio => '\u{e55a}',                   // audio-lines
+            Self::FileAudio => '\u{e31a}',               // file-audio-2
+            Self::Instrument => '\u{e561}',              // piano
+            Self::Menu => '\u{e0b6}',                    // ellipsis
+            Self::ExternalLink => '\u{e0b9}',            // external-link
+            Self::Search => '\u{e151}',                  // search
+            Self::Clip => '\u{e29b}',                    // clapperboard
+            Self::MoveHorizontal => '\u{e1c6}',          // move-horizontal
+            Self::Snap => '\u{e2b5}',                    // magnet
+            Self::FileDown => '\u{e318}',                // file-down
+            Self::History => '\u{e1f5}',                 // history
+            Self::Close => '\u{e1b2}',                   // x
         }
     }
 }

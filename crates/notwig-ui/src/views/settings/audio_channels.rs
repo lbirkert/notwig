@@ -171,25 +171,22 @@ impl NotwigUi {
                 .unwrap_or_else(|| "Default output".to_string());
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Master output").size(13.0));
-                egui::ComboBox::from_id_salt("audio-master-output")
-                    .selected_text(selected)
-                    .width(220.0)
-                    .show_ui(ui, |ui| {
+                form::combo(ui, "audio-master-output", selected, 220.0, |ui| {
+                    if ui
+                        .selectable_label(master.is_none(), "Default output")
+                        .clicked()
+                    {
+                        master = None;
+                    }
+                    for (id, name) in &output_channels {
                         if ui
-                            .selectable_label(master.is_none(), "Default output")
+                            .selectable_label(master.as_deref() == Some(id.as_str()), name)
                             .clicked()
                         {
-                            master = None;
+                            master = Some(id.clone());
                         }
-                        for (id, name) in &output_channels {
-                            if ui
-                                .selectable_label(master.as_deref() == Some(id.as_str()), name)
-                                .clicked()
-                            {
-                                master = Some(id.clone());
-                            }
-                        }
-                    });
+                    }
+                });
             });
             self.audio_draft.master_output = master;
         }
@@ -253,22 +250,19 @@ fn channel_channel_combo(
             .find(|candidate| Some(*candidate) != exclude)
             .unwrap_or(*channel);
     }
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(format!("Ch {}", *channel + 1))
-        .width(72.0)
-        .show_ui(ui, |ui| {
-            for candidate in 0..available {
-                if Some(candidate) == exclude {
-                    continue;
-                }
-                if ui
-                    .selectable_label(candidate == *channel, format!("Ch {}", candidate + 1))
-                    .clicked()
-                {
-                    *channel = candidate;
-                }
+    form::combo(ui, id, format!("Ch {}", *channel + 1), 72.0, |ui| {
+        for candidate in 0..available {
+            if Some(candidate) == exclude {
+                continue;
             }
-        });
+            if ui
+                .selectable_label(candidate == *channel, format!("Ch {}", candidate + 1))
+                .clicked()
+            {
+                *channel = candidate;
+            }
+        }
+    });
 }
 
 fn add_audio_channel(

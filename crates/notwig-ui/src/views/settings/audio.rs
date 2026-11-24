@@ -107,7 +107,12 @@ impl NotwigUi {
         self.audio_draft.low_latency_block_size = self
             .audio_draft
             .low_latency_block_size
-            .clamp(16, self.audio_draft.block_size);
+            .clamp(16, crate::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY);
+        self.audio_draft.block_size = self
+            .audio_draft
+            .block_size
+            .clamp(16, crate::MAX_AUDIO_BLOCK_SIZE)
+            .max(self.audio_draft.low_latency_block_size);
         let rate = self
             .audio_draft
             .sample_rate
@@ -117,34 +122,27 @@ impl NotwigUi {
             .unwrap_or(48_000);
         let latency_ms = |samples: u32| f64::from(samples) / f64::from(rate) * 1000.0;
         let full_width = ui.max_rect().width().max(ui.available_width());
-        ui.checkbox(
-            &mut self.audio_draft.low_latency_monitoring,
-            "Render the project in a higher block size than monitoring",
+        let higher_latency_enabled = cfg!(not(target_arch = "wasm32"));
+        if !higher_latency_enabled {
+            self.audio_draft.low_latency_monitoring = false;
+        }
+        ui.add_enabled(
+            higher_latency_enabled,
+            egui::Checkbox::new(
+                &mut self.audio_draft.low_latency_monitoring,
+                "Render the project in a higher block size than monitoring",
+            ),
         );
-        // Ordering is load-bearing: clamp `block_size` first, then derive
-        // `device_max`, then clamp the device buffer against it. While
-        // low-latency monitoring is on the device buffer may not exceed the
-        // render block size; toggling the checkbox changes `device_max` and
-        // immediately re-clamps the device buffer.
-        self.audio_draft.block_size = self
-            .audio_draft
-            .block_size
-            .clamp(16, crate::MAX_AUDIO_BLOCK_SIZE);
-        let device_max = if self.audio_draft.low_latency_monitoring {
-            self.audio_draft.block_size
-        } else {
-            crate::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY
-        };
-        self.audio_draft.low_latency_block_size = self
-            .audio_draft
-            .low_latency_block_size
-            .clamp(16, device_max);
 
+        // The device buffer is bounded independently of the project buffer;
+        // raising it above the high-latency buffer must raise the latter, never
+        // lower the device buffer.
         ui.label(RichText::new("Device Block Size").size(13.0));
         styled_buffer_slider(
             ui,
             &mut self.audio_draft.low_latency_block_size,
-            device_max,
+            16,
+            crate::MAX_AUDIO_BLOCK_SIZE_WITHOUT_LOW_LATENCY,
             full_width,
         );
         ui.label(
@@ -157,11 +155,17 @@ impl NotwigUi {
             .color(theme::ACCENT),
         );
         ui.add_space(8.0);
+        self.audio_draft.block_size = self
+            .audio_draft
+            .block_size
+            .max(self.audio_draft.low_latency_block_size);
         ui.add_enabled_ui(self.audio_draft.low_latency_monitoring, |ui| {
+            let buffer_min = self.audio_draft.low_latency_block_size.max(16);
             ui.label(RichText::new("High latency buffer").size(13.0));
             styled_buffer_slider(
                 ui,
                 &mut self.audio_draft.block_size,
+                buffer_min,
                 crate::MAX_AUDIO_BLOCK_SIZE,
                 full_width,
             );
@@ -175,6 +179,10 @@ impl NotwigUi {
                 .color(theme::ACCENT),
             );
         });
+        self.audio_draft.block_size = self
+            .audio_draft
+            .block_size
+            .max(self.audio_draft.low_latency_block_size);
         ui.add_space(14.0);
         self.audio_io_settings(ui, runtime);
         ui.add_space(14.0);
@@ -275,14 +283,15 @@ impl NotwigUi {
     }
 }
 
-fn styled_buffer_slider(ui: &mut egui::Ui, value: &mut u32, max: u32, full_width: f32) {
+fn styled_buffer_slider(ui: &mut egui::Ui, value: &mut u32, min: u32, max: u32, full_width: f32) {
+    let max = max.max(min);
     ui.scope(|ui| {
         ui.spacing_mut().slider_width = full_width;
         ui.visuals_mut().selection.bg_fill = theme::ACCENT;
         ui.visuals_mut().widgets.inactive.bg_fill = theme::GRID_STRONG;
         ui.add_sized(
             [full_width, ui.spacing().interact_size.y.max(20.0)],
-            egui::Slider::new(value, 16..=max)
+            egui::Slider::new(value, min..=max)
                 .step_by(16.0)
                 .show_value(false)
                 .trailing_fill(true),

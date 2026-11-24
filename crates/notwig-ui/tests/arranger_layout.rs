@@ -243,7 +243,7 @@ fn horizontal_lane_dividers_follow_each_lane_boundary() {
     let doc = with_track(&empty_doc(), 2, TrackKind::Instrument);
     let (ui, _, _, output) = mount(&doc, 900.0);
     let row = *ui.track_rows.get(&track).expect("track row");
-    let lines = horizontal_lines(&output, Color32::from_rgb(44, 47, 56));
+    let lines = horizontal_lines(&output, notwig_ui::palette::GRID);
     assert!(
         lines.iter().any(|line| {
             (line[0].y - row.bottom()).abs() < 0.5

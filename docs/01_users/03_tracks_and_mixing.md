@@ -47,7 +47,8 @@ children audible.
 The info panel exposes the same controls and adds:
 
 - an editable name;
-- a color picker;
+- a color picker; the final swatch with a `×` clears the explicit color so the
+  track inherits from its parent group, falling back to its track-kind color;
 - a comment field;
 - an input picker for audio tracks, including named mono and stereo inputs from
   the audio settings;

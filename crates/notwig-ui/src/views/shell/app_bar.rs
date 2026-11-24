@@ -1,10 +1,12 @@
 use egui::{Color32, Rect};
 use notwig_core::ProjectDoc;
 
+use crate::icons::Icon;
 use crate::runtime::RuntimeView;
 use crate::theme;
 
 use super::NotwigUi;
+use super::top_bar::request_close_project;
 
 const APP_BAR_HEIGHT: f32 = 28.0;
 
@@ -53,7 +55,9 @@ impl NotwigUi {
                 let card_galley =
                     painter.layout_no_wrap(project_label, card_font, theme::TEXT_PRIMARY);
                 let card_height = 18.0;
-                let card_width = (card_galley.size().x + 12.0).clamp(64.0, 220.0);
+                let close_size = 16.0;
+                let card_width =
+                    (card_galley.size().x + 12.0 + close_size + 4.0).clamp(80.0, 240.0);
                 let card_left = if cfg!(all(target_os = "macos", not(target_arch = "wasm32"))) {
                     78.0
                 } else {
@@ -68,30 +72,70 @@ impl NotwigUi {
                     egui::Id::new("notwig-project-card"),
                     egui::Sense::hover(),
                 );
+                let close_rect = Rect::from_center_size(
+                    egui::pos2(
+                        card_rect.right() - close_size * 0.5 - 2.0,
+                        card_rect.center().y,
+                    ),
+                    egui::Vec2::splat(close_size),
+                );
+                let close = ui.interact(
+                    close_rect,
+                    egui::Id::new("notwig-project-card-close"),
+                    egui::Sense::click(),
+                );
+                let close = close.on_hover_cursor(egui::CursorIcon::PointingHand);
                 painter.rect(
                     card_rect,
                     egui::CornerRadius::same(5),
                     if card.hovered() {
-                        Color32::from_rgb(47, 51, 62)
+                        theme::GRID
                     } else {
                         theme::APP_BAR_CARD
                     },
                     egui::Stroke::new(1.0_f32, theme::GRID_STRONG),
                     egui::StrokeKind::Inside,
                 );
-                painter
-                    .with_clip_rect(card_rect.shrink2(egui::vec2(5.0, 0.0)))
-                    .galley(
-                        egui::pos2(
-                            card_rect.left() + 6.0,
-                            card_rect.center().y - card_galley.size().y * 0.5,
-                        ),
-                        card_galley,
-                        theme::TEXT_PRIMARY,
+                let name_clip = Rect::from_min_max(
+                    card_rect.min,
+                    egui::pos2(close_rect.left() - 4.0, card_rect.max.y),
+                );
+                painter.with_clip_rect(name_clip).galley(
+                    egui::pos2(
+                        card_rect.left() + 6.0,
+                        card_rect.center().y - card_galley.size().y * 0.5,
+                    ),
+                    card_galley,
+                    theme::TEXT_PRIMARY,
+                );
+                if close.hovered() {
+                    painter.rect_filled(
+                        close_rect,
+                        egui::CornerRadius::same(3),
+                        theme::GRID_STRONG,
                     );
-                if let Some(path) = &runtime.bundle_path {
+                }
+                let close_color = if close.hovered() {
+                    theme::TEXT_PRIMARY
+                } else {
+                    theme::TEXT_MUTED
+                };
+                painter.text(
+                    close_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    Icon::Close.glyph(),
+                    theme::icon_font(ctx, 10.0),
+                    close_color,
+                );
+                if close.clicked() {
+                    request_close_project(ctx);
+                }
+                if !close.hovered()
+                    && let Some(path) = &runtime.bundle_path
+                {
                     card.on_hover_text(path.display().to_string());
                 }
+                close.on_hover_text("Close project");
 
                 let brand = crate::widgets::brand::icon(ctx, true);
                 let icon_height = 14.0;

@@ -12,6 +12,7 @@ impl NotwigUi {
         doc: &ProjectDoc,
         audio: &AudioClipData,
     ) {
+        ui.add_space(2.0);
         files::audio_source_info(ui, doc, audio);
     }
 }

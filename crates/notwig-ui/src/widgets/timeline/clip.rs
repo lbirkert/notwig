@@ -1,6 +1,7 @@
 use egui::{Align2, Color32, CornerRadius, FontId, Painter, Rect, Stroke, StrokeKind};
 use notwig_core::sequencer::{AudioClipData, AudioSlice, ClipKind, ClipPayload, MidiClipData};
-use notwig_core::{ClipEntity, ProjectDoc, RangeMus};
+use notwig_core::tracks::Track;
+use notwig_core::{ClipEntity, ProjectDoc, RangeMus, TrackKind};
 
 use crate::theme;
 use crate::timeline::TimelineGrid;
@@ -16,18 +17,50 @@ pub(crate) struct ClipVisual {
 const MIN_CLIP_WIDTH: f32 = 3.0;
 /// Below this width labels, note previews, and waveform previews become noise,
 /// so only the clip body and selection stroke are drawn.
-const MIN_CONTENT_WIDTH: f32 = 24.0;
+const MIN_CONTENT_WIDTH: f32 = 8.0;
+
+pub(crate) fn resolved_track_color(doc: &ProjectDoc, track: &Track) -> Color32 {
+    let mut current = Some(track);
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(candidate) = current {
+        if !visited.insert(candidate.id) {
+            break;
+        }
+        if let Some(color) = candidate.color {
+            return Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255);
+        }
+        current = candidate.parent.and_then(|parent| doc.tracks.get(&parent));
+    }
+    track_kind_color(track.kind)
+}
 
 pub(crate) fn clip_color(doc: &ProjectDoc, clip: &ClipEntity) -> Color32 {
-    clip.color
-        .or_else(|| doc.tracks.get(&clip.track_id).and_then(|track| track.color))
-        .map_or_else(
-            || match clip.kind {
-                ClipKind::Midi => theme::CLIP_MIDI,
-                ClipKind::Audio => theme::CLIP_AUDIO,
-            },
-            |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
-        )
+    clip.color.map_or_else(
+        || {
+            doc.tracks.get(&clip.track_id).map_or_else(
+                || clip_kind_color(clip.kind),
+                |track| resolved_track_color(doc, track),
+            )
+        },
+        |color| Color32::from_rgba_unmultiplied(color.r, color.g, color.b, 255),
+    )
+}
+
+fn clip_kind_color(kind: ClipKind) -> Color32 {
+    match kind {
+        ClipKind::Midi => theme::CLIP_MIDI,
+        ClipKind::Audio => theme::CLIP_AUDIO,
+    }
+}
+
+fn track_kind_color(kind: TrackKind) -> Color32 {
+    match kind {
+        TrackKind::Audio => theme::CLIP_AUDIO,
+        TrackKind::Instrument => theme::CLIP_MIDI,
+        TrackKind::Group => Color32::from_rgb(116, 120, 136),
+        TrackKind::BusFx => Color32::from_rgb(154, 122, 190),
+        TrackKind::Master => theme::ACCENT,
+    }
 }
 
 fn clip_base_color(doc: &ProjectDoc, clip: &ClipEntity) -> Color32 {
@@ -71,7 +104,9 @@ pub(crate) fn draw_clip_visual(
     };
     let painter = painter.with_clip_rect(lane_rect);
     painter.rect_filled(clip_rect, CornerRadius::same(3), color);
-    let name_height = 14.0_f32.min(clip_rect.height() * 0.42);
+    let name_height = 14.0_f32
+        .min((clip_rect.height() * 0.42).max(4.0))
+        .min(clip_rect.height());
     let name_rect = Rect::from_min_max(
         clip_rect.min,
         egui::pos2(clip_rect.right(), clip_rect.top() + name_height),
@@ -204,6 +239,9 @@ pub(crate) fn draw_audio_slices(
     lane_left: f32,
     lane_top: f32,
 ) {
+    if body_rect.width() < 2.0 || body_rect.height() < 2.0 {
+        return;
+    }
     if !audio.uses_slices() {
         if let Some(waveform) = waveforms.get(&audio.asset_id) {
             draw_waveform(
@@ -270,6 +308,10 @@ pub mod test_api {
 
     pub fn clip_color(doc: &ProjectDoc, clip: &ClipEntity) -> Color32 {
         super::clip_color(doc, clip)
+    }
+
+    pub fn resolved_track_color(doc: &ProjectDoc, track: &Track) -> Color32 {
+        super::resolved_track_color(doc, track)
     }
 
     #[allow(clippy::too_many_arguments)]
