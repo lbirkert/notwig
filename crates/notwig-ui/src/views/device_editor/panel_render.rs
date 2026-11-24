@@ -101,6 +101,7 @@ pub(super) fn paint_panel_frame(
     }
     let device_key = device.id.to_string();
     let origin = target.min.to_vec2();
+    let panel_clip = target.intersect(ui.clip_rect());
     {
         let textures = state
             .extension_panel_textures
@@ -145,7 +146,7 @@ pub(super) fn paint_panel_frame(
             egui::pos2(primitive.clip_rect[2], primitive.clip_rect[3]),
         )
         .translate(origin)
-        .intersect(target);
+        .intersect(panel_clip);
         let mesh = primitive.mesh.to_panel_mesh(texture.id(), origin);
         ui.painter()
             .with_clip_rect(clip)

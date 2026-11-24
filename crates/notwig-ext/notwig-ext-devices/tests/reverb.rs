@@ -9,12 +9,12 @@ use notwig_ext_devices::{
     reverb_size_id, reverb_width_id,
 };
 
-fn draw(meter: DeviceMeterSnapshot) -> PanelFrame {
+fn draw_with_size(meter: DeviceMeterSnapshot, width: f32, height: f32) -> PanelFrame {
     let mut reverb = ReverbDevice::new();
     let context = egui::Context::default();
     let input = PanelInput {
-        width: 360.0,
-        height: 240.0,
+        width,
+        height,
         pixels_per_point: 1.0,
         time: Some(0.0),
         focused: true,
@@ -25,6 +25,10 @@ fn draw(meter: DeviceMeterSnapshot) -> PanelFrame {
     panel_frame::run_frame(&context, input, &ThemeSnapshot::default(), |ui| {
         reverb.draw(ui, meter);
     })
+}
+
+fn draw(meter: DeviceMeterSnapshot) -> PanelFrame {
+    draw_with_size(meter, 360.0, 240.0)
 }
 
 #[test]
@@ -53,6 +57,21 @@ fn draw_produces_a_valid_frame() {
     let frame = draw(DeviceMeterSnapshot::default());
     frame.validate().unwrap();
     assert_ne!(frame.primitives.len(), 0);
+}
+
+#[test]
+fn draw_fits_a_compact_container_panel() {
+    let width = 318.0;
+    let height = 150.0;
+    let frame = draw_with_size(DeviceMeterSnapshot::default(), width, height);
+    frame.validate().unwrap();
+    assert!(
+        frame.primitives.iter().all(|primitive| {
+            let [min_x, min_y, max_x, max_y] = primitive.clip_rect;
+            min_x >= -0.01 && min_y >= -0.01 && max_x <= width + 0.01 && max_y <= height + 0.01
+        }),
+        "reverb content must stay inside the panel"
+    );
 }
 
 #[test]

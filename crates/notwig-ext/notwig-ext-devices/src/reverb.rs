@@ -88,13 +88,37 @@ fn mix_norm(value: f64) -> f32 {
 }
 
 fn knob_label(ui: &egui::Ui, rect: egui::Rect, label: &str) {
-    ui.painter().with_clip_rect(rect).text(
+    let clip = rect.expand2(egui::vec2(0.0, 18.0));
+    ui.painter().with_clip_rect(clip).text(
         egui::pos2(rect.center().x, rect.bottom() + 8.0),
         Align2::CENTER_TOP,
         label,
         FontId::proportional(10.0),
         palette::TEXT_MUTED,
     );
+}
+
+fn draw_knob(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    label: &str,
+    value: f32,
+    default: f32,
+    width: f32,
+    height: f32,
+) -> Option<f32> {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    let changed = knob(
+        ui,
+        ui.make_persistent_id(("ext-reverb", id_salt)),
+        rect,
+        value,
+        default,
+        false,
+        label,
+    );
+    knob_label(ui, rect, label);
+    changed
 }
 
 #[derive(Debug, Clone)]
@@ -319,8 +343,11 @@ impl DeviceExtension for ReverbDevice {
         section(ui, "Reverb");
 
         let width = ui.available_width();
-        let meter_width = 40.0;
-        let graph_height = 92.0;
+        let meter_width = 38.0;
+        let knob_height = 54.0;
+        let label_height = 16.0;
+        let reserved = knob_height + label_height + 8.0;
+        let graph_height = (ui.available_height() - reserved).clamp(32.0, 92.0);
         ui.horizontal(|ui| {
             let graph_width = (width - meter_width - 6.0).max(60.0);
             let (graph_rect, _) =
@@ -339,91 +366,73 @@ impl DeviceExtension for ReverbDevice {
         });
 
         ui.add_space(4.0);
-        let knob_width = 68.0;
-        let knob_height = 58.0;
         ui.horizontal(|ui| {
-            let (rect, _) =
-                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
-            if let Some(norm) = knob(
+            let gap = 4.0;
+            let knob_width = ((ui.available_width() - gap * 4.0) / 5.0).clamp(44.0, 68.0);
+            if let Some(norm) = draw_knob(
                 ui,
-                ui.make_persistent_id(("ext-reverb", "size")),
-                rect,
+                "size",
+                "Size",
                 size_norm(self.size),
                 size_norm(DEFAULT_SIZE),
-                false,
-                "Size",
+                knob_width,
+                knob_height,
             ) {
                 self.size = f64::from(norm).clamp(0.0, 1.0);
                 panel_frame::set_param_normalized(ui, size_id(), norm);
             }
-            knob_label(ui, rect, "Size");
-
-            let (rect, _) =
-                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
-            if let Some(norm) = knob(
+            ui.add_space(gap);
+            if let Some(norm) = draw_knob(
                 ui,
-                ui.make_persistent_id(("ext-reverb", "damping")),
-                rect,
+                "damping",
+                "Damping",
                 damping_norm(self.damping),
                 damping_norm(DEFAULT_DAMPING),
-                false,
-                "Damping",
+                knob_width,
+                knob_height,
             ) {
                 self.damping = f64::from(norm).clamp(0.0, 1.0);
                 panel_frame::set_param_normalized(ui, damping_id(), norm);
             }
-            knob_label(ui, rect, "Damping");
-
-            let (rect, _) =
-                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
-            if let Some(norm) = knob(
+            ui.add_space(gap);
+            if let Some(norm) = draw_knob(
                 ui,
-                ui.make_persistent_id(("ext-reverb", "predelay")),
-                rect,
+                "predelay",
+                "Pre-delay",
                 predelay_norm(self.predelay_seconds),
                 predelay_norm(DEFAULT_PREDELAY_SECONDS),
-                false,
-                "Pre-delay",
+                knob_width,
+                knob_height,
             ) {
                 self.predelay_seconds = f64::from(norm) * MAX_PREDELAY_SECONDS;
                 panel_frame::set_param_normalized(ui, predelay_id(), norm);
             }
-            knob_label(ui, rect, "Pre-delay");
-        });
-
-        ui.add_space(2.0);
-        ui.horizontal(|ui| {
-            let (rect, _) =
-                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
-            if let Some(norm) = knob(
+            ui.add_space(gap);
+            if let Some(norm) = draw_knob(
                 ui,
-                ui.make_persistent_id(("ext-reverb", "width")),
-                rect,
+                "width",
+                "Width",
                 width_norm(self.width),
                 width_norm(DEFAULT_WIDTH),
-                false,
-                "Width",
+                knob_width,
+                knob_height,
             ) {
                 self.width = f64::from(norm).clamp(0.0, 1.0);
                 panel_frame::set_param_normalized(ui, width_id(), norm);
             }
-            knob_label(ui, rect, "Width");
-
-            let (rect, _) =
-                ui.allocate_exact_size(Vec2::new(knob_width, knob_height), Sense::hover());
-            if let Some(norm) = knob(
+            ui.add_space(gap);
+            if let Some(norm) = draw_knob(
                 ui,
-                ui.make_persistent_id(("ext-reverb", "mix")),
-                rect,
+                "mix",
+                "Mix",
                 mix_norm(self.mix),
                 mix_norm(DEFAULT_MIX),
-                false,
-                "Mix",
+                knob_width,
+                knob_height,
             ) {
                 self.mix = f64::from(norm).clamp(0.0, 1.0);
                 panel_frame::set_param_normalized(ui, mix_id(), norm);
             }
-            knob_label(ui, rect, "Mix");
         });
 
         ui.ctx().request_repaint_after(Duration::from_millis(33));

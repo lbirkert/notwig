@@ -151,7 +151,9 @@ view-state mutations idempotent, or avoid requesting a discard in device panels.
    `TextureHandle::set`, or `TextureHandle::set_partial`.
 2. Map each guest `Managed(n)` id to the corresponding `TextureHandle::id()`.
 3. Translate mesh vertices and clip rects by the panel origin, intersect clips
-   with the panel rect, and add `egui::Shape::mesh` through a clipped painter.
+   with the panel rect and the device body rect, and add `egui::Shape::mesh`
+   through a clipped painter. The panel and device card heights are fixed; guest
+   content that overflows is clipped and never grows the parent card.
 4. Drop handles named by `textures.free`.
 5. Apply frame actions through the existing parameter validation path.
 6. Forward the frame's cursor and repaint delay.

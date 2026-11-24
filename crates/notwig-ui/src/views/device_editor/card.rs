@@ -52,7 +52,12 @@ impl NotwigUi {
                     .show(ui, |ui| {
                         ui.push_id(("device-card", device.id), |ui| {
                             ui.set_width(width);
-                            ui.set_min_height(body_height);
+                            ui.set_height(body_height);
+                            let clip_rect = Rect::from_min_size(
+                                ui.min_rect().min,
+                                Vec2::new(width, body_height),
+                            );
+                            ui.shrink_clip_rect(clip_rect);
                             ui.horizontal_top(|ui| {
                                 self.device_handle(
                                     ui,
@@ -303,6 +308,7 @@ impl NotwigUi {
                     Vec2::new(body_width - 8.0, height - 4.0),
                     Layout::top_down(Align::Min),
                     |ui| {
+                        ui.shrink_clip_rect(ui.max_rect());
                         ui.spacing_mut().interact_size.y = 16.0;
                         ui.spacing_mut().item_spacing.y = 2.0;
                         if device.kind == DeviceKind::Container {
@@ -327,18 +333,21 @@ impl NotwigUi {
                         // two makes meters and custom visuals flash.
                         if matches!(&renderer, DeviceRendererKind::Extension(_)) {
                             if let Some(spec) = spec {
-                                self.draw_extension_device_panel(
-                                    ui,
-                                    device,
-                                    spec,
-                                    doc.meta.sample_rate.value(),
-                                    runtime
-                                        .device_meters
-                                        .get(&device.id)
-                                        .copied()
-                                        .unwrap_or_default(),
-                                    Vec2::new(body_width - 8.0, height - 4.0),
-                                );
+                                let panel_height = ui.available_height().max(0.0);
+                                if panel_height > 1.0 {
+                                    self.draw_extension_device_panel(
+                                        ui,
+                                        device,
+                                        spec,
+                                        doc.meta.sample_rate.value(),
+                                        runtime
+                                            .device_meters
+                                            .get(&device.id)
+                                            .copied()
+                                            .unwrap_or_default(),
+                                        Vec2::new(body_width - 8.0, panel_height),
+                                    );
+                                }
                             }
                         } else {
                             match (renderer, spec) {

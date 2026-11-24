@@ -117,6 +117,12 @@ let (rect, _) = ui.allocate_exact_size(egui::vec2(78.0, 58.0), egui::Sense::hove
 let changed = knob(ui, ui.make_persistent_id("gain"), rect, norm, default, false, "Gain");
 ```
 
+The host gives the panel a fixed-size surface. `DeviceDrawContext::width` and
+`height` are the exact panel size, and the host clips painting to that rectangle.
+Content drawn outside it is not visible and does not grow the device card. Size
+panels to the available height, or use an internal `ScrollArea` when content can
+be taller.
+
 ## Focus and repaint
 
 The host forwards pointer and keyboard input while the panel is focused. The

@@ -192,6 +192,7 @@ fn to_color32(color: Color32) -> Color {
 }
 
 fn paint_panel_placeholder(ui: &egui::Ui, target: egui::Rect) {
+    let target = target.intersect(ui.clip_rect());
     ui.painter().with_clip_rect(target).text(
         target.center(),
         egui::Align2::CENTER_CENTER,
