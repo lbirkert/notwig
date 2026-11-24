@@ -96,6 +96,29 @@ if [[ "$host_os" == "Darwin" ]]; then
       CARGO_TARGET_DIR="$TARGET_DIR" cargo truce install --au3 --no-build
     fi
   )
+
+  au_component="$HOME/Library/Audio/Plug-Ins/Components/Notwig Test Plugin.component"
+  if [[ ! -d "$au_component" ]]; then
+    echo "error: AU v2 fixture is missing at $au_component" >&2
+    exit 1
+  fi
+
+  # Cargo-truce clears the AU cache, but the registrar daemon can keep a stale
+  # view of installed components (especially on a fresh CI runner). Restart it
+  # and give it a moment to rebuild before the host scans the registry.
+  killall -9 AudioComponentRegistrar 2>/dev/null \
+    || sudo killall -9 AudioComponentRegistrar 2>/dev/null \
+    || true
+  for _ in 1 2 3 4 5; do
+    if auval -a 2>/dev/null | grep -Fq "Notwig Test Plugin"; then
+      break
+    fi
+    sleep 1
+  done
+  if ! auval -a 2>/dev/null | grep -Fq "Notwig Test Plugin"; then
+    echo "warning: AU fixture is not listed by auval yet; continuing so the host scan can report details" >&2
+    auval -a 2>/dev/null | grep -iE 'notwig|truce|aufx' | tail -20 >&2 || true
+  fi
 fi
 
 export NOTWIG_PLUGIN_FIXTURE_BUNDLES="$TARGET_DIR/bundles"
