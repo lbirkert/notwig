@@ -113,11 +113,14 @@ the native `projects.json`:
 
 ## Fetch and index behavior
 
-`fetch_bytes` uses `window.fetch`; non-OK is not found. Each index source is
-capped at 4 MiB; documents merge by extension ID; relative download/image URLs
-resolve against the index URL; icons over 4 MiB are skipped. The default
-`https://notwig.lbirkert.com/extensions.json` is rewritten to the site base when
-still configured; results stay in memory with no persistent cache.
+`fetch_bytes` uses `window.fetch` with `cache: no-store`, so rebuilt indexes,
+icons, and packages are not served from the browser HTTP cache. This avoids a
+stale expected SHA-256 after an extension is republished. Non-OK is not found.
+Each index source is capped at 4 MiB; documents merge by extension ID; relative
+download/image URLs resolve against the index URL; icons over 4 MiB are skipped.
+The default `https://notwig.lbirkert.com/extensions.json` is rewritten to the
+site base when still configured; results stay in memory with no persistent
+cache.
 
 ## WebAudio gesture gate
 

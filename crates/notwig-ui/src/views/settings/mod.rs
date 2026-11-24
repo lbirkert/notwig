@@ -66,66 +66,47 @@ impl NotwigUi {
                     .inner_margin(egui::Margin::ZERO),
             )
             .show(ctx, |ui| {
-                let body_rect = ui.max_rect();
-                let sidebar_width = 236.0;
-                let content_left = body_rect.left() + sidebar_width;
-                let painter = ui.painter();
-                painter.rect_filled(
-                    egui::Rect::from_min_max(
-                        body_rect.min,
-                        egui::pos2(content_left, body_rect.bottom()),
-                    ),
-                    egui::CornerRadius {
-                        sw: 6,
-                        ..egui::CornerRadius::ZERO
-                    },
-                    theme::APP_BAR,
-                );
-                painter.rect_filled(
-                    egui::Rect::from_min_max(
-                        egui::pos2(content_left, body_rect.top()),
-                        body_rect.right_bottom(),
-                    ),
-                    egui::CornerRadius {
-                        se: 6,
-                        ..egui::CornerRadius::ZERO
-                    },
-                    theme::PANEL_LIGHT,
-                );
-                painter.line_segment(
-                    [
-                        egui::pos2(content_left - 0.5, body_rect.top()),
-                        egui::pos2(content_left - 0.5, body_rect.bottom()),
-                    ],
-                    egui::Stroke::new(1.0_f32, theme::GRID),
-                );
-
-                let sidebar_rect = egui::Rect::from_min_max(
-                    body_rect.min,
-                    egui::pos2(content_left - 1.0, body_rect.bottom()),
-                )
-                .shrink2(egui::vec2(8.0, 10.0));
-                ui.scope_builder(egui::UiBuilder::new().max_rect(sidebar_rect), |ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    for category in [
-                        SettingsCategory::Shortcuts,
-                        SettingsCategory::Extensions,
-                        SettingsCategory::Audio,
-                    ] {
-                        let selected = self.settings_category == category;
-                        if category_button(ui, category.label(), selected) {
-                            self.settings_category = category;
+                ui.set_min_width(1120.0);
+                ui.set_min_height(640.0);
+                egui::SidePanel::left("settings-sidebar")
+                    .resizable(false)
+                    .exact_width(236.0)
+                    .show_separator_line(true)
+                    .frame(
+                        egui::Frame::new()
+                            .fill(theme::APP_BAR)
+                            .inner_margin(egui::Margin {
+                                left: 8,
+                                right: 8,
+                                top: 10,
+                                bottom: 10,
+                            }),
+                    )
+                    .show_inside(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        for category in [
+                            SettingsCategory::Shortcuts,
+                            SettingsCategory::Extensions,
+                            SettingsCategory::Audio,
+                        ] {
+                            let selected = self.settings_category == category;
+                            if category_button(ui, category.label(), selected) {
+                                self.settings_category = category;
+                            }
                         }
-                    }
-                });
-
-                let content_rect = egui::Rect::from_min_max(
-                    egui::pos2(content_left + 18.0, body_rect.top() + 12.0),
-                    egui::pos2(body_rect.right() - 12.0, body_rect.bottom() - 12.0),
-                );
-                ui.scope_builder(
-                    egui::UiBuilder::new().max_rect(content_rect),
-                    |ui| match self.settings_category {
+                    });
+                egui::CentralPanel::default()
+                    .frame(
+                        egui::Frame::new()
+                            .fill(theme::PANEL_LIGHT)
+                            .inner_margin(egui::Margin {
+                                left: 18,
+                                right: 12,
+                                top: 12,
+                                bottom: 12,
+                            }),
+                    )
+                    .show_inside(ui, |ui| match self.settings_category {
                         SettingsCategory::Shortcuts => {
                             self.shortcut_settings_page(ui);
                         }
@@ -141,8 +122,7 @@ impl NotwigUi {
                                     ui.add_space(20.0);
                                 });
                         }
-                    },
-                );
+                    });
             });
         self.settings_open = open;
         if !open {

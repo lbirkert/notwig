@@ -8,7 +8,8 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     File, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemRemoveOptions, FileSystemWritableFileStream,
+    FileSystemGetFileOptions, FileSystemRemoveOptions, FileSystemWritableFileStream, Request,
+    RequestCache, RequestInit,
 };
 
 const PROJECTS_DIR: &str = "Projects";
@@ -613,7 +614,10 @@ async fn directory_at(
 
 pub(crate) async fn fetch_bytes(url: &str) -> Result<Option<Vec<u8>>, String> {
     let window = web_sys::window().ok_or_else(|| "no browser window".to_string())?;
-    let value = JsFuture::from(window.fetch_with_str(url))
+    let init = RequestInit::new();
+    init.set_cache(RequestCache::NoStore);
+    let request = Request::new_with_str_and_init(url, &init).map_err(js_error)?;
+    let value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(js_error)?;
     let response: web_sys::Response = value.unchecked_into();
