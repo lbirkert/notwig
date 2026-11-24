@@ -1,0 +1,119 @@
+name: Plugin Integration
+
+# Manual-only: this suite builds native plugin bundles, installs AU components,
+# opens AppKit editor windows, and can take a long time to run.
+on:
+  workflow_dispatch:
+    inputs:
+      runners:
+        description: >-
+          JSON array of runner labels. Defaults to one Intel and one Apple
+          Silicon macOS runner; add or replace labels for other hosts.
+        required: true
+        type: string
+        default: '["macos-15-intel", "macos-15"]'
+      run_lv2:
+        description: Install lilv and run LV2 integration tests.
+        required: true
+        type: boolean
+        default: true
+      run_au3:
+        description: >-
+          Run AU v3 when APPLE_DEVELOPER_ID_P12 and
+          APPLE_DEVELOPER_ID_PASSWORD secrets are configured. AU v3 requires a
+          Developer ID identity with a team ID.
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-integration-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  plugin-integration:
+    name: Plugin integration (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(inputs.runners) }}
+    env:
+      # Secrets cannot be referenced directly in `if:`; expose them as env so
+      # the optional AU v3 signing step can check them.
+      APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+      APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report runner
+        run: |
+          uname -m
+          sw_vers
+          xcodebuild -version
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-truce
+        run: cargo install cargo-truce --version 6.3.0 --locked
+
+      - name: Install lilv for LV2
+        if: ${{ inputs.run_lv2 }}
+        run: brew install lilv pkg-config
+
+      - name: Import Developer ID certificate for AU v3
+        id: signing
+        if: ${{ inputs.run_au3 && env.APPLE_DEVELOPER_ID_P12 != '' }}
+        run: |
+          set -euo pipefail
+          keychain_password="$(uuidgen)"
+          keychain="$RUNNER_TEMP/notwig-signing.keychain-db"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$APPLE_DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" \
+            -k "$keychain" \
+            -P "$APPLE_DEVELOPER_ID_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" \
+            $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' \
+            | head -n 1)"
+          if [[ -z "$identity" ]]; then
+            echo "::error::No Developer ID Application identity found in the imported certificate."
+            exit 1
+          fi
+          echo "TRUCE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "enabled=1" >> "$GITHUB_OUTPUT"
+          echo "AU v3 signing identity: $identity"
+
+      - name: Note AU v3 skip
+        if: ${{ inputs.run_au3 && env.APPLE_DEVELOPER_ID_P12 == '' }}
+        run: |
+          echo "::notice::AU v3 integration skipped. Configure APPLE_DEVELOPER_ID_P12 and APPLE_DEVELOPER_ID_PASSWORD secrets to enable it."
+
+      - name: Run plugin integration suite
+        env:
+          NOTWIG_PLUGIN_TEST_LV2: ${{ inputs.run_lv2 && '1' || '0' }}
+          NOTWIG_PLUGIN_TEST_AU3: ${{ steps.signing.outputs.enabled || '0' }}
+        run: scripts/test-plugins.sh
+
+      - name: Remove temporary signing keychain
+        if: ${{ always() && steps.signing.outputs.enabled == '1' }}
+        run: security delete-keychain "$RUNNER_TEMP/notwig-signing.keychain-db" || true
