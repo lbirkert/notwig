@@ -230,14 +230,14 @@ Dependencies worth planning around:
 | Chain | ✅ Implemented | ⭐⭐⭐⭐ | Input gain, output gain, and dry/wet container. |
 | Extension container chains | ✅ Implemented | ⭐⭐⭐⭐ | Extension `DeviceKind::Container` devices get a host-owned serial child chain via `DeviceSpec::container`, including a wet FX chain. The bundled Reverb uses it. Parallel and sidechain routing remain unsupported. |
 | Stock instruments | 📋 Planned | ⭐⭐ | Start with one simple synth and one sampler. A WASM synth example ships in `notwig-ext-devices`, but no stock instrument exists yet. |
-| Stock effects | 📋 Planned | ⭐⭐⭐ | Core delay, compressor, filter, saturation, and chorus. Limiter, gate, and reverb already ship in the bundled extension pack. |
+| Stock effects | 📋 Planned | ⭐⭐⭐ | Core filter and saturation. Compressor, clipper, delay, chorus, transient, limiter, gate, and reverb ship in the bundled extension pack. |
 | Device presets | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Device A/B compare | 🚫 Not Planned | ⭐⭐⭐ | Disable the plugin to compare A/B. |
 | Device drag reorder | ✅ Implemented | ⭐⭐⭐⭐ | Drag handles reorder within and across nested chains; dropping on an arranger lane or track header appends to its main chain. |
 | Device activation | ✅ Implemented | ⭐⭐⭐⭐ | Alt+A toggles selected devices; deactivation unloads processors while keeping document state. Enable/disable keeps plugins loaded. |
 | Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. Bypass keeps planned latency stable without rebuilding. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |
-| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM and native devices provide metadata, DSP, custom panels, note events, and host-owned container chains; `notwig-ext-devices` ships a limiter, gate, reverb with a wet FX chain, and a simple polyphonic synth. Device state blobs are still deferred. |
+| Extension devices | 🧪 Partial | ⭐⭐⭐⭐ | WASM and native devices provide metadata, DSP, custom panels, note events, and host-owned container chains; `notwig-ext-devices` ships a compressor, clipper, delay, chorus, transient control, limiter, gate, Room/Hall/Plate reverb with a wet FX chain, and a polyphonic synth. Device state blobs are still deferred. |
 
 ## Plugins
 

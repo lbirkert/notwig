@@ -6,7 +6,7 @@ use notwig_ext_api::{
 };
 use notwig_ext_devices::{
     REVERB_TYPE_ID, ReverbDevice, reverb_damping_id, reverb_mix_id, reverb_predelay_id,
-    reverb_size_id, reverb_width_id,
+    reverb_size_id, reverb_type_id, reverb_width_id,
 };
 
 fn draw_with_size(meter: DeviceMeterSnapshot, width: f32, height: f32) -> PanelFrame {
@@ -41,7 +41,9 @@ fn spec_is_a_wet_container() {
     assert_eq!(container.routing, ContainerRouting::StageThenChildren);
     assert_eq!(container.wet_param, Some(reverb_mix_id()));
     assert_eq!(spec.latency_samples, 0);
+    assert_eq!(spec.params.len(), 6);
     for id in [
+        reverb_type_id(),
         reverb_size_id(),
         reverb_damping_id(),
         reverb_predelay_id(),
@@ -97,6 +99,26 @@ fn impulse_produces_a_finite_decaying_tail() {
         .iter()
         .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
     assert!(peak.is_finite() && peak < 8.0, "reverb peak was {peak}");
+}
+
+#[test]
+fn room_hall_and_plate_produce_finite_tails() {
+    for (index, name) in [(0.0, "Room"), (1.0, "Hall"), (2.0, "Plate")] {
+        let mut reverb = ReverbDevice::new();
+        reverb.prepare(48_000, 2);
+        assert!(reverb.set_param(reverb_type_id(), index));
+        reverb.set_param(reverb_predelay_id(), 0.0);
+        let mut audio = vec![0.0_f32; 24_000 * 2];
+        audio[0] = 1.0;
+        audio[1] = 1.0;
+        reverb.process(&mut audio);
+        let tail: f32 = audio[8_000 * 2..]
+            .iter()
+            .map(|sample| sample * sample)
+            .sum();
+        assert!(tail > 1e-6, "{name} reverb tail was silent");
+        assert!(audio.iter().all(|sample| sample.is_finite()));
+    }
 }
 
 #[test]

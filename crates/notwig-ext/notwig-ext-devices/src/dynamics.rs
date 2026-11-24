@@ -3,7 +3,7 @@ use notwig_ext_api::egui;
 use notwig_ui::palette;
 
 /// Number of frames retained by [`History`].
-pub const HISTORY_LEN: usize = 50;
+pub const HISTORY_LEN: usize = 128;
 
 /// Lowest level, in dBFS, shown by meters and history.
 pub const METER_MIN_DB: f32 = -60.0;
@@ -25,6 +25,10 @@ const THRESHOLD_STROKE: Color32 = Color32::from_rgb(86, 156, 255);
 
 fn gain_stroke() -> Color32 {
     Color32::from_rgba_unmultiplied(255, 190, 90, 220)
+}
+
+fn gain_glow() -> Color32 {
+    Color32::from_rgba_unmultiplied(255, 158, 48, 70)
 }
 
 /// One meter history sample.
@@ -200,7 +204,14 @@ pub fn paint_history_graph(
             .enumerate()
             .map(|(index, sample)| egui::pos2(x_at(index), db_to_y(graph, sample.gain_db)))
             .collect();
-        painter.add(egui::Shape::line(gain, Stroke::new(1.0_f32, gain_stroke())));
+        painter.add(egui::Shape::line(
+            gain.clone(),
+            Stroke::new(3.0_f32, gain_glow()),
+        ));
+        painter.add(egui::Shape::line(
+            gain,
+            Stroke::new(1.25_f32, gain_stroke()),
+        ));
     }
 }
 

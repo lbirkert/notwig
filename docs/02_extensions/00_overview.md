@@ -83,5 +83,5 @@ Install native extensions only from trusted sources.
 4. [Panel API](04_panel_api.md) covers the guest panel, shared components,
    input, and actions.
 5. [Testing and Distribution](05_testing_and_distribution.md) covers tests,
-   the example limiter, gate, reverb, synth, and gain devices, packaging, and
-   index publishing.
+   the bundled compressor, clipper, delay, chorus, transient, dynamics, reverb,
+   synth, and gain devices, packaging, and index publishing.

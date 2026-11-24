@@ -1,10 +1,11 @@
 # Extension devices for `notwig-ext-devices`
 
-Status: planning note. The crate currently ships Limiter, Gate, Reverb, Synth,
-and Gain. Reverb is a container with a host-owned wet FX chain; see
-[`plan/EXTENSION_CHAINS.md`](EXTENSION_CHAINS.md). This page lists the devices
-worth adding next, what the current extension ABI can and cannot express, and a
-sensible implementation order.
+Status: planning note. The crate currently ships Compressor, Clipper, Delay,
+Chorus, Transient, Limiter, Gate, Room/Hall/Plate Reverb, Synth, and Gain. Reverb
+is a container with a host-owned wet FX chain; see
+[`plan/EXTENSION_CHAINS.md`](EXTENSION_CHAINS.md). The ready list below has been
+implemented; see [`plan/STOCK_EFFECTS_POLISH.md`](STOCK_EFFECTS_POLISH.md) for
+the polish pass and the remaining ideas.
 
 Related:
 

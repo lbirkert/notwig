@@ -75,7 +75,7 @@ fn built_limiter_extension_loads_and_processes_audio() {
         return;
     };
     let specs = host.specs();
-    assert_eq!(specs.len(), 5);
+    assert_eq!(specs.len(), 10);
     let limiter_spec = specs
         .iter()
         .find(|spec| spec.type_id == "notwig.ext.devices.limiter")
@@ -97,6 +97,18 @@ fn built_limiter_extension_loads_and_processes_audio() {
         notwig_core::dsp::ContainerRouting::StageThenChildren
     );
     assert!(container.wet_param.is_some());
+    for type_id in [
+        "notwig.ext.devices.compressor",
+        "notwig.ext.devices.clipper",
+        "notwig.ext.devices.delay",
+        "notwig.ext.devices.chorus",
+        "notwig.ext.devices.transient",
+    ] {
+        assert!(
+            specs.iter().any(|spec| spec.type_id == type_id),
+            "missing {type_id}"
+        );
+    }
     let synth = specs
         .iter()
         .find(|spec| spec.type_id == "notwig.ext.devices.synth")
@@ -261,7 +273,7 @@ fn built_native_extension_loads_and_processes_audio() {
         return;
     };
     let specs = host.specs();
-    assert_eq!(specs.len(), 5);
+    assert_eq!(specs.len(), 10);
     let limiter_spec = specs
         .iter()
         .find(|spec| spec.type_id == "notwig.ext.devices.limiter")

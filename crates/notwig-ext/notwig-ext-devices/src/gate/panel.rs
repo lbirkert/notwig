@@ -141,5 +141,5 @@ pub(super) fn draw(device: &mut GateDevice, ui: &mut egui::Ui, meter: DeviceMete
         }
     });
 
-    ui.ctx().request_repaint_after(Duration::from_millis(33));
+    ui.ctx().request_repaint_after(Duration::from_millis(16));
 }

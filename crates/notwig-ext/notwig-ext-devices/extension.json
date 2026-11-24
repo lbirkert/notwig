@@ -28,8 +28,28 @@
     {
       "name": "Notwig Gain",
       "type_id": "notwig.ext.devices.gain"
+    },
+    {
+      "name": "Notwig Compressor",
+      "type_id": "notwig.ext.devices.compressor"
+    },
+    {
+      "name": "Notwig Clipper",
+      "type_id": "notwig.ext.devices.clipper"
+    },
+    {
+      "name": "Notwig Delay",
+      "type_id": "notwig.ext.devices.delay"
+    },
+    {
+      "name": "Notwig Chorus",
+      "type_id": "notwig.ext.devices.chorus"
+    },
+    {
+      "name": "Notwig Transient",
+      "type_id": "notwig.ext.devices.transient"
     }
   ],
-  "description": "Stereo-linked limiter, gate, algorithmic reverb with a wet FX chain, a simple polyphonic synthesizer, and a gain example.",
+  "description": "Compressor, clipper, delay, chorus, transient control, limiter, gate, Room/Hall/Plate reverb with a wet FX chain, polyphonic synth, and gain.",
   "image": "icon.png"
 }

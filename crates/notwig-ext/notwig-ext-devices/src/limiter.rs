@@ -162,7 +162,7 @@ impl LimiterDevice {
             self.meter_peak_db = (self.meter_peak_db - 15.0 * dt).max(METER_MIN_DB);
         }
 
-        if self.last_history_time < 0.0 || now - self.last_history_time >= 1.0 / 30.0 {
+        if self.last_history_time < 0.0 || now - self.last_history_time >= 1.0 / 60.0 {
             self.history.push(HistorySample { level_db, gain_db });
             self.last_history_time = now;
         }
@@ -239,7 +239,7 @@ impl DeviceExtension for LimiterDevice {
                 &self.history,
                 self.threshold_db as f32,
                 ThresholdCurve::FollowGain,
-                false,
+                true,
             );
             ui.painter().with_clip_rect(graph_rect).text(
                 graph_rect.min + egui::vec2(6.0, 5.0),
@@ -303,7 +303,7 @@ impl DeviceExtension for LimiterDevice {
             knob_label(ui, release_rect, "Release");
         });
 
-        ui.ctx().request_repaint_after(Duration::from_millis(33));
+        ui.ctx().request_repaint_after(Duration::from_millis(16));
     }
 
     fn prepare(&mut self, sample_rate: u32, channels: u16) {

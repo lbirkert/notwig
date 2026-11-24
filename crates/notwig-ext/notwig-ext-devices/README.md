@@ -36,23 +36,83 @@ A stereo-linked noise gate with the same graph and meter treatment:
   line showing when the gate opens and closes.
 - A stereo output meter with peak hold and an OPEN/CLOSED readout.
 
+### Compressor
+
+`notwig.ext.devices.compressor`
+
+A stereo-linked compressor with a soft knee:
+
+- **Threshold**, **Ratio**, **Attack**, **Release**, **Knee**, **Makeup**, and
+  **Mix**.
+- Peak detector with attack/release-smoothed gain reduction, soft-knee curve,
+  and smoothed make-up gain.
+- The shared peak/gain history graph and stereo output meter.
+
+### Clipper
+
+`notwig.ext.devices.clipper`
+
+A soft clipper with tone control:
+
+- **Drive**, **Knee** (hard-to-soft), **Tilt**, **Output**, and **Mix**.
+- Soft clipping uses a blend between hard clip and `tanh`, followed by a DC
+  blocker and a simple low/high tilt EQ.
+- A transfer-curve preview and stereo meter.
+
+### Delay
+
+`notwig.ext.devices.delay`
+
+A stereo delay:
+
+- **Time L**, **Time R**, **Feedback**, **Crossfeed**, **Damping**,
+  **Ducking**, **Width**, and **Mix**.
+- Two fractional delay lines, damping in the feedback path, crossfeed for
+  ping-pong-style repeats, and dry-input ducking. Free time only; tempo sync is
+  not available in the current extension ABI.
+- A stereo meter and two compact knob rows.
+
+### Chorus
+
+`notwig.ext.devices.chorus`
+
+A stereo chorus/flanger:
+
+- **Mode** (Chorus/Flanger), **Rate**, **Depth**, **Feedback**, **Delay**,
+  **Width**, and **Mix**.
+- Two modulated delay lines with sine/triangle LFOs, stereo phase spread,
+  feedback damping, and a live LFO graph.
+
+### Transient
+
+`notwig.ext.devices.transient`
+
+A transient shaper:
+
+- **Attack Gain/Time**, **Sustain Gain/Time**, **Mode** (Peak/RMS), and **Mix**.
+- Fast and slow stereo-linked envelope followers detect the transient and body;
+  attack/sustain gains are blended by the transient amount and smoothed.
+- An envelope preview and stereo meter.
+
 ### Reverb
 
 `notwig.ext.devices.reverb`
 
 A stereo algorithmic reverb with a wet FX chain:
 
+- **Type**: Room, Hall, or Plate.
 - **Size**: 0 to 1, default 0.6.
 - **Damping**: 0 to 1, default 0.4.
 - **Pre-delay**: 0 s to 0.2 s, default 0.02 s.
 - **Width**: 0 to 1, default 1.0.
 - **Mix**: 0 to 1, default 0.3.
-- A Freeverb-style network of 8 damped comb filters and 4 allpass filters per
-  channel, with a stereo predelay.
+- A dense network of pre-diffusion allpasses, 8 damped comb filters, and 4
+  post-allpasses per channel. The Room/Hall/Plate types change comb/allpass
+  lengths, feedback, damping, and diffusion without allocating in `set_param`.
 - Declared as `DeviceKind::Container` with `ContainerRouting::StageThenChildren`
   and `Mix` as the container wet parameter. The host owns the child chain, so
   nested devices process the wet reverb signal before the dry/wet blend.
-- A decay-curve graph, stereo output meter, and shared knobs.
+- A type-aware decay graph, stereo output meter, and shared knobs.
 
 ### Synth
 
@@ -92,6 +152,12 @@ use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
 
 #[notwig_extension]
 pub fn extension(extension: &mut Extension) {
+    extension.register_device::<LimiterDevice>();
+    extension.register_device::<CompressorDevice>();
+    extension.register_device::<ClipperDevice>();
+    extension.register_device::<DelayDevice>();
+    extension.register_device::<ChorusDevice>();
+    extension.register_device::<TransientDevice>();
     extension.register_device::<LimiterDevice>();
     extension.register_device::<GateDevice>();
     extension.register_device::<ReverbDevice>();
@@ -203,9 +269,11 @@ manifest.
 threshold limiting, release recovery, and parameter rejection. `tests/gate.rs`
 covers the gate spec, frame generation, opening/closing behavior, and parameter
 rejection. `tests/reverb.rs` covers the container spec, frame generation,
-pre-delay, wet tail decay, reset behavior, and parameter rejection.
-`tests/synth.rs` covers the synth spec, frame generation, oscillator modes, note
-on/off, ADSR release, and parameter rejection.
+pre-delay, Room/Hall/Plate tails, reset behavior, and parameter rejection.
+`tests/compressor.rs`, `tests/clipper.rs`, `tests/delay.rs`, `tests/chorus.rs`,
+and `tests/transient.rs` cover the new effects. `tests/synth.rs` covers the
+synth spec, frame generation, oscillator modes, note on/off, ADSR release, and
+parameter rejection.
 `tests/gain_device.rs` covers the gain device frame and parameter behavior.
 `crates/notwig-ext/notwig-ext/tests` also loads the built WASM module and native shared library
 and checks the devices through the real ABIs.

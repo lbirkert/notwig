@@ -22,7 +22,10 @@ The `notwig-ext-devices` limiter and gate are the reference projects:
 - `crates/notwig-ext/notwig-ext-devices/tests/gate.rs` exercises the gate spec, panel frame
   output, open/close behavior, and parameter rejection.
 - `crates/notwig-ext/notwig-ext-devices/tests/reverb.rs` exercises the container
-  spec and wet parameter, pre-delay, tail decay, and parameter rejection.
+  spec and wet parameter, pre-delay, Room/Hall/Plate tails, and parameter
+  rejection.
+- `crates/notwig-ext/notwig-ext-devices/tests/{compressor,clipper,delay,chorus,transient}.rs`
+  cover the remaining bundled effects.
 - `crates/notwig-core/tests/dsp_container.rs` exercises host-owned container
   routing, wet blending, nested parameters, and latency.
 - `crates/notwig-ext/notwig-ext-devices/tests/synth.rs` exercises the synth spec, egui

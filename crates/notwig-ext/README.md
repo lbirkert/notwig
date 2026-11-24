@@ -10,7 +10,7 @@ proc macro, host runtime, example devices, and the packaging/scaffolding CLI.
 | [`notwig-ext-api`](notwig-ext-api) | Author-facing SDK, device manifest, guest panel transport, note events, ABI helpers |
 | [`notwig-ext-macros`](notwig-ext-macros) | `#[notwig_extension]` proc macro that generates WASM and native exports |
 | [`notwig-ext`](notwig-ext) | Discovery, WASM/native loading, DSP instances, frame validation, and panel host |
-| [`notwig-ext-devices`](notwig-ext-devices) | Reference limiter, gate, reverb, synth, and gain devices |
+| [`notwig-ext-devices`](notwig-ext-devices) | Bundled compressor, clipper, delay, chorus, transient, dynamics, reverb, synth, and gain devices |
 | [`notwig-ext-cli`](notwig-ext-cli) | `new`, `init`, `build`, and `targets` commands for extension authors |
 
 ## How an extension is shaped

@@ -175,7 +175,13 @@ describes the extension subsystem and crate boundaries.
 | `limiter.rs` | Limiter `DeviceExtension` impl: DSP, spec, panel, meters, parameter IDs |
 | `gate/` | Gate `DeviceExtension` impl split into `params`, `spec`, `panel`, and `dsp` modules |
 | `synth/` | Polyphonic synth split into `params`, `spec`, `panel`, and `dsp` modules |
-| `reverb.rs` | Stereo algorithmic reverb, container spec, wet FX chain, and panel |
+| `compressor.rs` | Stereo-linked compressor DSP and panel |
+| `clipper.rs` | Soft clipper, tilt tone control, and transfer-curve panel |
+| `delay.rs` | Stereo delay with crossfeed, damping, ducking, and width |
+| `chorus.rs` | Stereo chorus/flanger with modulated delay lines |
+| `transient.rs` | Attack/sustain transient shaper and envelope panel |
+| `reverb.rs` | Stereo algorithmic reverb, Room/Hall/Plate types, wet FX chain, and panel |
+| `util.rs` | Shared smoothing, delay-line, filter, conversion, and soft-clip helpers |
 | `gain.rs` | Small guest-egui gain example using shared `notwig-ui` controls |
 | `dynamics.rs` | Shared 50-frame peak/gain history and egui history-graph painter |
 | `ui.rs` | Shared knob caption helper |
@@ -294,7 +300,7 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Panel wire validation | `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs` |
 | Panel bridge | `crates/notwig-ext/notwig-ext-api/tests/panel_bridge.rs` |
 | Extension ABI helpers | `crates/notwig-ext/notwig-ext-api/tests/abi_helpers.rs` |
-| Limiter, gate, reverb, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
+| Compressor, clipper, delay, chorus, transient, limiter, gate, reverb, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext/notwig-ext-api/tests/index_config.rs` |
 | Extension ZIP install | `crates/notwig-ext/notwig-ext/tests/install.rs` |
 | Extension explorer UI | `crates/notwig-ui/tests/extension_settings.rs` |

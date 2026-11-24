@@ -114,11 +114,14 @@ Extension devices are installed from **Settings > Extensions**. Once installed
 and loaded, they appear under **EXTENSIONS** in the Add Device browser.
 
 - Extension devices provide their own DSP and can provide a custom panel.
-- The bundled `notwig.ext.devices` pack adds Limiter, Gate, Reverb, Synth, and
-  Gain devices.
-- Reverb is a container with a wet FX chain: expand the chain tab on its card
-  and insert devices to process the reverb's wet signal. The device's Mix knob
-  blends the processed wet signal with the dry input.
+- The bundled `notwig.ext.devices` pack adds Compressor, Clipper, Delay, Chorus,
+  Transient, Limiter, Gate, Reverb, Synth, and Gain devices.
+- Compressor, Clipper, Delay, Chorus, and Transient cover the common channel and
+  creative effects. Each has a compact custom panel.
+- Reverb has Room, Hall, and Plate types. It is a container with a wet FX
+  chain: expand the chain tab on its card and insert devices to process the
+  reverb's wet signal. The device's Mix knob blends the processed wet signal
+  with the dry input.
 - Extension containers use the same chain tab and nested device editing as the
   stock Chain device. Nested parameters, latency, and bypass work the same way.
 - If an extension cannot draw a custom panel, Notwig uses the generic

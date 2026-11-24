@@ -106,7 +106,7 @@ impl GateDevice {
             self.meter_peak_db = (self.meter_peak_db - 15.0 * dt).max(METER_MIN_DB);
         }
 
-        if self.last_history_time < 0.0 || now - self.last_history_time >= 1.0 / 30.0 {
+        if self.last_history_time < 0.0 || now - self.last_history_time >= 1.0 / 60.0 {
             self.history.push(HistorySample { level_db, gain_db });
             self.last_history_time = now;
         }
