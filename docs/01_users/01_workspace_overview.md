@@ -46,7 +46,7 @@ The transport toolbar sits directly below the app bar:
 | **Record** | Starts playback and recording, or toggles recording while playing. |
 | **Loop** | Turns the transport loop on or off. |
 | **Metronome** | Turns the click on or off. |
-| **CPU load** | Shows engine load. Click it to open the DSP analysis window. |
+| **CPU load** | Shows engine load. Click it to open the DSP analysis window. Right-click the middle engine area to stop or restart the audio engine. |
 | **Tempo** | Global BPM. Audio clips keep their sample duration when tempo changes. |
 | **Time signature** | Global numerator and denominator. |
 | **Position** | Bars and beats on the first line, minutes and seconds on the second. |
@@ -87,8 +87,8 @@ It is toggled from the status bar.
 - **Track** shows name, color, comment, active state, devices, mute, solo, pan,
   and volume with a peak meter.
 - **Clip** shows an editable name, a color picker with an inherit option, the
-  enable/disable power button, track, start, length, and duplicate or delete
-  actions.
+  enable/disable power button, editable start/end/length fields, and duplicate
+  or delete actions. Clip names may be empty and keep trailing spaces.
 - **Device** shows the device name, type, bypass state, and parameters. The EQ
   device has a dedicated band view.
 - **Time selection** shows start, end, length, and the selected lanes.

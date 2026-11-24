@@ -10,6 +10,7 @@ pub enum Clipboard {
     Empty,
     Arranger(Extract<TrackId, ClipContent>),
     AudioClip(Extract<ClipLane, AudioSlice>),
+    Devices,
 }
 
 impl Clipboard {

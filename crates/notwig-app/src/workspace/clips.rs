@@ -149,7 +149,7 @@ impl Workspace {
         let range =
             notwig_core::RangeMus::new(start, start + length).map_err(|err| err.to_string())?;
         let id = Id::<ClipMarker>::from_uuid(Uuid::new_v4());
-        let mut payloads = vec![CommandPayload::CreateClip {
+        let payloads = vec![CommandPayload::CreateClip {
             id,
             track_id,
             kind: notwig_core::ClipKind::Audio,
@@ -166,17 +166,6 @@ impl Workspace {
                 slices_enabled: false,
             }),
         }];
-        if let Some(name) = entry.original_name {
-            payloads.push(CommandPayload::EditClip {
-                clip_id: id,
-                range: None,
-                name: Some(Some(name)),
-                muted: None,
-                content_start: None,
-                content_length: None,
-                audio: None,
-            });
-        }
         self.apply_batch(payloads)
     }
 
@@ -357,6 +346,9 @@ impl Workspace {
             Clipboard::Empty => return Ok(SelectionInfo::default()),
             Clipboard::AudioClip(_) => {
                 return Err("Clipboard belongs to another editor.".into());
+            }
+            Clipboard::Devices => {
+                return Err("Clipboard contains devices.".into());
             }
         };
         let plan = {

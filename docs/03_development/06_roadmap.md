@@ -233,7 +233,7 @@ Dependencies worth planning around:
 | Stock effects | 📋 Planned | ⭐⭐⭐ | Core delay, compressor, filter, saturation, and chorus. Limiter, gate, and reverb already ship in the bundled extension pack. |
 | Device presets | 📋 Planned | ⭐⭐⭐⭐ |  |
 | Device A/B compare | 🚫 Not Planned | ⭐⭐⭐ | Disable the plugin to compare A/B. |
-| Device drag reorder | ✅ Implemented | ⭐⭐⭐⭐ | Drag handles reorder within and across nested chains; dropping on an arranger lane appends to its main chain. |
+| Device drag reorder | ✅ Implemented | ⭐⭐⭐⭐ | Drag handles reorder within and across nested chains; dropping on an arranger lane or track header appends to its main chain. |
 | Device activation | ✅ Implemented | ⭐⭐⭐⭐ | Alt+A toggles selected devices; deactivation unloads processors while keeping document state. Enable/disable keeps plugins loaded. |
 | Device latency and PDC | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sends, nested groups, bypassed devices, inactive tracks, track routing, and hosted VST3/VST2/AU plugin latency are compensated. Bypass keeps planned latency stable without rebuilding. |
 | Device browser | ✅ Implemented | ⭐⭐⭐⭐ | Search, keyboard navigation, stock, extension, and plugin entries. |

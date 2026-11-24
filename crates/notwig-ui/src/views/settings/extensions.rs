@@ -38,6 +38,7 @@ impl NotwigUi {
         let installed_count = cards.iter().filter(|card| card.installed.is_some()).count();
         let available_count = cards.len().saturating_sub(installed_count);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 18.0;
             if extension_filter_tab(
                 ui,
                 "All",
@@ -46,7 +47,6 @@ impl NotwigUi {
             ) {
                 self.extension_filter = ExtensionFilter::All;
             }
-            ui.add_space(18.0);
             if extension_filter_tab(
                 ui,
                 "Available",
@@ -55,7 +55,6 @@ impl NotwigUi {
             ) {
                 self.extension_filter = ExtensionFilter::Available;
             }
-            ui.add_space(18.0);
             if extension_filter_tab(
                 ui,
                 "Installed",
@@ -196,10 +195,16 @@ impl NotwigUi {
                                     },
                                     |info| info.device_count,
                                 );
+                                let size = card
+                                    .index_entry
+                                    .as_ref()
+                                    .and_then(extension_size)
+                                    .map(|bytes| format!(" · {}", format_extension_size(bytes)))
+                                    .unwrap_or_default();
                                 ui.horizontal(|ui| {
                                     ui.label(
                                         RichText::new(format!(
-                                            "v{version} · {device_count} device{}",
+                                            "v{version} · {device_count} device{}{size}",
                                             if device_count == 1 { "" } else { "s" }
                                         ))
                                         .small()
@@ -666,27 +671,58 @@ fn extension_cards(runtime: &RuntimeView) -> Vec<ExtensionCard> {
     cards
 }
 
+fn extension_size(entry: &ExtensionIndexEntry) -> Option<u64> {
+    let download = entry
+        .download_for_host()
+        .or_else(|| entry.download_for_wasm())
+        .or_else(|| entry.urls.first())?;
+    (download.size > 0).then_some(download.size)
+}
+
+fn format_extension_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    if bytes >= MB as u64 {
+        format!("{:.1} MB", bytes as f64 / MB)
+    } else if bytes >= KB as u64 {
+        format!("{:.0} KB", bytes as f64 / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
 fn extension_filter_tab(ui: &mut egui::Ui, label: &str, count: usize, selected: bool) -> bool {
-    ui.horizontal(|ui| {
-        let label_response = ui.selectable_label(selected, RichText::new(label).size(17.0));
-        let (rect, badge_response) =
-            ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::click());
-        let color = if selected {
-            theme::ACCENT
-        } else {
-            theme::TEXT_MUTED
-        };
-        let painter = ui.painter();
-        painter.circle_stroke(rect.center(), 11.0, egui::Stroke::new(1.5_f32, color));
-        painter.text(
-            rect.center(),
-            Align2::CENTER_CENTER,
-            count.to_string(),
-            FontId::monospace(11.0),
-            color,
-        );
-        label_response.clicked() || badge_response.clicked()
-    })
+    const TAB_HEIGHT: f32 = 28.0;
+    let max_rect = egui::Rect::from_min_size(
+        ui.cursor().min,
+        egui::vec2(ui.available_width(), TAB_HEIGHT),
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(max_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        |ui| {
+            ui.set_min_height(TAB_HEIGHT);
+            let label_response = ui.selectable_label(selected, RichText::new(label).size(17.0));
+            let (rect, badge_response) =
+                ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::click());
+            let color = if selected {
+                theme::ACCENT
+            } else {
+                theme::TEXT_MUTED
+            };
+            let painter = ui.painter();
+            painter.circle_stroke(rect.center(), 11.0, egui::Stroke::new(1.5_f32, color));
+            painter.text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                count.to_string(),
+                FontId::monospace(11.0),
+                color,
+            );
+            label_response.clicked() || badge_response.clicked()
+        },
+    )
     .inner
 }
 

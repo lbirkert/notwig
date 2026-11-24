@@ -136,13 +136,13 @@ impl NotwigUi {
         let track_color = crate::timeline::resolved_track_color(doc, track);
         painter.rect_filled(
             Rect::from_min_size(
-                egui::pos2(header_rect.left(), row_rect.top()),
+                egui::pos2(row_rect.left() + depth * 4.0, row_rect.top()),
                 Vec2::new(4.0, row_rect.height()),
             ),
             CornerRadius::ZERO,
             track_color,
         );
-        draw_track_prefixes(painter, doc, track, row_rect, header_rect.left(), depth);
+        draw_track_prefixes(painter, doc, track, row_rect, depth);
         if has_children {
             let collapsed = self.collapsed_tracks.contains(&track_id);
             let center = twisty_rect.center();
@@ -476,12 +476,10 @@ fn draw_track_prefixes(
     doc: &ProjectDoc,
     track: &Track,
     row_rect: Rect,
-    child_left: f32,
     depth: f32,
 ) {
     let mut ancestor = track.parent;
     let mut remaining = depth as usize;
-    let mut stripe_right = child_left;
     while let Some(parent_id) = ancestor {
         if remaining == 0 {
             break;
@@ -491,10 +489,7 @@ fn draw_track_prefixes(
             break;
         };
         let color = crate::timeline::resolved_track_color(doc, parent);
-        let left = stripe_right - 4.0;
-        if left < row_rect.left() {
-            break;
-        }
+        let left = row_rect.left() + remaining as f32 * 4.0;
         painter.rect_filled(
             Rect::from_min_size(
                 egui::pos2(left, row_rect.top()),
@@ -503,7 +498,6 @@ fn draw_track_prefixes(
             CornerRadius::ZERO,
             color,
         );
-        stripe_right = left;
         ancestor = parent.parent;
     }
 }

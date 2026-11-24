@@ -7,15 +7,15 @@ mod time;
 mod track;
 
 use egui::{Color32, RichText, Vec2};
-use notwig_core::{ClipEntity, ClipId, ClipPayload, ProjectDoc};
+use notwig_core::{ClipEntity, ClipId, ClipPayload, ProjectDoc, RangeMus, TimeMus};
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
 use crate::theme;
-use crate::widgets::format_beats;
+use crate::widgets::{beats_to_time, draggable_number, format_beats};
 
-use common::{color_swatch_row, section_header};
+use common::color_swatch_row;
 
 impl NotwigUi {
     pub(crate) fn info_panel(
@@ -106,7 +106,6 @@ impl NotwigUi {
             return;
         };
         let count = self.state.selection.clips.len();
-        section_header(ui, if count > 1 { "CLIPS" } else { "CLIP" });
         if count > 1 {
             ui.label(
                 RichText::new(format!("{count} clips selected"))
@@ -148,8 +147,8 @@ impl NotwigUi {
     fn clip_header(&mut self, ui: &mut egui::Ui, doc: &ProjectDoc, clip: &ClipEntity) {
         ui.horizontal(|ui| {
             let title = match &clip.payload {
-                ClipPayload::Midi(_) => "MIDI",
-                ClipPayload::Audio(_) => "AUDIO",
+                ClipPayload::Midi(_) => "MIDI CLIP",
+                ClipPayload::Audio(_) => "AUDIO CLIP",
             };
             ui.label(theme::heading(ui.ctx(), title).color(if clip.muted {
                 Color32::from_rgb(104, 108, 120)
@@ -183,39 +182,103 @@ impl NotwigUi {
                 .hint_text("Clip name")
                 .desired_width(f32::INFINITY),
         );
-        if response.changed() && !name.trim().is_empty() {
+        if response.changed() {
             self.emit(UiIntent::RenameClip {
                 clip_id: clip.id,
                 name,
             });
         }
-        let track_name = doc
-            .tracks
-            .get(&clip.track_id)
-            .map_or("Unknown", |track| track.name.as_str());
-        for (label, value) in [
-            ("Track", track_name.to_owned()),
-            (
-                "Start",
-                format_beats(
-                    clip.range.start,
-                    doc.meta.bar_length(),
-                    doc.meta.beat_length(),
-                ),
-            ),
-            (
-                "Length",
-                format_beats(
-                    clip.range.length(),
-                    doc.meta.bar_length(),
-                    doc.meta.beat_length(),
-                ),
-            ),
-        ] {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(label).small().color(theme::TEXT_MUTED));
-                ui.label(value);
-            });
-        }
+        self.clip_range_fields(ui, doc, clip);
+    }
+
+    fn clip_range_fields(&mut self, ui: &mut egui::Ui, doc: &ProjectDoc, clip: &ClipEntity) {
+        let bar_length = doc.meta.bar_length();
+        let beat_length = doc.meta.beat_length();
+        let format = |beats: f64| format_beats(beats_to_time(beats), bar_length, beat_length);
+        let min_length = TimeMus::new(1, 16);
+        let min_length_beats = min_length.as_f64();
+
+        let start = clip.range.start.as_f64();
+        let end = clip.range.end.as_f64();
+        let length = clip.range.length().as_f64();
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Start").small().color(theme::TEXT_MUTED));
+            if let Some(value) = draggable_number(
+                ui,
+                ui.id().with(("clip-start", clip.id)),
+                start,
+                0.0,
+                (end - min_length_beats).max(0.0),
+                start,
+                0.01,
+                format,
+            ) {
+                let end_time = clip.range.end;
+                let mut start_time = beats_to_time(value).max(TimeMus::zero());
+                if end_time - start_time < min_length {
+                    start_time = (end_time - min_length).max(TimeMus::zero());
+                }
+                if let Ok(range) = RangeMus::new(start_time, end_time) {
+                    self.emit(UiIntent::SetClipRange {
+                        clip_id: clip.id,
+                        range,
+                    });
+                }
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("End").small().color(theme::TEXT_MUTED));
+            if let Some(value) = draggable_number(
+                ui,
+                ui.id().with(("clip-end", clip.id)),
+                end,
+                start + min_length_beats,
+                f64::INFINITY,
+                end,
+                0.01,
+                format,
+            ) {
+                let start_time = clip.range.start;
+                let mut end_time = beats_to_time(value);
+                let min_end = start_time + min_length;
+                if end_time < min_end {
+                    end_time = min_end;
+                }
+                if let Ok(range) = RangeMus::new(start_time, end_time) {
+                    self.emit(UiIntent::SetClipRange {
+                        clip_id: clip.id,
+                        range,
+                    });
+                }
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Length").small().color(theme::TEXT_MUTED));
+            if let Some(value) = draggable_number(
+                ui,
+                ui.id().with(("clip-length", clip.id)),
+                length,
+                min_length_beats,
+                f64::INFINITY,
+                length,
+                0.01,
+                format,
+            ) {
+                let start_time = clip.range.start;
+                let mut length_time = beats_to_time(value);
+                if length_time < min_length {
+                    length_time = min_length;
+                }
+                if let Ok(range) = RangeMus::new(start_time, start_time + length_time) {
+                    self.emit(UiIntent::SetClipRange {
+                        clip_id: clip.id,
+                        range,
+                    });
+                }
+            }
+        });
     }
 }

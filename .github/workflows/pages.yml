@@ -108,6 +108,8 @@ jobs:
             --out-name notwig_web
           cp web/index.html book/app/index.html
           cp web/styles.css book/app/styles.css
+          cp web/favicon.svg book/app/favicon.svg
+          cp web/favicon.png book/app/favicon.png
 
       - name: Add extension assets
         run: |

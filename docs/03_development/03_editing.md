@@ -338,9 +338,15 @@ pub struct Extracted<L, C> {
   note content are not interchangeable with arranger/audio lanes. Within each
   clipboard, copy replaces it. Cut replaces it only after the delete has been
   lowered and applied successfully. Duplicate never touches it.
-- The workspace stores a `Clipboard` enum with `Arranger` and `AudioClip`
-  variants; the MIDI editor stores `Extract<Pitch, NoteEntity>`. The extract's
-  `domain` tag rejects a mismatch before lowering.
+- The workspace stores a `Clipboard` enum with `Arranger`, `AudioClip`, and a
+  `Devices` marker. The marker keeps the latest copy kind visible to shortcut
+  routing; the actual device snapshots live in the workspace device clipboard.
+  The MIDI editor stores `Extract<Pitch, NoteEntity>`. The extract's `domain`
+  tag rejects a mismatch before lowering.
+- The device clipboard is project-global and survives track/lane selection
+  changes. Copying or cutting clips replaces the clip clipboard, and copying or
+  cutting devices replaces the `Devices` marker, so paste follows the most
+  recent copy.
 - Paste also validates every lane with `model.accepts(lane, kind)` before any command is applied.
 
 ## 8. Operations

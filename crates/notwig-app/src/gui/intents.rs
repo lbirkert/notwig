@@ -180,19 +180,16 @@ impl NotwigApp {
                 let _ = self.report(result);
             }
             UiIntent::RenameClip { clip_id, name } => {
-                let name = name.trim();
-                if !name.is_empty() {
-                    let result = self.workspace.apply(CommandPayload::EditClip {
-                        clip_id,
-                        range: None,
-                        name: Some(Some(name.to_owned())),
-                        muted: None,
-                        content_start: None,
-                        content_length: None,
-                        audio: None,
-                    });
-                    let _ = self.report(result);
-                }
+                let result = self.workspace.apply(CommandPayload::EditClip {
+                    clip_id,
+                    range: None,
+                    name: Some(Some(name)),
+                    muted: None,
+                    content_start: None,
+                    content_length: None,
+                    audio: None,
+                });
+                let _ = self.report(result);
             }
             UiIntent::DuplicateClip { clip_id } => match self.workspace.duplicate_clip(clip_id) {
                 Ok(new_id) => {

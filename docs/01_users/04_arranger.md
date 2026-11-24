@@ -34,7 +34,10 @@ lane, which itself inherits from its parent group and finally from the
 track-kind color. Select a color in the info panel to override the inherited
 value, or click the `×` swatch to restore inheritance. The same color row is
 used for tracks and clips, and the clip info panel also edits the clip name and
-toggles the clip with its power button.
+toggles the clip with its power button. New audio clips use the generic clip
+name instead of the imported file name; rename a clip in the info panel to show
+your own label in the arranger. Names may be empty and may contain trailing
+spaces. Start, end, and length are editable from the same panel.
 
 ## Selecting and moving
 
@@ -44,8 +47,9 @@ toggles the clip with its power button.
 - Drag a clip's title bar to move it in time. Drag it vertically onto a
   compatible track to move it across tracks. MIDI clips accept instrument
   tracks; audio clips accept audio tracks.
-- Drag a device card from the device editor onto a lane to append it to that
-  track's main device chain. Incompatible devices are rejected.
+- Drag a device card from the device editor onto a lane or a track header to
+  append it to that track's main device chain. Incompatible devices are
+  rejected.
 - Drag across a clip body to create a time selection without moving the clip.
 - Drag a group selection to move all selected clips by the same amount. Group
   moves keep relative offsets and stay to the right of beat zero.
@@ -87,6 +91,10 @@ Paste and duplicate clear the destination before placing content. Existing
 content that overlaps a destination is trimmed or split, never overlapped.
 Pasting audio content into the arranger after copying from the audio editor is
 rejected; the clipboard keeps its source editor.
+
+Devices use their own project-wide clipboard. Copy or cut a device in the device
+editor, select another lane or track, and paste to insert it into that track's
+main chain. Copying devices does not replace the clip clipboard and vice versa.
 
 Duplicate behavior depends on the selection:
 

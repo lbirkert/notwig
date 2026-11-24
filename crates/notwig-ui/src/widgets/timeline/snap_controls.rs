@@ -55,6 +55,7 @@ pub fn show(
     egui::Popup::from_toggle_button_response(&grid_response)
         .align(egui::RectAlign::TOP_END)
         .gap(4.0)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| grid_popup(ui, id_salt, snap, pixels_per_beat, bar_length));
 
     SnapControlsRects {

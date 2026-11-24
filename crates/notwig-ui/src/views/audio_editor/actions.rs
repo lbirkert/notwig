@@ -91,6 +91,9 @@ pub fn handle_clip_editor_actions(
             Clipboard::Arranger(_) => ui.emit(UiIntent::ClipboardError(
                 "Clipboard belongs to another editor.".into(),
             )),
+            Clipboard::Devices => ui.emit(UiIntent::ClipboardError(
+                "Clipboard contains devices.".into(),
+            )),
             Clipboard::Empty => {
                 ui.emit(UiIntent::ClipboardError("Clipboard is empty.".into()));
             }

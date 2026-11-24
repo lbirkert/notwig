@@ -133,6 +133,7 @@ against the ZIP. Blank lines and lines starting with `#` are ignored. The script
 - copies the package icon to `docs/extensions/<id>.png` and points the index
   entry at `extensions/<id>.png`;
 - collects device names and type IDs;
+- records each package's compressed size in bytes;
 - merges rows with the same extension `id` into one entry with several
   `urls`;
 - rewrites local paths to URLs relative to `docs/`;
@@ -157,11 +158,13 @@ An index entry looks like:
     {
       "url": "extensions/example-gain-macos-arm64.zip",
       "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "size": 1048576,
       "targets": ["macos-aarch64"]
     },
     {
       "url": "extensions/example-gain-wasm.zip",
       "hash": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "size": 786432,
       "targets": ["wasm"]
     }
   ]
@@ -169,9 +172,10 @@ An index entry looks like:
 ```
 
 The client chooses the first `urls` entry with a supported target, downloads it,
-verifies the SHA-256 hash, and only then installs the ZIP. This lets one
-extension ship slim per-target downloads or a single fat ZIP whose `targets`
-array lists several targets.
+verifies the SHA-256 hash, and only then installs the ZIP. The explorer shows the
+selected package's `size` when present; `0` or a missing field means unknown.
+This lets one extension ship slim per-target downloads or a single fat ZIP whose
+`targets` array lists several targets.
 
 Host the index and ZIPs over HTTPS. Add the index URL in **Settings >
 Extensions > Manage Indices**. Users can then install the extension from the

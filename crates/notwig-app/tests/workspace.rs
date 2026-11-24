@@ -179,7 +179,7 @@ fn import_audio_at_places_clip_on_track() {
     assert_eq!(workspace.doc.assets.assets.len(), 1);
     let clip = workspace.doc.arranger.clips.values().next().unwrap();
     assert_eq!(clip.range.start, Rational::new(2, 1));
-    assert_eq!(clip.name.as_deref(), Some("tone.wav"));
+    assert_eq!(clip.name.as_deref(), None);
     assert_eq!(workspace.assets.len(), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }

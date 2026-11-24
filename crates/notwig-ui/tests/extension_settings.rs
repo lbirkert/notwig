@@ -43,6 +43,7 @@ fn runtime() -> RuntimeView {
         urls: vec![ExtensionIndexUrl {
             url: "https://example.com/notwig.ext.devices.zip".into(),
             hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            size: 2_700_000,
             targets: vec!["wasm".into()],
         }],
         capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiPanel],
@@ -175,6 +176,7 @@ fn index_entry(hash: &str, targets: &[&str]) -> ExtensionIndexEntry {
         urls: vec![ExtensionIndexUrl {
             url: "https://example.com/notwig.ext.devices.zip".into(),
             hash: hash.into(),
+            size: 123_456,
             targets: targets.iter().map(|target| (*target).to_owned()).collect(),
         }],
         capabilities: vec![ExtensionCapability::Device, ExtensionCapability::UiPanel],

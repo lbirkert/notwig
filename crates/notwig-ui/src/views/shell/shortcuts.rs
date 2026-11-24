@@ -1,6 +1,7 @@
 use notwig_core::edit::SelectionMode;
 use notwig_core::{ProjectDoc, TrackKind};
 
+use crate::Clipboard;
 use crate::commands::ShortcutCommand;
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -93,10 +94,34 @@ impl NotwigUi {
         }
         if paste && !editor_focused {
             if devices.is_empty() {
-                let at = time
-                    .as_ref()
-                    .map_or(runtime.playhead, |(range, _)| range.start);
-                self.emit(UiIntent::PasteClips { at });
+                match &runtime.clipboard {
+                    Clipboard::Devices => {
+                        let track_id = self.selected_track(doc).or_else(|| {
+                            self.last_pointer
+                                .and_then(|pointer| self.track_at(pointer.y))
+                        });
+                        if let Some(track_id) = track_id
+                            && let Some(track) = doc.tracks.get(&track_id)
+                        {
+                            let chain_id = track.main_chain;
+                            let index = doc
+                                .chains
+                                .get(&chain_id)
+                                .map_or(0, |chain| chain.devices.len());
+                            self.emit(UiIntent::PasteDevices {
+                                track_id,
+                                chain_id,
+                                index,
+                            });
+                        }
+                    }
+                    Clipboard::Arranger(_) | Clipboard::AudioClip(_) | Clipboard::Empty => {
+                        let at = time
+                            .as_ref()
+                            .map_or(runtime.playhead, |(range, _)| range.start);
+                        self.emit(UiIntent::PasteClips { at });
+                    }
+                }
             } else {
                 let device_id = self
                     .state

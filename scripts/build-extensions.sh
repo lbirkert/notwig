@@ -215,6 +215,7 @@ for row in rows[1:]:
             {
                 "url": url,
                 "hash": actual_hash,
+                "size": len(data),
                 "targets": targets,
             }
         )

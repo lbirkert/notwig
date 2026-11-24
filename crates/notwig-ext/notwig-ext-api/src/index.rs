@@ -22,6 +22,9 @@ pub struct ExtensionIndexUrl {
     pub url: String,
     /// SHA-256 of the ZIP, as lowercase hex.
     pub hash: String,
+    /// Compressed ZIP size in bytes; `0` means unknown.
+    #[serde(default)]
+    pub size: u64,
     /// Targets in the same order as the package's `extension.json`
     /// `entrypoints` list.
     pub targets: Vec<String>,

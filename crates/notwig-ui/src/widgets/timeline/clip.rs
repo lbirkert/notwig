@@ -189,6 +189,17 @@ fn draw_midi_preview(painter: &Painter, rect: Rect, range: RangeMus, midi: &Midi
     let clip_start = range.start.as_f64();
     let clip_end = range.end.as_f64();
     let clip_len = range.length().as_f64().max(1e-6);
+    let pixels_per_beat = f64::from(rect.width()) / clip_len;
+    // Far out the notes pack together, so use a denser black than the
+    // close-zoom preview to keep their shape readable.
+    let note_alpha = if pixels_per_beat <= 8.0 {
+        225
+    } else if pixels_per_beat >= 64.0 {
+        150
+    } else {
+        let t = ((pixels_per_beat - 8.0) / (64.0 - 8.0)) as f32;
+        (225.0 - t * (225.0 - 150.0)).round() as u8
+    };
     for note in &midi.notes {
         let relative = (note.start - midi.content_start).as_f64();
         let abs_start = clip_start + relative;
@@ -208,7 +219,7 @@ fn draw_midi_preview(painter: &Painter, rect: Rect, range: RangeMus, midi: &Midi
                 egui::pos2(x2.max(x1 + 1.5), y + 1.5),
             ),
             CornerRadius::same(1),
-            Color32::from_black_alpha(150),
+            Color32::from_black_alpha(note_alpha),
         );
     }
 }

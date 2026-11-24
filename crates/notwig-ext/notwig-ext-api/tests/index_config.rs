@@ -17,6 +17,7 @@ const INDEX: &str = r#"[
       {
         "url": "extensions/ext-devices-macos-arm64.zip",
         "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size": 123456,
         "targets": ["macos-aarch64"]
       },
       {
@@ -46,7 +47,9 @@ fn parses_and_validates_an_index() {
     assert_eq!(entries[0].devices[0].type_id, "notwig.ext.devices.limiter");
     assert_eq!(entries[0].description.as_deref(), Some("Stock devices."));
     assert_eq!(entries[0].image.as_deref(), Some("icon.png"));
+    assert_eq!(entries[0].urls[0].size, 123_456);
     assert_eq!(entries[0].urls[0].targets, vec!["macos-aarch64"]);
+    assert_eq!(entries[0].urls[1].size, 0);
     assert_eq!(
         entries[0]
             .download_for(|target| target == "wasm")

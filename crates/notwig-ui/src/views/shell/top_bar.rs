@@ -101,7 +101,13 @@ impl NotwigUi {
                             egui::vec2(engine_width, TOP_BAR_HEIGHT),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
-                                let engine = egui::Frame::new()
+                                let engine_rect = ui.max_rect();
+                                let engine_menu = ui.interact(
+                                    engine_rect,
+                                    egui::Id::new("engine-context-menu"),
+                                    egui::Sense::click(),
+                                );
+                                egui::Frame::new()
                                     .fill(Color32::from_rgb(16, 17, 21))
                                     .corner_radius(egui::CornerRadius::same(4))
                                     .inner_margin(egui::Margin::symmetric(8, 2))
@@ -228,7 +234,7 @@ impl NotwigUi {
                                             master_meter(ui, master);
                                         });
                                     });
-                                engine.response.context_menu(|ui| {
+                                engine_menu.context_menu(|ui| {
                                     if ui.button("Stop playback").clicked() {
                                         self.emit(UiIntent::Stop);
                                         ui.close();

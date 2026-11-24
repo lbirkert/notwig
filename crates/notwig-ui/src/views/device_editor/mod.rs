@@ -222,7 +222,7 @@ impl NotwigUi {
                 lane_track: None,
             });
         }
-        if !self.arranger_rect.contains(pointer) || pointer.x < self.timeline_left {
+        if !self.arranger_rect.contains(pointer) {
             return None;
         }
         let track_id = self.track_at(pointer.y)?;
