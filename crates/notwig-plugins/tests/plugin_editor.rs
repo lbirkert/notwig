@@ -43,7 +43,9 @@ use notwig_plugins::{NativePluginWindow, PluginFormat, PluginHost, prepare_windo
         feature = "au3"
     )
 ))]
-use support::{BLOCK_SIZE, SAMPLE_RATE, config, descriptor, fixture_bundles, param, prepare};
+use support::{
+    BLOCK_SIZE, SAMPLE_RATE, config, descriptor, fixture_bundles, param, prepare, render_blocks,
+};
 
 fn main() {
     #[cfg(not(target_os = "macos"))]
@@ -137,8 +139,11 @@ fn run_editor(format: PluginFormat) {
     let mut instance = host
         .load(&descriptor)
         .unwrap_or_else(|err| panic!("{format:?} fixture load failed: {err}"));
-    // VST3 parameter metadata is only complete after activation.
-    prepare(instance.as_mut(), config(SAMPLE_RATE, BLOCK_SIZE));
+    // VST3 parameter metadata is only complete after activation and the first
+    // process block (the host integration tests follow the same order).
+    let render_config = config(SAMPLE_RATE, BLOCK_SIZE);
+    prepare(instance.as_mut(), render_config);
+    let _ = render_blocks(instance.as_mut(), render_config, 0.0, 1);
     let gain = param(&instance.describe_parameters(), "Gain")
         .id
         .into_uuid()

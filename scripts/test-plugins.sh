@@ -16,6 +16,7 @@
 #   scripts/test-plugins.sh --no-lv2
 #   NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh
 #   NOTWIG_PLUGIN_TEST_EDITOR=0 scripts/test-plugins.sh   # skip macOS editor windows
+#   scripts/test-plugins.sh --editor-only                 # only macOS editor windows
 #
 # The fixture build is intentionally outside the Notwig workspace so truce's
 # plugin-side dependency graph never becomes a normal workspace dependency.
@@ -39,12 +40,13 @@ TARGET_DIR_NATIVE="$(native_path "$TARGET_DIR")"
 want_lv2="${NOTWIG_PLUGIN_TEST_LV2:-auto}"
 want_au3="${NOTWIG_PLUGIN_TEST_AU3:-0}"
 want_editor="${NOTWIG_PLUGIN_TEST_EDITOR:-1}"
-export NOTWIG_PLUGIN_TEST_EDITOR="$want_editor"
+editor_only=0
 for arg in "$@"; do
   case "$arg" in
     --no-lv2) want_lv2=0 ;;
     --lv2) want_lv2=1 ;;
     --au3) want_au3=1 ;;
+    --editor-only) editor_only=1 ;;
     -h|--help)
       sed -n '2,30p' "$0"
       exit 0
@@ -55,6 +57,10 @@ for arg in "$@"; do
       ;;
   esac
 done
+if [[ "$editor_only" == "1" ]]; then
+  want_editor=1
+fi
+export NOTWIG_PLUGIN_TEST_EDITOR="$want_editor"
 
 if ! command -v cargo-truce >/dev/null 2>&1; then
   echo "error: cargo-truce is required; run:" >&2
@@ -156,6 +162,22 @@ if [[ "$want_lv2" == "1" ]]; then
 fi
 
 feature_list="$(IFS=,; echo "${features[*]}")"
+run_editor_tests() {
+  echo "==> running native editor tests (AppKit windows, main thread)"
+  cargo test -p notwig-plugins \
+    --test plugin_editor \
+    --features "$feature_list"
+}
+
+if [[ "$editor_only" == "1" ]]; then
+  if [[ "$host_os" != "Darwin" ]]; then
+    echo "==> native editor tests are macOS-only; nothing to run"
+    exit 0
+  fi
+  run_editor_tests
+  exit 0
+fi
+
 echo "==> running host integration tests (features: $feature_list)"
 cargo test -p notwig-plugins \
   --test plugin_integration \
@@ -163,10 +185,7 @@ cargo test -p notwig-plugins \
   -- --ignored --test-threads=1
 
 if [[ "$host_os" == "Darwin" && "$want_editor" == "1" ]]; then
-  echo "==> running native editor tests (AppKit windows, main thread)"
-  cargo test -p notwig-plugins \
-    --test plugin_editor \
-    --features "$feature_list"
+  run_editor_tests
 elif [[ "$host_os" == "Darwin" ]]; then
   echo "==> native editor tests skipped (NOTWIG_PLUGIN_TEST_EDITOR=0)"
 else

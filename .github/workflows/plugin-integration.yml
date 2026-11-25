@@ -34,6 +34,13 @@ on:
         required: true
         type: boolean
         default: false
+      editor_only:
+        description: >-
+          Run only the native editor tests after building the fixture. Use on a
+          macOS runner with a usable GUI session; other platforms no-op.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -174,8 +181,8 @@ jobs:
           # lilv is not installed on Windows runners, so LV2 is Linux/macOS only.
           NOTWIG_PLUGIN_TEST_LV2: ${{ runner.os != 'Windows' && inputs.run_lv2 && '1' || '0' }}
           NOTWIG_PLUGIN_TEST_AU3: ${{ steps.signing.outputs.enabled || '0' }}
-          NOTWIG_PLUGIN_TEST_EDITOR: ${{ inputs.run_editor && '1' || '0' }}
-        run: scripts/test-plugins.sh
+          NOTWIG_PLUGIN_TEST_EDITOR: ${{ (inputs.run_editor || inputs.editor_only) && '1' || '0' }}
+        run: scripts/test-plugins.sh ${{ inputs.editor_only && '--editor-only' || '' }}
 
       - name: Remove temporary signing keychain
         if: ${{ always() && runner.os == 'macOS' && steps.signing.outputs.enabled == '1' }}

@@ -50,6 +50,7 @@ Plugin integration tests build a real truce plugin and are manual-only:
 cargo install cargo-truce --version 6.3.0
 scripts/test-plugins.sh          # CLAP/VST3/VST2, plus LV2 when lilv is installed
 NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh   # macOS AU v2 + AU v3
+scripts/test-plugins.sh --editor-only              # only the macOS editor windows
 ```
 
 The script builds `crates/notwig-plugins/tests/fixtures/truce_test_plugin`,
@@ -66,7 +67,8 @@ AU v3 requires a Developer ID certificate: configure
 the workflow skips AU v3 with a notice. Native editor window tests are skipped
 by default in the workflow because opening AppKit/GPU windows can abort on
 hosted runners; enable the `run_editor` input on a suitable macOS runner, or run
-locally with `NOTWIG_PLUGIN_TEST_EDITOR=1 scripts/test-plugins.sh`.
+locally with `NOTWIG_PLUGIN_TEST_EDITOR=1 scripts/test-plugins.sh` or
+`scripts/test-plugins.sh --editor-only` to skip the non-UI host matrix.
 
 Hosted macOS runners can start `WindowServer`, but they do not provide a stable
 logged-in GUI/GPU session for third-party plugin editors. End-to-end window
@@ -146,7 +148,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Unknown plugin resolution | ✅ Implemented | ⭐⭐⭐ | |
 | Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext/tests/abi.rs` covers describe, panel output, DSP, and latency with inline WAT modules; `limiter_extension.rs` covers the built WASM and native targets. |
 | Extension command contract | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/command_contract.rs` covers manifest v2, `when` parsing, registration, and execution; `crates/notwig-ext/notwig-ext/tests/commands.rs` covers host resolution and WASM execution. |
-| Command palette and string bindings | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ui/tests/shortcuts.rs` covers F1 palette opening, registry precedence, extension defaults, round-trips, and headless rendering. |
+| Command palette and string bindings | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ui/tests/shortcuts.rs` covers F1 palette opening, registry precedence, extension defaults, round-trips, and headless rendering of unavailable extension commands. |
 | Extension command effects and undo | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-app/tests/workspace.rs` applies a note edit effect as one undo entry. |
 | Extension panel frame validation | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs` covers mesh, texture, clip, and action limits. |
 | Extension ABI helpers | ✅ Implemented | ⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/abi_helpers.rs` covers the const `DeviceStore` and handle lifecycle. |
@@ -179,7 +181,8 @@ tables below summarize test groups. One row can cover several test functions.
 | Clipboard and edit helpers | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/edit.rs` and `clip_chrome.rs`. |
 | Widget and waveform primitives | ✅ Implemented | ⭐⭐⭐ | `notwig-ui/tests/widgets.rs`, `waveform.rs`, and `device_browser.rs`. |
 | Arranger zoom and pan | ✅ Implemented | ⭐⭐⭐ | |
-| Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | 49 tests in `audio_editor.rs`. |
+| Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | Covered in `audio_editor.rs`. |
+| Audio editor sub-editors | ✅ Implemented | ⭐⭐⭐⭐ | `audio_editor.rs` covers the Audio Events/Gain selector and committed slice-gain drags. |
 | Audio editor trim and clip bounds | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Audio editor copy, cut, paste, duplicate, delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Drop target resolution | ✅ Implemented | ⭐⭐⭐⭐ | |
