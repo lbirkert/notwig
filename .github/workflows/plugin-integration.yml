@@ -68,10 +68,12 @@ jobs:
 
       # Swatinem/rust-cache only covers build targets, so cache the installed
       # cargo-truce binary itself. Version and runner architecture are part of
-      # the key; bump CARGO_TRUCE_VERSION to invalidate it.
+      # the key; bump CARGO_TRUCE_VERSION to invalidate it. Restore and save are
+      # separate because actions/cache only saves at job end on success - the
+      # binary must already be cached even when a later integration test fails.
       - name: Restore cached cargo-truce
         id: cargo-truce-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/cargo-truce
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-truce-${{ env.CARGO_TRUCE_VERSION }}
@@ -82,6 +84,14 @@ jobs:
 
       - name: Verify cargo-truce
         run: cargo truce help >/dev/null
+
+      - name: Save cargo-truce cache
+        if: steps.cargo-truce-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/cargo-truce
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-truce-${{ env.CARGO_TRUCE_VERSION }}
 
       - name: Install lilv for LV2
         if: ${{ inputs.run_lv2 }}
