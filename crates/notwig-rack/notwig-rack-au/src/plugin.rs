@@ -140,6 +140,9 @@ pub struct AuPlugin {
     pub(crate) output_buffer_storage: Vec<u8>,
     /// Running output sample counter for `AudioTimeStamp.mSampleTime`.
     pub(crate) sample_time: f64,
+    /// Sample rate of the active render configuration. AU reports latency in
+    /// seconds, so the host-side sample value needs this to convert back.
+    pub(crate) sample_rate: f64,
     /// Heap-stable host-transport snapshot whose address is handed
     /// to the AU as `HostCallbackInfo::hostUserData`. `process()`
     /// refreshes it each block; the AU reads it back through the
@@ -214,6 +217,7 @@ impl AuPlugin {
             render_ctx: None,
             output_buffer_storage: Vec::new(),
             sample_time: 0.0,
+            sample_rate: 0.0,
             host_transport: None,
             input_channels: 0,
             output_channels: 0,
@@ -560,6 +564,7 @@ impl PluginCore for AuPlugin {
         self.input_channels = channels;
         self.output_channels = channels;
         self.sample_time = 0.0;
+        self.sample_rate = sample_rate;
         self.active_layout = Some(layout);
         Ok(())
     }
@@ -587,8 +592,11 @@ impl PluginCore for AuPlugin {
                 ptr::NonNull::new_unchecked(&raw mut size),
             )
         };
-        if status == 0 {
-            latency.max(0.0).round() as u32
+        // AU's kAudioUnitProperty_Latency is expressed in seconds (the truce
+        // shim divides the plugin's sample latency by its render rate), while
+        // the host trait uses samples.
+        if status == 0 && self.sample_rate > 0.0 {
+            (latency.max(0.0) * self.sample_rate).round() as u32
         } else {
             0
         }

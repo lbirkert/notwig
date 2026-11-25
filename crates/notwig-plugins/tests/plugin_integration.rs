@@ -64,8 +64,15 @@ fn run_format(format: PluginFormat, profile: FormatProfile) {
         "{format:?} fixture should have an editor"
     );
     assert!(capabilities.reports_latency);
+
+    let render_config = config(SAMPLE_RATE, BLOCK_SIZE);
+    prepare(instance.as_mut(), render_config);
+
+    // AU latency is only available after initialization; query it through
+    // both capability and processor paths once the instance is prepared.
+    let prepared = instance.capabilities();
     assert_eq!(
-        capabilities.latency_samples,
+        prepared.latency_samples,
         expected_latency(format),
         "{format:?} latency reporting changed"
     );
@@ -74,9 +81,6 @@ fn run_format(format: PluginFormat, profile: FormatProfile) {
         expected_latency(format),
         "{format:?} device latency changed"
     );
-
-    let render_config = config(SAMPLE_RATE, BLOCK_SIZE);
-    prepare(instance.as_mut(), render_config);
 
     // Default state: 0 dB, clean polarity.
     let output = render_blocks(instance.as_mut(), render_config, 0.25, 4);
