@@ -21,7 +21,7 @@ use super::actions::handle_clip_editor_actions;
 use super::geometry::{group_move_shift, group_starts, slice_geometry};
 use super::model::{editor_slices, source_duration};
 use super::navigation::{clip_editor_navigation, clip_editor_scrollbar};
-use super::state::{ClipEdge, ClipEdgeDrag};
+use super::state::{AudioSubEditor, ClipEdge, ClipEdgeDrag};
 
 const CLIP_HEADER_W: f32 = 120.0;
 const RULER_H: f32 = 38.0;
@@ -129,7 +129,7 @@ impl NotwigUi {
                 let strip = crate::timeline::BeatStrip {
                     grid: timeline_grid,
                     header_width: CLIP_HEADER_W,
-                    header_label: Some("AUDIO EVENTS"),
+                    header_label: None,
                     loop_range: if doc.transport.loop_enabled {
                         doc.transport.loop_range
                     } else {
@@ -155,61 +155,39 @@ impl NotwigUi {
                         }
                     }
                 }
+                let header_rect = Rect::from_min_max(
+                    rect.min,
+                    egui::pos2(rect.left() + CLIP_HEADER_W, rect.top() + RULER_H),
+                );
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .max_rect(header_rect)
+                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    |ui| {
+                        ui.add_space(8.0);
+                        ui.menu_button(state.sub_editor.label(), |ui| {
+                            for editor in AudioSubEditor::ALL {
+                                if ui
+                                    .selectable_label(state.sub_editor == editor, editor.label())
+                                    .clicked()
+                                {
+                                    state.sub_editor = editor;
+                                    state.drag = None;
+                                    state.gain_drag = None;
+                                    state.clip_gain_drag = None;
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Audio editor surface");
+                    },
+                );
                 let clipped = painter.with_clip_rect(content);
-
-                let bg_resp = ui.interact(
-                    lanes,
-                    Id::new(("clip-editor-bg", state.clip_id)),
-                    Sense::click_and_drag(),
-                );
-                handle_background(
-                    ui,
-                    &mut state,
-                    &bg_resp,
-                    timeline_grid,
-                    content.left(),
-                    snap,
-                );
-
                 let bypass = snap.bypassed(ui.input(|input| input.modifiers));
                 let slices = editor_slices(&clip, &audio);
-                let drag_pointer = ui
-                    .input(|input| input.pointer.hover_pos())
-                    .or_else(|| state.drag.map(|drag| drag.origin_pointer));
-                let drag_delta = state.drag.map_or(0.0, |drag| {
-                    drag_pointer.map_or(0.0, |pointer| {
-                        f64::from(pointer.x - drag.origin_pointer.x) / f64::from(ppb)
-                    })
-                });
-                let starts = group_starts(&slices, &state.selected, state.drag);
-                let node_shift = state.drag.map_or(TimeMus::zero(), |drag| {
-                    group_move_shift(
-                        drag,
-                        drag_delta,
-                        clip_start,
-                        grid,
-                        bypass,
-                        TimeMus::zero() - display_range.start,
-                        &starts,
-                    )
-                });
-                let bar_preview_shift = preview_bar_drag(&mut state, ui, grid, bypass, ppb);
-
-                handle_bar_drag(
-                    self,
-                    ui,
-                    &mut state,
-                    &mut audio,
-                    &clip,
-                    &map,
-                    &slices,
-                    timeline_grid,
-                    content.left(),
-                    lanes,
-                    ppb,
-                    grid,
-                    bypass,
-                );
+                let slice_top = lanes.top() + 8.0;
+                let slice_bottom = lanes.bottom() - 8.0;
 
                 if clip_start_x > lanes.left() {
                     clipped.rect_filled(
@@ -227,66 +205,131 @@ impl NotwigUi {
                 }
                 timeline_grid.draw(&clipped, lanes);
 
-                let slice_top = lanes.top() + 8.0;
-                let slice_bottom = lanes.bottom() - 8.0;
-                for slice in &slices {
-                    let geometry = slice_geometry(
-                        slice,
-                        state.drag,
-                        drag_delta,
-                        node_shift,
-                        &map,
-                        clip_start,
-                        grid,
-                        bypass,
-                        TimeMus::zero() - display_range.start,
-                        state.selected.contains(&slice.id),
+                if state.sub_editor == AudioSubEditor::AudioEvents {
+                    let bg_resp = ui.interact(
+                        lanes,
+                        Id::new(("clip-editor-bg", state.clip_id)),
+                        Sense::click_and_drag(),
                     );
-                    let start = if state
-                        .bar_drag
-                        .as_ref()
-                        .is_some_and(|drag| drag.slices.contains(&slice.id))
-                    {
-                        slice.start + bar_preview_shift
-                    } else {
-                        geometry.start
-                    };
-                    let selected = state.selected.contains(&slice.id);
-                    let paint = draw_slice(
-                        &painter,
-                        doc,
-                        runtime,
-                        &clip,
-                        &audio,
-                        slice,
-                        &geometry,
-                        start,
+                    handle_background(
+                        ui,
+                        &mut state,
+                        &bg_resp,
                         timeline_grid,
                         content.left(),
-                        clip_start,
-                        &map,
-                        slice_top,
-                        slice_bottom,
-                        lanes,
-                        selected,
+                        snap,
                     );
-                    handle_slice(
+
+                    let drag_pointer = ui
+                        .input(|input| input.pointer.hover_pos())
+                        .or_else(|| state.drag.map(|drag| drag.origin_pointer));
+                    let drag_delta = state.drag.map_or(0.0, |drag| {
+                        drag_pointer.map_or(0.0, |pointer| {
+                            f64::from(pointer.x - drag.origin_pointer.x) / f64::from(ppb)
+                        })
+                    });
+                    let starts = group_starts(&slices, &state.selected, state.drag);
+                    let node_shift = state.drag.map_or(TimeMus::zero(), |drag| {
+                        group_move_shift(
+                            drag,
+                            drag_delta,
+                            clip_start,
+                            grid,
+                            bypass,
+                            TimeMus::zero() - display_range.start,
+                            &starts,
+                        )
+                    });
+                    let bar_preview_shift = preview_bar_drag(&mut state, ui, grid, bypass, ppb);
+
+                    handle_bar_drag(
+                        self,
+                        ui,
+                        &mut state,
+                        &mut audio,
+                        &clip,
+                        &map,
+                        &slices,
+                        timeline_grid,
+                        content.left(),
+                        lanes,
+                        ppb,
+                        grid,
+                        bypass,
+                    );
+
+                    for slice in &slices {
+                        let geometry = slice_geometry(
+                            slice,
+                            state.drag,
+                            drag_delta,
+                            node_shift,
+                            &map,
+                            clip_start,
+                            grid,
+                            bypass,
+                            TimeMus::zero() - display_range.start,
+                            state.selected.contains(&slice.id),
+                        );
+                        let start = if state
+                            .bar_drag
+                            .as_ref()
+                            .is_some_and(|drag| drag.slices.contains(&slice.id))
+                        {
+                            slice.start + bar_preview_shift
+                        } else {
+                            geometry.start
+                        };
+                        let selected = state.selected.contains(&slice.id);
+                        let paint = draw_slice(
+                            &painter,
+                            doc,
+                            runtime,
+                            &clip,
+                            &audio,
+                            slice,
+                            &geometry,
+                            start,
+                            timeline_grid,
+                            content.left(),
+                            clip_start,
+                            &map,
+                            slice_top,
+                            slice_bottom,
+                            lanes,
+                            selected,
+                        );
+                        handle_slice(
+                            self,
+                            ui,
+                            &painter,
+                            &mut state,
+                            &mut audio,
+                            &slices,
+                            &map,
+                            &clip,
+                            slice,
+                            &paint,
+                            ppb,
+                            grid,
+                            snap,
+                            timeline_grid,
+                            content.left(),
+                            bypass,
+                        );
+                    }
+                } else {
+                    super::gain::draw_gain_lane(
                         self,
                         ui,
                         &painter,
                         &mut state,
                         &mut audio,
-                        &slices,
-                        &map,
                         &clip,
-                        slice,
-                        &paint,
-                        ppb,
-                        grid,
-                        snap,
+                        &map,
                         timeline_grid,
                         content.left(),
-                        bypass,
+                        lanes,
                     );
                 }
 

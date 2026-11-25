@@ -98,6 +98,10 @@ pub enum UiIntent {
         clip_id: ClipId,
         muted: bool,
     },
+    SetClipGain {
+        clip_id: ClipId,
+        gain_db: Db,
+    },
     SetClipColor {
         clip_id: ClipId,
         color: Option<Color>,

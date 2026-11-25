@@ -613,11 +613,13 @@ command handler runs on the audio thread.
 
 ### 8.2 Audio editor sub-editors
 
-The audio editor currently draws one fixed slice lane. The strip header uses a
-literal `"AUDIO EVENTS"` label
-(`crates/notwig-ui/src/views/audio_editor/panel.rs`). The first migration should
-turn that label into a host-owned sub-editor selector and add an extension point
-for sub-editor contributions.
+The host-owned selector is implemented. The audio editor strip header is now a
+sub-editor menu with built-in `Audio Events` and `Gain` entries
+(`crates/notwig-ui/src/views/audio_editor/`). Audio Events keeps the slice lane;
+Gain edits per-event gain, or clip gain when the clip is not in slice mode.
+Switching surfaces clears in-progress drags and preserves the clip time mapping,
+playhead, loop range, snap grid, and scrollbar. The extension contribution point
+below is still the design for extension-supplied sub-editors.
 
 `notwig.audio_editor.sub_editor` is an augment point. A contribution declares:
 
@@ -1257,7 +1259,7 @@ services remain typed.
 | 0. Baseline | Document the contribution model, IDs, modes, version axes, command context, panel surface, and sealed core list. Keep ABI v5 unchanged. | Design reviewed; no code change required. |
 | 1. Registry and commands | Manifest v2 with `requires`, `provides`, `contributes`. Pure discovery/resolution. Add `CommandId`, resolved command descriptors, `CommandContext`, host edit families, palette, and string-keyed shortcuts. Convert built-ins incrementally. | A built-in command and an extension humanize command both run from the palette and a shortcut; context gating and stale-revision rejection are tested; one undo entry per command. |
 | 2. Panels | Generalize the device panel frame into a host-owned panel surface. Add `notwig.panel`, panel tabs/docking, guest and host-rendered panels, focus, shortcut suppression, and lifecycle. Keep device panels on ABI v5. | Headless render, focus, invalid-frame fallback, multiple instances, close/reopen, and disabled-extension behavior are tested. |
-| 3. Audio sub-editors | Replace the `"AUDIO EVENTS"` label with the host selector. Add `notwig.audio_editor.sub_editor`, the built-in Audio Events contribution, and the shared curve editor. Add a Gain sub-editor over existing clip/slice gain. | Default lane and extension lane switch correctly; shared curve edits apply as one undo batch; time mapping, playhead, snap, and focus remain host-owned. |
+| 3. Audio sub-editors | Replace the `"AUDIO EVENTS"` label with the host selector. Add `notwig.audio_editor.sub_editor`, the built-in Audio Events contribution, and the shared curve editor. Add a Gain sub-editor over existing clip/slice gain. **Status:** host selector, Audio Events, and Gain are implemented; the contribution point and shared curve editor are pending. | Default lane and extension lane switch correctly; shared curve edits apply as one undo batch; time mapping, playhead, snap, and focus remain host-owned. |
 | 4. Canonical sub-editor data and custom editors | Add the canonical fields and engine paths needed for Pan and time-varying Gain, or explicitly scope them out. Add custom sub-editors through the panel surface. Ship a pitch-correction proof only with a chosen data/processing route. | Canonical data round-trips and affects rendering; no hidden playback state; custom sub-editor context is bounded and stale-checked. |
 | 5. Clipboard formats | Add format handlers and converters for arranger, audio, MIDI, and devices. Replace the closed `Clipboard` enum with a host snapshot plus built-in handlers. | Cross-domain paste tests, asset-missing tests, undo grouping, OS marker compatibility. |
 | 6. Single-provider services | Introduce service slots for low-risk systems (theme, export encoder, later clipboard replacement) with host fallback and conformance tests. | Replacement failure falls back; no load-order selection; conformance pass. |

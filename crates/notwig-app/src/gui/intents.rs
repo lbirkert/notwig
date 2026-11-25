@@ -178,6 +178,24 @@ impl NotwigApp {
                 });
                 let _ = self.report(result);
             }
+            UiIntent::SetClipGain { clip_id, gain_db } => {
+                let result = self.workspace.apply(CommandPayload::EditClip {
+                    clip_id,
+                    range: None,
+                    name: None,
+                    muted: None,
+                    content_start: None,
+                    content_length: None,
+                    audio: Some(notwig_core::protocol::AudioEdit {
+                        source_start_sample: None,
+                        source_end_sample: None,
+                        gain_db: Some(gain_db),
+                        fade_in_samples: None,
+                        fade_out_samples: None,
+                    }),
+                });
+                let _ = self.report(result);
+            }
             UiIntent::SetClipColor { clip_id, color } => {
                 let result = self
                     .workspace

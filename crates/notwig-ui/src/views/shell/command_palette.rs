@@ -123,7 +123,6 @@ impl NotwigUi {
             .commands
             .sorted()
             .into_iter()
-            .filter(|command| command.enabled(&context))
             .filter(|command| matches_query(&state.query, command))
             .cloned()
             .collect();
@@ -131,6 +130,13 @@ impl NotwigUi {
             state.selected = 0;
         } else {
             state.selected = state.selected.min(commands.len() - 1);
+            if !commands[state.selected].enabled(&context)
+                && let Some(index) = commands
+                    .iter()
+                    .position(|command| command.enabled(&context))
+            {
+                state.selected = index;
+            }
         }
 
         let window = egui::Window::new("Command Palette")
@@ -169,19 +175,20 @@ impl NotwigUi {
                     if ui.input(|input| input.key_pressed(Key::ArrowUp)) {
                         delta -= 1;
                     }
-                    if delta != 0 {
-                        let len = i32::try_from(commands.len()).unwrap_or(i32::MAX);
-                        state.selected = usize::try_from(
-                            (i32::try_from(state.selected).unwrap_or(0) + delta).rem_euclid(len),
-                        )
-                        .unwrap_or(0);
+                    if delta != 0
+                        && let Some(index) =
+                            next_enabled(&commands, &context, state.selected, delta)
+                    {
+                        state.selected = index;
                     }
                     if ui.input(|input| input.key_pressed(Key::Enter)) {
                         let command = &commands[state.selected];
-                        if let Some(builtin) = ShortcutCommand::from_id(&command.id) {
-                            run_builtin = Some(builtin);
-                        } else {
-                            run_extension = Some(command.id.clone());
+                        if command.enabled(&context) {
+                            if let Some(builtin) = ShortcutCommand::from_id(&command.id) {
+                                run_builtin = Some(builtin);
+                            } else {
+                                run_extension = Some(command.id.clone());
+                            }
                         }
                     }
                 }
@@ -214,7 +221,15 @@ impl NotwigUi {
                                     command.title, command.category, binding
                                 )
                             };
-                            let response = ui.selectable_label(selected, text);
+                            let enabled = command.enabled(&context);
+                            let text = if enabled {
+                                RichText::new(text)
+                            } else {
+                                RichText::new(text).color(theme::TEXT_MUTED)
+                            };
+                            let response = ui
+                                .add_enabled(enabled, egui::Button::selectable(selected, text))
+                                .on_disabled_hover_text("Not available in the current context");
                             if response.clicked() {
                                 if let Some(builtin) = ShortcutCommand::from_id(&command.id) {
                                     run_builtin = Some(builtin);
@@ -242,6 +257,27 @@ impl NotwigUi {
             self.command_palette = Some(state);
         }
     }
+}
+
+fn next_enabled(
+    commands: &[notwig_ext_api::CommandDescriptor],
+    context: &CommandContext,
+    current: usize,
+    delta: i32,
+) -> Option<usize> {
+    if commands.is_empty() {
+        return None;
+    }
+    let len = i32::try_from(commands.len()).ok()?;
+    let mut index = i32::try_from(current).ok()?;
+    for _ in 0..len {
+        index = (index + delta.signum()).rem_euclid(len);
+        let candidate = usize::try_from(index).ok()?;
+        if commands[candidate].enabled(context) {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn matches_query(query: &str, command: &notwig_ext_api::CommandDescriptor) -> bool {

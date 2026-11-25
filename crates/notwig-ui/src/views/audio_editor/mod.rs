@@ -6,6 +6,7 @@ use crate::shell::NotwigUi;
 pub(super) const SCROLLBAR_H: f32 = 18.0;
 
 pub(crate) mod actions;
+pub(crate) mod gain;
 pub(crate) mod geometry;
 pub(crate) mod model;
 pub(crate) mod navigation;
@@ -14,7 +15,9 @@ pub(crate) mod state;
 
 pub use geometry::SliceGeometry;
 pub use model::{ClipLane, SliceLowered, SliceModel, SliceSelection};
-pub use state::{ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, SliceDragMode};
+pub use state::{
+    AudioSubEditor, ClipEdge, ClipEdgeDrag, ClipEditorState, SliceDrag, SliceDragMode,
+};
 
 #[doc(hidden)]
 pub mod test_api {
@@ -22,9 +25,21 @@ pub mod test_api {
     use super::*;
 
     pub use super::{
-        ClipEdge, ClipLane, SliceDrag, SliceDragMode, SliceGeometry, SliceLowered, SliceModel,
-        SliceSelection,
+        AudioSubEditor, ClipEdge, ClipLane, SliceDrag, SliceDragMode, SliceGeometry, SliceLowered,
+        SliceModel, SliceSelection,
     };
+
+    pub fn set_sub_editor(state: &mut ClipEditorState, sub_editor: AudioSubEditor) {
+        state.sub_editor = sub_editor;
+    }
+
+    pub fn gain_y(db: f32, top: f32, bottom: f32) -> f32 {
+        super::gain::y_for_gain(
+            db,
+            top + super::gain::LANE_PADDING,
+            bottom - super::gain::LANE_PADDING,
+        )
+    }
 
     pub fn lower_slice_plan(
         slices: &[AudioSlice],

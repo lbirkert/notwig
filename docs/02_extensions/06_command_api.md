@@ -152,9 +152,12 @@ whole effect as one undo group. An extension cannot submit an arbitrary
 ## Palette and shortcuts
 
 Press `F1` or `Cmd/Ctrl+Shift+P` to open the command palette. The palette lists
-built-in and extension commands whose `when` condition is true, filters by title,
-category, ID, or description, and shows the effective keybinding. Selecting an
-extension command emits a command intent with the current context.
+built-in and extension commands that match the query by title, category, ID, or
+description, and shows the effective keybinding. Commands whose `when`
+condition is currently false stay visible but muted and cannot run, so
+extension commands remain discoverable outside their active editor context.
+Selecting an available extension command emits a command intent with the
+current context.
 
 Extension default bindings are added only when the command has no configured
 entry and the chord is free. Settings -> Shortcuts lists the same commands and

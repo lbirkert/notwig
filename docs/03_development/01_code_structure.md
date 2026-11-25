@@ -232,7 +232,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation; panel split into range selection, slice paint, slice gestures |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, gain sub-editor; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |

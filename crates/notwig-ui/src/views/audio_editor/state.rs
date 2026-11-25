@@ -1,14 +1,40 @@
 use notwig_core::edit::Selection;
-use notwig_core::{ClipId, RangeMus, SliceId, TimeMus};
+use notwig_core::{ClipId, Db, RangeMus, SliceId, TimeMus};
 
 use crate::state::{SelectionGroup, Viewport};
 
 use super::model::ClipLane;
 
+/// Host-owned audio editor surface.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AudioSubEditor {
+    /// Editable audio events on the clip timeline.
+    #[default]
+    AudioEvents,
+    /// Per-event gain, or clip gain when the clip is not in slice mode.
+    Gain,
+}
+
+impl AudioSubEditor {
+    /// Sub-editors in selector order.
+    pub const ALL: [Self; 2] = [Self::AudioEvents, Self::Gain];
+
+    /// Human-readable selector label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::AudioEvents => "Audio Events",
+            Self::Gain => "Gain",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ClipEditorState {
     pub clip_id: ClipId,
     pub viewport: Viewport,
+    /// Active audio editor surface. Ephemeral UI state.
+    pub sub_editor: AudioSubEditor,
     pub(super) selected: SelectionGroup<SliceId>,
     pub(super) bar_selection: Option<RangeMus>,
     pub(super) drag: Option<SliceDrag>,
@@ -16,6 +42,8 @@ pub struct ClipEditorState {
     pub(super) preview_range: Option<RangeMus>,
     pub(super) range_start: Option<TimeMus>,
     pub(super) bar_drag: Option<BarDrag>,
+    pub(super) gain_drag: Option<GainDrag>,
+    pub(super) clip_gain_drag: Option<ClipGainDrag>,
     pub(super) initialized: bool,
 }
 
@@ -61,6 +89,18 @@ pub(super) struct BarDrag {
     pub(super) slices: Vec<SliceId>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct GainDrag {
+    pub(super) origin_pointer_y: f32,
+    pub(super) origin_gains: Vec<(SliceId, Db)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ClipGainDrag {
+    pub(super) origin_pointer_y: f32,
+    pub(super) origin_gain: Db,
+}
+
 impl ClipEditorState {
     pub fn new(clip_id: ClipId) -> Self {
         Self {
@@ -69,6 +109,7 @@ impl ClipEditorState {
                 start: TimeMus::zero(),
                 pixels_per_beat: 80.0,
             },
+            sub_editor: AudioSubEditor::AudioEvents,
             selected: SelectionGroup::default(),
             bar_selection: None,
             drag: None,
@@ -76,6 +117,8 @@ impl ClipEditorState {
             preview_range: None,
             range_start: None,
             bar_drag: None,
+            gain_drag: None,
+            clip_gain_drag: None,
             initialized: false,
         }
     }

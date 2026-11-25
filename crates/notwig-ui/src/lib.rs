@@ -60,7 +60,7 @@ pub use views::arranger::ClipDrag;
 #[cfg(feature = "app")]
 pub use views::arranger::edit::{clamp_node_shift, paste_target};
 #[cfg(feature = "app")]
-pub use views::audio_editor::{ClipEditorState, ClipLane};
+pub use views::audio_editor::{AudioSubEditor, ClipEditorState, ClipLane};
 #[cfg(feature = "app")]
 pub use views::midi_editor::MidiEditorState;
 #[cfg(feature = "app")]

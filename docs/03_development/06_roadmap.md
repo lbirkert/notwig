@@ -181,10 +181,10 @@ Dependencies worth planning around:
 | --- | --- | --- | --- |
 | Audio clip playback | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sample-indexed source windows, gain, and fades. |
 | Audio slices | ✅ Implemented | ⭐⭐⭐⭐ | Per-slice source window, gain, and optional asset. Events may extend beyond the clip container; playback clips them to the container. |
-| Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Slice selection, move, trim, copy, cut, paste, duplicate, delete, and time selection. |
+| Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Host-owned Audio Events/Gain sub-editor selector, slice selection, move, trim, copy, cut, paste, duplicate, delete, and time selection. |
 | Audio trim | ✅ Implemented | ⭐⭐⭐⭐⭐ | Clip range edits trim the source window. |
 | Linear fades | 🧪 Partial | ⭐⭐⭐⭐ | Stored and rendered. No editor and no fade-shape choice. |
-| Audio clip gain | 🧪 Partial | ⭐⭐⭐⭐ | Stored and rendered. No editor. |
+| Audio clip gain | ✅ Implemented | ⭐⭐⭐⭐ | Stored and rendered. The Gain sub-editor edits clip gain or per-event gain. |
 | Clip pan | 📋 Planned | ⭐⭐⭐ |  |
 | Fade shapes | 📋 Planned | ⭐⭐⭐ |  |
 | Reverse | 📋 Planned | ⭐⭐ |  |
@@ -270,7 +270,7 @@ Dependencies worth planning around:
 | Extension sandboxing | ✅ Implemented | ⭐⭐⭐⭐ | WASM always runs with memory and fuel limits. Native shared libraries run trusted with no sandbox, as documented. |
 | Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |
-| Extension commands | 🧪 Partial | ⭐⭐⭐⭐ | Manifest v2 command contributions, bounded command context, host edit families, command palette (F1 / Cmd+Shift+P), string-keyed bindings, WASM/native/browser execution, and the `notwig-ext-example` humanize command. Audio sub-editors and panels remain follow-ups. |
+| Extension commands | 🧪 Partial | ⭐⭐⭐⭐ | Manifest v2 command contributions, bounded command context, host edit families, command palette (F1 / Cmd+Shift+P) with muted unavailable commands, string-keyed bindings, WASM/native/browser execution, and the `notwig-ext-example` humanize command. The audio editor has host-owned Audio Events/Gain sub-editors; extension-contributed sub-editors and panels remain follow-ups. |
 | General drawing hooks | 📋 Planned | ⭐⭐⭐ | Arranger clips, track headers, lanes, and editors on the shared draw IR. |
 | Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.csv` builds `docs/extensions.json` with per-target URLs and SHA-256 hashes; CI packages macOS Apple Silicon and WASM builds and publishes via GitHub Pages. |
 
@@ -288,7 +288,7 @@ risks are analyzed in
 | Arranger | ✅ Implemented | ⭐⭐⭐⭐⭐ | Tracks, clips, time selection, loop, grid, playhead, drop targets. |
 | Contextual inspector | 🧪 Partial | ⭐⭐⭐⭐ | Some audio fade and gain fields are read-only. |
 | Device panel | ✅ Implemented | ⭐⭐⭐⭐⭐ | Chain cards, bypass, nesting, EQ editor, generic parameter knobs. |
-| Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Also see the Audio table. |
+| Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Audio Events and Gain sub-editors. Also see the Audio table. |
 | MIDI editor | ✅ Implemented | ⭐⭐⭐⭐⭐ | Opens for MIDI clips from the arranger and the clip editor toggle. |
 | Mixer view | 🚫 Not Planned | ⭐⭐ | Not required in core. Mixing works through track headers and the inspector. |
 | Automation editor | 📋 Planned | ⭐⭐⭐⭐⭐ |  |

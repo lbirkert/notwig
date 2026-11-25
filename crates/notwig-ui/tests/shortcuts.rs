@@ -277,8 +277,20 @@ fn command_palette_opens_from_f1() {
     assert!(command_palette_open(&ui));
 }
 
+fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Text(text) => texts.push(text.galley.text().to_owned()),
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_text(shape, texts);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[test]
-fn command_palette_renders_extension_commands() {
+fn command_palette_renders_unavailable_extension_commands() {
     use notwig_ext_api::CommandDescriptor;
     use notwig_ui::test_api::shell::{open_command_palette, set_extension_commands};
     let doc = doc();
@@ -307,5 +319,32 @@ fn command_palette_renders_extension_commands() {
         |ctx| {
             let _ = ui.show(ctx, &doc, &runtime);
         },
+    );
+    let _ = ctx.run(
+        RawInput {
+            screen_rect: Some(screen),
+            events: vec![Event::Text("humanize".into())],
+            ..Default::default()
+        },
+        |ctx| {
+            let _ = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let output = ctx.run(
+        RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let _ = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut texts);
+    }
+    assert!(
+        texts.iter().any(|text| text.contains("Humanize Notes")),
+        "expected the gated extension command in the palette, got {texts:?}"
     );
 }

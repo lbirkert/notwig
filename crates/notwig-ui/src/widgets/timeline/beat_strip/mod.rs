@@ -37,7 +37,11 @@ impl BeatStrip<'_> {
         let content_left = rect.left() + self.header_width;
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, egui::CornerRadius::ZERO, theme::PANEL_LIGHT);
-        let response = ui.interact(rect, id, Sense::click_and_drag());
+        let content_rect = Rect::from_min_max(
+            egui::pos2(content_left.min(rect.right()), rect.top()),
+            rect.max,
+        );
+        let response = ui.interact(content_rect, id, Sense::click_and_drag());
 
         if self.header_width > 0.0 {
             painter.line_segment(
