@@ -34,7 +34,8 @@ extension route without making the core optional.
 | Eclipse-style extension points | Feasible as a contribution registry plus contracts. Not feasible as blanket replacement of every subsystem in one migration. |
 | Recursive extension points | Feasible for extension-owned, namespaced points with opaque payloads. The host must remain the authority for capabilities and host UI/engine integration. |
 | Built-ins as ordinary extensions | Partially. Core providers can use the same manifest/contribution model while compiled-in, trusted, and non-removable. Creative devices and formats can be bundled packs. Project/undo/engine/shell should not become optional. |
-| Global replaceable systems such as clipboard | Feasible through a service slot with one active provider and a built-in fallback, but the useful first step is extensible clipboard formats and paste handlers, not replacing the clipboard owner. |
+| First migration | Commands with a palette, dynamic bindings, and a bounded context; audio-editor sub-editors; and shell-hosted extension panels. Clipboard formats follow after these surfaces are proven. |
+| Global replaceable systems such as clipboard | Feasible through a service slot with one active provider and a built-in fallback, but the useful step is extensible clipboard formats and paste handlers, not replacing the clipboard owner. |
 | Load-order-independent packaging | Feasible with a pure resolver, explicit ordering keys, one active version per extension ID, deterministic tie-breaks, atomic activation, and a lockfile for packs. |
 | Compile-time performance of built-ins | No audio-path cost if resolution happens at plan/build time. Costs are binary size, compile time, and startup registration, not per-sample dispatch. |
 | Maintainability | Manageable with few contracts, contract owners, conformance tests, and diagnostics. A broad platform without those controls is hard to maintain. |
@@ -45,6 +46,11 @@ The recommended end state is "an extensible platform with a guaranteed core",
 not "replace everything". The distinction is deliberate: a platform needs a
 stable floor to boot, recover, render, and explain failures when extensions are
 missing or broken.
+
+The concrete first migration is defined in section 8: dynamic commands and a
+command palette, audio-editor sub-editors, and extension panels. Those three
+surfaces are the acceptance test for the registry, context, command, and panel
+contracts. Clipboard formats remain the next milestone after they work.
 
 ## 2. Current baseline
 
@@ -426,13 +432,378 @@ must reject it unless the contract explicitly defines a two-phase or lazy
 resolution order. "It happens to work because A was loaded first" is not an
 acceptable resolution.
 
-## 8. Global replaceable systems: the clipboard case study
+## 8. First migration use cases: commands, audio sub-editors, and panels
+
+The first migration should prove the platform against three concrete surfaces
+rather than starting with the broadest replacement story:
+
+1. extension commands with a VS Code-style palette, dynamic keybindings, and a
+   bounded command context;
+2. audio-editor sub-editors, both shared-curve editors and custom editors;
+3. extension panels hosted by the shell.
+
+These three share one pattern: the host owns the shell, the canonical state, the
+undo boundary, and the layout; extensions supply small content or operation
+providers and receive bounded snapshots. This is a better first proof than
+replacing the clipboard service, because it exercises commands, UI surfaces,
+editor state, and command application together without making canonical state
+replaceable.
+
+### 8.1 Dynamic commands, context, palette, and bindings
+
+Today commands are a closed `ShortcutCommand` enum, `COMMANDS` is a static
+table, `Shortcuts` is keyed by that enum, and `handle_shortcuts` contains
+hardcoded matches (`crates/notwig-ui/src/commands/`). A command palette, a
+command added by an extension, or a command whose enablement depends on the
+focused editor cannot be represented without changing those types.
+
+The first migration should introduce a `CommandId` string and a resolved command
+registry while keeping the enum-backed built-in implementations during the
+transition.
+
+#### Command contribution
+
+`notwig.command` is an augment point. One contribution declares:
+
+```json
+{
+  "id": "com.example.midi-tools.humanize",
+  "point": "notwig.command",
+  "contract": "notwig.command@1",
+  "mode": "augment",
+  "title": "Humanize Notes",
+  "category": "MIDI",
+  "description": "Randomize the timing and velocity of selected notes.",
+  "when": "focus == midi_editor && selection.notes > 0",
+  "default_bindings": ["ctrl+alt+h"],
+  "handler": "humanize_notes"
+}
+```
+
+`when` is a small declarative expression over stable `CommandContext` fields,
+not executable extension code. The host parses and validates it during
+resolution. This keeps palette filtering and shortcut enablement cheap and
+prevents a broken handler from making the palette unusable. A command that needs
+more context checks it again in the handler and returns a typed error.
+
+#### Command context
+
+The host builds an immutable, bounded snapshot when the command runs:
+
+```text
+CommandContext
+  revision: u64
+  focus: timeline | audio_editor | midi_editor | device_editor | panel
+  selection:
+    tracks, clips, devices: bounded ID lists
+    time: optional range and lanes
+    notes: selected notes for the active MIDI clip, bounded
+    slices: selected slices for the active audio clip, bounded
+  active: optional track, clip, device, editor id, sub-editor id
+  transport: playhead, play start, playing, tempo, time signature
+  audio: sample rate
+  ui: snap setting and active panel ids
+  clipboard: available format IDs only
+  capabilities: contribution grant and trust level
+```
+
+The selected-object lists are capped, like panel frames and clipboard payloads.
+If a selection exceeds the cap, the command is disabled with a reason instead
+of receiving a truncated or inconsistent view. A command that needs a larger or
+different query uses a host query service with the same revision; it does not
+receive the whole `ProjectDoc`.
+
+`revision` is the document revision from the command's snapshot. Before applying
+any effect, the host checks it against the current document. A stale context
+fails with a "command context is stale" error instead of applying an edit to a
+selection that has moved or been deleted.
+
+#### Command effect
+
+A command does not receive a mutable document and cannot call `apply`. It returns
+a `CommandEffect`:
+
+```text
+CommandEffect
+  None
+  Edit(CommandEdit)       // host-owned operation families
+  Ui(CommandUiRequest)    // select, focus, open panel/editor, notify
+  Error(message)
+```
+
+The first migration supports a small set of edit families that map to existing
+commands:
+
+| Edit family | Maps to |
+| --- | --- |
+| `EditMidiNotes` | `SetNotes` / lowered note edits |
+| `EditAudioSlices` | `SetClipSlices` / lowered slice edits |
+| `EditClipFields` | `EditClip`, `SetClipColor`, `SetClipRange` |
+| `SetTrackMixer` | `SetTrackMixer` |
+| `SetDeviceParam` | `SetParam` for a validated device/parameter |
+
+The host lowers the effect, allocates any new object IDs, validates the resulting
+document, applies one batch, and records one undo entry. A new edit family that
+touches canonical state still requires host code. Extension commands can compose
+existing families freely, and extension-defined command result types can be
+consumed by extension-defined handlers, but they cannot become canonical edits
+without a host operation contract.
+
+`CommandUiRequest` covers selection updates, focus changes, opening a panel or
+editor, and notifications. The host validates IDs and focus transitions. A
+command does not get to mutate arbitrary UI state.
+
+#### Humanize example
+
+A MIDI humanize command:
+
+1. receives the active MIDI clip, selected note IDs, and their note values;
+2. computes perturbed starts, lengths, and velocities with a deterministic seed
+   supplied by the host context (or an explicit user seed);
+3. returns `EditMidiNotes` with the changed notes and unchanged IDs;
+4. the app lowers it to the existing note command path, applies one batch, and
+   keeps the note selection;
+5. the MIDI editor re-renders from the new document revision.
+
+This demonstrates context reading, selection-sensitive enablement, editor
+update, undo, and command palette integration without giving the extension
+document authority.
+
+#### Palette and keybindings
+
+The palette is a host panel:
+
+- It lists built-in and extension commands in the resolved generation.
+- It filters by title, category, ID, and a short description.
+- It hides commands whose `when` expression is false by default; an "all
+  commands" view can show them with the reason (for example, no MIDI editor).
+- It shows the effective keybinding, if any.
+- It can open a command's contributed panel or focus the relevant editor after
+  the effect succeeds.
+
+`Shortcuts` must move from `BTreeMap<ShortcutCommand, _>` to
+`BTreeMap<CommandId, _>`, with built-in enum variants mapped to stable string
+IDs. The existing persisted keys are already strings such as `copy` and
+`new_audio_track`, so the config format can remain compatible. Default bindings
+come from the resolved command descriptors, not from the static enum table.
+
+Keybinding conflict policy must be deterministic:
+
+1. an explicit user binding wins over a contributed default;
+2. if two enabled commands still share a chord, the chord is ambiguous and the
+   host reports it in the shortcut editor;
+3. context-specific bindings can coexist when their `when` expressions are
+   mutually exclusive;
+4. built-in default bindings are not silently overridden by extension defaults.
+
+The last rule matters for predictability. An extension can suggest a binding,
+but it cannot steal `space`, `delete`, or `command+z` from a built-in command.
+The user can assign the conflict explicitly.
+
+#### Execution and latency
+
+Command handlers run on the UI/app thread for the first migration. They receive
+a bounded context and must return within a short budget. WASM commands remain
+subject to fuel and memory limits; native commands are trusted. A command that
+needs long-running work returns a request for a host analysis/import job or a
+typed "not now" status, then delivers an event when the result is ready. No
+command handler runs on the audio thread.
+
+### 8.2 Audio editor sub-editors
+
+The audio editor currently draws one fixed slice lane. The strip header uses a
+literal `"AUDIO EVENTS"` label
+(`crates/notwig-ui/src/views/audio_editor/panel.rs`). The first migration should
+turn that label into a host-owned sub-editor selector and add an extension point
+for sub-editor contributions.
+
+`notwig.audio_editor.sub_editor` is an augment point. A contribution declares:
+
+```text
+AudioSubEditorSpec
+  id, title, icon (host-defined icon id), category, order
+  kind:
+    Curve(CurveTargetSpec)
+    Custom(PanelSpec)
+  accepted_clip_kinds: audio
+  singleton_per_clip: bool
+```
+
+The host owns:
+
+- the tab button/menu that replaces the `"AUDIO EVENTS"` label;
+- the active sub-editor choice in `ClipEditorState` (ephemeral UI state);
+- the clip time mapping, playhead, loop range, snap grid, and scrollbar;
+- the surrounding panel, focus, keyboard suppression, and close behavior;
+- applying edits through commands and one undo group.
+
+`Audio Events` becomes the first built-in contribution, not a hardcoded special
+case. The menu lists it first, then extension sub-editors by category, title, and
+ID. Disabling an extension removes its entry but does not silently switch the
+active editor to a different one; the host falls back to Audio Events with a
+notice.
+
+#### Shared curve sub-editors
+
+Gain and Pan are the motivating cases for a shared curve editor. The host
+provides a reusable time/value curve widget in `notwig-ui` with:
+
+- points, interpolation, add/remove, drag, keyboard nudge, and snapping;
+- a value range and unit from the contribution;
+- a read/write binding to host-owned data;
+- a preview and commit path that emits one command batch;
+- selection and viewport shared with the audio editor.
+
+A `CurveTargetSpec` does not draw arbitrary UI. It declares which host-modeled
+value it edits and how to read/write it. The extension can add a new curve
+sub-editor only when the underlying data is host-modeled and validatable.
+
+This exposes a real model gap that the design must not hide:
+
+- `AudioClipData` and `AudioSlice` already have `gain_db`, so a first Gain
+  sub-editor can edit existing clip/slice gain without a new document field. A
+  time-varying gain envelope still needs a host model and engine path.
+- There is no pan field on audio clips or slices today. A true Pan envelope
+  requires new canonical data, command support, engine rendering, and
+  persistence before an extension can edit it.
+- A curve that only lives inside the extension cannot affect playback and is not
+  a canonical edit. It must either be host-modeled, produce a host command, or
+  be rendered into an asset through a host job.
+
+The correct sequence is to build the shared curve widget and the host data
+binding first, then add the canonical fields. The extension point does not grant
+extensions a private place to store playback-affecting data.
+
+#### Custom sub-editors
+
+A pitch-correction editor is a custom sub-editor: it needs its own interaction
+model, analysis, and likely a different visualization. It should use the panel
+surface protocol described in section 8.3, scoped to the audio-editor content
+area.
+
+The host supplies an `AudioSubEditorContext`:
+
+```text
+clip id and range; active asset metadata; sample rate
+selected slice IDs and values; current sub-editor and panel size
+playhead, loop, tempo, snap; project revision
+available analysis results or analysis request handle
+theme and input snapshot
+```
+
+The extension returns `CommandEffect` or a panel action built from the same
+validated families. It does not receive the full document or a host pointer.
+
+For pitch correction specifically, separate the UI from the processing:
+
+- **UI-only prototype:** demonstrate the custom sub-editor slot and its
+  selection/analysis/command plumbing without claiming pitch correction data
+  affects playback.
+- **Host data contract:** if correction points must persist and affect playback,
+  add a host-owned, namespaced extension-data area attached to the clip (or an
+  equivalent canonical field) with versioning, bounds, commands, and an engine
+  read path.
+- **Device/processor route:** contribute a device or processor that consumes the
+  host-modeled data. This is the preferred route when the processing is already
+  device-shaped.
+- **Destructive route:** render a corrected asset or slices through a host job
+  and replace the clip content through normal commands. This is valid for an
+  offline workflow but must be explicit and undoable.
+
+The first migration should pick one route for the pitch-correction proof. Do not
+ship a UI that writes hidden extension state which the engine silently ignores.
+
+Sub-editor state is keyed by `(clip_id, sub_editor_id)` in the UI, so switching
+away and back preserves the view. The document data is always read from the
+current revision; a stale context fails before committing an edit.
+
+### 8.3 Extension panels
+
+The device panel path already proves the hard part: a guest runs a private egui
+context, returns a validated `PanelFrame`, and the host composites meshes and
+textures into a bounded rectangle. General extension panels should reuse that
+transport instead of inventing a second UI protocol.
+
+`notwig.panel` is an augment point. A contribution declares:
+
+```text
+PanelSpec
+  id, title, icon, category, order
+  location: left | right | bottom | floating
+  default_size, min_size
+  singleton: true (first migration)
+  kind:
+    GuestPanel     // extension draws, host owns chrome
+    HostPanel      // extension declares a small control schema
+  accepts_context: global | selection | device | audio_editor
+```
+
+The host owns the dock/tab/window chrome, placement, resize, close, focus order,
+and keyboard routing. A guest panel draws only inside its surface. A "floating"
+location means a host-managed floating panel, not a guest-created OS window.
+This is the same limitation as device panels and should be stated in the author
+docs.
+
+A generalized `PanelContext` contains the bounded context from section 8.1 plus
+panel identity, size, `pixels_per_point`, input snapshot, theme, and repaint
+hint. The host validates the returned frame with the existing panel limits and
+texture rules. The device-specific `DevicePanelHost` and `DeviceDrawContext`
+remain for ABI v5 compatibility; a new host API can share the frame codec and
+compositing implementation without changing the device wire format.
+
+Panel actions should use the command effect surface, not a second unchecked
+action enum:
+
+- apply a validated edit batch;
+- select or focus a host object;
+- open another panel or editor;
+- request analysis or a repaint;
+- show a notification.
+
+Device parameter actions remain the existing `PanelAction` path. A general panel
+that wants to edit a device parameter can use the `SetDeviceParam` family.
+
+Panel lifecycle:
+
+- one guest instance per visible panel (or per singleton panel ID);
+- retained state across frames and reopen;
+- close/destroy calls the extension lifecycle hook;
+- a panel cannot create host widgets outside its surface;
+- keyboard and text events are forwarded only while the panel owns focus;
+- host shortcuts are suppressed while the panel wants keyboard input;
+- an invalid frame falls back to the last valid frame or a host placeholder.
+
+Open/closed state and placement are user UI state, not project document state.
+A panel that needs durable data uses a host storage capability; canonical
+project data is never stored in extension UI state.
+
+Panels and commands compose directly: a command's `CommandUiRequest` can open a
+contributed panel, and a panel button can return a command effect. This gives the
+first migration a complete loop without arbitrary host UI.
+
+### 8.4 What the first migration should not promise
+
+- Arbitrary extension-created command payloads that mutate canonical state
+  without a host operation family.
+- True Gain or Pan envelopes before the canonical fields, engine path, and
+  persistence exist.
+- Pitch correction that affects playback through hidden extension state.
+- Free-floating guest windows outside the host panel surface.
+- Replacing the clipboard service. Clipboard format handlers remain a later
+  milestone; the clipboard contract in section 9 is the target, not the first
+  deliverable.
+- General overlays on the arranger, clip lanes, or host focus order.
+
+These are deliberate cuts. Each one can be added after the command, panel, and
+sub-editor plumbing is real and tested.
+
+## 9. Global replaceable systems: the clipboard case study
 
 The clipboard is the best stress test for the proposal because it is global,
 cross-editor, stateful from the user's perspective, and currently split across
 several owners.
 
-### 8.1 Current state and problems
+### 9.1 Current state and problems
 
 - `notwig_ui::Clipboard` is a closed enum of arranger, audio, and device kinds.
 - The arranger extract and audio extract are stored in the shared workspace
@@ -444,7 +815,7 @@ several owners.
 - Adding a new editor or a third-party clip type would require modifying the UI
   enum, the workspace, the shortcuts, and every paste match.
 
-### 8.2 Proposed clipboard contract
+### 9.2 Proposed clipboard contract
 
 Keep the host as the clipboard owner. Extend what can be copied, not who owns
 the canonical clipboard.
@@ -476,7 +847,7 @@ Built-in formats cover the current cases:
 A third-party extension can offer `com.example.pitch.phrase@1` without changing
 the core enum. Cross-format conversion is explicit rather than implicit.
 
-### 8.3 Contributions
+### 9.3 Contributions
 
 `notwig.clipboard.format` is an augment point for format handlers. A handler
 declares:
@@ -500,7 +871,7 @@ order, with cycles rejected. If multiple paths tie, the host either asks the
 user or applies a configured preferred target format; it does not depend on
 load order.
 
-### 8.4 Format selection and paste
+### 9.4 Format selection and paste
 
 Paste is a negotiation between the clipboard snapshot and the target editor:
 
@@ -519,7 +890,7 @@ testable compatibility. For example, an audio slice clipboard can be accepted
 by the arranger only when an audio-to-arranger converter is active; otherwise
 the existing rejection remains.
 
-### 8.5 Clipboard as a replaceable service
+### 9.5 Clipboard as a replaceable service
 
 The clipboard service itself can be a single-provider slot:
 
@@ -546,7 +917,7 @@ replacement as a later, opt-in feature for trusted providers. The built-in
 clipboard stays the guaranteed path for the arranger, audio editor, MIDI editor,
 and device chains.
 
-### 8.6 Undo, assets, and OS clipboard
+### 9.6 Undo, assets, and OS clipboard
 
 - Copy is not an undoable document change. Paste is one undo group through
   `Workspace::apply_batch`.
@@ -564,7 +935,7 @@ and device chains.
 - Observers can observe clipboard changes, but cannot cancel or rewrite the
   paste after validation.
 
-### 8.7 Generalizing to other global services
+### 9.7 Generalizing to other global services
 
 | System | First step | Replacement later? |
 | --- | --- | --- |
@@ -582,7 +953,7 @@ and device chains.
 replace its canonical implementation. This is not a limitation of imagination;
 it is the boundary that keeps recovery, undo, and real-time behavior sound.
 
-## 9. Editors as extension points
+## 10. Editors as extension points
 
 The proposal says editors own their editing interfaces and define their own
 points. That is feasible if "editor contribution" is split into four contracts
@@ -593,13 +964,13 @@ with different trust and UI requirements.
 | Editing operation | Trim, split, quantize, transpose, pitch-correct a range. | Pure plan over a host snapshot; host lowers and applies commands. | Feasible now through typed payloads and command plans. |
 | Tool/interaction mode | Scissors, velocity paint, warp marker edit. | Host-owned input gesture with editor-defined semantics. | Hard with guest panels; needs a host input/tool protocol. |
 | Overlay | Automation ghost, chord labels, analysis heatmap. | Host paints a contribution-provided draw list over a host surface. | Limited to panel-local surfaces today; general overlays need a UI protocol. |
-| Sub-editor | Piano roll variant, notation view, drum editor. | Separate editing surface. | Requires host layout/focus/UI contribution support; not feasible with the current card-scoped panel transport alone. |
+| Sub-editor | Piano roll variant, notation view, drum editor. | Separate editing surface. | Feasible through the host-owned sub-editor slot and panel surface described in section 8. The host keeps layout and focus. |
 
-The practical first editor points are operations and analysis. They are pure,
-testable, and already compatible with the shared editing algebra and undo
-pipeline. A quantize contribution can return a `CommandPayload` batch; the host
-validates it, applies it atomically, and records one undo entry. The extension
-never owns selection, IDs, or history.
+The practical first editor surfaces are the command contract and the audio
+sub-editor contract from section 8. Commands can implement operations such as
+humanize, quantize, or transpose over a bounded selection and return a validated
+host edit family. The host applies the edit atomically and records one undo
+entry. The extension never owns selection, IDs, or history.
 
 Tools and overlays need a host UI contribution contract. The current guest panel
 solution is intentionally scoped to a device card: it cannot add host widgets,
@@ -634,7 +1005,7 @@ them. Notwig does not need to know what an articulation is. This is real
 recursive extensibility without giving the notation extension authority over
 the project, audio, or UI.
 
-## 10. Runtime and contract abstraction
+## 11. Runtime and contract abstraction
 
 The runtime model should keep the current split:
 
@@ -675,7 +1046,7 @@ host-service handles that the specific contribution needs. Package-level
 capabilities can remain as an upper bound for compatibility, but per-contribution
 declarations are the safer model.
 
-## 11. Performance
+## 12. Performance
 
 The platform adds work at four points: discovery, resolution, activation, and
 invocation. They have very different costs.
@@ -731,7 +1102,7 @@ Before accepting a platform milestone, add:
 Failing a real-time or frame-time gate blocks the milestone regardless of
 feature completeness.
 
-## 12. Maintainability
+## 13. Maintainability
 
 A contribution registry is maintainable when contracts are few, owned, and
 tested. It becomes unmaintainable when every internal function becomes a point.
@@ -779,12 +1150,12 @@ tested. It becomes unmaintainable when every internal function becomes a point.
   transport-specific code in `notwig-ext` adapters. Do not make `notwig-core`
   depend on a runtime or registry I/O.
 
-## 13. How loose can the contract be?
+## 14. How loose can the contract be?
 
 There are three different things that can be "loose", and they should not have
 the same answer.
 
-### 13.1 Manifest and registry envelope
+### 14.1 Manifest and registry envelope
 
 This can be quite loose. A generic contribution envelope with point ID,
 contract ID/version, mode, contribution ID, dependencies, capabilities, and a
@@ -792,7 +1163,7 @@ bounded payload lets new points appear without core code changes. The host
 validates structure, namespaces, ownership, versions, sizes, and capability
 requests. This is what makes recursive extension points practical.
 
-### 13.2 Extension-defined payloads
+### 14.2 Extension-defined payloads
 
 These can be opaque or self-described. An extension-owned point can declare a
 contract and let producers/consumers agree on a JSON, postcard, or opaque byte
@@ -808,7 +1179,7 @@ Opaque payloads are the right tool for notation articulations, custom analysis
 metadata, or extension-specific clip annotations. They are not the right tool
 for host services that touch canonical state.
 
-### 13.3 Host services
+### 14.3 Host services
 
 These should stay typed and narrow. A "call any host method by name with a JSON
 blob" API looks flexible but is harder to version, validate, secure, and debug.
@@ -831,9 +1202,9 @@ The recommended policy is "closed envelope, open payloads": the host understands
 the envelope and the modes; the point owner understands the payload; host
 services remain typed.
 
-## 14. Migration risks and benefits
+## 15. Migration risks and benefits
 
-### 14.1 Benefits
+### 15.1 Benefits
 
 - A real route for third parties to add editors, tools, formats, analysis, and
   creative devices without a core release.
@@ -846,7 +1217,7 @@ services remain typed.
   markers, not document corruption.
 - A stronger ecosystem story without requiring native code for every extension.
 
-### 14.2 Risks
+### 15.2 Risks
 
 | Risk | Severity | Likelihood | Mitigation |
 | --- | --- | --- | --- |
@@ -858,36 +1229,45 @@ services remain typed.
 | Security escalation through new capabilities | High | Medium | Per-contribution capabilities; host-mediated project/UI/OS access; no direct command application. |
 | Recursive points create hidden coupling | Medium | Medium | Namespaced ownership, opaque payload limits, cycle rejection, no new authority. |
 | Existing ABI v5 packages break | Medium | High if rushed | Keep the device ABI and manifest path; add a new platform manifest version instead of reinterpreting v5. |
+| Command context becomes stale or leaks more state than needed | High | Medium | Bounded context snapshot, document revision check before apply, host query service for larger reads, no full document. |
+| Command palette and keybindings depend on activation order | Medium | Medium | Resolve commands into the generation, use stable command IDs, deterministic conflict policy, and context expressions. |
+| Command handler blocks or exceeds its UI budget | High | Medium | Short UI budget, WASM fuel limits, long work through host jobs, no audio-thread execution. |
+| Audio sub-editors fake canonical data in extension state | High | High | Separate UI from processing; only host-modeled data may affect playback; explicit data contract or device route. |
+| Pan/Gain envelopes are promised before the model exists | High | High | Ship Gain over existing `gain_db` first; add Pan/envelope fields, commands, engine path, and persistence as separate work. |
+| Panel focus, lifecycle, or shortcuts regress | High | Medium | Host-owned chrome and focus, reused frame validation, headless interaction tests, invalid-frame fallback. |
 | Undo/clipboard semantics drift | High | Medium | All mutations through commands; handlers return plans; one undo group; cross-project tests. |
 | Debugging across package boundaries | Medium | High | Registry inspector, typed errors, per-generation logs, unresolved diagnostics. |
 | Binary size and compile time grow | Low | Medium | Keep core minimal; move creative providers to packs; avoid monomorphized registries. |
 | Dual system drift (special-case built-ins vs contributions) | Medium | High | Built-in providers implement the same contracts; parity tests; delete special-case branches after migration. |
 
-### 14.3 Migration options
+### 15.3 Migration options
 
 | Option | Description | Recommendation |
 | --- | --- | --- |
 | A. Big-bang Eclipse model | Replace devices, editors, clipboard, undo, project, and engine with points at once. | Reject. Too much contract surface before validation. |
-| B. Additive contribution platform | Keep the current app and ABI. Add a registry, manifest v2, a few host points, built-in adapters, and service slots for non-canonical systems. | Recommend. |
+| B. Additive contribution platform | Keep the current app and ABI. Add a registry, manifest v2, the command/palette, panel, and audio sub-editor points, built-in adapters, and later service slots for non-canonical systems. | Recommend. |
 | C. Stay device-only | Keep the current host and add no general points. | Incomplete for the stated platform goal, but a valid fallback if the platform work cannot be staffed. |
 
-### 14.4 Phased plan
+### 15.4 Phased plan
 
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
-| 0. Baseline | Document the contribution model, IDs, modes, version axes, and sealed core list. Keep ABI v5 unchanged. | Design reviewed; no code change required. |
-| 1. Registry skeleton | Manifest v2 with `requires`, `provides`, `contributes`. Pure discovery/resolution. Built-in device providers registered as contributions without changing device behavior. | Shuffle-order tests; duplicate/cycle rejection; existing extension packages still load. |
-| 2. Clipboard formats | Add format handlers and converters for arranger, audio, MIDI, and devices. Replace the closed `Clipboard` enum with a host snapshot plus built-in handlers. | Cross-domain paste tests, asset-missing tests, undo grouping, OS marker compatibility. |
-| 3. Pure editor operations | Add augment points for MIDI and audio operations. Built-in quantize/transpose examples. | Operation conformance; command validation; one undo entry per operation; headless UI tests. |
-| 4. Editor tools/overlays protocol | Define host draw/input/focus contracts for editor surfaces. Keep guest panels card-scoped until this exists. | Overlay clipping, focus, shortcut suppression, and headless render tests. |
-| 5. Single-provider services | Introduce service slots for low-risk systems (theme, export encoder, later clipboard replacement) with host fallback and conformance tests. | Replacement failure falls back; no load-order selection; conformance pass. |
-| 6. Recursive ecosystem | Allow extension-defined points for extension-to-extension contracts. Add diagnostics and author docs. | Namespace enforcement, missing-owner behavior, payload limits, sample ecosystem test. |
-| 7. Optional runtimes | WIT/component model or out-of-process extensions for higher isolation. | Same contracts pass over the new transport; no audio-path regression. |
+| 0. Baseline | Document the contribution model, IDs, modes, version axes, command context, panel surface, and sealed core list. Keep ABI v5 unchanged. | Design reviewed; no code change required. |
+| 1. Registry and commands | Manifest v2 with `requires`, `provides`, `contributes`. Pure discovery/resolution. Add `CommandId`, resolved command descriptors, `CommandContext`, host edit families, palette, and string-keyed shortcuts. Convert built-ins incrementally. | A built-in command and an extension humanize command both run from the palette and a shortcut; context gating and stale-revision rejection are tested; one undo entry per command. |
+| 2. Panels | Generalize the device panel frame into a host-owned panel surface. Add `notwig.panel`, panel tabs/docking, guest and host-rendered panels, focus, shortcut suppression, and lifecycle. Keep device panels on ABI v5. | Headless render, focus, invalid-frame fallback, multiple instances, close/reopen, and disabled-extension behavior are tested. |
+| 3. Audio sub-editors | Replace the `"AUDIO EVENTS"` label with the host selector. Add `notwig.audio_editor.sub_editor`, the built-in Audio Events contribution, and the shared curve editor. Add a Gain sub-editor over existing clip/slice gain. | Default lane and extension lane switch correctly; shared curve edits apply as one undo batch; time mapping, playhead, snap, and focus remain host-owned. |
+| 4. Canonical sub-editor data and custom editors | Add the canonical fields and engine paths needed for Pan and time-varying Gain, or explicitly scope them out. Add custom sub-editors through the panel surface. Ship a pitch-correction proof only with a chosen data/processing route. | Canonical data round-trips and affects rendering; no hidden playback state; custom sub-editor context is bounded and stale-checked. |
+| 5. Clipboard formats | Add format handlers and converters for arranger, audio, MIDI, and devices. Replace the closed `Clipboard` enum with a host snapshot plus built-in handlers. | Cross-domain paste tests, asset-missing tests, undo grouping, OS marker compatibility. |
+| 6. Single-provider services | Introduce service slots for low-risk systems (theme, export encoder, later clipboard replacement) with host fallback and conformance tests. | Replacement failure falls back; no load-order selection; conformance pass. |
+| 7. Recursive ecosystem | Allow extension-defined points for extension-to-extension contracts. Add diagnostics and author docs. | Namespace enforcement, missing-owner behavior, payload limits, sample ecosystem test. |
+| 8. Optional runtimes | WIT/component model or out-of-process extensions for higher isolation. | Same contracts pass over the new transport; no audio-path regression. |
 
-Each phase is independently useful. Phase 2 improves the product even if later
-phases are never built. Phase 3 reuses the existing editing algebra and does not
-require a new UI protocol. Phase 4 is the first phase that touches the host UI
-in a significant way and should not be promised early.
+Phases 1-4 are the first migration. They are sequenced so each one is useful on
+its own: commands do not need panels, panels do not need audio sub-editors, and
+the shared curve editor does not need custom pitch-correction processing. Phase
+3 can ship with existing gain data; phase 4 must not pretend that a missing Pan
+field or hidden extension state already works. Phases 5-8 are follow-ups, not
+prerequisites.
 
 ### Rollback
 
@@ -897,7 +1277,7 @@ the app starts with the guaranteed core and reports which package/generation
 failed. A project must remain loadable even if every non-core contribution is
 disabled.
 
-## 15. Invariants and test plan
+## 16. Invariants and test plan
 
 The following invariants are part of the design, not implementation details:
 
@@ -917,6 +1297,14 @@ The following invariants are part of the design, not implementation details:
     states, not panics or silent corruption.
 11. Built-in providers implement the same contracts they expose.
 12. User-visible ordering comes from declared keys, not discovery order.
+13. Command effects use host-owned edit families; a command cannot submit an
+    arbitrary `CommandPayload`.
+14. A command snapshot is checked against the current revision before its effect
+    is applied; stale contexts fail atomically.
+15. Audio sub-editors cannot store playback-affecting state outside a
+    host-modeled, versioned location.
+16. General panels draw only inside their host surface; they do not create host
+    chrome, focus order, or windows.
 
 | Test | Level | What it proves |
 | --- | --- | --- |
@@ -927,6 +1315,15 @@ The following invariants are part of the design, not implementation details:
 | Requirement and middleware cycles | Registry | Rejection without partial activation. |
 | Activation failure keeps the previous generation | Registry/app | Transactional activation. |
 | Core providers and external providers pass the same contract kit | Conformance | Built-in parity. |
+| Built-in and extension commands appear in the palette and run from a shortcut | UI/app | Command registry, context gating, and dynamic bindings. |
+| Command context changes before apply | App | Stale-revision rejection with no document mutation. |
+| Extension command edits selected MIDI notes | App/UI | Context selection, host edit family, one undo entry, editor refresh. |
+| Conflicting keybindings across built-ins and extensions | UI/config | Deterministic conflict handling without load order. |
+| Audio sub-editor switches while preserving clip time and selection | UI | Host-owned slot and shared timeline. |
+| Shared curve sub-editor applies and undoes one batch | UI/app | Curve widget, host data binding, undo grouping. |
+| Custom sub-editor receives a bounded context and a stale edit fails | App/UI | Sub-editor context and command effect boundary. |
+| Guest panel focus, shortcut suppression, and invalid-frame fallback | UI | General panel surface lifecycle. |
+| Extension disabled while its panel or command is open | App/UI | Deterministic fallback without corrupting state. |
 | Clipboard write/paste for every built-in format and converter | Core/app | Format negotiation and undo grouping. |
 | Clipboard across projects with missing assets | App | Typed failure without partial command application. |
 | Audio callback under contribution load | Engine | No allocation, lock, registry lookup, or module call. |
@@ -934,7 +1331,7 @@ The following invariants are part of the design, not implementation details:
 | Manifest fuzz and size/path limits | Registry | Robustness against malformed packages. |
 | Project load with all non-core contributions disabled | App | Guaranteed core and recovery path. |
 
-## 16. Non-goals and open questions
+## 17. Non-goals and open questions
 
 Non-goals for the first platform milestone:
 
@@ -943,6 +1340,11 @@ Non-goals for the first platform milestone:
 - Arbitrary host UI from sandboxed extensions.
 - Loading untrusted native libraries.
 - A universal scripting language or dynamic host-method dispatch.
+- Arbitrary command result payloads outside the host edit families.
+- Pan/Gain envelopes or pitch correction that affect playback before canonical
+  data and engine paths exist.
+- Free-floating guest windows or host focus/accessibility integration in the
+  first panel surface.
 - Making stock Chain, Tool, or EQ removable packages. The bootstrap and offline
   render arguments in [`plan/MOVING_DEVICES.md`](../../plan/MOVING_DEVICES.md)
   still apply.
@@ -958,15 +1360,33 @@ Open questions:
   both the app and CLI render path can use?
 - How are built-in manifests represented for introspection without installing
   packages: embedded JSON, generated code, or a static provider table?
-- Which editor operation is the first external example: MIDI quantize, audio
-  normalize, or a clip-name transform?
+- Which audio sub-editor is the first custom proof after Audio Events and Gain:
+  pitch correction, spectral repair, or a simpler waveform tool?
+- Which data/processing route does pitch correction take: host extension data
+  plus a processor, a destructive asset render, or a device?
 - How long is the contract deprecation window before the ecosystem is large
   enough to justify a formal policy?
 
-## 17. Direct answers
+## 18. Direct answers
 
 - **Feasible?** Yes, as an additive contribution platform with a guaranteed
   core. No, as a one-step replacement of every subsystem.
+- **First migration?** Dynamic commands with a palette, context, and string
+  keybindings; host-owned audio sub-editors with a shared curve editor and a
+  custom panel slot; and shell-hosted extension panels. Built-ins become normal
+  providers where practical.
+- **Commands?** A bounded `CommandContext` snapshot plus host-owned edit
+  families. Commands can read the selection, return validated edits, update
+  focus/selection, and run from the palette or a shortcut. They cannot submit
+  arbitrary document commands or run on the audio thread.
+- **Audio sub-editors?** The host owns the `"AUDIO EVENTS"` button, slot, time
+  mapping, focus, and undo. Extensions contribute shared-curve targets or custom
+  panel sub-editors. Gain can start over existing `gain_db`; Pan and pitch
+  correction need canonical data and a processing route before they can affect
+  playback.
+- **Panels?** The host owns docking, tabs, focus, resize, and close. Guest panels
+  reuse the validated `PanelFrame` transport inside a bounded surface; simple
+  panels can use a host-rendered schema. Panels compose with commands.
 - **Clipboard?** Host-owned snapshot with format handlers, deterministic
   negotiation, converters, and command-plan pastes. A single-provider clipboard
   service slot is possible later, with the built-in as fallback and explicit
@@ -986,5 +1406,5 @@ Open questions:
   new host authority and new host UI surfaces cannot.
 - **Risks and benefits?** The benefits are real extensibility and deterministic
   composition. The risks are contract sprawl, real-time/UI regressions,
-  bootstrap breakage, and version-matrix cost. Phases 0-2 capture most of the
+  bootstrap breakage, and version-matrix cost. Phases 1-4 capture most of the
   value with the least irreversible risk.

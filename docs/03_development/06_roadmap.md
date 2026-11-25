@@ -273,9 +273,10 @@ Dependencies worth planning around:
 | General drawing hooks | 📋 Planned | ⭐⭐⭐ | Arranger clips, track headers, lanes, and editors on the shared draw IR. |
 | Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.csv` builds `docs/extensions.json` with per-target URLs and SHA-256 hashes; CI packages macOS Apple Silicon and WASM builds and publishes via GitHub Pages. |
 
-The broader Eclipse-style extension-point model is not scheduled. The
-feasibility, phased plan, determinism rules, clipboard service design, and
-migration risks are analyzed in
+The broader Eclipse-style extension-point model is not scheduled. The proposed
+first migration (extension commands and a palette, audio-editor sub-editors, and
+extension panels), determinism rules, clipboard service design, and migration
+risks are analyzed in
 [`Extension Platform Architecture`](23_extension_platform_architecture.md).
 
 ## UI and workflow

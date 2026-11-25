@@ -99,5 +99,6 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
   routing, sends, bypass/inactive tracks, latency labels, plugin latency
   reporting, and PDC limits.
 - [Extension Platform Architecture](23_extension_platform_architecture.md) —
-  contribution registry, extension points, deterministic resolution, service
-  slots, clipboard formats, performance, and migration analysis.
+  contribution registry, extension points, command palette and context,
+  audio sub-editors, extension panels, deterministic resolution, service slots,
+  clipboard formats, performance, and migration analysis.
