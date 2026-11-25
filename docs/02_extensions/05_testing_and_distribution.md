@@ -123,7 +123,13 @@ The CSV has a `source,hash` header. Each row is one target ZIP, local or remote:
 source,hash
 docs/extensions/ext-devices-macos-arm64.zip,
 docs/extensions/ext-devices-wasm.zip,
+docs/extensions/ext-example-macos-arm64.zip,
+docs/extensions/ext-example-wasm.zip,
 ```
+
+The Pages workflow publishes both the stock device pack and the command API
+example. Install `Notwig Extension Examples` from the index to test the
+`Humanize Notes` command.
 
 Hashes are SHA-256 lowercase hex. Leave a hash blank to compute it while building
 the index, or fill it in to pin an existing file; a non-empty hash is verified

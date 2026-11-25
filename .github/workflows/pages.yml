@@ -60,6 +60,18 @@ jobs:
           --out-dir docs/extensions
           --name "ext-devices-${{ matrix.slug }}"
 
+      - name: Build example extension entrypoint
+        run: >-
+          cargo notwig-ext build --entrypoint "${{ matrix.target }}"
+          --path crates/notwig-ext/notwig-ext-example
+
+      - name: Package example extension
+        run: >-
+          cargo notwig-ext build --package "${{ matrix.target }}"
+          --path crates/notwig-ext/notwig-ext-example
+          --out-dir docs/extensions
+          --name "ext-example-${{ matrix.slug }}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: extension-${{ matrix.target }}
