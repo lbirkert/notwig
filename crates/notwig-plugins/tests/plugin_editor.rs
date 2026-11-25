@@ -2,7 +2,7 @@
 //!
 //! Notwig hosts plugin editor windows on macOS only. This target uses a custom
 //! harness (`harness = false`) so every editor is created on the process main
-//! thread: libtest runs `#[test]` bodies on worker threads, and AppKit can
+//! thread: libtest runs `#[test]` bodies on worker threads, and `AppKit` can
 //! throw a foreign exception across Rust when windows/view factories are used
 //! off the main thread.
 
@@ -128,26 +128,41 @@ fn native_editor_reports_backend_unavailable() {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(
+    target_os = "macos",
+    any(
+        feature = "vst3",
+        feature = "vst2",
+        feature = "clap",
+        feature = "lv2",
+        feature = "au",
+        feature = "au3"
+    )
+))]
 fn run_editor(format: PluginFormat) {
     let _ = fixture_bundles();
     let mut host = PluginHost::new();
     let descriptor = descriptor(&mut host, format);
+
+    // LV2 parameter enumeration and state save/load are documented as unwired
+    // (see docs/03_development/16_plugin_hosting.md), so that format can only
+    // exercise the window lifecycle, not host parameter/state round-trips.
+    let params_and_state = format != PluginFormat::Lv2;
 
     // Resolve the fixture's gain parameter through the DSP path so the editor
     // test exercises the same parameter IDs the engine uses.
     let mut instance = host
         .load(&descriptor)
         .unwrap_or_else(|err| panic!("{format:?} fixture load failed: {err}"));
-    // VST3 parameter metadata is only complete after activation and the first
-    // process block (the host integration tests follow the same order).
     let render_config = config(SAMPLE_RATE, BLOCK_SIZE);
     prepare(instance.as_mut(), render_config);
     let _ = render_blocks(instance.as_mut(), render_config, 0.0, 1);
-    let gain = param(&instance.describe_parameters(), "Gain")
-        .id
-        .into_uuid()
-        .as_u128() as u32;
+    let gain = params_and_state.then(|| {
+        param(&instance.describe_parameters(), "Gain")
+            .id
+            .into_uuid()
+            .as_u128() as u32
+    });
 
     let mut window = NativePluginWindow::open(&descriptor, SAMPLE_RATE, None)
         .unwrap_or_else(|err| panic!("{format:?} editor open failed: {err}"));
@@ -164,41 +179,48 @@ fn run_editor(format: PluginFormat) {
     assert!(window.is_open());
     window.focus();
 
-    // Host -> editor parameter interaction must reach the editor instance and
-    // round-trip through editor state.
-    let initial = window
-        .save_state()
-        .unwrap_or_else(|err| panic!("{format:?} editor save_state failed: {err}"));
-    window.set_parameter(gain, -18.0);
-    window.pump();
-    let changed = window
-        .save_state()
-        .unwrap_or_else(|err| panic!("{format:?} editor save_state failed: {err}"));
-    assert_ne!(
-        changed.blob, initial.blob,
-        "{format:?} editor ignored a host parameter change"
-    );
+    let changed_state = if let Some(gain) = gain {
+        // Host -> editor parameter interaction must reach the editor instance
+        // and round-trip through editor state.
+        let initial = window
+            .save_state()
+            .unwrap_or_else(|err| panic!("{format:?} editor save_state failed: {err}"));
+        window.set_parameter(gain, -18.0);
+        window.pump();
+        let changed = window
+            .save_state()
+            .unwrap_or_else(|err| panic!("{format:?} editor save_state failed: {err}"));
+        assert_ne!(
+            changed.blob, initial.blob,
+            "{format:?} editor ignored a host parameter change"
+        );
 
-    window
-        .load_state(&initial)
-        .unwrap_or_else(|err| panic!("{format:?} editor load_state failed: {err}"));
-    let restored = window
-        .save_state()
-        .unwrap_or_else(|err| panic!("{format:?} editor save_state failed: {err}"));
-    assert_eq!(restored.format, format);
-    assert_eq!(restored.plugin_uid, descriptor.uid);
-    assert_ne!(
-        restored.blob, changed.blob,
-        "{format:?} editor did not restore the previous state"
-    );
+        window
+            .load_state(&initial)
+            .unwrap_or_else(|err| panic!("{format:?} editor load_state failed: {err}"));
+        let restored = window
+            .save_state()
+            .unwrap_or_else(|err| panic!("{format:?} editor save_state failed: {err}"));
+        assert_eq!(restored.format, format);
+        assert_eq!(restored.plugin_uid, descriptor.uid);
+        assert_ne!(
+            restored.blob, changed.blob,
+            "{format:?} editor did not restore the previous state"
+        );
+        Some(changed)
+    } else {
+        None
+    };
 
     // Closing and reopening with saved state is the production lifecycle.
     drop(window);
     let mut reopened = NativePluginWindow::open(&descriptor, SAMPLE_RATE, None)
         .unwrap_or_else(|err| panic!("{format:?} editor reopen failed: {err}"));
-    reopened
-        .load_state(&changed)
-        .unwrap_or_else(|err| panic!("{format:?} reopened editor load_state failed: {err}"));
+    if let Some(changed) = &changed_state {
+        reopened
+            .load_state(changed)
+            .unwrap_or_else(|err| panic!("{format:?} reopened editor load_state failed: {err}"));
+    }
     reopened.pump();
     assert!(reopened.is_open());
 

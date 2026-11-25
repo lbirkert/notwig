@@ -57,7 +57,9 @@ The script builds `crates/notwig-plugins/tests/fixtures/truce_test_plugin`,
 sets `LV2_PATH`, and runs the ignored `plugin_integration` tests. Native editor
 tests run only on macOS because the editor host is AppKit-only. Windows runs the
 same script from Git Bash; LV2 is skipped there because the runner does not
-install lilv.
+install lilv. LV2 parameter enumeration and state save/load are unwired, so the
+editor test exercises only the LV2 window lifecycle; parameter and state
+assertions run for the other formats.
 
 `.github/workflows/plugin-integration.yml` is a manual-dispatch workflow that
 runs the same script on Intel and Apple Silicon macOS, Linux, and Windows
