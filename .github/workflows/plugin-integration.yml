@@ -36,6 +36,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_TRUCE_VERSION: 6.3.0
 
 jobs:
   plugin-integration:
@@ -65,8 +66,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Swatinem/rust-cache only covers build targets, so cache the installed
+      # cargo-truce binary itself. Version and runner architecture are part of
+      # the key; bump CARGO_TRUCE_VERSION to invalidate it.
+      - name: Restore cached cargo-truce
+        id: cargo-truce-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-truce
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-truce-${{ env.CARGO_TRUCE_VERSION }}
+
       - name: Install cargo-truce
-        run: cargo install cargo-truce --version 6.3.0 --locked
+        if: steps.cargo-truce-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-truce --version "$CARGO_TRUCE_VERSION" --locked
+
+      - name: Verify cargo-truce
+        run: cargo truce help >/dev/null
 
       - name: Install lilv for LV2
         if: ${{ inputs.run_lv2 }}
