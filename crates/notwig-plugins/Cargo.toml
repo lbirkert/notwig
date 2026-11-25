@@ -31,3 +31,8 @@ block2 = "0.6"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "plugin_editor"
+path = "tests/plugin_editor.rs"
+harness = false

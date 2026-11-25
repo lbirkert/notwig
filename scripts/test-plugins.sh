@@ -39,6 +39,7 @@ TARGET_DIR_NATIVE="$(native_path "$TARGET_DIR")"
 want_lv2="${NOTWIG_PLUGIN_TEST_LV2:-auto}"
 want_au3="${NOTWIG_PLUGIN_TEST_AU3:-0}"
 want_editor="${NOTWIG_PLUGIN_TEST_EDITOR:-1}"
+export NOTWIG_PLUGIN_TEST_EDITOR="$want_editor"
 for arg in "$@"; do
   case "$arg" in
     --no-lv2) want_lv2=0 ;;
@@ -162,11 +163,10 @@ cargo test -p notwig-plugins \
   -- --ignored --test-threads=1
 
 if [[ "$host_os" == "Darwin" && "$want_editor" == "1" ]]; then
-  echo "==> running native editor tests (AppKit windows)"
+  echo "==> running native editor tests (AppKit windows, main thread)"
   cargo test -p notwig-plugins \
     --test plugin_editor \
-    --features "$feature_list" \
-    -- --ignored --test-threads=1
+    --features "$feature_list"
 elif [[ "$host_os" == "Darwin" ]]; then
   echo "==> native editor tests skipped (NOTWIG_PLUGIN_TEST_EDITOR=0)"
 else

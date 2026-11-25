@@ -1,9 +1,10 @@
 //! Manual native-editor coverage for the local truce fixture.
 //!
-//! Notwig hosts plugin editor windows on macOS only; all other platforms use
-//! the backend-unavailable stub. These tests are ignored because they open
-//! real `AppKit` windows and need `scripts/test-plugins.sh` to build/install the
-//! fixture first.
+//! Notwig hosts plugin editor windows on macOS only. This target uses a custom
+//! harness (`harness = false`) so every editor is created on the process main
+//! thread: libtest runs `#[test]` bodies on worker threads, and AppKit can
+//! throw a foreign exception across Rust when windows/view factories are used
+//! off the main thread.
 
 #[cfg(all(
     target_os = "macos",
@@ -30,17 +31,6 @@ mod support;
         feature = "au3"
     )
 ))]
-#[cfg(all(
-    target_os = "macos",
-    any(
-        feature = "vst3",
-        feature = "vst2",
-        feature = "clap",
-        feature = "lv2",
-        feature = "au",
-        feature = "au3"
-    )
-))]
 use notwig_plugins::{NativePluginWindow, PluginFormat, PluginHost, prepare_window_host};
 #[cfg(all(
     target_os = "macos",
@@ -55,8 +45,63 @@ use notwig_plugins::{NativePluginWindow, PluginFormat, PluginHost, prepare_windo
 ))]
 use support::{BLOCK_SIZE, SAMPLE_RATE, config, descriptor, fixture_bundles, param, prepare};
 
+fn main() {
+    #[cfg(not(target_os = "macos"))]
+    {
+        native_editor_reports_backend_unavailable();
+    }
+
+    #[cfg(all(
+        target_os = "macos",
+        any(
+            feature = "vst3",
+            feature = "vst2",
+            feature = "clap",
+            feature = "lv2",
+            feature = "au",
+            feature = "au3"
+        )
+    ))]
+    {
+        if std::env::var("NOTWIG_PLUGIN_TEST_EDITOR").as_deref() != Ok("1") {
+            eprintln!(
+                "skipping native editor tests; set NOTWIG_PLUGIN_TEST_EDITOR=1 to open AppKit windows"
+            );
+            return;
+        }
+
+        prepare_window_host();
+        #[cfg(feature = "vst3")]
+        run_editor(PluginFormat::Vst3);
+        #[cfg(feature = "vst2")]
+        run_editor(PluginFormat::Vst2);
+        #[cfg(feature = "clap")]
+        run_editor(PluginFormat::Clap);
+        #[cfg(feature = "lv2")]
+        run_editor(PluginFormat::Lv2);
+        #[cfg(feature = "au")]
+        run_editor(PluginFormat::Au);
+        #[cfg(feature = "au3")]
+        run_editor(PluginFormat::Au3);
+    }
+
+    #[cfg(all(
+        target_os = "macos",
+        not(any(
+            feature = "vst3",
+            feature = "vst2",
+            feature = "clap",
+            feature = "lv2",
+            feature = "au",
+            feature = "au3"
+        ))
+    ))]
+    {
+        eprintln!("no plugin format features enabled; skipping native editor tests");
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
-#[test]
 fn native_editor_reports_backend_unavailable() {
     use std::path::PathBuf;
 
@@ -97,7 +142,6 @@ fn run_editor(format: PluginFormat) {
         .into_uuid()
         .as_u128() as u32;
 
-    prepare_window_host();
     let mut window = NativePluginWindow::open(&descriptor, SAMPLE_RATE, None)
         .unwrap_or_else(|err| panic!("{format:?} editor open failed: {err}"));
     assert!(window.is_open());
@@ -167,52 +211,4 @@ fn run_editor(format: PluginFormat) {
         &mut [0.0; BLOCK_SIZE * 2],
         &[],
     );
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "manual: opens an AppKit editor window; run scripts/test-plugins.sh"]
-#[cfg(feature = "vst3")]
-fn vst3_native_editor_opens_sizes_and_round_trips_state() {
-    run_editor(PluginFormat::Vst3);
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "manual: opens an AppKit editor window; run scripts/test-plugins.sh"]
-#[cfg(feature = "vst2")]
-fn vst2_native_editor_opens_sizes_and_round_trips_state() {
-    run_editor(PluginFormat::Vst2);
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "manual: opens an AppKit editor window; run scripts/test-plugins.sh"]
-#[cfg(feature = "clap")]
-fn clap_native_editor_opens_sizes_and_round_trips_state() {
-    run_editor(PluginFormat::Clap);
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "manual: opens an AppKit editor window; run scripts/test-plugins.sh"]
-#[cfg(feature = "lv2")]
-fn lv2_native_editor_opens_sizes_and_round_trips_state() {
-    run_editor(PluginFormat::Lv2);
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "manual: opens an AppKit editor window; run scripts/test-plugins.sh"]
-#[cfg(feature = "au")]
-fn au_native_editor_opens_sizes_and_round_trips_state() {
-    run_editor(PluginFormat::Au);
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "manual: opens an AppKit editor window; run scripts/test-plugins.sh"]
-#[cfg(feature = "au3")]
-fn au3_native_editor_opens_sizes_and_round_trips_state() {
-    run_editor(PluginFormat::Au3);
 }
