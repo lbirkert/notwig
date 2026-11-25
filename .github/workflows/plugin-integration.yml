@@ -1,19 +1,20 @@
 name: Plugin Integration
 
 # Manual-only: this suite builds native plugin bundles, installs AU components,
-# opens AppKit editor windows, and can take a long time to run.
+# opens AppKit editor windows, and can take a long time to run. The default
+# matrix covers Intel/Apple Silicon macOS plus Linux and Windows.
 on:
   workflow_dispatch:
     inputs:
       runners:
         description: >-
-          JSON array of runner labels. Defaults to one Intel and one Apple
-          Silicon macOS runner; add or replace labels for other hosts.
+          JSON array of runner labels. Defaults to Intel/Apple Silicon macOS,
+          Linux, and Windows; add or replace labels for other hosts.
         required: true
         type: string
-        default: '["macos-15-intel", "macos-15"]'
+        default: '["macos-15-intel", "macos-15", "ubuntu-24.04", "windows-2025"]'
       run_lv2:
-        description: Install lilv and run LV2 integration tests.
+        description: Install lilv and run LV2 integration tests (Linux/macOS only).
         required: true
         type: boolean
         default: true
@@ -57,10 +58,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Report runner
+        shell: bash
         run: |
-          uname -m
-          sw_vers
-          xcodebuild -version
+          uname -a
+          rustc --version
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            sw_vers
+            xcodebuild -version
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -75,7 +80,7 @@ jobs:
         id: cargo-truce-cache
         uses: actions/cache/restore@v4
         with:
-          path: ~/.cargo/bin/cargo-truce
+          path: ~/.cargo/bin/cargo-truce*
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-truce-${{ env.CARGO_TRUCE_VERSION }}
 
       - name: Install cargo-truce
@@ -90,16 +95,32 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          path: ~/.cargo/bin/cargo-truce
+          path: ~/.cargo/bin/cargo-truce*
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-truce-${{ env.CARGO_TRUCE_VERSION }}
 
+      - name: Install Linux build dependencies
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          packages=(
+            build-essential cmake ninja-build pkg-config
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev
+            libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libgl1-mesa-dev
+            libasound2-dev
+          )
+          if [[ "${{ inputs.run_lv2 }}" == "true" ]]; then
+            packages+=(liblilv-dev lv2-dev)
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
+
       - name: Install lilv for LV2
-        if: ${{ inputs.run_lv2 }}
+        if: ${{ runner.os == 'macOS' && inputs.run_lv2 }}
         run: brew install lilv pkg-config
 
       - name: Import Developer ID certificate for AU v3
         id: signing
-        if: ${{ inputs.run_au3 && env.APPLE_DEVELOPER_ID_P12 != '' }}
+        if: ${{ runner.os == 'macOS' && inputs.run_au3 && env.APPLE_DEVELOPER_ID_P12 != '' }}
         run: |
           set -euo pipefail
           keychain_password="$(uuidgen)"
@@ -129,16 +150,18 @@ jobs:
           echo "AU v3 signing identity: $identity"
 
       - name: Note AU v3 skip
-        if: ${{ inputs.run_au3 && env.APPLE_DEVELOPER_ID_P12 == '' }}
+        if: ${{ runner.os == 'macOS' && inputs.run_au3 && env.APPLE_DEVELOPER_ID_P12 == '' }}
         run: |
           echo "::notice::AU v3 integration skipped. Configure APPLE_DEVELOPER_ID_P12 and APPLE_DEVELOPER_ID_PASSWORD secrets to enable it."
 
       - name: Run plugin integration suite
+        shell: bash
         env:
-          NOTWIG_PLUGIN_TEST_LV2: ${{ inputs.run_lv2 && '1' || '0' }}
+          # lilv is not installed on Windows runners, so LV2 is Linux/macOS only.
+          NOTWIG_PLUGIN_TEST_LV2: ${{ runner.os != 'Windows' && inputs.run_lv2 && '1' || '0' }}
           NOTWIG_PLUGIN_TEST_AU3: ${{ steps.signing.outputs.enabled || '0' }}
         run: scripts/test-plugins.sh
 
       - name: Remove temporary signing keychain
-        if: ${{ always() && steps.signing.outputs.enabled == '1' }}
+        if: ${{ always() && runner.os == 'macOS' && steps.signing.outputs.enabled == '1' }}
         run: security delete-keychain "$RUNNER_TEMP/notwig-signing.keychain-db" || true

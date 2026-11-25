@@ -24,6 +24,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIXTURE="$ROOT/crates/notwig-plugins/tests/fixtures/truce_test_plugin"
 TARGET_DIR="${NOTWIG_PLUGIN_FIXTURE_TARGET:-$ROOT/target/plugin-fixtures}"
 
+# Native tools (cargo, cargo-truce, the test process) need Windows-style paths
+# under Git Bash; shell file operations keep using the POSIX form.
+native_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
+TARGET_DIR_NATIVE="$(native_path "$TARGET_DIR")"
+
 want_lv2="${NOTWIG_PLUGIN_TEST_LV2:-auto}"
 want_au3="${NOTWIG_PLUGIN_TEST_AU3:-0}"
 for arg in "$@"; do
@@ -82,7 +93,7 @@ done
 echo "==> building truce fixture formats: ${formats[*]}"
 (
   cd "$FIXTURE"
-  CARGO_TARGET_DIR="$TARGET_DIR" cargo truce build "${build_args[@]}"
+  CARGO_TARGET_DIR="$TARGET_DIR_NATIVE" cargo truce build "${build_args[@]}"
 )
 
 # AU discovery is registry-based, so the built component must be registered
@@ -91,9 +102,9 @@ if [[ "$host_os" == "Darwin" ]]; then
   echo "==> installing AU fixture so AudioComponent discovery can see it"
   (
     cd "$FIXTURE"
-    CARGO_TARGET_DIR="$TARGET_DIR" cargo truce install --au2 --user --no-build
+    CARGO_TARGET_DIR="$TARGET_DIR_NATIVE" cargo truce install --au2 --user --no-build
     if [[ "$want_au3" == "1" ]]; then
-      CARGO_TARGET_DIR="$TARGET_DIR" cargo truce install --au3 --no-build
+      CARGO_TARGET_DIR="$TARGET_DIR_NATIVE" cargo truce install --au3 --no-build
     fi
   )
 
@@ -121,7 +132,8 @@ if [[ "$host_os" == "Darwin" ]]; then
   fi
 fi
 
-export NOTWIG_PLUGIN_FIXTURE_BUNDLES="$TARGET_DIR/bundles"
+bundles_dir="$TARGET_DIR/bundles"
+export NOTWIG_PLUGIN_FIXTURE_BUNDLES="$(native_path "$bundles_dir")"
 # lilv reads LV2_PATH before it scans and treats every entry as a bundle, so
 # point it at a dedicated directory containing only the fixture's `.lv2`
 # bundle (the shared bundles dir also holds CLAP/VST artifacts).
@@ -130,14 +142,14 @@ if [[ "$want_lv2" == "1" ]]; then
   rm -rf "$lv2_path"
   mkdir -p "$lv2_path"
   shopt -s nullglob
-  lv2_bundles=("$NOTWIG_PLUGIN_FIXTURE_BUNDLES"/*.lv2)
+  lv2_bundles=("$bundles_dir"/*.lv2)
   shopt -u nullglob
   if (( ${#lv2_bundles[@]} == 0 )); then
-    echo "error: no LV2 bundle built under $NOTWIG_PLUGIN_FIXTURE_BUNDLES" >&2
+    echo "error: no LV2 bundle built under $bundles_dir" >&2
     exit 1
   fi
   cp -R "${lv2_bundles[@]}" "$lv2_path/"
-  export LV2_PATH="$lv2_path${LV2_PATH:+:$LV2_PATH}"
+  export LV2_PATH="$(native_path "$lv2_path")${LV2_PATH:+:$LV2_PATH}"
 fi
 
 feature_list="$(IFS=,; echo "${features[*]}")"

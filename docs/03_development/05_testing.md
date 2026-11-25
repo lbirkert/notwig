@@ -54,14 +54,16 @@ NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh   # macOS AU v2 + AU v3
 
 The script builds `crates/notwig-plugins/tests/fixtures/truce_test_plugin`,
 sets `LV2_PATH`, and runs the ignored `plugin_integration` tests. Native editor
-tests run only on macOS because the editor host is AppKit-only.
+tests run only on macOS because the editor host is AppKit-only. Windows runs the
+same script from Git Bash; LV2 is skipped there because the runner does not
+install lilv.
 
 `.github/workflows/plugin-integration.yml` is a manual-dispatch workflow that
-runs the same script on Intel and Apple Silicon macOS runners. Its `runners`
-input takes a JSON array so other labels can be added. AU v3 requires a
-Developer ID certificate: configure `APPLE_DEVELOPER_ID_P12` and
-`APPLE_DEVELOPER_ID_PASSWORD` secrets, otherwise the workflow skips AU v3 with
-a notice.
+runs the same script on Intel and Apple Silicon macOS, Linux, and Windows
+runners. Its `runners` input takes a JSON array so other labels can be added.
+AU v3 requires a Developer ID certificate: configure
+`APPLE_DEVELOPER_ID_P12` and `APPLE_DEVELOPER_ID_PASSWORD` secrets, otherwise
+the workflow skips AU v3 with a notice.
 
 The suite lives under `crates/*/tests/`. There is one inline unit-test module
 (`notwig-core/src/dsp/monitor.rs`), one Criterion benchmark harness
