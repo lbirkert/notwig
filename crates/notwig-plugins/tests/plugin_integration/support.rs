@@ -216,7 +216,11 @@ pub fn check_fixture_descriptor(descriptor: &PluginDescriptor, format: PluginFor
             "descriptor path {} does not exist",
             descriptor.path.display()
         );
-        assert!(descriptor.binary_size > 0);
+        // VST3/CLAP bundles are directories; Windows reports 0 for a
+        // directory's metadata length, so only enforce this for files.
+        if descriptor.path.is_file() {
+            assert!(descriptor.binary_size > 0);
+        }
     }
 }
 

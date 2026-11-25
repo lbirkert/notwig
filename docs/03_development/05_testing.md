@@ -63,7 +63,10 @@ runs the same script on Intel and Apple Silicon macOS, Linux, and Windows
 runners. Its `runners` input takes a JSON array so other labels can be added.
 AU v3 requires a Developer ID certificate: configure
 `APPLE_DEVELOPER_ID_P12` and `APPLE_DEVELOPER_ID_PASSWORD` secrets, otherwise
-the workflow skips AU v3 with a notice.
+the workflow skips AU v3 with a notice. Native editor window tests are skipped
+by default in the workflow because opening AppKit/GPU windows can abort on
+hosted runners; enable the `run_editor` input on a suitable macOS runner, or run
+locally with `NOTWIG_PLUGIN_TEST_EDITOR=1 scripts/test-plugins.sh`.
 
 The suite lives under `crates/*/tests/`. There is one inline unit-test module
 (`notwig-core/src/dsp/monitor.rs`), one Criterion benchmark harness

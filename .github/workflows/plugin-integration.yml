@@ -26,6 +26,14 @@ on:
         required: true
         type: boolean
         default: true
+      run_editor:
+        description: >-
+          Run macOS native plugin editor window tests. These open real AppKit
+          windows and may abort on hosted runners without a usable GPU/UI
+          session; leave off for CI.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -166,6 +174,7 @@ jobs:
           # lilv is not installed on Windows runners, so LV2 is Linux/macOS only.
           NOTWIG_PLUGIN_TEST_LV2: ${{ runner.os != 'Windows' && inputs.run_lv2 && '1' || '0' }}
           NOTWIG_PLUGIN_TEST_AU3: ${{ steps.signing.outputs.enabled || '0' }}
+          NOTWIG_PLUGIN_TEST_EDITOR: ${{ inputs.run_editor && '1' || '0' }}
         run: scripts/test-plugins.sh
 
       - name: Remove temporary signing keychain

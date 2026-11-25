@@ -15,6 +15,7 @@
 #   scripts/test-plugins.sh
 #   scripts/test-plugins.sh --no-lv2
 #   NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh
+#   NOTWIG_PLUGIN_TEST_EDITOR=0 scripts/test-plugins.sh   # skip macOS editor windows
 #
 # The fixture build is intentionally outside the Notwig workspace so truce's
 # plugin-side dependency graph never becomes a normal workspace dependency.
@@ -37,6 +38,7 @@ TARGET_DIR_NATIVE="$(native_path "$TARGET_DIR")"
 
 want_lv2="${NOTWIG_PLUGIN_TEST_LV2:-auto}"
 want_au3="${NOTWIG_PLUGIN_TEST_AU3:-0}"
+want_editor="${NOTWIG_PLUGIN_TEST_EDITOR:-1}"
 for arg in "$@"; do
   case "$arg" in
     --no-lv2) want_lv2=0 ;;
@@ -159,12 +161,14 @@ cargo test -p notwig-plugins \
   --features "$feature_list" \
   -- --ignored --test-threads=1
 
-if [[ "$host_os" == "Darwin" ]]; then
+if [[ "$host_os" == "Darwin" && "$want_editor" == "1" ]]; then
   echo "==> running native editor tests (AppKit windows)"
   cargo test -p notwig-plugins \
     --test plugin_editor \
     --features "$feature_list" \
     -- --ignored --test-threads=1
+elif [[ "$host_os" == "Darwin" ]]; then
+  echo "==> native editor tests skipped (NOTWIG_PLUGIN_TEST_EDITOR=0)"
 else
   echo "==> native editor windows are macOS-only; editor stub is covered by the normal suite"
 fi
