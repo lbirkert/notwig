@@ -91,4 +91,14 @@ truce::plugin! {
     params: NotwigTestParams,
 }
 
+// cargo-truce 6.3.0 links macOS VST2 bundles with `-u _main_macho`, but
+// truce-vst2 only emits `VSTPluginMain`. Provide the legacy alias so the
+// fixture links on macOS; it just forwards to the generated entry point.
+#[cfg(all(target_os = "macos", feature = "vst2"))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn main_macho(host: *mut core::ffi::c_void) -> *mut core::ffi::c_void {
+    // SAFETY: VST2 host entry points share this signature.
+    unsafe { ::truce_vst2::vst2_entry(host) }
+}
+
 truce::enable_rt_paranoid!();

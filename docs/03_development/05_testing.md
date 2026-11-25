@@ -68,6 +68,13 @@ by default in the workflow because opening AppKit/GPU windows can abort on
 hosted runners; enable the `run_editor` input on a suitable macOS runner, or run
 locally with `NOTWIG_PLUGIN_TEST_EDITOR=1 scripts/test-plugins.sh`.
 
+Hosted macOS runners can start `WindowServer`, but they do not provide a stable
+logged-in GUI/GPU session for third-party plugin editors. End-to-end window
+tests therefore belong on a self-hosted macOS runner with an interactive
+session (or on a developer machine); hosted CI still covers discovery, loading,
+DSP, parameters, state, latency, and the editor-unavailable stub. Notwig has no
+native editor host on Linux/Windows, so editor E2E coverage is macOS-only.
+
 The suite lives under `crates/*/tests/`. There is one inline unit-test module
 (`notwig-core/src/dsp/monitor.rs`), one Criterion benchmark harness
 (`crates/notwig-core/benches/dsp.rs`), and no `cargo fuzz` target yet. Rows in the
