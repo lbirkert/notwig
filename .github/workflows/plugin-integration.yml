@@ -70,12 +70,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Save the dependency/target/bin cache even when a later integration
+          # test fails; its post step defaults to success-only.
+          cache-on-failure: true
 
-      # Swatinem/rust-cache only covers build targets, so cache the installed
-      # cargo-truce binary itself. Version and runner architecture are part of
-      # the key; bump CARGO_TRUCE_VERSION to invalidate it. Restore and save are
-      # separate because actions/cache only saves at job end on success - the
-      # binary must already be cached even when a later integration test fails.
+      # Swatinem/rust-cache covers cargo/target state, but keep an explicit
+      # cargo-truce entry so a failed test run still persists the tool itself.
+      # Version and runner architecture are part of the key; bump
+      # CARGO_TRUCE_VERSION to invalidate it. Restore and save are separate
+      # because actions/cache only saves at job end on success.
       - name: Restore cached cargo-truce
         id: cargo-truce-cache
         uses: actions/cache/restore@v4
@@ -85,9 +89,11 @@ jobs:
 
       - name: Install cargo-truce
         if: steps.cargo-truce-cache.outputs.cache-hit != 'true'
-        run: cargo install cargo-truce --version "$CARGO_TRUCE_VERSION" --locked
+        shell: bash
+        run: cargo install cargo-truce --version "${{ env.CARGO_TRUCE_VERSION }}" --locked
 
       - name: Verify cargo-truce
+        shell: bash
         run: cargo truce help >/dev/null
 
       - name: Save cargo-truce cache
