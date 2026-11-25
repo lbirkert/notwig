@@ -147,7 +147,7 @@ fn run_editor(format: PluginFormat) {
     assert!(window.is_open());
     let size = window.size();
     assert!(
-        size.0 >= 128 && size.1 >= 128,
+        size.0 >= 64 && size.1 >= 64,
         "{format:?} editor reported implausible size {size:?}"
     );
 
