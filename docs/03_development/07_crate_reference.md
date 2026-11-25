@@ -98,3 +98,6 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 - [Routing and Delay Compensation](21_routing_and_pdc.md) — track/group/master
   routing, sends, bypass/inactive tracks, latency labels, plugin latency
   reporting, and PDC limits.
+- [Extension Platform Architecture](23_extension_platform_architecture.md) —
+  contribution registry, extension points, deterministic resolution, service
+  slots, clipboard formats, performance, and migration analysis.

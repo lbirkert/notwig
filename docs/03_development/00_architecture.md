@@ -306,7 +306,10 @@ plugin adapter and editor contract is in
   [`Extension Panels`](12_extension_panels.md). The ABI version policy, host
   calls, call order, and native/WASM/browser differences are in
   [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md). General clip/track
-  drawing hooks remain future work.
+  drawing hooks remain future work. The proposed contribution registry,
+  extension points, deterministic resolution, and service-slot model are
+  analyzed in
+  [`Extension Platform Architecture`](23_extension_platform_architecture.md).
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted
   by `notwig-app`.
