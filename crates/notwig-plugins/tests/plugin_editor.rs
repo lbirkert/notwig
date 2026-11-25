@@ -30,7 +30,6 @@ mod support;
         feature = "au3"
     )
 ))]
-use notwig_core::dsp::DeviceProcessor;
 #[cfg(all(
     target_os = "macos",
     any(
@@ -42,9 +41,7 @@ use notwig_core::dsp::DeviceProcessor;
         feature = "au3"
     )
 ))]
-use notwig_plugins::{
-    NativePluginWindow, PluginFormat, PluginHost, PluginInstance, prepare_window_host,
-};
+use notwig_plugins::{NativePluginWindow, PluginFormat, PluginHost, prepare_window_host};
 #[cfg(all(
     target_os = "macos",
     any(
@@ -95,7 +92,10 @@ fn run_editor(format: PluginFormat) {
     let instance = host
         .load(&descriptor)
         .unwrap_or_else(|err| panic!("{format:?} fixture load failed: {err}"));
-    let gain = param(&instance.describe_parameters(), "Gain").id;
+    let gain = param(&instance.describe_parameters(), "Gain")
+        .id
+        .into_uuid()
+        .as_u128() as u32;
 
     prepare_window_host();
     let mut window = NativePluginWindow::open(&descriptor, SAMPLE_RATE, None)

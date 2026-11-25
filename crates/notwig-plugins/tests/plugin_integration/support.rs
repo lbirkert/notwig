@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Shared by multiple test binaries; each uses a subset.
+
 use std::path::{Path, PathBuf};
 
 use notwig_core::dsp::{DeviceProcessor, ParamSpec, ProcessContext, RenderConfig, TransportInfo};

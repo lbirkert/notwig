@@ -41,6 +41,7 @@ const FULL_FORMAT: FormatProfile = FormatProfile {
 
 // Documented LV2 gap: path-bounded discovery is registry-based and the
 // adapter does not yet enumerate/set parameters or save/load state.
+#[cfg(feature = "lv2")]
 const LV2_FORMAT: FormatProfile = FormatProfile {
     params: false,
     state: false,

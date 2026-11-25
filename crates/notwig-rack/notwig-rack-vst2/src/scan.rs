@@ -88,12 +88,9 @@ pub fn default_vst2_paths() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         if let Some(program_files) = std::env::var_os("ProgramFiles") {
-            out.push(PathBuf::from(program_files).join("VstPlugins"));
-            out.push(
-                PathBuf::from(program_files)
-                    .join("Steinberg")
-                    .join("VstPlugins"),
-            );
+            let base = PathBuf::from(program_files);
+            out.push(base.join("VstPlugins"));
+            out.push(base.join("Steinberg").join("VstPlugins"));
         }
         if let Some(common) = std::env::var_os("CommonProgramFiles") {
             out.push(PathBuf::from(common).join("VST2"));
