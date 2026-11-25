@@ -134,9 +134,11 @@ fn run_editor(format: PluginFormat) {
 
     // Resolve the fixture's gain parameter through the DSP path so the editor
     // test exercises the same parameter IDs the engine uses.
-    let instance = host
+    let mut instance = host
         .load(&descriptor)
         .unwrap_or_else(|err| panic!("{format:?} fixture load failed: {err}"));
+    // VST3 parameter metadata is only complete after activation.
+    prepare(instance.as_mut(), config(SAMPLE_RATE, BLOCK_SIZE));
     let gain = param(&instance.describe_parameters(), "Gain")
         .id
         .into_uuid()
@@ -197,8 +199,6 @@ fn run_editor(format: PluginFormat) {
 
     // Keep the DSP instance alive through the editor lifecycle to make sure
     // the plugin module tolerates an editor instance next to a processing one.
-    let mut instance = instance;
-    prepare(instance.as_mut(), config(SAMPLE_RATE, BLOCK_SIZE));
     let _ = notwig_core::dsp::DeviceProcessor::process(
         instance.as_mut(),
         &notwig_core::dsp::ProcessContext {
