@@ -246,7 +246,7 @@ Dependencies worth planning around:
 | VST3 hosting | 🧪 Partial | ⭐⭐⭐⭐⭐ | In-process load and process. Manual truce fixture integration tests cover scan/load/params/state/latency; no CI plugin bundle yet. |
 | VST2 hosting | 🧪 Partial | ⭐ | Enabled on native macOS builds through the vendored wrapper. Manual truce fixture integration tests cover the same host path. |
 | CLAP hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process scan/load/process/state/GUI through the vendored wrapper. Manual truce fixture integration tests cover scan/load/params/state/editor. |
-| LV2 hosting | 🧪 Partial | ⭐⭐⭐ | In-process through lilv; requires the system `lilv-0` library. Native-class UIs only. Manual fixture covers discovery/load/process and asserts the remaining parameter/state gaps. |
+| LV2 hosting | 🧪 Partial | ⭐⭐⭐ | In-process through lilv; requires the system `lilv-0` library. Native-class UIs only. Manual fixture covers discovery/load/process, control-port parameters, state, latency, and editor lifecycle. |
 | AU v2 hosting | 🧪 Partial | ⭐⭐⭐⭐ | In-process on macOS. Manual fixture tests exist and require installing the AU component. |
 | AU v3 hosting | 🧪 Partial | ⭐⭐⭐ | Registry scan and load on macOS through the vendored AU wrapper. Async-only v3 instantiation is not yet exercised. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐⭐ | Scan runs in a child process. Cache is JSON with failure counts. |

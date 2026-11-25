@@ -39,14 +39,6 @@ const FULL_FORMAT: FormatProfile = FormatProfile {
     state: true,
 };
 
-// Documented LV2 gap: path-bounded discovery is registry-based and the
-// adapter does not yet enumerate/set parameters or save/load state.
-#[cfg(feature = "lv2")]
-const LV2_FORMAT: FormatProfile = FormatProfile {
-    params: false,
-    state: false,
-};
-
 fn run_format(format: PluginFormat, profile: FormatProfile) {
     let _ = fixture_bundles();
     let mut host = PluginHost::new();
@@ -71,6 +63,12 @@ fn run_format(format: PluginFormat, profile: FormatProfile) {
 
     // AU latency is only available after initialization; query it through
     // both capability and processor paths once the instance is prepared.
+    // Default state: 0 dB, clean polarity.
+    let output = render_blocks(instance.as_mut(), render_config, 0.25, 4);
+    assert_close(output, 0.25);
+
+    // Latency is queried after one block: LV2 reports it through an output
+    // control port written during process, not as static metadata.
     let prepared = instance.capabilities();
     assert_eq!(
         prepared.latency_samples,
@@ -82,10 +80,6 @@ fn run_format(format: PluginFormat, profile: FormatProfile) {
         expected_latency(format),
         "{format:?} device latency changed"
     );
-
-    // Default state: 0 dB, clean polarity.
-    let output = render_blocks(instance.as_mut(), render_config, 0.25, 4);
-    assert_close(output, 0.25);
 
     if profile.params {
         check_parameter_processing(format, instance.as_mut(), render_config);
@@ -204,6 +198,7 @@ fn check_state_round_trip(
         .load_state(&state)
         .unwrap_or_else(|err| panic!("{format:?} load_state failed: {err}"));
     prepare(restored.as_mut(), render_config);
+
     let output = render_blocks(restored.as_mut(), render_config, 0.25, 8);
     let restored_factor = 10.0_f32.powf(-12.0 / 20.0);
     assert_close(output, -0.25 * restored_factor);
@@ -278,7 +273,7 @@ fn clap_fixture_is_discovered_and_hosted() {
 #[ignore = "manual: requires scripts/test-plugins.sh, lilv, and LV2_PATH"]
 #[cfg(feature = "lv2")]
 fn lv2_fixture_is_discovered_and_hosted() {
-    run_format(PluginFormat::Lv2, LV2_FORMAT);
+    run_format(PluginFormat::Lv2, FULL_FORMAT);
 }
 
 #[test]

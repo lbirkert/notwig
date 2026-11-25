@@ -185,12 +185,13 @@ pub fn descriptor(host: &mut PluginHost, format: PluginFormat) -> PluginDescript
 
 pub fn expected_latency(format: PluginFormat) -> u32 {
     match format {
-        PluginFormat::Vst3 | PluginFormat::Vst2 | PluginFormat::Au | PluginFormat::Au3 => {
-            FIXTURE_LATENCY
-        }
-        // Documented adapter gaps: CLAP latency is not wired through
-        // notwig-rack and LV2 path/state support is still partial.
-        PluginFormat::Clap | PluginFormat::Lv2 => 0,
+        PluginFormat::Vst3
+        | PluginFormat::Vst2
+        | PluginFormat::Au
+        | PluginFormat::Au3
+        | PluginFormat::Lv2 => FIXTURE_LATENCY,
+        // Documented adapter gap: CLAP latency is not wired through notwig-rack.
+        PluginFormat::Clap => 0,
     }
 }
 

@@ -53,6 +53,13 @@ not the UI. `PluginHost::load` probes first when a probe is installed. The engin
 process constructs `PluginHost::new()` without a probe, so its DSP loads are not
 crash-isolated from the engine process.
 
+The scan and probe children write diagnostics to `stderr`, never to the metadata
+`stdout` channel. The UI captures that stream, forwards it through `tracing` at
+`debug` into the app log, and logs the scan duration and descriptor count at
+`info`. Per-plugin skip messages from the vendored rack scanners use `tracing`
+instead of writing directly to the terminal. See
+[`Logging and Diagnostics`](22_logging.md).
+
 ## 3. Scan and load threading
 
 Discovery runs in a `scan-plugins` child; metadata probing runs in a `load-plugin`
@@ -84,8 +91,9 @@ State is a `PluginState { format, plugin_uid, plugin_version, blob }`.
 The factory ignores restore errors. Parameter IDs are the plugin's `u32` ID widened
 into a `ParamId` UUID; `set_param` only applies `f64` values and ignores plugin
 errors. `describe_parameters` maps rack info into `ParamSpec`. Latency comes from
-`DeviceProcessor::latency`: VST3 `getLatencySamples`, VST2 `initial_delay`, and the
-AU latency property; CLAP and LV2 leave the default `0`.
+`DeviceProcessor::latency`: VST3 `getLatencySamples`, VST2 `initial_delay`, the
+AU latency property, and LV2's `lv2:reportsLatency` output control port; CLAP
+leaves the default `0`.
 
 ## 5. Editor hosting
 
@@ -122,7 +130,7 @@ was not previously closed.
 | VST3 | feature `vst3` | filesystem paths | `getLatencySamples` | yes | Editor supported. |
 | VST2 | feature `vst2` | filesystem paths | `initial_delay` | chunk or parameter dump | Editor when flagged. |
 | CLAP | feature `clap` | filesystem paths | not wired, reports `0` | `clap.state` | Editor via GUI extension. |
-| LV2 | feature `lv2` | registry (paths ignored) | not wired, reports `0` | save/load return "not yet wired" | No parameter enumeration/set. |
+| LV2 | feature `lv2` | registry (paths ignored) | `reportsLatency` control port | lilv state string | Control ports exposed as parameters. |
 | AU | feature `au` + Apple target | registry (paths ignored) | AU latency property | yes | macOS editor. |
 | AU3 | feature `au3` + Apple target | registry (paths ignored) | delegates to AU v2 | yes | Load reuses the AU v2 loader. |
 
@@ -144,8 +152,8 @@ targets. Format enablement in `PluginFormat::enabled` is compiled-feature based.
   cannot distinguish `Error` from overload, so the engine reports a device fault
   and sanitizes output without naming the plugin.
 - `RackPluginInstance` reports `supports_state: true` and `reports_latency: true`
-  for every format, although LV2 state is unwired and CLAP/LV2 latency is `0`.
-  Latency compensation therefore trusts a zero for those formats.
+  for every format, although CLAP latency is currently `0`. Latency compensation
+  therefore trusts a zero for CLAP until that extension is wired.
 - The engine process uses no subprocess probe. A plugin that hard-crashes during
   DSP load or process takes down `engine-host`; the UI survives and can restart it.
 
@@ -169,13 +177,13 @@ The format matrix is intentionally explicit about adapter gaps:
 | CLAP | yes | native units | yes | macOS only |
 | VST3 | yes | normalized `[0, 1]` | yes | macOS only |
 | VST2 | yes | normalized `[0, 1]` | yes | macOS only |
-| LV2 | yes (needs lilv + `LV2_PATH`) | not enumerated | not wired | macOS only |
+| LV2 | yes (needs lilv + `LV2_PATH`) | native units | yes | macOS only |
 | AU v2 | macOS, component must be installed | native units | yes | macOS only |
 | AU v3 | macOS, extension must be installed | native units | yes | macOS only |
 
-VST3 and VST2 currently expose normalized parameter values while CLAP and AU
-expose native units. The tests translate to each adapter's wire form instead
-of hiding that difference. Host `EnumIndex` values are not yet mapped through
+VST3 and VST2 currently expose normalized parameter values while CLAP, LV2,
+and AU expose native units. The tests translate to each adapter's wire form
+instead of hiding that difference. Host `EnumIndex` values are not yet mapped through
 normalized adapters' step counts, so enum coverage uses the raw wire value.
 
 Run the matrix manually:

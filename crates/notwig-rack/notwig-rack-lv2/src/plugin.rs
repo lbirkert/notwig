@@ -10,7 +10,7 @@ use notwig_rack_core::transport::TransportInfo;
 use lv2_raw::atom::{LV2Atom, LV2AtomEvent, LV2AtomSequence, LV2AtomSequenceBody};
 use lv2_raw::urid::LV2Urid;
 
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::mem;
 
 use crate::features::Features;
@@ -49,6 +49,12 @@ pub struct Lv2Plugin {
     pub(crate) control_values: Vec<f32>,
     /// Map from `ports` index to the offset in `control_values`.
     pub(crate) control_value_offset: Vec<usize>,
+    /// Host-facing control-port parameters (input controls only).
+    parameters: Vec<ParameterInfo>,
+    /// Offset in `control_values` for the `lv2:reportsLatency` output port.
+    latency_offset: Option<usize>,
+    /// State loaded before the instance exists; applied on first activate.
+    pending_state: Option<Vec<u8>>,
 
     /// Backing storage for the (single) MIDI input atom-sequence
     /// port, if the plugin has one. Rebuilt each block from the
@@ -116,8 +122,16 @@ impl Lv2Plugin {
 
         // Walk the ports once, classify each, and stash
         // direction + control defaults.
-        let (ports, audio_in_count, audio_out_count, control_value_offset, control_values) =
-            unsafe { classify_ports(world.ptr, plugin) };
+        let classified = unsafe { classify_ports(world.ptr, plugin) };
+        let crate::ports::ClassifiedPorts {
+            ports,
+            audio_in_count,
+            audio_out_count,
+            control_value_offset,
+            control_values,
+            parameters,
+            latency_offset,
+        } = classified;
 
         // Pre-map the URIs we'll need at process time.
         let features = Features::new();
@@ -168,6 +182,9 @@ impl Lv2Plugin {
             ports,
             control_values,
             control_value_offset,
+            parameters,
+            latency_offset,
+            pending_state: None,
             midi_in_buf: Vec::new(),
             midi_out_buf: Vec::new(),
             in_ptrs: Vec::new(),
@@ -280,6 +297,124 @@ impl Drop for Lv2Plugin {
     }
 }
 
+impl Lv2Plugin {
+    fn restore_state_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        let text = CString::new(bytes)
+            .map_err(|_| Error::Other("lv2 state blob contains an embedded NUL".into()))?;
+        let state = unsafe {
+            lilv_sys::lilv_state_new_from_string(
+                self.world.ptr,
+                self.features.map_ptr(),
+                text.as_ptr(),
+            )
+        };
+        if state.is_null() {
+            return Err(Error::Other("lv2 state parse failed".into()));
+        }
+
+        let mut ctx = RestorePortValues {
+            ports: &self.ports,
+            offsets: &self.control_value_offset,
+            values: self.control_values.as_mut_ptr(),
+            float_type: self.time_urids.atom_float,
+        };
+        let ctx_ptr = (&mut ctx as *mut RestorePortValues).cast::<c_void>();
+        if self.instance.is_null() {
+            unsafe {
+                lilv_sys::lilv_state_emit_port_values(state, Some(set_port_value), ctx_ptr);
+            }
+            self.pending_state = Some(bytes.to_vec());
+        } else {
+            unsafe {
+                lilv_sys::lilv_state_restore(
+                    state,
+                    self.instance,
+                    Some(set_port_value),
+                    ctx_ptr,
+                    0,
+                    self.features.feature_ptrs.as_ptr(),
+                );
+            }
+        }
+        unsafe { lilv_sys::lilv_state_free(state) };
+        Ok(())
+    }
+}
+
+struct SavePortValues<'a> {
+    ports: &'a [PortInfo],
+    offsets: &'a [usize],
+    values: &'a [f32],
+    scratch: f32,
+    float_type: u32,
+}
+
+unsafe extern "C" fn get_port_value(
+    symbol: *const c_char,
+    user_data: *mut c_void,
+    size: *mut u32,
+    value_type: *mut u32,
+) -> *const c_void {
+    if symbol.is_null() || user_data.is_null() {
+        return std::ptr::null();
+    }
+    let ctx = unsafe { &mut *user_data.cast::<SavePortValues>() };
+    let symbol = unsafe { CStr::from_ptr(symbol) }.to_bytes();
+    for (index, port) in ctx.ports.iter().enumerate() {
+        if port.symbol.as_bytes() != symbol {
+            continue;
+        }
+        let offset = ctx.offsets[index];
+        if offset == usize::MAX {
+            return std::ptr::null();
+        }
+        ctx.scratch = ctx.values[offset];
+        if !size.is_null() {
+            unsafe { *size = std::mem::size_of::<f32>() as u32 };
+        }
+        if !value_type.is_null() {
+            unsafe { *value_type = ctx.float_type };
+        }
+        return (&ctx.scratch as *const f32).cast::<c_void>();
+    }
+    std::ptr::null()
+}
+
+struct RestorePortValues<'a> {
+    ports: &'a [PortInfo],
+    offsets: &'a [usize],
+    values: *mut f32,
+    float_type: u32,
+}
+
+unsafe extern "C" fn set_port_value(
+    symbol: *const c_char,
+    user_data: *mut c_void,
+    value: *const c_void,
+    size: u32,
+    value_type: u32,
+) {
+    if symbol.is_null() || user_data.is_null() || value.is_null() {
+        return;
+    }
+    let ctx = unsafe { &mut *user_data.cast::<RestorePortValues>() };
+    if value_type != ctx.float_type || size != std::mem::size_of::<f32>() as u32 {
+        return;
+    }
+    let value = unsafe { *value.cast::<f32>() };
+    let symbol = unsafe { CStr::from_ptr(symbol) }.to_bytes();
+    for (index, port) in ctx.ports.iter().enumerate() {
+        if port.symbol.as_bytes() != symbol {
+            continue;
+        }
+        let offset = ctx.offsets[index];
+        if offset != usize::MAX {
+            unsafe { *ctx.values.add(offset) = value };
+        }
+        return;
+    }
+}
+
 impl PluginCore for Lv2Plugin {
     fn info(&self) -> &PluginInfo {
         &self.info
@@ -291,23 +426,45 @@ impl PluginCore for Lv2Plugin {
         &self.layouts
     }
     fn parameter_count(&self) -> usize {
-        // Control ports are LV2's parameter analogue, but exposing
-        // them through the param API requires names + ranges, which
-        // we don't yet read. Hosts can still read /set the value via
-        // the trait once we add ParameterInfo enumeration.
-        0
+        self.parameters.len()
     }
     fn parameter_info(&self, index: usize) -> Result<ParameterInfo> {
-        Err(Error::InvalidParameter(index))
+        self.parameters
+            .get(index)
+            .cloned()
+            .ok_or(Error::InvalidParameter(index))
     }
     fn parameter_value(&self, index: usize) -> Result<f64> {
-        Err(Error::InvalidParameter(index))
+        let info = self.parameter_info(index)?;
+        let offset = *self
+            .control_value_offset
+            .get(info.id as usize)
+            .ok_or(Error::InvalidParameter(index))?;
+        self.control_values
+            .get(offset)
+            .map(|value| f64::from(*value))
+            .ok_or(Error::InvalidParameter(index))
     }
-    fn parameter_value_string(&self, index: usize, _value: f64) -> Result<String> {
-        Err(Error::InvalidParameter(index))
+    fn parameter_value_string(&self, index: usize, value: f64) -> Result<String> {
+        let info = self.parameter_info(index)?;
+        if info.unit.is_empty() {
+            Ok(format!("{value:.3}"))
+        } else {
+            Ok(format!("{value:.3} {}", info.unit))
+        }
     }
-    fn set_parameter(&mut self, index: usize, _value: f64) -> Result<()> {
-        Err(Error::InvalidParameter(index))
+    fn set_parameter(&mut self, index: usize, value: f64) -> Result<()> {
+        let info = self.parameter_info(index)?;
+        let offset = *self
+            .control_value_offset
+            .get(info.id as usize)
+            .ok_or(Error::InvalidParameter(index))?;
+        let slot = self
+            .control_values
+            .get_mut(offset)
+            .ok_or(Error::InvalidParameter(index))?;
+        *slot = value.clamp(info.min, info.max) as f32;
+        Ok(())
     }
     fn preset_count(&self) -> usize {
         0
@@ -319,10 +476,62 @@ impl PluginCore for Lv2Plugin {
         Err(Error::Other("lv2 preset loading not yet wired".into()))
     }
     fn save_state(&self) -> Result<Vec<u8>> {
-        Err(Error::Other("lv2 state save not yet wired".into()))
+        if self.instance.is_null() {
+            return Err(Error::Other(
+                "lv2 state save requires an active instance".into(),
+            ));
+        }
+        let state_uri = CString::new(format!("{}#state", self.info.unique_id)).map_err(|_| {
+            Error::Other("lv2 plugin URI contains NUL; cannot build state URI".into())
+        })?;
+        let mut ctx = SavePortValues {
+            ports: &self.ports,
+            offsets: &self.control_value_offset,
+            values: &self.control_values,
+            scratch: 0.0,
+            float_type: self.time_urids.atom_float,
+        };
+        let ctx_ptr = (&mut ctx as *mut SavePortValues).cast::<c_void>();
+        let state = unsafe {
+            lilv_sys::lilv_state_new_from_instance(
+                self.plugin,
+                self.instance,
+                self.features.map_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                Some(get_port_value),
+                ctx_ptr,
+                0,
+                self.features.feature_ptrs.as_ptr(),
+            )
+        };
+        if state.is_null() {
+            return Err(Error::Other(
+                "lilv_state_new_from_instance returned NULL".into(),
+            ));
+        }
+        let text = unsafe {
+            lilv_sys::lilv_state_to_string(
+                self.world.ptr,
+                self.features.map_ptr(),
+                self.features.unmap_ptr().cast::<c_void>(),
+                state,
+                state_uri.as_ptr(),
+                std::ptr::null(),
+            )
+        };
+        unsafe { lilv_sys::lilv_state_free(state) };
+        if text.is_null() {
+            return Err(Error::Other("lilv_state_to_string returned NULL".into()));
+        }
+        let bytes = unsafe { CStr::from_ptr(text) }.to_bytes().to_vec();
+        unsafe { libc::free(text.cast()) };
+        Ok(bytes)
     }
-    fn load_state(&mut self, _bytes: &[u8]) -> Result<()> {
-        Err(Error::Other("lv2 state load not yet wired".into()))
+    fn load_state(&mut self, bytes: &[u8]) -> Result<()> {
+        self.restore_state_bytes(bytes)
     }
 
     fn activate(
@@ -358,6 +567,11 @@ impl PluginCore for Lv2Plugin {
             self.sample_rate = sample_rate;
         }
 
+        // A state loaded before activation is applied once the instance exists.
+        if let Some(bytes) = self.pending_state.take() {
+            self.restore_state_bytes(&bytes)?;
+        }
+
         // Rough sizing: room for a sequence header plus one max-len
         // MIDI event per frame. Plenty for any sane block.
         let event_slot = mem::size_of::<LV2AtomEvent>() + 8;
@@ -379,6 +593,13 @@ impl PluginCore for Lv2Plugin {
     }
     fn is_active(&self) -> bool {
         self.active_layout.is_some()
+    }
+
+    fn latency_samples(&self) -> u32 {
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        self.latency_offset
+            .and_then(|offset| self.control_values.get(offset))
+            .map_or(0, |value| value.max(0.0).round() as u32)
     }
 
     fn editor(&mut self) -> Option<&mut dyn PluginEditor> {

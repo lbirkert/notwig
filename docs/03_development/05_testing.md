@@ -57,9 +57,8 @@ The script builds `crates/notwig-plugins/tests/fixtures/truce_test_plugin`,
 sets `LV2_PATH`, and runs the ignored `plugin_integration` tests. Native editor
 tests run only on macOS because the editor host is AppKit-only. Windows runs the
 same script from Git Bash; LV2 is skipped there because the runner does not
-install lilv. LV2 parameter enumeration and state save/load are unwired, so the
-editor test exercises only the LV2 window lifecycle; parameter and state
-assertions run for the other formats.
+install lilv. All enabled formats exercise parameter updates and state
+round-trips; VST3/VST2 values are normalized while CLAP/LV2/AU use native units.
 
 `.github/workflows/plugin-integration.yml` is a manual-dispatch workflow that
 runs the same script on Intel and Apple Silicon macOS, Linux, and Windows
@@ -131,7 +130,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Live parameter updates | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Engine control exchange and prepared runtimes | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/control.rs` covers the shared slot, fixed-frame sync interval, prepared-runtime installation, transport application, and playhead publication. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐ | |
-| Real plugin load and process (CLAP/VST3/VST2/LV2/AU) | ✅ Implemented | ⭐⭐⭐⭐⭐ | Manual `scripts/test-plugins.sh` builds the truce fixture and runs `notwig-plugins/tests/plugin_integration.rs`: discovery, load, capabilities, parameter updates, state round-trip, latency, re-prepare, silence, zero-frame blocks, and repeated instantiation. LV2 parameter/state gaps are asserted explicitly. |
+| Real plugin load and process (CLAP/VST3/VST2/LV2/AU) | ✅ Implemented | ⭐⭐⭐⭐⭐ | Manual `scripts/test-plugins.sh` builds the truce fixture and runs `notwig-plugins/tests/plugin_integration.rs`: discovery, load, capabilities, parameter updates, state round-trip, latency, re-prepare, silence, zero-frame blocks, and repeated instantiation. |
 | Plugin delay compensation across tracks | 🧪 Partial | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks and send-vs-direct phase coherence. Hosted plugin latency is queried through the vendored VST3/VST2/AU wrappers but is not exercised by the headless test suite. |
 
 ## Unit tests
@@ -389,17 +388,17 @@ Use one shared fixture for both editors: two audio tracks, one audio clip with t
 | Real VST3 load and process | ✅ Implemented | ⭐⭐⭐⭐⭐ | Manual truce fixture via `scripts/test-plugins.sh`. |
 | Real VST2 load and process | ✅ Implemented | ⭐⭐ | Manual truce fixture via `scripts/test-plugins.sh`. |
 | Real CLAP load and process | ✅ Implemented | ⭐⭐⭐⭐ | Manual truce fixture via `scripts/test-plugins.sh`. |
-| Real LV2 load and process | ✅ Implemented | ⭐⭐⭐ | Manual truce fixture; parameter/state support is still absent and asserted as an explicit gap. |
+| Real LV2 load and process | ✅ Implemented | ⭐⭐⭐ | Manual truce fixture covers discovery/load/process, control-port parameters, lilv state round-trip, and reported latency. |
 | Real AU v2/v3 load and process | 🧪 Partial | ⭐⭐⭐⭐⭐ | macOS manual tests exist; AU discovery requires installing the fixture. AU v3 async-only instantiation remains unwired. |
-| Parameter enumeration and updates | ✅ Implemented | ⭐⭐⭐⭐ | Covered for CLAP/VST3/VST2/AU through the fixture. VST3/VST2 expose normalized values; CLAP/AU expose native units. |
+| Parameter enumeration and updates | ✅ Implemented | ⭐⭐⭐⭐ | Covered for CLAP/VST3/VST2/LV2/AU through the fixture. VST3/VST2 expose normalized values; CLAP/LV2/AU expose native units. |
 | Native editor open and parameter sync | 🧪 Partial | ⭐⭐⭐ | macOS manual path; open/size/state/interaction covered, synthetic mouse input is not. |
-| Plugin state save and restore | ✅ Implemented | ⭐⭐⭐⭐⭐ | Round-trip, wrong-UID rejection, and corrupt-blob safety covered for CLAP/VST3/VST2/AU. |
-| Plugin latency query | ✅ Implemented | ⭐⭐⭐⭐⭐ | VST3, VST2, and AU wrappers expose latency to the adapter; the fixture advertises non-zero latency and tests per-format reporting. |
+| Plugin state save and restore | ✅ Implemented | ⭐⭐⭐⭐⭐ | Round-trip, wrong-UID rejection, and corrupt-blob safety covered for CLAP/VST3/VST2/LV2/AU. |
+| Plugin latency query | ✅ Implemented | ⭐⭐⭐⭐⭐ | VST3, VST2, AU, and LV2 (`reportsLatency` control port) expose latency to the adapter; the fixture advertises non-zero latency and tests per-format reporting. |
 | Plugin MIDI output | 📋 Planned | ⭐⭐⭐ | |
 | Sidechain and multi-out | 📋 Planned | ⭐⭐⭐⭐ | |
 | Out-of-process crash isolation | ✅ Implemented | ⭐⭐⭐⭐⭐ | Native audio, plugin DSP, and plugin editor windows run in a supervised `engine-host` child process. Killing the child leaves the UI alive and shows the restart overlay. `notwig-plugins/tests/host.rs` covers metadata probe ordering and failure blocking; protocol framing and remote-control tests cover the new boundary. Per-plugin process isolation settings remain planned. |
 | CLAP hosting | 🧪 Partial | ⭐⭐⭐⭐ | The adapter is enabled on native macOS builds; no real-plugin integration test. |
-| LV2 hosting | 🧪 Partial | ⭐⭐⭐ | The adapter is enabled on native macOS builds with system `lilv`; no real-plugin integration test. |
+| LV2 hosting | 🧪 Partial | ⭐⭐⭐ | The adapter is enabled on native builds with system `lilv`; the manual truce fixture covers host integration and editor lifecycle. |
 | AU v3 hosting | 🧪 Partial | ⭐⭐⭐ | Registry scan/load is enabled on macOS; no real-plugin integration test. |
 | VST2 hosting | 🧪 Partial | ⭐ | The adapter is enabled on native macOS builds; no real-plugin integration test. |
 
