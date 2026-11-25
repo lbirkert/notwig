@@ -89,11 +89,11 @@ together:
 
 ```sh
 # Run on each target machine or VM.
-notwig-ext-cli build --entrypoint wasm
-notwig-ext-cli build --entrypoint macos-aarch64
+cargo notwig-ext build --entrypoint wasm
+cargo notwig-ext build --entrypoint macos-aarch64
 
 # Copy target/<rust-triple>/release/ artifacts into one target directory, then:
-notwig-ext-cli build --package --out-dir docs/extensions
+cargo notwig-ext build --package --out-dir docs/extensions
 ```
 
 `--package` includes every target whose artifact is present. Pass target names
@@ -103,7 +103,7 @@ Rust targets are installed with `rustup target add` for `--entrypoint` builds by
 default.
 
 The Pages workflow uses the same commands for the stock extension. It installs
-the CLI with `cargo install --path crates/notwig-ext/notwig-ext-cli --locked`,
+the CLI with `cargo install --path crates/notwig-ext/cargo-notwig-ext --locked`,
 builds one target entrypoint on each runner, and packages that artifact into a
 ZIP. Add new targets to the CLI target table and to the CI matrix when you are
 ready to publish them.

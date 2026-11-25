@@ -223,8 +223,8 @@ target/aarch64-apple-darwin/release/libnotwig_ext_devices.dylib
 To build and package the stock extension locally:
 
 ```sh
-cargo run -p notwig-ext-cli -- build --entrypoint wasm --path crates/notwig-ext/notwig-ext-devices
-cargo run -p notwig-ext-cli -- build --package wasm --path crates/notwig-ext/notwig-ext-devices --out-dir docs/extensions --name ext-devices-wasm
+cargo run -p cargo-notwig-ext -- build --entrypoint wasm --path crates/notwig-ext/notwig-ext-devices
+cargo run -p cargo-notwig-ext -- build --package wasm --path crates/notwig-ext/notwig-ext-devices --out-dir docs/extensions --name ext-devices-wasm
 ```
 
 ## Install

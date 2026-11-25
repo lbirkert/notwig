@@ -11,7 +11,7 @@ proc macro, host runtime, example devices, and the packaging/scaffolding CLI.
 | [`notwig-ext-macros`](notwig-ext-macros) | `#[notwig_extension]` proc macro that generates WASM and native exports |
 | [`notwig-ext`](notwig-ext) | Discovery, WASM/native loading, DSP instances, frame validation, and panel host |
 | [`notwig-ext-devices`](notwig-ext-devices) | Bundled compressor, clipper, delay, chorus, transient, dynamics, reverb, synth, and gain devices |
-| [`notwig-ext-cli`](notwig-ext-cli) | `new`, `init`, `build`, and `targets` commands for extension authors |
+| [`cargo-notwig-ext`](cargo-notwig-ext) | `cargo notwig-ext new`, `init`, `build`, and `targets` commands for extension authors |
 
 ## How an extension is shaped
 
@@ -88,26 +88,26 @@ present; the `image` path is packaged in addition when it differs from
 run in-process and are not sandboxed. Non-host native targets build through
 the target platform. Build each binary in a matching VM or machine, then copy
 the `target/<rust-triple>/release/` artifact into one target directory and run
-`notwig-ext-cli build --package` to bundle them together.
+`cargo notwig-ext build --package` to bundle them together.
 
 ## CLI
 
 ```sh
 # Create a new extension project.
-notwig-ext-cli new my-extension
+cargo notwig-ext new my-extension
 
 # Add extension files to an existing crate/package.
-notwig-ext-cli init
+cargo notwig-ext init
 
 # Build one target binary (run this in each target VM).
-notwig-ext-cli build --entrypoint wasm
-notwig-ext-cli build --entrypoint macos-aarch64
+cargo notwig-ext build --entrypoint wasm
+cargo notwig-ext build --entrypoint macos-aarch64
 
 # After copying target artifacts together, package what is available.
-notwig-ext-cli build --package --out-dir dist
+cargo notwig-ext build --package --out-dir dist
 
 # Package only selected targets and override the ZIP name.
-notwig-ext-cli build --package macos-aarch64 wasm --out-dir docs/extensions --name ext-devices
+cargo notwig-ext build --package macos-aarch64 wasm --out-dir docs/extensions --name ext-devices
 ```
 
 `new` and `init` generate `Cargo.toml`, `src/lib.rs`, `extension.json`, and a
@@ -125,7 +125,7 @@ shared `notwig-ui` egui components.
 - **Panels** use the guest egui API. Extensions run a private egui context and
   return validated meshes, texture deltas, and parameter actions. The host
   composites the output and applies validated actions.
-- **Packaging** is produced by `notwig-ext-cli`. The Pages workflow shows a
+- **Packaging** is produced by `cargo notwig-ext`. The Pages workflow shows a
   minimal CI recipe: install the CLI from this workspace, build one target
   entrypoint on the matching runner, then package the artifacts into a ZIP.
 

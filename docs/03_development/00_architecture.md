@@ -61,7 +61,7 @@ notwig-web
         └─> notwig-core
 
 notwig-ext-devices -> notwig-core, notwig-ext-api, notwig-ui (default-features = false)
-notwig-ext-cli     -> notwig-ext-api
+cargo-notwig-ext   -> notwig-ext-api
 ```
 
 Edges in detail:
@@ -74,7 +74,7 @@ Edges in detail:
 | `notwig-ext-api` | `notwig-core`, `notwig-ext-macros` | Shared by hosts and guest devices. |
 | `notwig-ext` | `notwig-core`, `notwig-ext-api` | `native` (wasmtime/libloading) and `web` features. |
 | `notwig-ext-devices` | `notwig-core`, `notwig-ext-api`, `notwig-ui` | All without default features. |
-| `notwig-ext-cli` | `notwig-ext-api` | Scaffolding and packaging. |
+| `cargo-notwig-ext` | `notwig-ext-api` | Scaffolding and packaging. |
 | `notwig-engine` | `notwig-core`, `notwig-plugins` | Real-time execution. |
 | `notwig-plugins` | `notwig-core`; optional `notwig-rack` | Format adapters are feature-gated. |
 | `notwig-ui` | `notwig-core`; optional `notwig-project`, `notwig-ext-api` | The `app` feature enables the optional edges. |
@@ -235,7 +235,7 @@ storage keys, gesture gate, and deployment assumptions.
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Runtime host behavior |
 | `notwig-ext` | Extension discovery, target selection, native wasmtime/WASM and shared-library hosts, device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-ext-devices` | Example and stock extension devices built against the SDK and shared `notwig-ui` components | Host behavior or app UI code |
-| `notwig-ext-cli` | Scaffolding and target-specific extension ZIP packaging | UI or runtime host behavior |
+| `cargo-notwig-ext` | Scaffolding and target-specific extension ZIP packaging | UI or runtime host behavior |
 | `notwig-engine` | Real-time playback, plan application, scheduling, transport, meters | Mutating `ProjectDoc`, blocking the audio callback |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance/state/editor lifecycle | Leaking format-specific types across the crate boundary |
 | `notwig-ui` | `egui` shell, views, editors, interaction, intents, runtime projection, shared extension components, guest panel compositing | Canonical state, engine internals, blocking work |
@@ -298,7 +298,7 @@ plugin adapter and editor contract is in
   format-specific types inside that crate.
 - **Extensions**: add host behavior in `crates/notwig-ext/notwig-ext` and
   shared ABI/panel types in `notwig-ext-api`. Source manifests omit
-  `entrypoints`; `notwig-ext-cli` adds the built target entrypoint and filters
+  `entrypoints`; `cargo notwig-ext` adds the built target entrypoint and filters
   `includes`. Device specs, DSP, and panels come from the extension;
   Notwig owns validation, resource limits, and rendering. `ui.panel` panels run a
   private guest egui context, use shared `notwig-ui` components, and send

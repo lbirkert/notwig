@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 fn main() {
-    if let Err(error) = notwig_ext_cli::run() {
-        eprintln!("notwig-ext-cli: {error}");
+    if let Err(error) = cargo_notwig_ext::run() {
+        eprintln!("cargo notwig-ext: {error}");
         std::process::exit(1);
     }
 }

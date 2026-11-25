@@ -5,11 +5,11 @@ This page builds a minimal gain extension, packages it, and loads it in Notwig.
 The quickest path is the CLI:
 
 ```sh
-cargo install --path crates/notwig-ext/notwig-ext-cli
-notwig-ext-cli new my-gain
+cargo install --path crates/notwig-ext/cargo-notwig-ext
+cargo notwig-ext new my-gain
 cd my-gain
-notwig-ext-cli build --entrypoint wasm
-notwig-ext-cli build --package wasm
+cargo notwig-ext build --entrypoint wasm
+cargo notwig-ext build --package wasm
 ```
 
 `new` generates a working gain device, `Cargo.toml`, `extension.json`, and a
@@ -224,8 +224,8 @@ For a portable WASM build:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-notwig-ext-cli build --entrypoint wasm
-notwig-ext-cli build --package wasm
+cargo notwig-ext build --entrypoint wasm
+cargo notwig-ext build --package wasm
 ```
 
 `--entrypoint` runs `cargo build --release` and leaves the binary in Cargo's
@@ -239,17 +239,17 @@ dist/com.example.gain-wasm.zip
 For a native build on macOS Apple Silicon:
 
 ```sh
-notwig-ext-cli build --entrypoint macos-aarch64
-notwig-ext-cli build --package macos-aarch64
+cargo notwig-ext build --entrypoint macos-aarch64
+cargo notwig-ext build --package macos-aarch64
 ```
 
 To bundle several platforms, run `--entrypoint` on each target VM, copy the
 `target/<rust-triple>/release/` artifacts into one target directory, then run
-`notwig-ext-cli build --package`. Use `--out-dir` and `--name` to choose the
+`cargo notwig-ext build --package`. Use `--out-dir` and `--name` to choose the
 output location or filename:
 
 ```sh
-notwig-ext-cli build --package macos-aarch64 --out-dir docs/extensions --name my-gain-macos
+cargo notwig-ext build --package macos-aarch64 --out-dir docs/extensions --name my-gain-macos
 ```
 
 Native libraries are not sandboxed. See

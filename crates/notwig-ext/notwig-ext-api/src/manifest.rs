@@ -47,7 +47,7 @@ pub struct ExtensionEntryPoint {
 /// Extra file included in a package build.
 ///
 /// Source manifests may list assets to bundle. An optional `target` limits the
-/// include to one build target. `notwig-ext-cli` removes this list from the
+/// include to one build target. `cargo notwig-ext` removes this list from the
 /// packaged manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionInclude {
@@ -61,7 +61,7 @@ pub struct ExtensionInclude {
 /// Parsed `extension.json` manifest.
 ///
 /// Unknown fields are rejected. Installed packages require at least one
-/// entrypoint; source manifests validated by `notwig-ext-cli` may omit them.
+/// entrypoint; source manifests validated by `cargo notwig-ext` may omit them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionManifest {
@@ -79,7 +79,7 @@ pub struct ExtensionManifest {
     /// Target-specific entrypoints, in host preference order.
     #[serde(default)]
     pub entrypoints: Vec<ExtensionEntryPoint>,
-    /// Source-only asset includes consumed by `notwig-ext-cli`.
+    /// Source-only asset includes consumed by `cargo notwig-ext`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub includes: Vec<ExtensionInclude>,
     /// Declared optional capabilities.
@@ -104,7 +104,7 @@ impl ExtensionManifest {
         self.validate_with_entrypoints(true)
     }
 
-    /// Validates a source manifest used by `notwig-ext-cli`.
+    /// Validates a source manifest used by `cargo notwig-ext`.
     ///
     /// Source manifests omit `entrypoints`; the CLI adds the selected target
     /// entrypoint before packaging.

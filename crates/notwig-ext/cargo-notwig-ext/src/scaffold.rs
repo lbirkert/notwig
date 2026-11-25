@@ -88,7 +88,7 @@ fn create(path: &Path, package_name: Option<String>, extension_id: Option<String
 
     println!("created extension {extension_id} in {}", path.display());
     println!(
-        "next: cd {} && notwig-ext-cli build --entrypoint wasm && notwig-ext-cli build --package wasm",
+        "next: cd {} && cargo notwig-ext build --entrypoint wasm && cargo notwig-ext build --package wasm",
         path.display()
     );
     Ok(())

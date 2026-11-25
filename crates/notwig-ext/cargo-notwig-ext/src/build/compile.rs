@@ -40,7 +40,7 @@ pub fn build_entrypoint(
 pub(super) fn resolve_target(raw: &str) -> Result<BuildTarget> {
     build_target::resolve(raw).ok_or_else(|| {
         Error::message(format!(
-            "unsupported target `{raw}` (try `notwig-ext-cli targets`)"
+            "unsupported target `{raw}` (try `cargo notwig-ext targets`)"
         ))
     })
 }

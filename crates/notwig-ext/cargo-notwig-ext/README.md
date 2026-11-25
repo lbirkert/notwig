@@ -1,18 +1,31 @@
-# notwig-ext-cli
+# cargo-notwig-ext
 
-Build and scaffold Notwig extension packages.
+Build and scaffold Notwig extension packages. The installed binary is
+`cargo-notwig-ext`, which Cargo exposes as the `cargo notwig-ext` subcommand.
+
+## Install
+
+```sh
+cargo install cargo-notwig-ext
+```
+
+From a workspace checkout:
+
+```sh
+cargo install --path crates/notwig-ext/cargo-notwig-ext
+```
 
 ## Commands
 
 ```sh
-notwig-ext-cli new <path> [--name <package>] [--id <extension-id>]
-notwig-ext-cli init [path] [--name <package>] [--id <extension-id>]
-notwig-ext-cli build --entrypoint <target> [--path <dir>]
-notwig-ext-cli build --package [target...] [--path <dir>] [--out-dir <dir>] [--name <zip-name>]
-notwig-ext-cli targets
+cargo notwig-ext new <path> [--name <package>] [--id <extension-id>]
+cargo notwig-ext init [path] [--name <package>] [--id <extension-id>]
+cargo notwig-ext build --entrypoint <target> [--path <dir>]
+cargo notwig-ext build --package [target...] [--path <dir>] [--out-dir <dir>] [--name <zip-name>]
+cargo notwig-ext targets
 ```
 
-Run `notwig-ext-cli --help` or `notwig-ext-cli <command> --help` for full
+Run `cargo notwig-ext --help` or `cargo notwig-ext <command> --help` for full
 option help. `new` creates a new extension directory. `init` adds the extension
 files to an existing directory. Both generate:
 
@@ -38,12 +51,12 @@ packaging machine:
 
 ```sh
 # On the Windows/macOS/Linux/WASM build machine:
-notwig-ext-cli build --entrypoint windows-x86_64
-notwig-ext-cli build --entrypoint macos-aarch64
-notwig-ext-cli build --entrypoint wasm
+cargo notwig-ext build --entrypoint windows-x86_64
+cargo notwig-ext build --entrypoint macos-aarch64
+cargo notwig-ext build --entrypoint wasm
 
 # On the packaging machine, after copying the target artifacts:
-notwig-ext-cli build --package --out-dir dist
+cargo notwig-ext build --package --out-dir dist
 ```
 
 Without `--name`, the ZIP is named `<extension-id>.zip`, or

@@ -49,7 +49,7 @@ pub fn package_targets(
     }
     if entries.is_empty() {
         return Err(Error::message(format!(
-            "no entrypoint binaries found in {}.\nRun `notwig-ext-cli build --entrypoint <target>` on each target platform and copy the artifacts into the same target directory before packaging.",
+            "no entrypoint binaries found in {}.\nRun `cargo notwig-ext build --entrypoint <target>` on each target platform and copy the artifacts into the same target directory before packaging.",
             package.target_directory.display()
         )));
     }

@@ -45,17 +45,17 @@ jobs:
       # 1. install the packaging CLI from this workspace
       # 2. build one target entrypoint on the matching runner
       # 3. package the artifacts present in target/ into the publishable ZIP
-      - name: Install notwig-ext-cli
-        run: cargo install --path crates/notwig-ext/notwig-ext-cli --locked
+      - name: Install cargo-notwig-ext
+        run: cargo install --path crates/notwig-ext/cargo-notwig-ext --locked
 
       - name: Build extension entrypoint
         run: >-
-          notwig-ext-cli build --entrypoint "${{ matrix.target }}"
+          cargo notwig-ext build --entrypoint "${{ matrix.target }}"
           --path crates/notwig-ext/notwig-ext-devices
 
       - name: Package stock extension
         run: >-
-          notwig-ext-cli build --package "${{ matrix.target }}"
+          cargo notwig-ext build --package "${{ matrix.target }}"
           --path crates/notwig-ext/notwig-ext-devices
           --out-dir docs/extensions
           --name "ext-devices-${{ matrix.slug }}"

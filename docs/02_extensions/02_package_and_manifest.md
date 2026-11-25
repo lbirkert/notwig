@@ -33,7 +33,7 @@ order that the host can run is used.
 ## Manifest
 
 The source `extension.json` declares the package and its devices. It omits
-`entrypoints`; `notwig-ext-cli` adds the selected target entrypoint when it
+`entrypoints`; `cargo notwig-ext` adds the selected target entrypoint when it
 builds a ZIP:
 
 ```json
@@ -119,7 +119,7 @@ generic parameter view. See the
 
 ### Entrypoints and targets
 
-`notwig-ext-cli build --package` adds one entrypoint per packaged binary:
+`cargo notwig-ext build --package` adds one entrypoint per packaged binary:
 
 ```json
 "entrypoints": [
@@ -160,7 +160,7 @@ triples such as `aarch64-apple-darwin` and `wasm32-unknown-unknown`.
 the package. The host does not follow absolute paths or paths that escape the
 extension directory. The older singular `entry` and `entrypoint` string fields
 are rejected. Installed manifests must declare an `entrypoints` list; source
-manifests omit it and `notwig-ext-cli` adds it.
+manifests omit it and `cargo notwig-ext` adds it.
 
 ### Native and WASM
 
@@ -222,15 +222,15 @@ installed again.
 
 ## Packaging with the CLI
 
-The `notwig-ext-cli` crate separates building from packaging:
+The `cargo-notwig-ext` crate separates building from packaging:
 
 ```sh
 # Build one binary on each target machine or VM.
-notwig-ext-cli build --entrypoint wasm
-notwig-ext-cli build --entrypoint macos-aarch64
+cargo notwig-ext build --entrypoint wasm
+cargo notwig-ext build --entrypoint macos-aarch64
 
 # Copy the target/<rust-triple>/release/ artifacts into one target directory.
-notwig-ext-cli build --package --out-dir docs/extensions
+cargo notwig-ext build --package --out-dir docs/extensions
 ```
 
 `--package` bundles every target binary it finds, or only the targets passed as

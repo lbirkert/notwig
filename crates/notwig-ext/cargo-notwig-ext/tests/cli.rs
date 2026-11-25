@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
 
+use cargo_notwig_ext::build::{PackageEntry, package_entries, package_extension, package_targets};
+use cargo_notwig_ext::scaffold;
+use cargo_notwig_ext::target;
 use notwig_ext_api::ExtensionManifest;
-use notwig_ext_cli::build::{PackageEntry, package_entries, package_extension, package_targets};
-use notwig_ext_cli::scaffold;
-use notwig_ext_cli::target;
 use serde_json::Value;
 use zip::ZipArchive;
 
@@ -144,6 +144,29 @@ fn new_scaffolds_a_buildable_extension() {
     assert_eq!(manifest["id"], "com.test.my-gain");
     assert!(manifest.get("entrypoints").is_none());
     assert!(manifest.get("includes").is_none());
+}
+
+#[test]
+fn binary_scaffolds_directly_and_through_cargo() {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = env!("CARGO_BIN_EXE_cargo-notwig-ext");
+    for (directory, cargo_prefix) in [("direct-gain", None), ("cargo-gain", Some("notwig-ext"))] {
+        let path = temp.path().join(directory);
+        let mut command = std::process::Command::new(binary);
+        if let Some(prefix) = cargo_prefix {
+            command.arg(prefix);
+        }
+        let status = command
+            .arg("new")
+            .arg(&path)
+            .arg("--id")
+            .arg(format!("com.test.{directory}"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(path.join("Cargo.toml").is_file());
+        assert!(path.join("extension.json").is_file());
+    }
 }
 
 #[test]

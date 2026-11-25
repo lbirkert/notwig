@@ -36,7 +36,7 @@ DeviceExtension::draw ──►  PanelFrame + actions    ───►  panels
 - `notwig-ui` composites the returned panel frame and applies validated
   parameter actions. Extension panels use its shared knobs, meters, labels,
   sections, toggles, and dropdowns.
-- `notwig-ext-cli` scaffolds extensions and builds target-specific ZIPs. It
+- `cargo notwig-ext` scaffolds extensions and builds target-specific ZIPs. It
   reads a source `extension.json` without `entrypoints`, adds the selected
   entrypoint, filters `includes` by target, removes `includes`, and bundles the
   artifact, manifest, icon, and extra files.

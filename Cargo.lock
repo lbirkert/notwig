@@ -503,6 +503,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-notwig-ext"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "notwig-ext-api",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zip",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2517,18 +2529,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "notwig-ext-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "notwig-ext-api",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "zip",
 ]
 
 [[package]]

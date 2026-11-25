@@ -26,7 +26,7 @@ and test layer before editing.
       notwig-ext-macros/
       notwig-ext/              host runtime
       notwig-ext-devices/
-      notwig-ext-cli/
+      cargo-notwig-ext/
     notwig-engine/
     notwig-plugins/
     notwig-ui/
@@ -52,7 +52,7 @@ notwig-ext-api -> notwig-core, notwig-ext-macros
 notwig-ext-macros -> proc-macro support only
 notwig-ext-devices -> notwig-core, notwig-ui, notwig-ext-api
                           (core/ui without default features)
-notwig-ext-cli -> notwig-ext-api
+cargo-notwig-ext -> notwig-ext-api
 notwig-engine -> notwig-core, notwig-plugins
 notwig-plugins -> notwig-core
 notwig-project -> notwig-core
@@ -156,7 +156,7 @@ ABI v5 adds extension container metadata; the guest panel remains the only exten
 | `web/` | browser host, package loading, WASM DSP, and panels |
 | `error.rs` | `ExtensionError` |
 
-### `notwig-ext-cli` — extension scaffolding and packaging
+### `cargo-notwig-ext` — extension scaffolding and packaging
 
 | Module | Responsibility |
 |---|---|
@@ -376,7 +376,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 
 ### Add an extension device
 
-1. Scaffold with `notwig-ext-cli new <path>` or `init`, or depend on
+1. Scaffold with `cargo notwig-ext new <path>` or `init`, or depend on
    `notwig-ext-api` directly; use `notwig-core` and `notwig-ui` without default
    features and build the crate as a `cdylib`/`rlib`.
 2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
@@ -391,8 +391,8 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 4. Ship a source `extension.json` with `api_version: 5`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
-   with `notwig-ext-cli build --entrypoint <target>` on each platform, then run
-   `notwig-ext-cli build --package` to add entrypoints and bundle the ZIP.
+   with `cargo notwig-ext build --entrypoint <target>` on each platform, then run
+   `cargo notwig-ext build --package` to add entrypoints and bundle the ZIP.
 5. Add frame tests in `crates/notwig-ext/notwig-ext-devices/tests/` and a host compositing
    test in `crates/notwig-ui/tests/`. See
    [Extension Overview](../02_extensions/00_overview.md) for the full package

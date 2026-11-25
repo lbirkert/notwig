@@ -1,5 +1,6 @@
 [package]
-name = "notwig-ext-cli"
+name = "cargo-notwig-ext"
+description = "Build and scaffold Notwig extensions"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
 //! Command-line build and scaffolding support for Notwig extensions.
 //!
-//! The `notwig-ext-cli` binary calls [`run`], which parses subcommands to
+//! The `cargo-notwig-ext` binary calls [`run`], which parses subcommands to
 //! scaffold a project or compile per-target entrypoint binaries and package
 //! them into ZIPs. The [`build`], [`scaffold`], and [`target`] modules are also
 //! usable as a library by tooling that needs the same target table, build, and
@@ -22,7 +22,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 /// Build and scaffold Notwig extensions.
 #[derive(Debug, Parser)]
 #[command(
-    name = "notwig-ext-cli",
+    name = "cargo-notwig-ext",
+    bin_name = "cargo notwig-ext",
     version,
     about = "Build and scaffold Notwig extensions",
     long_about = "Build source extension projects into target-specific ZIP packages, or scaffold a new extension with a working device, manifest, and icon."
@@ -89,12 +90,24 @@ enum Command {
     Targets,
 }
 
+/// Returns process arguments without the leading subcommand name Cargo adds.
+///
+/// `cargo notwig-ext` runs this binary as `cargo-notwig-ext notwig-ext ...`,
+/// while direct invocation runs it as `cargo-notwig-ext ...`.
+fn subcommand_args() -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if args.get(1).is_some_and(|arg| arg == "notwig-ext") {
+        args.remove(1);
+    }
+    args
+}
+
 /// Parses process arguments and runs the selected CLI subcommand.
 ///
 /// With no subcommand this prints help and succeeds. Invalid argument
 /// combinations are reported as [`Error::Message`].
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(subcommand_args());
     match cli.command {
         Some(Command::New { path, name, id }) => scaffold::new(path, name, id),
         Some(Command::Init { path, name, id }) => scaffold::init(path, name, id),
