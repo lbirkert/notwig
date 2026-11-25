@@ -1,14 +1,16 @@
 # Extension Overview
 
-Notwig extensions add devices. An extension can be built as a portable
-WebAssembly module or as a native shared library for the current platform. Both
-targets share the same author-facing `DeviceExtension` API. An extension can
+Notwig extensions add devices and commands. An extension can be built as a
+portable WebAssembly module or as a native shared library for the current
+platform. Both targets share the same author-facing API. An extension can
 provide:
 
 - device metadata and parameters through a `DeviceSpec`;
 - real-time DSP through the `DeviceExtension` trait;
 - a custom panel drawn with the guest egui API and shared `notwig-ui`
-  components.
+  components;
+- commands with manifest metadata, a bounded `CommandContext`, validated edit
+  families, command palette entries, and default keybindings.
 
 Extensions never receive the host `egui::Context`, host pointers to application
 state, or the project document. The extension runs a private egui context and
@@ -42,14 +44,18 @@ DeviceExtension::draw ──►  PanelFrame + actions    ───►  panels
   artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
-version is `5`. The WASM and native ABIs are different transport layers around
-the same Rust API.
+ABI version is `5`. The manifest layout is versioned separately: device-only
+packages may omit `manifest_version`, while command contributions require
+version `2`. The WASM and native ABIs are different transport layers around the
+same Rust API.
 
 ## What an extension can do
 
 An extension can:
 
 - add one or more audio effects or instruments to the device browser;
+- add commands that read the current selection and return validated edits, such
+  as humanizing MIDI notes;
 - read and write interleaved `f32` audio;
 - declare continuous, boolean, enum, and discrete parameters;
 - report processing latency;
@@ -64,7 +70,8 @@ A sandboxed WASM extension cannot:
 - access the filesystem, network, threads, or wall clock;
 - read or mutate the project document;
 - load native plugins;
-- create host tabs, windows, or arbitrary host UI.
+- create host tabs, windows, or arbitrary host UI;
+- mutate the project document directly from a command.
 
 The native wasmtime host enforces a 64 MiB memory limit and fuel per call. The
 browser host runs inside the browser sandbox but does not add an explicit
@@ -85,3 +92,5 @@ Install native extensions only from trusted sources.
 5. [Testing and Distribution](05_testing_and_distribution.md) covers tests,
    the bundled compressor, clipper, delay, chorus, transient, dynamics, reverb,
    synth, and gain devices, packaging, and index publishing.
+6. [Command API](06_command_api.md) covers manifest v2 command contributions,
+   the bounded context, host edit families, the palette, and keybindings.

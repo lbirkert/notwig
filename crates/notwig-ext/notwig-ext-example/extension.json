@@ -1,0 +1,23 @@
+{
+  "manifest_version": 2,
+  "id": "notwig.ext.example",
+  "name": "Notwig Extension Examples",
+  "vendor": "Notwig",
+  "version": "0.1.0",
+  "api_version": 5,
+  "capabilities": ["command"],
+  "contributes": [
+    {
+      "id": "notwig.ext.example.humanize",
+      "point": "notwig.command",
+      "contract": "notwig.command@1",
+      "title": "Humanize Notes",
+      "category": "MIDI",
+      "description": "Nudge the timing and velocity of selected MIDI notes.",
+      "when": "focus == midi_editor && selection.notes > 0",
+      "default_bindings": ["Ctrl+Alt+H"]
+    }
+  ],
+  "description": "Examples for the Notwig extension API, including MIDI commands.",
+  "image": "icon.png"
+}

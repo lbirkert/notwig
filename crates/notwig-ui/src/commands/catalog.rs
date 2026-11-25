@@ -1,4 +1,5 @@
 use egui::Key;
+use notwig_ext_api::CommandDescriptor;
 
 use super::KeyChord;
 
@@ -35,6 +36,7 @@ pub enum ShortcutCommand {
     ToggleInfoPanel,
     ToggleDeviceEditor,
     ToggleClipEditor,
+    CommandPalette,
     Cancel,
 }
 
@@ -379,6 +381,29 @@ pub const COMMANDS: &[CommandSpec] = &[
         defaults: &[],
     },
     CommandSpec {
+        command: ShortcutCommand::CommandPalette,
+        id: "command_palette",
+        label: "Show All Commands",
+        description: "Search and run commands.",
+        category: CommandCategory::View,
+        defaults: &[
+            KeyChord {
+                key: Key::F1,
+                command: false,
+                ctrl: false,
+                alt: false,
+                shift: false,
+            },
+            KeyChord {
+                key: Key::P,
+                command: true,
+                ctrl: false,
+                alt: false,
+                shift: true,
+            },
+        ],
+    },
+    CommandSpec {
         command: ShortcutCommand::Cancel,
         id: "cancel",
         label: "Cancel / close editor",
@@ -420,4 +445,25 @@ impl ShortcutCommand {
             .find(|spec| spec.id == id)
             .map(|spec| spec.command)
     }
+}
+
+/// Returns built-in command descriptors for the resolved command catalog.
+#[must_use]
+pub fn builtin_descriptors() -> Vec<CommandDescriptor> {
+    COMMANDS
+        .iter()
+        .map(|spec| CommandDescriptor {
+            id: spec.id.to_owned(),
+            title: spec.label.to_owned(),
+            category: spec.category.label().to_owned(),
+            description: spec.description.to_owned(),
+            when: None,
+            default_bindings: spec
+                .defaults
+                .iter()
+                .map(|chord| chord.config_string())
+                .collect(),
+            extension_id: None,
+        })
+        .collect()
 }

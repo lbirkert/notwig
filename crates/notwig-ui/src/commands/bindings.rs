@@ -1,50 +1,69 @@
 use std::collections::BTreeMap;
 
 use egui::Context;
+use notwig_ext_api::CommandDescriptor;
 
 use super::{COMMANDS, KeyChord, ShortcutCommand};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shortcuts {
-    bindings: BTreeMap<ShortcutCommand, Vec<KeyChord>>,
+    bindings: BTreeMap<String, Vec<KeyChord>>,
     dirty: bool,
 }
 
 impl Default for Shortcuts {
     fn default() -> Self {
         Self {
-            bindings: COMMANDS
-                .iter()
-                .map(|spec| (spec.command, spec.defaults.to_vec()))
-                .collect(),
+            bindings: builtin_bindings(),
             dirty: false,
         }
     }
 }
 
+fn builtin_bindings() -> BTreeMap<String, Vec<KeyChord>> {
+    COMMANDS
+        .iter()
+        .map(|spec| (spec.id.to_owned(), spec.defaults.to_vec()))
+        .collect()
+}
+
 impl Shortcuts {
     #[must_use]
     pub fn bindings(&self, command: ShortcutCommand) -> &[KeyChord] {
-        self.bindings.get(&command).map_or(&[], Vec::as_slice)
+        self.bindings_for(command.id())
+    }
+
+    #[must_use]
+    pub fn bindings_for(&self, command_id: &str) -> &[KeyChord] {
+        self.bindings.get(command_id).map_or(&[], Vec::as_slice)
     }
 
     #[must_use]
     pub fn has_binding(&self, command: ShortcutCommand, chord: KeyChord) -> bool {
-        self.bindings
-            .get(&command)
-            .is_some_and(|bindings| bindings.contains(&chord))
+        self.bindings(command).contains(&chord)
     }
 
     pub fn assign(&mut self, command: ShortcutCommand, chord: KeyChord) {
+        self.assign_id(command.id(), chord);
+    }
+
+    pub fn assign_id(&mut self, command_id: &str, chord: KeyChord) {
         for bindings in self.bindings.values_mut() {
             bindings.retain(|existing| *existing != chord);
         }
-        self.bindings.entry(command).or_default().push(chord);
+        self.bindings
+            .entry(command_id.to_owned())
+            .or_default()
+            .push(chord);
         self.dirty = true;
     }
 
     pub fn remove(&mut self, command: ShortcutCommand, chord: KeyChord) {
-        if let Some(bindings) = self.bindings.get_mut(&command) {
+        self.remove_id(command.id(), chord);
+    }
+
+    pub fn remove_id(&mut self, command_id: &str, chord: KeyChord) {
+        if let Some(bindings) = self.bindings.get_mut(command_id) {
             let before = bindings.len();
             bindings.retain(|existing| *existing != chord);
             if bindings.len() != before {
@@ -53,9 +72,50 @@ impl Shortcuts {
         }
     }
 
+    /// Adds default bindings for commands that do not have an entry yet.
+    ///
+    /// A command with an explicit empty entry keeps it, so clearing a binding is
+    /// not undone when extensions reload. Suggested chords never steal a chord
+    /// already assigned to another command; conflicts are resolved by the
+    /// shortcut editor instead of by load order.
+    pub fn add_defaults(&mut self, descriptors: &[CommandDescriptor]) {
+        let mut ordered = descriptors.to_vec();
+        ordered.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut additions: Vec<(String, Vec<KeyChord>)> = Vec::new();
+        for descriptor in ordered {
+            if self.bindings.contains_key(&descriptor.id)
+                || additions.iter().any(|(id, _)| id == &descriptor.id)
+            {
+                continue;
+            }
+            let mut chords = Vec::new();
+            for value in &descriptor.default_bindings {
+                let Some(chord) = KeyChord::parse(value) else {
+                    continue;
+                };
+                let used = self
+                    .bindings
+                    .values()
+                    .any(|bindings| bindings.contains(&chord))
+                    || additions
+                        .iter()
+                        .any(|(_, bindings)| bindings.contains(&chord));
+                if !used && !chords.contains(&chord) {
+                    chords.push(chord);
+                }
+            }
+            additions.push((descriptor.id, chords));
+        }
+        for (id, chords) in additions {
+            self.bindings.insert(id, chords);
+        }
+    }
+
     pub fn reset(&mut self) {
-        *self = Self::default();
-        self.dirty = true;
+        *self = Self {
+            bindings: builtin_bindings(),
+            dirty: true,
+        };
     }
 
     #[must_use]
@@ -65,9 +125,14 @@ impl Shortcuts {
 
     #[must_use]
     pub fn was_pressed(&self, ctx: &Context, command: ShortcutCommand) -> bool {
-        self.bindings.get(&command).is_some_and(|bindings| {
-            ctx.input(|input| bindings.iter().any(|chord| chord.is_pressed(input)))
-        })
+        self.was_pressed_id(ctx, command.id())
+    }
+
+    #[must_use]
+    pub fn was_pressed_id(&self, ctx: &Context, command_id: &str) -> bool {
+        self.bindings_for(command_id)
+            .iter()
+            .any(|chord| ctx.input(|input| chord.is_pressed(input)))
     }
 
     /// Resolves the effective copy, cut, and paste gestures for this frame.
@@ -109,15 +174,13 @@ impl Shortcuts {
 
     #[must_use]
     pub fn to_config(&self) -> BTreeMap<String, Vec<String>> {
-        COMMANDS
+        self.bindings
             .iter()
-            .map(|spec| {
-                let bindings = self
-                    .bindings
-                    .get(&spec.command)
-                    .map(|bindings| bindings.iter().map(|chord| chord.config_string()).collect())
-                    .unwrap_or_default();
-                (spec.id.to_owned(), bindings)
+            .map(|(id, bindings)| {
+                (
+                    id.clone(),
+                    bindings.iter().map(|chord| chord.config_string()).collect(),
+                )
             })
             .collect()
     }
@@ -125,16 +188,16 @@ impl Shortcuts {
     #[must_use]
     pub fn from_config(config: &BTreeMap<String, Vec<String>>) -> Self {
         let mut shortcuts = Self::default();
-        for spec in COMMANDS {
-            let Some(values) = config.get(spec.id) else {
-                continue;
-            };
-            shortcuts.bindings.insert(spec.command, Vec::new());
+        for (id, values) in config {
+            let mut chords = Vec::new();
             for value in values {
                 if let Some(chord) = KeyChord::parse(value) {
-                    shortcuts.assign(spec.command, chord);
+                    if !chords.contains(&chord) {
+                        chords.push(chord);
+                    }
                 }
             }
+            shortcuts.bindings.insert(id.clone(), chords);
         }
         shortcuts.dirty = false;
         shortcuts

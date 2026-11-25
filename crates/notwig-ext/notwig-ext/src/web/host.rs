@@ -8,7 +8,10 @@ use crate::web::instance::WebExtensionInstance;
 use crate::web::package::WebExtensionPackage;
 use crate::web::panel::WebExtensionPanelHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
-use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionStatus};
+use notwig_ext_api::{
+    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionConfig,
+    ExtensionInfo, ExtensionStatus,
+};
 
 /// Browser host for WASM extension packages.
 ///
@@ -26,6 +29,8 @@ impl WebExtensionHost {
     #[must_use]
     pub fn load(packages: Vec<WebExtensionPackage>, config: &ExtensionConfig) -> Self {
         let mut by_type = BTreeMap::new();
+        let mut by_command = BTreeMap::new();
+        let mut commands = BTreeMap::new();
         let mut infos = Vec::new();
         let mut errors = Vec::new();
         for package in packages {
@@ -52,6 +57,18 @@ impl WebExtensionHost {
                             by_type.insert(spec.type_id.clone(), Arc::clone(&extension));
                         }
                     }
+                    for command in &extension.commands {
+                        if commands.contains_key(&command.id) {
+                            tracing::warn!(
+                                command = %command.id,
+                                extension = %extension.manifest.id,
+                                "duplicate browser extension command id"
+                            );
+                        } else {
+                            commands.insert(command.id.clone(), command.clone());
+                            by_command.insert(command.id.clone(), Arc::clone(&extension));
+                        }
+                    }
                 }
                 Err(error) => {
                     errors.push(format!("{}: {error}", package.id()));
@@ -60,7 +77,12 @@ impl WebExtensionHost {
             }
         }
         Self {
-            loaded: Arc::new(WebLoadedExtensions { by_type, infos }),
+            loaded: Arc::new(WebLoadedExtensions {
+                by_type,
+                by_command,
+                commands,
+                infos,
+            }),
             errors,
         }
     }
@@ -81,6 +103,27 @@ impl WebExtensionHost {
     #[must_use]
     pub fn specs(&self) -> Vec<DeviceSpec> {
         self.loaded.specs()
+    }
+
+    /// Returns resolved command descriptors in deterministic id order.
+    #[must_use]
+    pub fn commands(&self) -> Vec<CommandDescriptor> {
+        self.loaded.commands()
+    }
+
+    /// Executes a contributed command against a bounded context.
+    pub fn execute_command(
+        &self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, ExtensionError> {
+        let extension = self
+            .loaded
+            .find_command(id)
+            .ok_or_else(|| ExtensionError::UnknownCommand(id.to_owned()))?;
+        let mut instance =
+            WebExtensionInstance::instantiate(&extension.module, &extension.manifest.id)?;
+        instance.execute_command(id, context)
     }
 
     /// Returns `true` when a loaded package provides `type_id`.
@@ -143,10 +186,24 @@ fn load_package(
         installed_hash,
         error: None,
     };
+    let commands = package
+        .manifest
+        .command_contributions()
+        .map(|contribution| CommandDescriptor {
+            id: contribution.id.clone(),
+            title: contribution.title.clone().unwrap_or_default(),
+            category: contribution.category.clone().unwrap_or_default(),
+            description: contribution.description.clone().unwrap_or_default(),
+            when: contribution.when.clone(),
+            default_bindings: contribution.default_bindings.clone(),
+            extension_id: Some(package.manifest.id.clone()),
+        })
+        .collect();
     Ok(WebLoadedExtension {
         manifest: package.manifest.clone(),
         module,
         specs,
+        commands,
         info,
     })
 }

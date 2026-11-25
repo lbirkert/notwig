@@ -38,6 +38,7 @@ builds a ZIP:
 
 ```json
 {
+  "manifest_version": 2,
   "id": "com.example.gain",
   "name": "Example Gain",
   "vendor": "Example",
@@ -65,6 +66,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
+| `manifest_version` | no | Manifest layout. Omit or use `1` for device-only packages; command contributions require `2`. |
 | `id` | yes | Stable package identity. Device type IDs should use it as a prefix. |
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
@@ -73,7 +75,8 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `entrypoints` | installed only | Ordered target builds; the CLI adds it. The first supported entry wins. |
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
-| `devices` | yes | Devices registered by the package. |
+| `devices` | no | Devices registered by the package. |
+| `contributes` | no | Extension-point contributions. The first supported point is `notwig.command`; see the [Command API](06_command_api.md). |
 | `description` | no | Short text shown in the explorer. |
 | `image` | no | Relative icon path in the package. The index copies it to `extensions/<id>.png` for the explorer. |
 
@@ -94,6 +97,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | --- | --- |
 | `device` | Device registration and DSP. |
 | `ui.panel` | Guest-owned panels. |
+| `command` | Command contributions and command palette entries. |
 
 An extension without `ui.panel` still appears in the device browser and uses the
 generic parameter view. See the

@@ -31,6 +31,7 @@ pub(crate) struct WebExtensionInstance {
     process: Function,
     latency: Function,
     draw: Function,
+    command: Option<Function>,
     host_global: String,
 }
 
@@ -78,6 +79,9 @@ impl WebExtensionInstance {
             process: abi::export_function(&exports, "notwig_device_process")?,
             latency: abi::export_function(&exports, "notwig_device_latency")?,
             draw: abi::export_function(&exports, "notwig_device_draw")?,
+            command: Reflect::get(&exports, &JsValue::from_str("notwig_command_execute"))
+                .ok()
+                .and_then(|value| value.dyn_into().ok()),
             memory,
             host_global: glue.global_name,
         })

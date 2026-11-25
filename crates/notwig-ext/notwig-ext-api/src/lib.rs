@@ -30,6 +30,7 @@
 #![deny(unsafe_code)]
 
 pub mod abi;
+pub mod command;
 pub mod config;
 pub mod context;
 pub mod cursor;
@@ -45,6 +46,12 @@ pub mod status;
 pub mod target;
 
 pub use abi::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, pack_ptr_len, unpack_ptr_len};
+pub use command::{
+    COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
+    CommandExtension, CommandFocus, CommandId, CommandSelection, CommandTimeSelection,
+    CommandUiRequest, MAX_COMMAND_CONTEXT_NOTES, MAX_COMMAND_CONTEXT_SLICES, MAX_COMMAND_EDITS,
+    WhenError, evaluate_when, validate_when,
+};
 pub use config::{CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig};
 pub use context::{DeviceDrawContext, DeviceMeterSnapshot, ThemeSnapshot};
 pub use cursor::CursorIcon;
@@ -52,8 +59,8 @@ pub use extension::{DeviceExtension, Extension};
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
 pub use manifest::{
-    ExtensionCapability, ExtensionDeviceDecl, ExtensionEntryPoint, ExtensionInclude,
-    ExtensionManifest, ManifestError,
+    CURRENT_MANIFEST_VERSION, ExtensionCapability, ExtensionContribution, ExtensionDeviceDecl,
+    ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
 pub use notwig_ext_macros::notwig_extension;

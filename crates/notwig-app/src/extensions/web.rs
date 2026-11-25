@@ -11,7 +11,8 @@ use notwig_ext::{
     validate_extension_id,
 };
 use notwig_ext_api::{
-    DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
+    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionConfig,
+    ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
@@ -217,6 +218,26 @@ impl ExtensionManager {
             }
             Err(error) => events.push(ExtensionEvent::Error(error)),
         }
+    }
+
+    pub(crate) fn commands(&self) -> Vec<CommandDescriptor> {
+        self.host
+            .as_ref()
+            .map(WebExtensionHost::commands)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn execute_command(
+        &self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, String> {
+        let host = self
+            .host
+            .as_ref()
+            .ok_or_else(|| "Extension host is not loaded.".to_owned())?;
+        host.execute_command(id, context)
+            .map_err(|error| error.to_string())
     }
 
     pub(crate) fn specs(&self) -> Vec<DeviceSpec> {

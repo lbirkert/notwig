@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
 use notwig_core::{ParamId, ParamValue};
-use notwig_ext_api::{DeviceDrawContext, PanelFrame};
+use notwig_ext_api::{CommandContext, CommandEffect, DeviceDrawContext, PanelFrame};
 
 use crate::abi::{ExtensionEngines, ExtensionInstance as WasmInstance};
 use crate::compiled::ExtensionRuntime;
@@ -67,6 +67,17 @@ impl ExtensionInstance {
         match self {
             Self::Wasm(instance) => instance.draw_panel(handle, context),
             Self::Native(instance) => instance.draw_panel(handle, context),
+        }
+    }
+
+    pub(crate) fn execute_command(
+        &mut self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, ExtensionError> {
+        match self {
+            Self::Wasm(instance) => instance.execute_command(id, context),
+            Self::Native(instance) => instance.execute_command(id, context),
         }
     }
 }

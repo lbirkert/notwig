@@ -11,6 +11,7 @@ proc macro, host runtime, example devices, and the packaging/scaffolding CLI.
 | [`notwig-ext-macros`](notwig-ext-macros) | `#[notwig_extension]` proc macro that generates WASM and native exports |
 | [`notwig-ext`](notwig-ext) | Discovery, WASM/native loading, DSP instances, frame validation, and panel host |
 | [`notwig-ext-devices`](notwig-ext-devices) | Bundled compressor, clipper, delay, chorus, transient, dynamics, reverb, synth, and gain devices |
+| [`notwig-ext-example`](notwig-ext-example) | Command API example with the humanize MIDI command |
 | [`cargo-notwig-ext`](cargo-notwig-ext) | `cargo notwig-ext new`, `init`, `build`, and `targets` commands for extension authors |
 
 ## How an extension is shaped
@@ -125,6 +126,10 @@ shared `notwig-ui` egui components.
 - **Panels** use the guest egui API. Extensions run a private egui context and
   return validated meshes, texture deltas, and parameter actions. The host
   composites the output and applies validated actions.
+- **Commands** use the same package and macro entrypoint. Manifest version 2
+  contributions declare command metadata; the host applies validated edit
+  families and one undo entry. See
+  [`docs/02_extensions/06_command_api.md`](../../docs/02_extensions/06_command_api.md).
 - **Packaging** is produced by `cargo notwig-ext`. The Pages workflow shows a
   minimal CI recipe: install the CLI from this workspace, build one target
   entrypoint on the matching runner, then package the artifacts into a ZIP.

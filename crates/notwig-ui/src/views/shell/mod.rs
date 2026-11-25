@@ -7,7 +7,7 @@ use notwig_core::dsp::DeviceRegistry;
 use notwig_core::{ProjectDoc, TrackId};
 
 use crate::arranger::{BarSelectionDrag, ClipDrag, GroupDrag, TimeDrag, TrackDrop};
-use crate::commands::Shortcuts;
+use crate::commands::{CommandRegistry, Shortcuts};
 use crate::drop_target::DragPreview;
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -18,6 +18,7 @@ use crate::views::device_editor::{DeviceBrowserState, DeviceDrag, DeviceInsertio
 use crate::views::midi_editor::MidiEditorState;
 
 mod app_bar;
+mod command_palette;
 mod drag_drop;
 mod help;
 mod layout;
@@ -88,6 +89,9 @@ pub struct NotwigUi {
     pub settings_category: crate::settings::SettingsCategory,
     pub audio_draft: crate::runtime::AudioSettingsValue,
     pub(crate) shortcuts: Shortcuts,
+    pub(crate) commands: CommandRegistry,
+    pub(crate) command_palette: Option<command_palette::CommandPaletteState>,
+    pub(crate) pending_builtin_command: Option<crate::commands::ShortcutCommand>,
     pub(crate) shortcut_editor: crate::commands::ShortcutEditorState,
     pub dsp_open: bool,
     pub render_open: bool,
@@ -167,6 +171,9 @@ impl Default for NotwigUi {
             settings_category: crate::settings::SettingsCategory::Audio,
             audio_draft: crate::runtime::AudioSettingsValue::default(),
             shortcuts: Shortcuts::default(),
+            commands: CommandRegistry::new(),
+            command_palette: None,
+            pending_builtin_command: None,
             shortcut_editor: crate::commands::ShortcutEditorState::default(),
             dsp_open: false,
             render_open: false,
@@ -227,7 +234,11 @@ impl NotwigUi {
         self.handle_dropped_files(ctx, doc);
         self.update_drag_preview(ctx, doc, runtime);
         self.track_rows.clear();
-        self.handle_shortcuts(ctx, doc, runtime);
+        if let Some(command) = self.pending_builtin_command.take() {
+            self.handle_shortcuts_inner(ctx, doc, runtime, Some(command));
+        } else {
+            self.handle_shortcuts(ctx, doc, runtime);
+        }
         self.extension_panel_keyboard = false;
         Self::app_bar(ctx, doc, runtime);
         self.top_bar(ctx, doc, runtime);
@@ -240,6 +251,7 @@ impl NotwigUi {
             None => {}
         }
         self.device_browser_window(ctx, doc, runtime);
+        self.command_palette_window(ctx, doc, runtime);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -289,6 +301,21 @@ impl NotwigUi {
 
     pub fn set_shortcuts(&mut self, shortcuts: Shortcuts) {
         self.shortcuts = shortcuts;
+        let extension_commands = self.commands.extension_commands();
+        self.shortcuts.add_defaults(&extension_commands);
+    }
+
+    /// Replaces the extension command catalog and adds missing default
+    /// bindings. Built-in commands remain authoritative.
+    pub fn set_extension_commands(&mut self, commands: Vec<notwig_ext_api::CommandDescriptor>) {
+        self.commands.replace_extension_commands(commands.clone());
+        self.shortcuts.add_defaults(&commands);
+    }
+
+    /// Returns the resolved command catalog.
+    #[must_use]
+    pub fn commands(&self) -> &CommandRegistry {
+        &self.commands
     }
 
     #[must_use]
@@ -520,8 +547,32 @@ pub mod test_api {
         ui.handle_shortcuts(ctx, doc, runtime);
     }
 
+    pub fn set_extension_commands(
+        ui: &mut NotwigUi,
+        commands: Vec<notwig_ext_api::CommandDescriptor>,
+    ) {
+        ui.set_extension_commands(commands);
+    }
+
+    pub fn open_command_palette(ui: &mut NotwigUi) {
+        ui.open_command_palette();
+    }
+
+    #[must_use]
+    pub fn command_palette_open(ui: &NotwigUi) -> bool {
+        ui.command_palette.is_some()
+    }
+
+    pub fn command_context(
+        ui: &NotwigUi,
+        doc: &ProjectDoc,
+        runtime: &RuntimeView,
+    ) -> notwig_ext_api::CommandContext {
+        ui.command_context(doc, runtime)
+    }
+
     pub fn begin_shortcut_capture(ui: &mut NotwigUi, command: crate::commands::ShortcutCommand) {
-        ui.shortcut_editor.capture = Some(command);
+        ui.shortcut_editor.capture = Some(command.id().to_owned());
     }
 
     pub fn capture_shortcut(ui: &mut NotwigUi, ctx: &egui::Context) {

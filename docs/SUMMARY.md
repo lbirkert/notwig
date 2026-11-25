@@ -23,6 +23,7 @@
 - [Device API](02_extensions/03_device_api.md)
 - [Panel API](02_extensions/04_panel_api.md)
 - [Testing and Distribution](02_extensions/05_testing_and_distribution.md)
+- [Command API](02_extensions/06_command_api.md)
 
 # Notwig Development
 

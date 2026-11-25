@@ -270,6 +270,7 @@ Dependencies worth planning around:
 | Extension sandboxing | ✅ Implemented | ⭐⭐⭐⭐ | WASM always runs with memory and fuel limits. Native shared libraries run trusted with no sandbox, as documented. |
 | Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |
+| Extension commands | 🧪 Partial | ⭐⭐⭐⭐ | Manifest v2 command contributions, bounded command context, host edit families, command palette (F1 / Cmd+Shift+P), string-keyed bindings, WASM/native/browser execution, and the `notwig-ext-example` humanize command. Audio sub-editors and panels remain follow-ups. |
 | General drawing hooks | 📋 Planned | ⭐⭐⭐ | Arranger clips, track headers, lanes, and editors on the shared draw IR. |
 | Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.csv` builds `docs/extensions.json` with per-target URLs and SHA-256 hashes; CI packages macOS Apple Silicon and WASM builds and publishes via GitHub Pages. |
 

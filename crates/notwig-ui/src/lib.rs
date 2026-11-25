@@ -33,7 +33,7 @@ pub(crate) use widgets::{drop_target, form, icons, theme, timeline};
 #[cfg(feature = "app")]
 pub use clipboard::Clipboard;
 #[cfg(feature = "app")]
-pub use commands::{KeyChord, ShortcutCommand, Shortcuts};
+pub use commands::{CommandRegistry, KeyChord, ShortcutCommand, Shortcuts};
 #[cfg(feature = "app")]
 pub use intent::{DropAudioTarget, ExportBitDepth, ExportFormat, ExportOptions, UiIntent};
 #[cfg(feature = "app")]

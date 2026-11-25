@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::workspace::Workspace;
 use notwig_core::protocol::CommandPayload;
+use notwig_ext_api::{CommandFocus, CommandUiRequest};
 use notwig_ui::UiIntent;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -94,6 +95,10 @@ impl NotwigApp {
                 });
                 let _ = self.report(result);
             }
+            UiIntent::RunExtensionCommand {
+                command_id,
+                context,
+            } => self.run_extension_command(&command_id, &context),
             UiIntent::Quit
             | UiIntent::SelectTrack(_)
             | UiIntent::SelectClip(_)
@@ -822,6 +827,61 @@ impl NotwigApp {
                 self.uninstall_extension(&id);
             }
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
+        }
+    }
+
+    fn run_extension_command(
+        &mut self,
+        command_id: &str,
+        context: &notwig_ext_api::CommandContext,
+    ) {
+        if context.revision != self.workspace.doc.revision {
+            self.notify_error("Command context is stale. Try again.".into());
+            return;
+        }
+        let effect = match self.extensions.execute_command(command_id, context) {
+            Ok(effect) => effect,
+            Err(error) => {
+                self.notify_error(format!("Command failed: {error}"));
+                return;
+            }
+        };
+        if context.revision != self.workspace.doc.revision {
+            self.notify_error("Command context changed while it was running.".into());
+            return;
+        }
+        match self.workspace.apply_command_effect(effect) {
+            Ok(ui) => {
+                for request in ui {
+                    self.apply_command_ui(request);
+                }
+            }
+            Err(error) => self.notify_error(format!("Command failed: {error}")),
+        }
+    }
+
+    fn apply_command_ui(&mut self, request: CommandUiRequest) {
+        match request {
+            CommandUiRequest::Notify { message } => self.notify_info(message),
+            CommandUiRequest::FocusEditor { focus, clip_id } => match focus {
+                CommandFocus::Timeline => {
+                    self.ui.edit_focus = notwig_ui::EditFocus::Timeline;
+                }
+                CommandFocus::MidiEditor => {
+                    if let Some(clip_id) = clip_id {
+                        self.ui.open_midi_editor(clip_id);
+                    }
+                }
+                CommandFocus::AudioEditor => {
+                    if let Some(clip_id) = clip_id {
+                        self.ui.open_clip_editor(clip_id);
+                    }
+                }
+                CommandFocus::DeviceEditor => {
+                    self.ui.currently_opened = Some(notwig_ui::OpenedEditor::DeviceEditor);
+                }
+                CommandFocus::Panel => {}
+            },
         }
     }
 }

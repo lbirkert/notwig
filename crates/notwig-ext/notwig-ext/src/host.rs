@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
-use notwig_ext_api::{DevicePanelHost, ExtensionInfo, ExtensionSettings, ExtensionStatus, target};
+use notwig_ext_api::{
+    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionInfo,
+    ExtensionManifest, ExtensionSettings, ExtensionStatus, target,
+};
 use wasmtime::Module;
 
 use crate::abi::ExtensionEngines;
@@ -38,6 +41,8 @@ impl ExtensionHost {
         let engines = Arc::new(ExtensionEngines::new()?);
         let report = discovery::discover(root)?;
         let mut by_type = BTreeMap::new();
+        let mut by_command = BTreeMap::new();
+        let mut commands = BTreeMap::new();
         let mut infos = Vec::new();
 
         for failure in report.failures {
@@ -55,6 +60,7 @@ impl ExtensionHost {
                     enabled: false,
                     runtime: None,
                     specs: Vec::new(),
+                    commands: Vec::new(),
                     status: ExtensionStatus::Disabled,
                     error: None,
                 }
@@ -73,6 +79,18 @@ impl ExtensionHost {
                         by_type.insert(spec.type_id.clone(), Arc::clone(&extension));
                     }
                 }
+                for command in &extension.commands {
+                    if commands.contains_key(&command.id) {
+                        tracing::warn!(
+                            command = %command.id,
+                            extension = %extension.manifest.id,
+                            "duplicate extension command id"
+                        );
+                    } else {
+                        commands.insert(command.id.clone(), command.clone());
+                        by_command.insert(command.id.clone(), Arc::clone(&extension));
+                    }
+                }
             }
         }
 
@@ -80,6 +98,8 @@ impl ExtensionHost {
             loaded: Arc::new(LoadedExtensions {
                 engines,
                 by_type,
+                by_command,
+                commands,
                 infos,
             }),
         })
@@ -95,6 +115,31 @@ impl ExtensionHost {
     #[must_use]
     pub fn specs(&self) -> Vec<DeviceSpec> {
         self.loaded.specs()
+    }
+
+    /// Returns resolved command descriptors in deterministic id order.
+    #[must_use]
+    pub fn commands(&self) -> Vec<CommandDescriptor> {
+        self.loaded.commands()
+    }
+
+    /// Executes a contributed command against a bounded context.
+    pub fn execute_command(
+        &self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, ExtensionError> {
+        let extension = self
+            .loaded
+            .find_command(id)
+            .ok_or_else(|| ExtensionError::UnknownCommand(id.to_owned()))?;
+        let runtime = extension
+            .runtime
+            .as_ref()
+            .ok_or_else(|| ExtensionError::Disabled(extension.manifest.id.clone()))?;
+        let mut instance =
+            ExtensionInstance::instantiate(runtime, &self.loaded.engines, &extension.manifest.id)?;
+        instance.execute_command(id, context)
     }
 
     /// Returns `true` when a loaded extension provides `type_id`.
@@ -123,48 +168,75 @@ fn load_enabled(
     let discovery::DiscoveredExtension {
         manifest,
         dir,
-        entry_path,
-        target,
+        candidates,
+        ..
     } = discovered;
-    let runtime = match load_runtime(engines, &entry_path, &target) {
-        Ok(runtime) => runtime,
-        Err(error) => return failed(manifest, dir, error),
-    };
-    let mut instance = match ExtensionInstance::instantiate(&runtime, engines, &manifest.id) {
-        Ok(instance) => instance,
-        Err(error) => return failed(manifest, dir, error.to_string()),
-    };
+    let mut last_error = "no supported entrypoint".to_owned();
+    for (target, entry_path) in candidates {
+        match load_candidate(engines, &manifest, &dir, &entry_path, &target) {
+            Ok(loaded) => return loaded,
+            Err(error) => {
+                tracing::warn!(
+                    extension = %manifest.id,
+                    target = %target,
+                    error = %error,
+                    "extension entrypoint failed to load; trying the next target"
+                );
+                last_error = error;
+            }
+        }
+    }
+    failed(manifest, dir, last_error)
+}
+
+fn load_candidate(
+    engines: &Arc<ExtensionEngines>,
+    manifest: &ExtensionManifest,
+    dir: &Path,
+    entry_path: &Path,
+    target: &str,
+) -> Result<LoadedExtension, String> {
+    let runtime = load_runtime(engines, entry_path, target).map_err(|error| error.to_string())?;
+    let mut instance = ExtensionInstance::instantiate(&runtime, engines, &manifest.id)
+        .map_err(|error| error.to_string())?;
     let mut specs = Vec::new();
-    let declarations = manifest.devices.clone();
-    for declaration in &declarations {
-        let mut spec = match instance.describe(&declaration.type_id) {
-            Ok(spec) => spec,
-            Err(error) => return failed(manifest, dir, error.to_string()),
-        };
+    for declaration in &manifest.devices {
+        let mut spec = instance
+            .describe(&declaration.type_id)
+            .map_err(|error| format!("describe device {}: {error}", declaration.type_id))?;
         if spec.type_id != declaration.type_id {
-            return failed(
-                manifest,
-                dir,
-                format!(
-                    "device type mismatch: declared {}, described {}",
-                    declaration.type_id, spec.type_id
-                ),
-            );
+            return Err(format!(
+                "device type mismatch: declared {}, described {}",
+                declaration.type_id, spec.type_id
+            ));
         }
         if matches!(spec.ui, DeviceUiSpec::Generic) {
             spec.ui = DeviceUiSpec::custom(format!("ext:{}", spec.type_id), None);
         }
         specs.push(spec);
     }
-    LoadedExtension {
-        dir,
-        manifest,
+    let commands = manifest
+        .command_contributions()
+        .map(|contribution| CommandDescriptor {
+            id: contribution.id.clone(),
+            title: contribution.title.clone().unwrap_or_default(),
+            category: contribution.category.clone().unwrap_or_default(),
+            description: contribution.description.clone().unwrap_or_default(),
+            when: contribution.when.clone(),
+            default_bindings: contribution.default_bindings.clone(),
+            extension_id: Some(manifest.id.clone()),
+        })
+        .collect();
+    Ok(LoadedExtension {
+        dir: dir.to_path_buf(),
+        manifest: manifest.clone(),
         enabled: true,
         runtime: Some(runtime),
         specs,
+        commands,
         status: ExtensionStatus::Loaded,
         error: None,
-    }
+    })
 }
 
 fn load_runtime(
@@ -201,6 +273,7 @@ fn failed(
         enabled: true,
         runtime: None,
         specs: Vec::new(),
+        commands: Vec::new(),
         status: ExtensionStatus::Failed,
         error: Some(error.to_string()),
     }

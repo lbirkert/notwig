@@ -26,6 +26,7 @@ and test layer before editing.
       notwig-ext-macros/
       notwig-ext/              host runtime
       notwig-ext-devices/
+      notwig-ext-example/
       cargo-notwig-ext/
     notwig-engine/
     notwig-plugins/
@@ -51,6 +52,7 @@ notwig-ext -> notwig-core, notwig-ext-api
 notwig-ext-api -> notwig-core, notwig-ext-macros
 notwig-ext-macros -> proc-macro support only
 notwig-ext-devices -> notwig-core, notwig-ui, notwig-ext-api
+notwig-ext-example -> notwig-core, notwig-ext-api
                           (core/ui without default features)
 cargo-notwig-ext -> notwig-ext-api
 notwig-engine -> notwig-core, notwig-plugins
@@ -120,14 +122,15 @@ ABI v5 adds extension container metadata; the guest panel remains the only exten
 | `cursor.rs` | Neutral cursor request enum |
 | `panel.rs` | `PanelAction`, `DevicePanelHost` |
 | `context.rs` | `DeviceDrawContext` (panel input and device meters) and theme snapshot |
-| `manifest.rs` | extension manifest, ordered entrypoints, capability/device declarations |
+| `manifest.rs` | extension manifest v1/v2, ordered entrypoints, capabilities, devices, and contribution declarations |
 | `target.rs` | canonical target names, aliases, and host support checks |
 | `status.rs` | `ExtensionStatus`, `ExtensionInfo`, settings |
 | `config.rs` | Versioned user config, default index URL, legacy migration |
 | `index.rs` | Extension index entry/device/url types and validation |
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
 | `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
-| `extension.rs` | `DeviceExtension`, `Extension`, registration, note delivery, and per-device panel draw dispatch |
+| `command.rs` | Command contract, bounded context, host edit/UI families, declarative `when` evaluation, and `CommandExtension` |
+| `extension.rs` | `DeviceExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, and per-device panel draw dispatch |
 | `abi.rs` | ABI version (`5`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
@@ -137,7 +140,7 @@ ABI v5 adds extension container metadata; the guest panel remains the only exten
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | `#[notwig_extension]` attribute macro; generates WASM exports or the native shared-library ABI around the entrypoint |
+| `lib.rs` | `#[notwig_extension]` attribute macro; generates WASM exports or the native shared-library ABI around the entrypoint, including command execution |
 
 ### `notwig-ext` — extension host
 
@@ -147,9 +150,9 @@ ABI v5 adds extension container metadata; the guest panel remains the only exten
 | `archive.rs` | shared ZIP/file-tree validation, safe relative paths, manifest and size limits |
 | `abi.rs` | wasmtime engines/stores, host imports, typed exports, memory checks |
 | `native.rs` | `libloading` shared-library loader and native instance ABI |
-| `instance.rs` | WASM/native instance enum with common device calls |
+| `instance.rs` | WASM/native instance enum with common device and command calls |
 | `compiled.rs` | loaded extension records, runtime kind, and device-type lookup |
-| `host.rs` | `ExtensionHost`: load/compile, specs, factory, panel host, infos |
+| `host.rs` | `ExtensionHost`: load/compile, specs, command descriptors/execution, factory, panel host, infos |
 | `device.rs` | `ExtensionDeviceFactory`, WASM and native `DeviceProcessor`s |
 | `install.rs` | filesystem install/replace and uninstall using validated archives |
 | `panel.rs` | cached UI instance implementing `DevicePanelHost` |
@@ -167,6 +170,12 @@ ABI v5 adds extension container metadata; the guest panel remains the only exten
 
 The parent [`crates/notwig-ext/README.md`](../../crates/notwig-ext/README.md)
 describes the extension subsystem and crate boundaries.
+
+### `notwig-ext-example` — command API example
+
+| Module | Responsibility |
+|---|---|
+| `lib.rs` | Humanize MIDI command and `#[notwig_extension]` registration |
 
 ### `notwig-ext-devices` — example extension devices
 
@@ -228,7 +237,7 @@ describes the extension subsystem and crate boundaries.
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
 | `views/settings/` | Settings window/navigation plus audio, audio-channel, extension, and shortcut pages |
-| `commands/` | Shortcut command catalog, chords, bindings, and config |
+| `commands/` | Built-in command catalog, resolved command registry, chords, string-keyed bindings, and config |
 | `state/` | Selection, viewport, notifications, open editor, edit focus |
 | `views/render.rs` | Render mixdown window |
 | `components/` | Extension-facing knobs, faders, meters, labels, sections, toggles, dropdowns, and formatters |
@@ -301,6 +310,10 @@ Integration tests live in `crates/*/tests/`, not inside `src/`.
 | Panel wire validation | `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs` |
 | Panel bridge | `crates/notwig-ext/notwig-ext-api/tests/panel_bridge.rs` |
 | Extension ABI helpers | `crates/notwig-ext/notwig-ext-api/tests/abi_helpers.rs` |
+| Extension command contract and `when` parser | `crates/notwig-ext/notwig-ext-api/tests/command_contract.rs` |
+| Host command resolution/execution | `crates/notwig-ext/notwig-ext/tests/commands.rs` |
+| Command palette, registry, and string bindings | `crates/notwig-ui/tests/shortcuts.rs` |
+| Extension command effect and undo | `crates/notwig-app/tests/workspace.rs` |
 | Compressor, clipper, delay, chorus, transient, limiter, gate, reverb, synth, and gain example devices | `crates/notwig-ext/notwig-ext-devices/tests/` |
 | Extension index and config | `crates/notwig-ext/notwig-ext-api/tests/index_config.rs` |
 | Extension ZIP install | `crates/notwig-ext/notwig-ext/tests/install.rs` |

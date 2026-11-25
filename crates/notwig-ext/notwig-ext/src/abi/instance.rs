@@ -1,7 +1,10 @@
 //! WASM instance lifecycle: instantiation and per-export ABI calls.
 
 use notwig_core::ParamValue;
-use notwig_ext_api::{ABI_VERSION, DeviceDrawContext, MAX_PANEL_FRAME_BYTES, PanelFrame};
+use notwig_ext_api::{
+    ABI_VERSION, CommandContext, CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS,
+    MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
+};
 use wasmtime::{Engine, Instance, Linker, Memory, Module, Store, StoreLimitsBuilder, TypedFunc};
 
 use super::host::{self, HostState};
@@ -24,6 +27,7 @@ pub(crate) struct ExtensionInstance {
     process: ProcessFn,
     latency: TypedFunc<i32, i32>,
     draw: TypedFunc<(i32, i32, i32), i64>,
+    command: Option<TypedFunc<(i32, i32, i32, i32), i64>>,
 }
 
 impl ExtensionInstance {
@@ -74,6 +78,9 @@ impl ExtensionInstance {
         let process = get_func(&instance, &mut store, "notwig_device_process")?;
         let latency = get_func(&instance, &mut store, "notwig_device_latency")?;
         let draw = get_func(&instance, &mut store, "notwig_device_draw")?;
+        let command = instance
+            .get_typed_func::<(i32, i32, i32, i32), i64>(&mut store, "notwig_command_execute")
+            .ok();
 
         Ok(Self {
             store,
@@ -88,6 +95,7 @@ impl ExtensionInstance {
             process,
             latency,
             draw,
+            command,
         })
     }
 
@@ -209,6 +217,49 @@ impl ExtensionInstance {
             .ok()
             .and_then(|samples| u32::try_from(samples).ok())
             .unwrap_or(0)
+    }
+
+    pub(crate) fn execute_command(
+        &mut self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, ExtensionError> {
+        let Some(command) = self.command.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_command_execute".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode command context: {error}")))?;
+        let (command_ptr, command_len) = self.write_input(id.as_bytes())?;
+        let (context_ptr, context_len) = match self.write_input(&context) {
+            Ok(values) => values,
+            Err(error) => {
+                self.free_input(command_ptr, command_len);
+                return Err(error);
+            }
+        };
+        self.reset_fuel()?;
+        let packed = command
+            .call(
+                &mut self.store,
+                (command_ptr, command_len, context_ptr, context_len),
+            )
+            .map_err(wasm_err);
+        self.free_input(context_ptr, context_len);
+        self.free_input(command_ptr, command_len);
+        let packed = packed?;
+        let bytes = self.read_packed_bytes(packed, MAX_OUTPUT_BYTES)?;
+        let effect: CommandEffect = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode command effect: {error}")))?;
+        if let CommandEffect::Apply { edits, .. } = &effect
+            && edits.len() > MAX_COMMAND_EDITS
+        {
+            return Err(ExtensionError::Abi(
+                "command returned too many edits".into(),
+            ));
+        }
+        Ok(effect)
     }
 
     pub(crate) fn draw_panel(

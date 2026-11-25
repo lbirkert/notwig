@@ -15,6 +15,8 @@ pub enum ExtensionError {
     Disabled(String),
     #[error("unknown extension type: {0}")]
     UnknownType(String),
+    #[error("unknown extension command: {0}")]
+    UnknownCommand(String),
     #[error("device handle is invalid")]
     InvalidHandle,
     #[error("extension exceeded its resource budget")]

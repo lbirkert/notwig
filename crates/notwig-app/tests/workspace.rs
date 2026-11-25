@@ -1467,6 +1467,56 @@ fn apply_batch_records_one_undo_entry() {
 }
 
 #[test]
+fn extension_command_effect_applies_as_one_undo_entry() {
+    use notwig_ext_api::{CommandEdit, CommandEffect};
+    let mut workspace = Workspace::new_empty().unwrap();
+    let track = workspace.create_track(TrackKind::Instrument).unwrap();
+    let clip = workspace
+        .create_midi_clip(
+            track,
+            notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+        )
+        .unwrap();
+    let note_id = Id::<NoteMarker>::from_uuid(Uuid::from_u128(71));
+    let note = NoteEntity {
+        id: note_id,
+        pitch: 60,
+        start: Rational::zero(),
+        length: Rational::new(1, 4),
+        velocity: Norm01(0.5),
+        release_velocity: None,
+        expression: std::collections::BTreeMap::default(),
+    };
+    workspace.create_note(clip, note.clone()).unwrap();
+    let mut changed = note;
+    changed.velocity = Norm01(0.8);
+    let revision = workspace.doc.revision;
+    let ui = workspace
+        .apply_command_effect(CommandEffect::Apply {
+            edits: vec![CommandEdit::MidiNotes {
+                clip_id: clip,
+                notes: vec![changed],
+                removed: Vec::new(),
+            }],
+            ui: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(ui, Vec::new());
+    assert_eq!(workspace.doc.revision, revision + 1);
+    let ClipPayload::Midi(midi) = &workspace.doc.arranger.clips[&clip].payload else {
+        panic!("expected midi clip");
+    };
+    let changed_note = midi.notes.iter().find(|note| note.id == note_id).unwrap();
+    assert!((changed_note.velocity.0 - 0.8).abs() < f32::EPSILON);
+    workspace.undo().unwrap();
+    let ClipPayload::Midi(midi) = &workspace.doc.arranger.clips[&clip].payload else {
+        panic!("expected midi clip");
+    };
+    let restored = midi.notes.iter().find(|note| note.id == note_id).unwrap();
+    assert!((restored.velocity.0 - 0.5).abs() < f32::EPSILON);
+}
+
+#[test]
 fn creating_an_empty_audio_clip_keeps_it_silent() {
     let mut workspace = Workspace::new_empty().unwrap();
     workspace.create_track(TrackKind::Audio).unwrap();

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use notwig_core::ParamId;
 use notwig_core::dsp::DeviceSpec;
@@ -6,6 +7,7 @@ use notwig_core::dsp::DeviceSpec;
 use crate::abi::{
     AbiStatus, DeviceStore, pack_ptr_len, packed_pointer, with_audio_frames, with_audio_frames_ptr,
 };
+use crate::command::{CommandContext, CommandEffect, CommandExtension, MAX_COMMAND_EDITS};
 use crate::context::{DeviceDrawContext, DeviceMeterSnapshot};
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 
@@ -109,6 +111,24 @@ impl<T: DeviceExtension> DeviceInstance for T {
     }
 }
 
+trait CommandInstance: Send {
+    fn execute(&mut self, context: &CommandContext) -> CommandEffect;
+}
+
+impl<T: CommandExtension> CommandInstance for T {
+    fn execute(&mut self, context: &CommandContext) -> CommandEffect {
+        CommandExtension::execute(self, context)
+    }
+}
+
+struct RegisteredCommand {
+    create: fn() -> Box<dyn CommandInstance>,
+}
+
+fn create_command<C: CommandExtension>() -> Box<dyn CommandInstance> {
+    Box::new(C::new())
+}
+
 struct RegisteredDevice {
     spec_json: Vec<u8>,
     create: fn() -> Box<dyn DeviceInstance>,
@@ -128,6 +148,8 @@ fn create_instance<D: DeviceExtension>() -> Box<dyn DeviceInstance> {
 /// Extension runtime shared by the generated ABI exports.
 pub struct Extension {
     devices: BTreeMap<String, RegisteredDevice>,
+    commands: BTreeMap<String, RegisteredCommand>,
+    last_command_bytes: Mutex<Vec<u8>>,
     instances: DeviceStore<DeviceSlot>,
 }
 
@@ -137,6 +159,8 @@ impl Extension {
     pub const fn new() -> Self {
         Self {
             devices: BTreeMap::new(),
+            commands: BTreeMap::new(),
+            last_command_bytes: Mutex::new(Vec::new()),
             instances: DeviceStore::new(),
         }
     }
@@ -157,6 +181,68 @@ impl Extension {
                 create: create_instance::<D>,
             },
         );
+    }
+
+    /// Registers a command implementation under `id`.
+    ///
+    /// The id must match a command contribution in the extension manifest.
+    /// Registering the same id again replaces the earlier implementation. A
+    /// fresh instance is created for each execution so commands do not share
+    /// state with audio processors or panels.
+    pub fn register_command<C: CommandExtension>(&mut self, id: impl Into<String>) {
+        self.commands.insert(
+            id.into(),
+            RegisteredCommand {
+                create: create_command::<C>,
+            },
+        );
+    }
+
+    /// Executes a command with a postcard-encoded context.
+    ///
+    /// Returns `None` for an unknown command, malformed context, or an effect
+    /// that exceeds the host edit budget. The returned bytes contain a
+    /// postcard-encoded [`CommandEffect`].
+    #[must_use]
+    pub fn execute_command_bytes(&self, id: &str, context_bytes: &[u8]) -> Option<Vec<u8>> {
+        let command = self.commands.get(id)?;
+        let context = postcard::from_bytes::<CommandContext>(context_bytes).ok()?;
+        let mut instance = (command.create)();
+        let effect = instance.execute(&context);
+        match &effect {
+            CommandEffect::Apply { edits, .. } if edits.len() > MAX_COMMAND_EDITS => return None,
+            CommandEffect::Error { message } if message.len() > 4096 => return None,
+            CommandEffect::None | CommandEffect::Apply { .. } | CommandEffect::Error { .. } => {}
+        }
+        postcard::to_allocvec(&effect).ok()
+    }
+
+    /// Executes a command and retains the serialized result in the runtime.
+    ///
+    /// The returned pointer stays valid until the next command execution. The
+    /// host must copy the bytes before invoking another command.
+    #[must_use]
+    pub fn execute_command_result(&self, id: &str, context_bytes: &[u8]) -> Option<(usize, usize)> {
+        let bytes = self.execute_command_bytes(id, context_bytes)?;
+        let mut buffer = self.last_command_bytes.lock().ok()?;
+        *buffer = bytes;
+        Some((buffer.as_ptr() as usize, buffer.len()))
+    }
+
+    /// Executes a command and returns a packed pointer/len result for the WASM
+    /// ABI.
+    #[must_use]
+    pub fn execute_command_pointer(&self, id: &str, context_bytes: &[u8]) -> i64 {
+        self.execute_command_result(id, context_bytes)
+            .map_or(0, |(ptr, len)| {
+                let Ok(ptr) = u32::try_from(ptr) else {
+                    return 0;
+                };
+                let Ok(len) = u32::try_from(len) else {
+                    return 0;
+                };
+                i64::try_from(pack_ptr_len(ptr, len)).unwrap_or(0)
+            })
     }
 
     /// Returns a packed pointer to the serialized spec for `type_id`.

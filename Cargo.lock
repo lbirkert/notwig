@@ -2529,6 +2529,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
@@ -2539,6 +2540,15 @@ dependencies = [
  "notwig-ext-api",
  "notwig-ui",
  "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "notwig-ext-example"
+version = "0.1.0"
+dependencies = [
+ "notwig-core",
+ "notwig-ext-api",
  "uuid",
 ]
 

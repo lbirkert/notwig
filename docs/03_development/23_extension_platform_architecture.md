@@ -1,8 +1,8 @@
 # Extension platform architecture
 
-Status: analysis and proposed design. This page evaluates an Eclipse-style
-extension-point platform for Notwig. It does not describe implemented behavior
-beyond the current device extension host. The current runtime contract is in
+Status: proposed platform design, with the first migration (Phase 1 commands)
+implemented. This page evaluates an Eclipse-style extension-point platform for
+Notwig. The current device runtime contract is in
 [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md), the panel transport
 is in [`Extension Panels`](12_extension_panels.md), and the existing extension
 plan is in [`plan/EXTENSIONS.md`](../../plan/EXTENSIONS.md).
@@ -50,7 +50,9 @@ missing or broken.
 The concrete first migration is defined in section 8: dynamic commands and a
 command palette, audio-editor sub-editors, and extension panels. Those three
 surfaces are the acceptance test for the registry, context, command, and panel
-contracts. Clipboard formats remain the next milestone after they work.
+contracts. Phase 1 commands are implemented; audio sub-editors, panels, and
+clipboard formats remain follow-ups. The author-facing contract is in
+[`Command API`](../02_extensions/06_command_api.md).
 
 ## 2. Current baseline
 
@@ -1262,7 +1264,9 @@ services remain typed.
 | 7. Recursive ecosystem | Allow extension-defined points for extension-to-extension contracts. Add diagnostics and author docs. | Namespace enforcement, missing-owner behavior, payload limits, sample ecosystem test. |
 | 8. Optional runtimes | WIT/component model or out-of-process extensions for higher isolation. | Same contracts pass over the new transport; no audio-path regression. |
 
-Phases 1-4 are the first migration. They are sequenced so each one is useful on
+Phases 1-4 are the first migration. Phase 1 (commands, palette, bindings,
+context, host edit families, WASM/native/browser execution, and the example
+humanize command) is implemented. They are sequenced so each one is useful on
 its own: commands do not need panels, panels do not need audio sub-editors, and
 the shared curve editor does not need custom pitch-correction processing. Phase
 3 can ship with existing gain data; phase 4 must not pretend that a missing Pan

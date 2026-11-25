@@ -2,7 +2,10 @@
 
 use js_sys::{BigInt, Function, Object, Reflect};
 use notwig_core::ParamValue;
-use notwig_ext_api::{DeviceDrawContext, MAX_PANEL_FRAME_BYTES, PanelFrame};
+use notwig_ext_api::{
+    CommandContext, CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES,
+    MAX_PANEL_FRAME_BYTES, PanelFrame,
+};
 use wasm_bindgen::{JsCast, JsValue};
 
 use super::WebExtensionInstance;
@@ -150,6 +153,51 @@ impl WebExtensionInstance {
             .validate()
             .map_err(|error| ExtensionError::Abi(format!("invalid egui frame: {error}")))?;
         Ok(frame)
+    }
+
+    pub(crate) fn execute_command(
+        &mut self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, ExtensionError> {
+        let Some(command) = self.command.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_command_execute".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode command context: {error}")))?;
+        let (command_ptr, command_len) = self.write_input(id.as_bytes())?;
+        let (context_ptr, context_len) = match self.write_input(&context) {
+            Ok(values) => values,
+            Err(error) => {
+                self.free_input(command_ptr, command_len);
+                return Err(error);
+            }
+        };
+        let result = call_u64(
+            &command,
+            &[
+                JsValue::from(command_ptr),
+                JsValue::from(command_len),
+                JsValue::from(context_ptr),
+                JsValue::from(context_len),
+            ],
+        );
+        self.free_input(context_ptr, context_len);
+        self.free_input(command_ptr, command_len);
+        let packed = result?;
+        let bytes = self.read_packed_bytes(packed, MAX_OUTPUT_BYTES)?;
+        let effect: CommandEffect = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode command effect: {error}")))?;
+        if let CommandEffect::Apply { edits, .. } = &effect
+            && edits.len() > MAX_COMMAND_EDITS
+        {
+            return Err(ExtensionError::Abi(
+                "command returned too many edits".into(),
+            ));
+        }
+        Ok(effect)
     }
 
     pub(crate) fn alloc_audio(&mut self, bytes: usize) -> Result<i32, ExtensionError> {

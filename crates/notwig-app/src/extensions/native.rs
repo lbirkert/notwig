@@ -6,7 +6,10 @@ use std::sync::mpsc;
 
 use notwig_core::dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{ExtensionHost, InstalledExtension, install_zip_bytes, uninstall};
-use notwig_ext_api::{DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo};
+use notwig_ext_api::{
+    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionConfig,
+    ExtensionIndexEntry, ExtensionInfo,
+};
 
 use super::ExtensionEvent;
 use super::index::{
@@ -143,6 +146,26 @@ impl ExtensionManager {
             .as_ref()
             .map(ExtensionHost::specs)
             .unwrap_or_default()
+    }
+
+    pub(crate) fn commands(&self) -> Vec<CommandDescriptor> {
+        self.host
+            .as_ref()
+            .map(ExtensionHost::commands)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn execute_command(
+        &self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, String> {
+        let host = self
+            .host
+            .as_ref()
+            .ok_or_else(|| "Extension host is not loaded.".to_owned())?;
+        host.execute_command(id, context)
+            .map_err(|error| error.to_string())
     }
 
     pub(crate) fn factory(&self) -> Option<Arc<dyn DeviceFactory>> {

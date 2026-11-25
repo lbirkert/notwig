@@ -230,6 +230,11 @@ impl MidiEditorState {
     }
 
     #[doc(hidden)]
+    #[doc(hidden)]
+    pub fn selected_note_ids(&self) -> Vec<NoteId> {
+        self.selected.iter().copied().collect()
+    }
+
     pub fn time_selection(&self) -> Option<RangeMus> {
         self.time_selection
     }

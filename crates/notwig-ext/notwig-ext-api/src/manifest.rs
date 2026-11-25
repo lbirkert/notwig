@@ -4,6 +4,9 @@ use notwig_core::SchemaVersion;
 use serde::{Deserialize, Serialize};
 
 use crate::abi::ABI_VERSION;
+use crate::command::{
+    COMMAND_CONTRACT, COMMAND_POINT, MAX_COMMAND_DESCRIPTION_BYTES, MAX_COMMAND_WHEN_BYTES,
+};
 use crate::target;
 
 /// Optional feature an extension declares in its manifest.
@@ -15,6 +18,9 @@ pub enum ExtensionCapability {
     /// Provides custom egui panels for its devices.
     #[serde(rename = "ui.panel")]
     UiPanel,
+    /// Contributes commands to the host command registry.
+    #[serde(rename = "command")]
+    Command,
 }
 
 /// One device type declared by an extension manifest.
@@ -58,6 +64,35 @@ pub struct ExtensionInclude {
     pub target: Option<String>,
 }
 
+/// One contribution declared by a manifest.
+///
+/// The first supported point is [`COMMAND_POINT`]. A contribution carries the
+/// generic envelope (`id`, `point`, `contract`) plus point-specific metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionContribution {
+    /// Stable contribution id, namespaced by the owning extension.
+    pub id: String,
+    /// Extension point id.
+    pub point: String,
+    /// Contract id and version.
+    pub contract: String,
+    /// Palette title for command contributions.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Palette category for command contributions.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Declarative enablement condition.
+    #[serde(default)]
+    pub when: Option<String>,
+    /// Suggested keybindings as config strings.
+    #[serde(default)]
+    pub default_bindings: Vec<String>,
+}
+
 /// Parsed `extension.json` manifest.
 ///
 /// Unknown fields are rejected. Installed packages require at least one
@@ -65,6 +100,9 @@ pub struct ExtensionInclude {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionManifest {
+    /// Manifest layout version. Version 1 is the original device-only layout.
+    #[serde(default = "default_manifest_version")]
+    pub manifest_version: u32,
     /// Stable extension id; also used as the install directory name.
     pub id: String,
     /// Display name.
@@ -88,12 +126,21 @@ pub struct ExtensionManifest {
     /// Declared device types.
     #[serde(default)]
     pub devices: Vec<ExtensionDeviceDecl>,
+    /// Declarations for host extension points.
+    #[serde(default)]
+    pub contributes: Vec<ExtensionContribution>,
     /// Optional description.
     #[serde(default)]
     pub description: Option<String>,
     /// Optional relative path to a package image.
     #[serde(default)]
     pub image: Option<String>,
+}
+
+pub const CURRENT_MANIFEST_VERSION: u32 = 2;
+
+const fn default_manifest_version() -> u32 {
+    1
 }
 
 impl ExtensionManifest {
@@ -165,6 +212,84 @@ impl ExtensionManifest {
                 }
             }
         }
+        if self.manifest_version == 0 || self.manifest_version > CURRENT_MANIFEST_VERSION {
+            return Err(ManifestError::UnsupportedManifest {
+                found: self.manifest_version,
+                expected: CURRENT_MANIFEST_VERSION,
+            });
+        }
+        if !self.contributes.is_empty() && self.manifest_version < 2 {
+            return Err(ManifestError::Invalid(
+                "contributions require manifest_version 2".into(),
+            ));
+        }
+        let mut contribution_ids = std::collections::BTreeSet::new();
+        for contribution in &self.contributes {
+            if contribution.id.trim().is_empty() {
+                return Err(ManifestError::Invalid(
+                    "contribution id must not be empty".into(),
+                ));
+            }
+            if !contribution_ids.insert(&contribution.id) {
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate contribution id: {}",
+                    contribution.id
+                )));
+            }
+            if contribution.point != COMMAND_POINT {
+                return Err(ManifestError::Invalid(format!(
+                    "unsupported extension point: {}",
+                    contribution.point
+                )));
+            }
+            if contribution.contract != COMMAND_CONTRACT {
+                return Err(ManifestError::Invalid(format!(
+                    "unsupported command contract: {}",
+                    contribution.contract
+                )));
+            }
+            let title = contribution.title.as_deref().unwrap_or_default();
+            if title.trim().is_empty() {
+                return Err(ManifestError::Invalid(format!(
+                    "command {} must declare a title",
+                    contribution.id
+                )));
+            }
+            let category = contribution.category.as_deref().unwrap_or_default();
+            if category.trim().is_empty() {
+                return Err(ManifestError::Invalid(format!(
+                    "command {} must declare a category",
+                    contribution.id
+                )));
+            }
+            if contribution
+                .description
+                .as_deref()
+                .is_some_and(|description| description.len() > MAX_COMMAND_DESCRIPTION_BYTES)
+            {
+                return Err(ManifestError::Invalid(format!(
+                    "command {} description is too long",
+                    contribution.id
+                )));
+            }
+            if let Some(when) = &contribution.when {
+                if when.len() > MAX_COMMAND_WHEN_BYTES {
+                    return Err(ManifestError::Invalid(format!(
+                        "command {} condition is too long",
+                        contribution.id
+                    )));
+                }
+                crate::command::validate_when(when).map_err(|error| {
+                    ManifestError::Invalid(format!("command {} {error}", contribution.id))
+                })?;
+            }
+            if contribution.default_bindings.len() > 8 {
+                return Err(ManifestError::Invalid(format!(
+                    "command {} declares too many default bindings",
+                    contribution.id
+                )));
+            }
+        }
         let mut seen = std::collections::BTreeSet::new();
         for device in &self.devices {
             if device.type_id.trim().is_empty() {
@@ -180,6 +305,13 @@ impl ExtensionManifest {
             }
         }
         Ok(())
+    }
+
+    /// Returns command contributions in manifest order.
+    pub fn command_contributions(&self) -> impl Iterator<Item = &ExtensionContribution> {
+        self.contributes
+            .iter()
+            .filter(|contribution| contribution.point == COMMAND_POINT)
     }
 
     /// Returns `true` when the manifest declares `capability`.
@@ -237,6 +369,9 @@ pub enum ManifestError {
     /// The manifest targets a different ABI version than this host.
     #[error("unsupported extension API version {found} (host supports {expected})")]
     UnsupportedApi { found: u32, expected: u32 },
+    /// The manifest layout version is unsupported.
+    #[error("unsupported manifest version {found} (host supports {expected})")]
+    UnsupportedManifest { found: u32, expected: u32 },
     /// The manifest text or JSON could not be parsed.
     #[error("could not parse extension manifest: {0}")]
     Parse(String),

@@ -109,6 +109,50 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             })
         }
     };
+    let wasm_command_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_command_execute(
+            command_ptr: i32,
+            command_len: i32,
+            context_ptr: i32,
+            context_len: i32,
+        ) -> i64 {
+            catch_value(0, || {
+                with_str(command_ptr, command_len, |id| {
+                    with_bytes(context_ptr, context_len, |context| {
+                        extension().execute_command_pointer(id, context)
+                    })
+                    .unwrap_or(0)
+                })
+                .unwrap_or(0)
+            })
+        }
+    };
+    let native_command_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_command_execute(
+            command_ptr: *const u8,
+            command_len: usize,
+            context_ptr: *const u8,
+            context_len: usize,
+        ) -> NotwigNativeBytes {
+            catch_value(NotwigNativeBytes::empty(), || {
+                unsafe {
+                    with_str_ptr(command_ptr, command_len, |id| {
+                        with_bytes_ptr(context_ptr, context_len, |context| {
+                            extension()
+                                .execute_command_result(id, context)
+                                .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
+                                    NotwigNativeBytes { ptr: ptr as *const u8, len }
+                                })
+                        })
+                        .unwrap_or_else(NotwigNativeBytes::empty)
+                    })
+                }
+                .unwrap_or_else(NotwigNativeBytes::empty)
+            })
+        }
+    };
     let panic_guards = quote! {
         fn catch_status(f: impl FnOnce() -> i32) -> i32 {
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
@@ -279,6 +323,7 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 })
             }
            #wasm_draw_exports
+           #wasm_command_exports
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -465,6 +510,7 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 })
             }
            #native_draw_exports
+           #native_command_exports
         }
     };
     expanded.into()

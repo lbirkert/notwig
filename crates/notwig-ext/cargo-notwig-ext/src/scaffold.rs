@@ -158,6 +158,7 @@ fn library_rs(extension_id: &str) -> String {
 
 fn extension_json(extension_id: &str, display_name: &str) -> String {
     let manifest = json!({
+        "manifest_version": notwig_ext_api::CURRENT_MANIFEST_VERSION,
         "id": extension_id,
         "name": display_name,
         "vendor": "Example",

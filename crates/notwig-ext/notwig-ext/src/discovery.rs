@@ -17,6 +17,8 @@ pub struct DiscoveredExtension {
     pub entry_path: PathBuf,
     /// Canonical target of the selected entrypoint.
     pub target: String,
+    /// Supported entrypoints in manifest order, including the selected one.
+    pub candidates: Vec<(String, PathBuf)>,
 }
 
 /// One extension directory that could not be discovered.
@@ -96,7 +98,42 @@ fn load_one(dir: &Path) -> Result<DiscoveredExtension, (Option<String>, String)>
         .validate()
         .map_err(|error| (id.clone(), error.to_string()))?;
 
-    let Some(entry) = manifest.entry_for(target::is_supported) else {
+    let mut candidates = Vec::new();
+    for entry in manifest
+        .entrypoints
+        .iter()
+        .filter(|entry| target::is_supported(&entry.target))
+    {
+        let relative = Path::new(&entry.entrypoint);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err((
+                id,
+                "extension entrypoint must stay inside the extension directory".into(),
+            ));
+        }
+        let entry_path = dir.join(relative);
+        let metadata = std::fs::metadata(&entry_path).map_err(|error| {
+            (
+                id.clone(),
+                format!("read {}: {error}", entry_path.display()),
+            )
+        })?;
+        if metadata.len() > MAX_ENTRY_BYTES {
+            return Err((
+                id.clone(),
+                format!(
+                    "extension entrypoint is {} bytes (limit {MAX_ENTRY_BYTES})",
+                    metadata.len()
+                ),
+            ));
+        }
+        candidates.push((entry.target.clone(), entry_path));
+    }
+    let Some((target, entry_path)) = candidates.first().cloned() else {
         let declared = manifest
             .entrypoints
             .iter()
@@ -108,40 +145,11 @@ fn load_one(dir: &Path) -> Result<DiscoveredExtension, (Option<String>, String)>
             format!("no supported entrypoint for this host (declared: {declared})"),
         ));
     };
-    let entrypoint = entry.entrypoint.clone();
-    let target = entry.target.clone();
-
-    let relative = Path::new(&entrypoint);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err((
-            id,
-            "extension entrypoint must stay inside the extension directory".into(),
-        ));
-    }
-    let entry_path = dir.join(relative);
-    let metadata = std::fs::metadata(&entry_path).map_err(|error| {
-        (
-            id.clone(),
-            format!("read {}: {error}", entry_path.display()),
-        )
-    })?;
-    if metadata.len() > MAX_ENTRY_BYTES {
-        return Err((
-            id,
-            format!(
-                "extension entrypoint is {} bytes (limit {MAX_ENTRY_BYTES})",
-                metadata.len()
-            ),
-        ));
-    }
     Ok(DiscoveredExtension {
         manifest,
         dir: dir.to_path_buf(),
         entry_path,
         target,
+        candidates,
     })
 }

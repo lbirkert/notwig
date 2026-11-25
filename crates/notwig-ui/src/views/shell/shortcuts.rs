@@ -39,13 +39,35 @@ impl NotwigUi {
         doc: &ProjectDoc,
         runtime: &RuntimeView,
     ) {
-        if self.shortcut_editor.capture.is_some() {
+        self.handle_shortcuts_inner(ctx, doc, runtime, None);
+    }
+
+    pub(super) fn handle_shortcuts_inner(
+        &mut self,
+        ctx: &egui::Context,
+        doc: &ProjectDoc,
+        runtime: &RuntimeView,
+        forced: Option<ShortcutCommand>,
+    ) {
+        if forced.is_none() && self.shortcut_editor.capture.is_some() {
             return;
         }
-        if self.extension_panel_keyboard {
+        if forced.is_none() && self.extension_panel_keyboard {
             return;
         }
-        if ctx.wants_keyboard_input() {
+        if forced.is_none() && ctx.wants_keyboard_input() {
+            return;
+        }
+        if is_triggered(
+            &self.shortcuts,
+            ctx,
+            forced,
+            ShortcutCommand::CommandPalette,
+        ) {
+            self.open_command_palette();
+            return;
+        }
+        if self.command_palette.is_some() {
             return;
         }
         let clip_editor_focused = self.edit_focus == EditFocus::ClipEditor
@@ -69,7 +91,10 @@ impl NotwigUi {
         } else {
             None
         };
-        let (copy, cut, paste) = self.shortcuts.copy_cut_paste_pressed(ctx);
+        let (mut copy, mut cut, mut paste) = self.shortcuts.copy_cut_paste_pressed(ctx);
+        copy |= forced == Some(ShortcutCommand::Copy);
+        cut |= forced == Some(ShortcutCommand::Cut);
+        paste |= forced == Some(ShortcutCommand::Paste);
         if copy && !editor_focused {
             if devices.is_empty() {
                 ctx.copy_text("notwig-clipboard".into());
@@ -146,46 +171,36 @@ impl NotwigUi {
                 }
             }
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Record) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Record) {
             self.emit(UiIntent::ToggleRecord);
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Stop) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Stop) {
             self.emit(UiIntent::Stop);
-        } else if self.shortcuts.was_pressed(ctx, ShortcutCommand::Play) {
+        } else if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Play) {
             if doc.transport.playing {
                 self.emit(UiIntent::Stop);
             } else {
                 self.emit(UiIntent::Play);
             }
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::SaveAs) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::SaveAs) {
             self.emit(UiIntent::SaveAs);
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Save) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Save) {
             self.emit(UiIntent::Save);
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::NewProject) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::NewProject) {
             self.emit(UiIntent::NewProject);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::OpenProject)
-        {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::OpenProject) {
             self.emit(UiIntent::OpenProject);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::OpenSettings)
-            || self
-                .shortcuts
-                .was_pressed(ctx, ShortcutCommand::AudioSettings)
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::OpenSettings)
+            || is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::AudioSettings)
         {
             self.open_settings(runtime);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::LoopSelection)
-        {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::LoopSelection) {
             if let Some((range, _)) = time.clone() {
                 self.emit(UiIntent::SetLoopRange(range));
             } else if let Some(range) = Self::loop_range_for_selected_clips(doc, &clips) {
@@ -194,28 +209,28 @@ impl NotwigUi {
                 self.emit(UiIntent::ToggleLoop);
             }
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::ToggleLoop) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::ToggleLoop) {
             self.emit(UiIntent::ToggleLoop);
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Undo) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Undo) {
             self.emit(UiIntent::Undo);
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Redo) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Redo) {
             self.emit(UiIntent::Redo);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::NewInstrumentTrack)
-        {
+        if is_triggered(
+            &self.shortcuts,
+            ctx,
+            forced,
+            ShortcutCommand::NewInstrumentTrack,
+        ) {
             self.emit(UiIntent::CreateTrack(TrackKind::Instrument));
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::NewAudioTrack)
-        {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::NewAudioTrack) {
             self.emit(UiIntent::CreateTrack(TrackKind::Audio));
         }
-        if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll) {
+        if !editor_focused && is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::SelectAll)
+        {
             let clips: Vec<_> = doc
                 .arranger
                 .clips
@@ -224,7 +239,8 @@ impl NotwigUi {
                 .collect();
             self.state.selection.select_clips(&clips);
         }
-        if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::JoinClips) {
+        if !editor_focused && is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::JoinClips)
+        {
             let mut clips: Vec<_> = self.state.selection.clips.iter().copied().collect();
             if clips.len() < 2
                 && let Some((range, tracks)) = &time
@@ -244,19 +260,19 @@ impl NotwigUi {
                 self.emit(UiIntent::JoinClips { clips });
             }
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::GroupTracks)
-        {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::GroupTracks) {
             let tracks: Vec<_> = self.state.selection.tracks.iter().copied().collect();
             if !tracks.is_empty() {
                 self.emit(UiIntent::GroupTracks { tracks });
             }
         }
         if !editor_focused
-            && self
-                .shortcuts
-                .was_pressed(ctx, ShortcutCommand::ToggleTrackActive)
+            && is_triggered(
+                &self.shortcuts,
+                ctx,
+                forced,
+                ShortcutCommand::ToggleTrackActive,
+            )
         {
             if devices.is_empty() {
                 let tracks: Vec<_> = self
@@ -290,7 +306,8 @@ impl NotwigUi {
                 });
             }
         }
-        if !editor_focused && self.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate) {
+        if !editor_focused && is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Duplicate)
+        {
             match target {
                 Some(SelectionMode::Objects | SelectionMode::Time) => {
                     self.emit(UiIntent::DuplicateSelection {
@@ -311,43 +328,45 @@ impl NotwigUi {
                 }
             }
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::FitArrangement)
-        {
+        if is_triggered(
+            &self.shortcuts,
+            ctx,
+            forced,
+            ShortcutCommand::FitArrangement,
+        ) {
             self.zoom_to_fit(doc);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::ImportAudio)
-        {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::ImportAudio) {
             self.emit(UiIntent::ImportAudio);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::RenderMixdown)
-        {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::RenderMixdown) {
             self.open_render(doc);
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::ToggleInfoPanel)
-        {
+        if is_triggered(
+            &self.shortcuts,
+            ctx,
+            forced,
+            ShortcutCommand::ToggleInfoPanel,
+        ) {
             self.show_info = !self.show_info;
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::ToggleDeviceEditor)
-        {
+        if is_triggered(
+            &self.shortcuts,
+            ctx,
+            forced,
+            ShortcutCommand::ToggleDeviceEditor,
+        ) {
             self.toggle_device_editor();
         }
-        if self
-            .shortcuts
-            .was_pressed(ctx, ShortcutCommand::ToggleClipEditor)
-        {
+        if is_triggered(
+            &self.shortcuts,
+            ctx,
+            forced,
+            ShortcutCommand::ToggleClipEditor,
+        ) {
             self.toggle_clip_editor(doc);
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Cancel)
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Cancel)
             && !self.settings_open
             && !self.dsp_open
             && !self.render_open
@@ -358,7 +377,7 @@ impl NotwigUi {
                 self.state.selection.clear();
             }
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Delete) && !editor_focused {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Delete) && !editor_focused {
             let time = self
                 .state
                 .selection
@@ -392,8 +411,26 @@ impl NotwigUi {
                 }
             }
         }
-        if self.shortcuts.was_pressed(ctx, ShortcutCommand::Quit) {
+        if is_triggered(&self.shortcuts, ctx, forced, ShortcutCommand::Quit) {
             self.emit(UiIntent::Quit);
+        }
+        if forced.is_none() {
+            let extension_commands = self.commands.extension_commands();
+            if extension_commands
+                .iter()
+                .any(|command| self.shortcuts.was_pressed_id(ctx, &command.id))
+            {
+                let context = self.command_context(doc, runtime);
+                for command in extension_commands {
+                    if self.shortcuts.was_pressed_id(ctx, &command.id) && command.enabled(&context)
+                    {
+                        self.emit(UiIntent::RunExtensionCommand {
+                            command_id: command.id.clone(),
+                            context: context.clone(),
+                        });
+                    }
+                }
+            }
         }
     }
 }
@@ -409,4 +446,13 @@ fn device_chain_location(
             .position(|id| *id == device_id)
             .map(|index| (*chain_id, index))
     })
+}
+
+fn is_triggered(
+    shortcuts: &crate::commands::Shortcuts,
+    ctx: &egui::Context,
+    forced: Option<ShortcutCommand>,
+    command: ShortcutCommand,
+) -> bool {
+    forced == Some(command) || shortcuts.was_pressed(ctx, command)
 }

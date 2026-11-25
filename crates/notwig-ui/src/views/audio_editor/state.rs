@@ -119,6 +119,11 @@ impl ClipEditorState {
     }
 
     #[doc(hidden)]
+    pub fn selected_slice_ids(&self) -> Vec<SliceId> {
+        self.selected.iter().copied().collect()
+    }
+
+    #[doc(hidden)]
     pub fn selected_is_empty(&self) -> bool {
         self.selected.is_empty()
     }

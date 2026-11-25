@@ -13,6 +13,7 @@ This page is a quick map of the workspace crates. Each crate also has a
 | `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Proc-macro support only |
 | `notwig-ext` | Extension discovery, wasmtime host, WASM DSP, panel host | `notwig-core`, `notwig-ext-api` |
 | `notwig-ext-devices` | Limiter, gate, synth, and gain example devices using shared UI components | `notwig-core`, `notwig-ui`, `notwig-ext-api` |
+| `notwig-ext-example` | Command API example package with the humanize MIDI command | `notwig-core`, `notwig-ext-api` |
 | `cargo-notwig-ext` | Extension scaffolding (`new`/`init`) and target-specific ZIP packaging | `notwig-ext-api` |
 | `notwig-engine` | Real-time playback, runtime plans, scheduling, transport, meters | `notwig-core`, `notwig-plugins` |
 | `notwig-plugins` | Plugin discovery/cache, host adapters, instance and editor lifecycle | `notwig-core` |
@@ -31,8 +32,8 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 | Document field, command, validation, edit algebra | `notwig-core` |
 | Bundle format, asset import/export, autosave | `notwig-project` |
 | Device contract, stock device, DSP graph | `notwig-core::dsp` |
-| Extension API, guest panel frame wire types, ABI wire types | `notwig-ext-api` |
-| Extension loading, target selection, WASM/native device runtime | `notwig-ext/notwig-ext` |
+| Extension API, command contract, manifest v2, guest panel frame wire types, ABI wire types | `notwig-ext-api` |
+| Extension loading, target selection, WASM/native device and command runtime | `notwig-ext/notwig-ext` |
 | Extension scaffolding and package ZIPs | `notwig-ext/cargo-notwig-ext` |
 | Playback, scheduling, transport, routing, latency compensation | `notwig-engine` |
 | VST3/VST2/CLAP/LV2/AU/AU3 discovery and hosting | `notwig-plugins` |
@@ -49,6 +50,7 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 - `crates/notwig-ext/notwig-ext-macros/README.md`
 - `crates/notwig-ext/notwig-ext/README.md`
 - `crates/notwig-ext/notwig-ext-devices/README.md`
+- `crates/notwig-ext/notwig-ext-example/README.md`
 - `crates/notwig-ext/cargo-notwig-ext/README.md`
 - `crates/notwig-engine/README.md`
 - `crates/notwig-plugins/README.md`

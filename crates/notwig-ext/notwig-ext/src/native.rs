@@ -6,7 +6,8 @@ use std::sync::Arc;
 use libloading::Library;
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, DeviceDrawContext, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
+    ABI_VERSION, AbiStatus, CommandContext, CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS,
+    MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 
 use crate::error::ExtensionError;
@@ -28,6 +29,7 @@ type SetParamFn = unsafe extern "C" fn(i32, *const u8, usize, i32, f64) -> i32;
 type ProcessFn = unsafe extern "C" fn(i32, *mut f32, i32, *const u8, i32, i64, i32) -> i32;
 type LatencyFn = unsafe extern "C" fn(i32) -> i32;
 type DrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
+type CommandFn = unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> NativeBytes;
 
 /// A loaded native extension shared library.
 pub(crate) struct NativeLibrary {
@@ -40,6 +42,7 @@ pub(crate) struct NativeLibrary {
     process: ProcessFn,
     latency: LatencyFn,
     draw: DrawFn,
+    command: Option<CommandFn>,
 }
 
 impl NativeLibrary {
@@ -83,6 +86,10 @@ impl NativeLibrary {
                 draw: *library
                     .get(b"notwig_device_draw\0")
                     .map_err(|error| missing_export("notwig_device_draw", error))?,
+                command: library
+                    .get::<CommandFn>(b"notwig_command_execute\0")
+                    .ok()
+                    .map(|command| *command),
                 _library: library,
             }))
         }
@@ -193,6 +200,32 @@ impl NativeInstance {
     pub(crate) fn latency(&mut self, handle: i32) -> u32 {
         let samples = unsafe { (self.library.latency)(handle) };
         u32::try_from(samples).unwrap_or(0)
+    }
+
+    pub(crate) fn execute_command(
+        &mut self,
+        id: &str,
+        context: &CommandContext,
+    ) -> Result<CommandEffect, ExtensionError> {
+        let Some(command) = self.library.command else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_command_execute".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode command context: {error}")))?;
+        let bytes = unsafe { command(id.as_ptr(), id.len(), context.as_ptr(), context.len()) };
+        let bytes = read_bytes(bytes)?;
+        let effect: CommandEffect = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode command effect: {error}")))?;
+        if let CommandEffect::Apply { edits, .. } = &effect
+            && edits.len() > MAX_COMMAND_EDITS
+        {
+            return Err(ExtensionError::Abi(
+                "command returned too many edits".into(),
+            ));
+        }
+        Ok(effect)
     }
 
     pub(crate) fn draw_panel(

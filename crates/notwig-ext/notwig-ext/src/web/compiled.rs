@@ -2,23 +2,34 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
-use notwig_ext_api::{ExtensionInfo, ExtensionManifest};
+use notwig_ext_api::{CommandDescriptor, ExtensionInfo, ExtensionManifest};
 
 pub(crate) struct WebLoadedExtension {
     pub(crate) manifest: ExtensionManifest,
     pub(crate) module: js_sys::WebAssembly::Module,
     pub(crate) specs: Vec<DeviceSpec>,
+    pub(crate) commands: Vec<CommandDescriptor>,
     pub(crate) info: ExtensionInfo,
 }
 
 pub(crate) struct WebLoadedExtensions {
     pub(crate) by_type: BTreeMap<String, Arc<WebLoadedExtension>>,
+    pub(crate) by_command: BTreeMap<String, Arc<WebLoadedExtension>>,
+    pub(crate) commands: BTreeMap<String, CommandDescriptor>,
     pub(crate) infos: Vec<ExtensionInfo>,
 }
 
 impl WebLoadedExtensions {
     pub(crate) fn find_type(&self, type_id: &str) -> Option<&Arc<WebLoadedExtension>> {
         self.by_type.get(type_id)
+    }
+
+    pub(crate) fn find_command(&self, command_id: &str) -> Option<&Arc<WebLoadedExtension>> {
+        self.by_command.get(command_id)
+    }
+
+    pub(crate) fn commands(&self) -> Vec<CommandDescriptor> {
+        self.commands.values().cloned().collect()
     }
 
     pub(crate) fn specs(&self) -> Vec<DeviceSpec> {

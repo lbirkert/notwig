@@ -5,6 +5,7 @@ use notwig_core::{
     AssetId, ClipId, Color, Db, DeviceChainId, DeviceId, DeviceKind, NoteEntity, NoteId, Pan,
     ParamId, ParamValue, RangeMus, TimeMus, TrackId, TrackKind,
 };
+use notwig_ext_api::CommandContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExportFormat {
@@ -277,6 +278,10 @@ pub enum UiIntent {
         value: ParamValue,
     },
     RelinkAsset(AssetId),
+    RunExtensionCommand {
+        command_id: String,
+        context: CommandContext,
+    },
     Quit,
     NewProject,
     CloseProject,
