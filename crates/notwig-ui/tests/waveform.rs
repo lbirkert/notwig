@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use egui::{Rect, pos2};
-use notwig_core::AudioAssetBuffer;
+use notwig_core::{AudioAssetBuffer, Curve, CurvePoint, SampleRate, TempoMap, TimeMus};
 use notwig_ui::AudioWaveform;
 use notwig_ui::test_api::waveform::{
-    draw_waveform, level_for, min_max, min_max_at, sample, uses_sample_graph,
+    draw_waveform, draw_waveform_with_gain, level_for, min_max, min_max_at, sample,
+    uses_sample_graph,
 };
 
 #[test]
@@ -161,5 +162,77 @@ fn close_zoom_sample_graph_still_fills_the_area() {
     assert!(
         indices > 0,
         "close-zoom sample graph must fill the area, not only draw a line"
+    );
+}
+
+fn mesh_y_extents(output: &egui::FullOutput) -> Option<(f32, f32)> {
+    fn visit(shape: &egui::Shape, min_y: &mut f32, max_y: &mut f32, found: &mut bool) {
+        match shape {
+            egui::Shape::Mesh(mesh) => {
+                for vertex in &mesh.vertices {
+                    *min_y = min_y.min(vertex.pos.y);
+                    *max_y = max_y.max(vertex.pos.y);
+                    *found = true;
+                }
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    visit(shape, min_y, max_y, found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut found = false;
+    for clipped in &output.shapes {
+        visit(&clipped.shape, &mut min_y, &mut max_y, &mut found);
+    }
+    found.then_some((min_y, max_y))
+}
+
+#[test]
+fn gain_curve_scales_the_rendered_waveform() {
+    let waveform = AudioWaveform::from_samples(vec![0.8; 1_000]);
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(1000.0, 100.0));
+    let curve = Curve::from_points([CurvePoint::new(TimeMus::zero(), -6.0)]).unwrap();
+    let map = TempoMap {
+        tempo_bpm: 120.0,
+        sample_rate: SampleRate(48_000),
+    };
+    let render = |gain: bool| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 100.0));
+                let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), rect);
+                if gain {
+                    draw_waveform_with_gain(
+                        &painter,
+                        rect,
+                        rect,
+                        &waveform,
+                        0,
+                        1_000,
+                        &curve,
+                        map,
+                        TimeMus::zero(),
+                    );
+                } else {
+                    draw_waveform(&painter, rect, rect, &waveform, 0, 1_000);
+                }
+            },
+        )
+    };
+    let plain = mesh_y_extents(&render(false)).expect("plain waveform mesh");
+    let scaled = mesh_y_extents(&render(true)).expect("gain-scaled waveform mesh");
+    assert!(
+        scaled.0 > plain.0 + 5.0,
+        "a -6 dB gain curve should visibly shrink the waveform: plain={plain:?} scaled={scaled:?}"
     );
 }

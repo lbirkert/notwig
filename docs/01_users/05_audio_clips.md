@@ -69,7 +69,8 @@ renders them. The **Gain** sub-editor exposes the curve as a reusable line
 editor:
 
 - click the line to insert a point and drag it immediately;
-- click empty space to add a point;
+- click empty space to add a point, including a second point at the same time
+  for a vertical step;
 - drag a point to move it in time and value (`Shift` uses fine time and value
   steps and bypasses snapping);
 - double-click a point to delete it;
@@ -79,9 +80,11 @@ editor:
   negative bends ease out;
 - **Cmd/Ctrl**-drag a segment to move both endpoint values up or down.
 
-The curve is an offset in dB on top of the clip gain and any per-event gain. The
-line editor is shared UI code and is ready for automation and other modulatable
-values. Clip pan, fade shapes, crossfades, reverse, and time stretching are not
+The curve is an offset in dB on top of the clip gain and any per-event gain.
+The waveform behind the curve is scaled by the curve locally, so the displayed
+audio follows the gain shape. The same locally scaled waveform is used in the
+arranger and the audio editor. The line editor is shared UI code and is ready
+for automation and other modulatable values. Clip pan, fade shapes, crossfades, reverse, and time stretching are not
 implemented.
 
 ## Waveform and navigation

@@ -5,6 +5,7 @@ use notwig_core::{ClipEntity, ProjectDoc, TempoMap, TimeMus};
 use crate::runtime::RuntimeView;
 use crate::theme;
 use crate::timeline::TimelineGrid;
+use crate::waveform::WaveformGain;
 
 use super::super::geometry::SliceGeometry;
 use super::event_color;
@@ -62,6 +63,12 @@ pub(super) fn draw_slice(
             egui::pos2(audio_x1, slice_top),
             egui::pos2(audio_x2.max(audio_x1 + 1.0), slice_bottom),
         );
+        let local_start = start + map.samples_to_mus(geometry.silent_prefix);
+        let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
+            curve,
+            map: *map,
+            local_start,
+        });
         crate::waveform::draw_waveform(
             painter,
             audio_rect.shrink2(Vec2::new(2.0, 4.0)),
@@ -69,6 +76,7 @@ pub(super) fn draw_slice(
             waveform,
             source_start,
             source_end,
+            gain.as_ref(),
         );
     }
     painter.rect_stroke(

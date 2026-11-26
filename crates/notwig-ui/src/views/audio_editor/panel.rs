@@ -324,6 +324,8 @@ impl NotwigUi {
                         &mut state,
                         &mut audio,
                         &clip,
+                        runtime,
+                        map,
                         timeline_grid,
                         lanes,
                     );

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use egui::epaint::{Vertex, WHITE_UV};
 use egui::{Color32, Mesh, Painter, Rect, Shape, Stroke, pos2};
-use notwig_core::{AssetId, AudioAssetBuffer};
+use notwig_core::{AssetId, AudioAssetBuffer, Curve, Db, TempoMap, TimeMus};
 
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
@@ -24,6 +24,29 @@ const ENVELOPE_LINE_FAR_ALPHA: u8 = 235;
 enum WaveformMode {
     Envelope,
     SampleGraph,
+}
+
+/// Gain curve applied to the waveform for display.
+#[derive(Clone, Copy)]
+pub(crate) struct WaveformGain<'a> {
+    pub(crate) curve: &'a Curve,
+    pub(crate) map: TempoMap,
+    /// Clip-local time at the first source frame passed to the renderer.
+    pub(crate) local_start: TimeMus,
+}
+
+impl WaveformGain<'_> {
+    fn gain_at(&self, source_start: u64, frame: u64) -> f32 {
+        let delta = frame.saturating_sub(source_start);
+        let local = self.local_start + self.map.samples_to_mus(delta);
+        let db = self.curve.value_at(local, 0.0);
+        Db(db as f32).to_gain().0
+    }
+
+    fn gain_at_frame(&self, source_start: u64, frame: f64) -> f32 {
+        let frame = frame.round().max(0.0) as u64;
+        self.gain_at(source_start, frame)
+    }
 }
 
 /// Pick the renderer from the current zoom. The sample graph takes over as soon
@@ -197,6 +220,7 @@ pub(crate) fn draw_waveform(
     waveform: &AudioWaveform,
     source_start: u64,
     source_end: u64,
+    gain: Option<&WaveformGain<'_>>,
 ) {
     if waveform.frame_count() == 0 {
         return;
@@ -214,13 +238,25 @@ pub(crate) fn draw_waveform(
     let samples_per_pixel = (end - start) / f64::from(rect.width().max(1.0));
     let painter = painter.with_clip_rect(rect);
     match waveform_mode(samples_per_pixel) {
-        WaveformMode::SampleGraph => draw_sample_graph(&painter, rect, waveform, start, end),
+        WaveformMode::SampleGraph => {
+            draw_sample_graph(&painter, rect, waveform, start, end, source_start, gain);
+        }
         WaveformMode::Envelope => {
-            draw_envelope(&painter, rect, waveform, start, end, samples_per_pixel);
+            draw_envelope(
+                &painter,
+                rect,
+                waveform,
+                start,
+                end,
+                samples_per_pixel,
+                source_start,
+                gain,
+            );
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_envelope(
     painter: &Painter,
     rect: Rect,
@@ -228,6 +264,8 @@ fn draw_envelope(
     start: f64,
     end: f64,
     samples_per_pixel: f64,
+    source_start: u64,
+    gain: Option<&WaveformGain<'_>>,
 ) {
     let (fill, _line) = envelope_colors(samples_per_pixel);
     let level = waveform.level_for(samples_per_pixel);
@@ -248,11 +286,18 @@ fn draw_envelope(
         };
         let t0 = (x0 - rect.left()) / rect.width();
         let t1 = (x1 - rect.left()) / rect.width();
-        let (min, max) = waveform.min_max(
+        let mut min_max = waveform.min_max(
             start + f64::from(t0) * span,
             start + f64::from(t1) * span,
             level,
         );
+        if let Some(gain) = gain {
+            let frame = start + f64::from(f32::midpoint(t0, t1)) * span;
+            let scale = gain.gain_at_frame(source_start, frame);
+            min_max.0 *= scale;
+            min_max.1 *= scale;
+        }
+        let (min, max) = min_max;
         let top = center - max.clamp(-1.0, 1.0) * half;
         let bottom = center - min.clamp(-1.0, 1.0) * half;
         if bottom <= top {
@@ -287,12 +332,15 @@ fn envelope_colors(samples_per_pixel: f64) -> (Color32, Color32) {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_sample_graph(
     painter: &Painter,
     rect: Rect,
     waveform: &AudioWaveform,
     start: f64,
     end: f64,
+    source_start: u64,
+    gain: Option<&WaveformGain<'_>>,
 ) {
     let frames = waveform.frame_count();
     let span = end - start;
@@ -306,7 +354,11 @@ fn draw_sample_graph(
     let mut points = Vec::with_capacity((last - first + 1) as usize);
     for frame in first..=last {
         let x = rect.left() + ((frame as f64 - start) / span) as f32 * rect.width();
-        let value = waveform.sample(frame).clamp(-1.0, 1.0);
+        let mut value = waveform.sample(frame);
+        if let Some(gain) = gain {
+            value *= gain.gain_at(source_start, frame);
+        }
+        let value = value.clamp(-1.0, 1.0);
         points.push(pos2(x, center - value * half));
     }
     let mut mesh = Mesh::default();
@@ -464,6 +516,33 @@ pub mod test_api {
         )
     }
 
+    pub fn draw_waveform_with_gain(
+        painter: &Painter,
+        full_rect: Rect,
+        clip_rect: Rect,
+        waveform: &AudioWaveform,
+        source_start: u64,
+        source_end: u64,
+        curve: &Curve,
+        map: TempoMap,
+        local_start: TimeMus,
+    ) {
+        let gain = WaveformGain {
+            curve,
+            map,
+            local_start,
+        };
+        super::draw_waveform(
+            painter,
+            full_rect,
+            clip_rect,
+            waveform,
+            source_start,
+            source_end,
+            Some(&gain),
+        );
+    }
+
     pub fn draw_waveform(
         painter: &Painter,
         full_rect: Rect,
@@ -479,6 +558,7 @@ pub mod test_api {
             waveform,
             source_start,
             source_end,
+            None,
         );
     }
 }

@@ -5,7 +5,7 @@ use notwig_core::{ClipEntity, ProjectDoc, RangeMus, TrackKind};
 
 use crate::theme;
 use crate::timeline::TimelineGrid;
-use crate::waveform::{WaveformCache, draw_waveform};
+use crate::waveform::{WaveformCache, WaveformGain, draw_waveform};
 
 pub(crate) struct ClipVisual {
     pub clip_rect: Rect,
@@ -255,6 +255,11 @@ pub(crate) fn draw_audio_slices(
     }
     if !audio.uses_slices() {
         if let Some(waveform) = waveforms.get(&audio.asset_id) {
+            let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
+                curve,
+                map: doc.tempo_map(),
+                local_start: notwig_core::TimeMus::zero(),
+            });
             draw_waveform(
                 painter,
                 body_rect,
@@ -262,6 +267,7 @@ pub(crate) fn draw_audio_slices(
                 waveform,
                 audio.source_start_sample,
                 audio.source_end_sample,
+                gain.as_ref(),
             );
         }
         return;
@@ -292,6 +298,12 @@ pub(crate) fn draw_audio_slices(
                     body_rect.bottom(),
                 ),
             );
+            let local_start = slice.start + map.samples_to_mus(slice.silent_prefix_samples);
+            let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
+                curve,
+                map,
+                local_start,
+            });
             draw_waveform(
                 painter,
                 audio_rect,
@@ -299,6 +311,7 @@ pub(crate) fn draw_audio_slices(
                 waveform,
                 slice.source_start_sample,
                 slice.source_end_sample,
+                gain.as_ref(),
             );
         }
     }

@@ -806,9 +806,9 @@ emits one command on release.
 | Gesture | Result |
 | --- | --- |
 | Click the line | Insert a point at the press position and start dragging it |
-| Click empty space | Add a point at the snapped time and pointer value |
+| Click empty space | Add a point at the snapped time and pointer value; clicking the same time again adds another point for a vertical step |
 | Drag a point | Move selected points in time and value; `Shift` uses fine steps and bypasses horizontal snapping |
-| Double-click a point | Delete the point |
+| Double-click a point | Delete that point; other points at the same time remain |
 | Additive click or drag on a point | Toggle or add the point to the selection |
 | Drag empty space | Marquee-select points inside the rectangle |
 | Option/Alt-drag a segment | Bend the segment's curvature |
@@ -818,7 +818,11 @@ Segment curvature is stored on the left point and applies only to the segment
 to its right. Positive curvature eases in (slow start), negative curvature eases
 out (fast start), and zero is linear. `Curve::value_at` preserves the endpoints,
 holds the nearest endpoint outside the point range, and stays monotonic for
-curvature in `-1..=1`.
+curvature in `-1..=1`. Points may share a time: the incoming segment approaches
+the first point at that time, and the exact time evaluates to the last point,
+forming a vertical step. Waveform rendering applies the same curve locally when
+the caller supplies a `WaveformGain`, so the gain editor, arranger, and audio
+editor display the scaled result.
 
 ## 13. Invariants
 

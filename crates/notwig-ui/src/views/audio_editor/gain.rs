@@ -2,11 +2,13 @@
 
 use egui::{Id, Rect};
 use notwig_core::sequencer::AudioClipData;
-use notwig_core::{ClipEntity, TimeMus};
+use notwig_core::{ClipEntity, TempoMap, TimeMus};
 
 use crate::intent::UiIntent;
+use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
 use crate::timeline::TimelineGrid;
+use crate::waveform::{WaveformGain, draw_waveform};
 use crate::widgets::line_editor::{self, LineEditorConfig};
 
 use super::state::ClipEditorState;
@@ -23,9 +25,34 @@ pub(super) fn draw_gain_line_editor(
     state: &mut ClipEditorState,
     audio: &mut AudioClipData,
     clip: &ClipEntity,
+    runtime: &RuntimeView,
+    map: TempoMap,
     timeline: TimelineGrid,
     lanes: Rect,
 ) {
+    if let Some(waveform) = runtime.waveforms.get(&audio.asset_id) {
+        let x1 = timeline.x_for_beat(clip.range.start, lanes.left());
+        let x2 = timeline.x_for_beat(clip.range.end, lanes.left());
+        if x2 > x1 {
+            let full_rect =
+                Rect::from_min_max(egui::pos2(x1, lanes.top()), egui::pos2(x2, lanes.bottom()));
+            let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
+                curve,
+                map,
+                local_start: TimeMus::zero(),
+            });
+            draw_waveform(
+                ui.painter(),
+                full_rect,
+                lanes,
+                waveform,
+                audio.source_start_sample,
+                audio.source_end_sample,
+                gain.as_ref(),
+            );
+        }
+    }
+
     let mut local_timeline = timeline;
     local_timeline.start = timeline.start - clip.range.start;
     let mut curve = audio.gain_curve.clone().unwrap_or_default();

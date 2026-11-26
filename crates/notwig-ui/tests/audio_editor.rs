@@ -203,6 +203,14 @@ fn run_panel_with_output(
     (intents, output)
 }
 
+fn has_mesh(shape: &egui::Shape) -> bool {
+    match shape {
+        egui::Shape::Mesh(_) => true,
+        egui::Shape::Vec(shapes) => shapes.iter().any(has_mesh),
+        _ => false,
+    }
+}
+
 fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
     match shape {
         egui::Shape::Text(text) => texts.push(text.galley.text().to_owned()),
@@ -350,7 +358,14 @@ fn gain_sub_editor_adds_a_curve_point() {
         ui.clip_editor.as_mut().expect("clip editor open"),
         AudioSubEditor::Gain,
     );
-    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    let (_, gain_output) = run_panel_with_output(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    assert!(
+        gain_output
+            .shapes
+            .iter()
+            .any(|clipped| has_mesh(&clipped.shape)),
+        "the gain editor should draw the clip waveform behind the curve"
+    );
 
     let content = ui.clip_editor_content_rect;
     let point = egui::pos2(content.left() + 120.0, content.center().y);
