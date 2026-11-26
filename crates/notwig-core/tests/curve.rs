@@ -26,16 +26,22 @@ fn linear_curves_interpolate_between_points() {
 }
 
 #[test]
-fn curvature_preserves_endpoints_and_bends_the_middle() {
+fn curvature_preserves_endpoints_and_eases_in_or_out() {
     let linear = curve([CurvePoint::new(time(0), 0.0), CurvePoint::new(time(4), 4.0)]);
-    let bent = curve([
+    let ease_in = curve([
         CurvePoint::new(time(0), 0.0).with_curvature(1.0),
         CurvePoint::new(time(4), 4.0),
     ]);
-    assert_eq!(bent.value_at(time(0), 0.0), 0.0);
-    assert_eq!(bent.value_at(time(4), 0.0), 4.0);
-    assert!(bent.value_at(time(1), 0.0) < linear.value_at(time(1), 0.0));
-    assert!(bent.value_at(time(3), 0.0) > linear.value_at(time(3), 0.0));
+    let ease_out = curve([
+        CurvePoint::new(time(0), 0.0).with_curvature(-1.0),
+        CurvePoint::new(time(4), 4.0),
+    ]);
+    assert_eq!(ease_in.value_at(time(0), 0.0), 0.0);
+    assert_eq!(ease_in.value_at(time(4), 0.0), 4.0);
+    assert!(ease_in.value_at(time(1), 0.0) < linear.value_at(time(1), 0.0));
+    assert!(ease_in.value_at(time(3), 0.0) < linear.value_at(time(3), 0.0));
+    assert!(ease_out.value_at(time(1), 0.0) > linear.value_at(time(1), 0.0));
+    assert!(ease_out.value_at(time(3), 0.0) > linear.value_at(time(3), 0.0));
 }
 
 #[test]
@@ -54,14 +60,31 @@ fn shape_ratio_is_monotonic_across_the_supported_range() {
 }
 
 #[test]
-fn from_points_sorts_and_rejects_duplicate_times() {
-    let curve = curve([CurvePoint::new(time(4), 4.0), CurvePoint::new(time(0), 0.0)]);
+fn from_points_sorts_stably_and_allows_duplicate_times() {
+    let curve = curve([
+        CurvePoint::new(time(4), 4.0),
+        CurvePoint::new(time(0), 0.0),
+        CurvePoint::new(time(0), 1.0),
+    ]);
     assert_eq!(curve.points()[0].time, time(0));
-    assert_eq!(curve.points()[1].time, time(4));
+    assert_eq!(curve.points()[0].value, 0.0);
+    assert_eq!(curve.points()[1].time, time(0));
+    assert_eq!(curve.points()[1].value, 1.0);
+    assert_eq!(curve.points()[2].time, time(4));
+    assert_eq!(curve.points_at(time(0)).len(), 2);
+}
 
-    assert!(
-        Curve::from_points([CurvePoint::new(time(0), 0.0), CurvePoint::new(time(0), 1.0)]).is_err()
-    );
+#[test]
+fn duplicate_times_form_a_vertical_step() {
+    let curve = curve([
+        CurvePoint::new(time(0), 0.0),
+        CurvePoint::new(time(2), 1.0),
+        CurvePoint::new(time(2), 4.0),
+        CurvePoint::new(time(4), 8.0),
+    ]);
+    assert!((curve.value_at(time(1), 0.0) - 0.5).abs() < 1e-9);
+    assert_eq!(curve.value_at(time(2), 0.0), 4.0);
+    assert!((curve.value_at(time(3), 0.0) - 6.0).abs() < 1e-9);
 }
 
 #[test]

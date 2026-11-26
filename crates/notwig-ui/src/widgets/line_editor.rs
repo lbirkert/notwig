@@ -11,6 +11,7 @@ use crate::widgets::beats_to_time;
 
 const POINT_RADIUS: f32 = 4.5;
 const POINT_HIT_RADIUS: f32 = 9.0;
+const LINE_HIT_RADIUS: f32 = 7.0;
 const TIME_EPSILON: f64 = 1e-6;
 const CURVE_SAMPLES: usize = 20;
 const FINE_RATIO: f64 = 8.0;
@@ -136,15 +137,55 @@ pub fn show(
     let mut response = LineEditorResponse::default();
 
     let background = ui.interact(rect, id.with("line-editor-bg"), Sense::click_and_drag());
-    let gesture_origin = ui
-        .input(|input| input.pointer.press_origin())
+    let (primary_pressed, primary_released, press_origin) = ui.input(|input| {
+        (
+            input.pointer.primary_pressed(),
+            input.pointer.primary_released(),
+            input.pointer.press_origin(),
+        )
+    });
+    let gesture_origin = press_origin
         .or_else(|| background.interact_pointer_pos())
         .or_else(|| ui.input(|input| input.pointer.hover_pos()));
-    let pointer_over_point = gesture_origin
-        .and_then(|pointer| point_at(curve, timeline, rect, config, pointer))
-        .is_some();
+    let point_at_origin =
+        gesture_origin.and_then(|pointer| point_at(curve, timeline, rect, config, pointer));
+    let pointer_over_point = point_at_origin.is_some();
 
-    if background.clicked() && !pointer_over_point && !modifiers.alt && !modifiers.command {
+    // Clicking the line inserts a point immediately and starts a point drag.
+    if primary_pressed
+        && !pointer_over_point
+        && !modifiers.alt
+        && !modifiers.command
+        && let Some(pointer) = gesture_origin
+        && line_hit(curve, timeline, rect, config, pointer)
+    {
+        let time = clamp_time(
+            timeline.snap(time_for_x(timeline, rect, pointer.x), bypass),
+            config,
+        );
+        let value = curve.value_at(time, value_for_y(config, rect, pointer.y));
+        if let Some(point) = add_point(curve, time, value) {
+            state.selected.clear();
+            state.selected.insert(point);
+            state.drag = Some(PointDrag {
+                origin_pointer: pointer,
+                origin_curve: curve.clone(),
+                selected: state.selected.clone(),
+                primary: point,
+                changed: true,
+            });
+            response.changed = true;
+            response.selection_changed = true;
+        }
+    }
+
+    // Clicking empty space still adds a point on release.
+    if background.clicked()
+        && !pointer_over_point
+        && state.drag.is_none()
+        && !modifiers.alt
+        && !modifiers.command
+    {
         let time = clamp_time(
             timeline.snap(
                 time_for_x(timeline, rect, pointer_x(&background, ui, rect)),
@@ -153,7 +194,7 @@ pub fn show(
             config,
         );
         let value = value_for_y(config, rect, pointer_y(&background, ui, rect));
-        if let Some(point) = add_or_replace_point(curve, time, value) {
+        if let Some(point) = add_point(curve, time, value) {
             state.selected.clear();
             state.selected.insert(point);
             response.changed = true;
@@ -163,10 +204,29 @@ pub fn show(
     }
 
     if background.drag_started()
-        && !pointer_over_point
         && let Some(pointer) = drag_start_pos(ui, &background)
     {
-        if (modifiers.alt || modifiers.command)
+        if state.drag.is_some() {
+            // A line click already started the new point drag.
+        } else if let Some(time) = point_at_origin {
+            let additive = modifiers.command || modifiers.shift;
+            if !state.selected.contains(&time) {
+                if additive {
+                    state.selected.insert(time);
+                } else {
+                    state.selected.clear();
+                    state.selected.insert(time);
+                }
+                response.selection_changed = true;
+            }
+            state.drag = Some(PointDrag {
+                origin_pointer: pointer,
+                origin_curve: curve.clone(),
+                selected: state.selected.clone(),
+                primary: time,
+                changed: false,
+            });
+        } else if (modifiers.alt || modifiers.command)
             && let Some(left) = segment_left_at(curve, timeline, rect, pointer.x)
         {
             state.segment = Some(SegmentDrag {
@@ -191,6 +251,18 @@ pub fn show(
     if background.dragged()
         && let Some(pointer) = background.interact_pointer_pos()
     {
+        if let Some(drag) = state.drag.as_mut() {
+            response.changed |= apply_point_drag(
+                drag,
+                pointer,
+                timeline,
+                rect,
+                config,
+                modifiers.shift,
+                curve,
+                &mut state.selected,
+            );
+        }
         if let Some(marquee) = &mut state.marquee {
             marquee.current = pointer;
             let selection = marquee_selection(curve, timeline, rect, config, marquee);
@@ -218,18 +290,41 @@ pub fn show(
             response.committed |= segment.changed;
         }
     }
+    if primary_released && let Some(drag) = state.drag.take() {
+        response.changed |= drag.changed;
+        response.committed |= drag.changed;
+    }
 
     let points = curve.points().to_vec();
-    for point in &points {
+    for (index, point) in points.iter().enumerate() {
         let center = egui::pos2(
             x_for_time(timeline, rect, point.time),
             y_for_value(config, rect, point.value),
         );
         let hit = Rect::from_center_size(center, Vec2::splat(POINT_HIT_RADIUS * 2.0));
-        let point_id = id.with(("point", point.time.as_f64().to_bits()));
-        let point_response = ui.interact(hit, point_id, Sense::click_and_drag());
-        if point_response.hovered() || point_response.dragged() {
+        let point_id = id.with(("point", index));
+        let point_response = ui.interact(hit, point_id, Sense::click());
+        if point_response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+        if point_response.double_clicked() {
+            let points: Vec<CurvePoint> = curve
+                .points()
+                .iter()
+                .enumerate()
+                .filter(|(candidate, _)| *candidate != index)
+                .map(|(_, point)| *point)
+                .collect();
+            if let Ok(next) = Curve::from_points(points) {
+                *curve = next;
+                if curve.point(point.time).is_none() {
+                    state.selected.remove(&point.time);
+                }
+                response.changed = true;
+                response.committed = true;
+                response.selection_changed = true;
+            }
+            continue;
         }
         if point_response.clicked() {
             let additive = modifiers.command || modifiers.shift;
@@ -242,48 +337,6 @@ pub fn show(
                 state.selected.insert(point.time);
             }
             response.selection_changed = true;
-        }
-        if point_response.drag_started()
-            && let Some(pointer) = drag_start_pos(ui, &point_response)
-        {
-            let additive = modifiers.command || modifiers.shift;
-            if !state.selected.contains(&point.time) {
-                if additive {
-                    state.selected.insert(point.time);
-                } else {
-                    state.selected.clear();
-                    state.selected.insert(point.time);
-                }
-                response.selection_changed = true;
-            }
-            state.drag = Some(PointDrag {
-                origin_pointer: pointer,
-                origin_curve: curve.clone(),
-                selected: state.selected.clone(),
-                primary: point.time,
-                changed: false,
-            });
-        }
-        if point_response.dragged()
-            && let (Some(drag), Some(pointer)) =
-                (state.drag.as_mut(), point_response.interact_pointer_pos())
-        {
-            response.changed |= apply_point_drag(
-                drag,
-                pointer,
-                timeline,
-                rect,
-                config,
-                modifiers.shift,
-                curve,
-                &mut state.selected,
-            );
-        }
-        if point_response.drag_stopped()
-            && let Some(drag) = state.drag.take()
-        {
-            response.changed |= drag.changed;
-            response.committed |= drag.changed;
         }
         if let Some(format) = config.format_value {
             let _ = point_response.on_hover_text(format(point.value));
@@ -393,6 +446,13 @@ fn sample_curve(
         let [left, right] = pair else {
             continue;
         };
+        if left.time == right.time {
+            // Vertical step: keep both endpoints so the line visibly jumps.
+            let x = x_for_time(timeline, rect, left.time);
+            out.push(egui::pos2(x, y_for_value(config, rect, left.value)));
+            out.push(egui::pos2(x, y_for_value(config, rect, right.value)));
+            continue;
+        }
         for step in 0..=CURVE_SAMPLES {
             let ratio = step as f64 / CURVE_SAMPLES as f64;
             let time = TimeMus::new(
@@ -410,8 +470,7 @@ fn sample_curve(
         rect.right(),
         y_for_value(config, rect, last.value),
     ));
-    out.sort_by(|a, b| a.x.total_cmp(&b.x));
-    out.dedup_by(|a, b| (a.x - b.x).abs() < 0.01);
+    out.dedup_by(|a, b| a.distance(*b) < 0.01);
 }
 
 fn apply_point_drag(
@@ -543,13 +602,8 @@ fn allowed_time_delta(curve: &Curve, selected: &BTreeSet<TimeMus>) -> (f64, f64)
     (min_delta, max_delta)
 }
 
-fn add_or_replace_point(curve: &mut Curve, time: TimeMus, value: f64) -> Option<TimeMus> {
-    let mut points: Vec<CurvePoint> = curve
-        .points()
-        .iter()
-        .copied()
-        .filter(|point| point.time != time)
-        .collect();
+fn add_point(curve: &mut Curve, time: TimeMus, value: f64) -> Option<TimeMus> {
+    let mut points = curve.points().to_vec();
     points.push(CurvePoint::new(time, value));
     let next = Curve::from_points(points).ok()?;
     *curve = next;
@@ -576,6 +630,33 @@ fn marquee_selection(
         })
         .map(|point| point.time)
         .collect()
+}
+
+fn line_hit(
+    curve: &Curve,
+    timeline: TimelineGrid,
+    rect: Rect,
+    config: &LineEditorConfig,
+    pointer: Pos2,
+) -> bool {
+    let mut line = Vec::new();
+    sample_curve(curve, timeline, rect, config, &mut line);
+    line.windows(2).any(|pair| {
+        let [a, b] = pair else {
+            return false;
+        };
+        distance_to_segment(pointer, *a, *b) <= LINE_HIT_RADIUS
+    })
+}
+
+fn distance_to_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let segment = b - a;
+    let length_sq = segment.length_sq();
+    if length_sq <= f32::EPSILON {
+        return (point - a).length();
+    }
+    let t = ((point - a).dot(segment) / length_sq).clamp(0.0, 1.0);
+    (point - (a + segment * t)).length()
 }
 
 fn point_at(

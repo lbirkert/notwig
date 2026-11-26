@@ -805,16 +805,20 @@ emits one command on release.
 
 | Gesture | Result |
 | --- | --- |
+| Click the line | Insert a point at the press position and start dragging it |
 | Click empty space | Add a point at the snapped time and pointer value |
 | Drag a point | Move selected points in time and value; `Shift` uses fine steps and bypasses horizontal snapping |
+| Double-click a point | Delete the point |
 | Additive click or drag on a point | Toggle or add the point to the selection |
 | Drag empty space | Marquee-select points inside the rectangle |
 | Option/Alt-drag a segment | Bend the segment's curvature |
 | Cmd/Ctrl-drag a segment | Move both endpoint values up or down |
 
 Segment curvature is stored on the left point and applies only to the segment
-to its right. `Curve::value_at` preserves the endpoints, holds the nearest
-endpoint outside the point range, and stays monotonic for curvature in `-1..=1`.
+to its right. Positive curvature eases in (slow start), negative curvature eases
+out (fast start), and zero is linear. `Curve::value_at` preserves the endpoints,
+holds the nearest endpoint outside the point range, and stays monotonic for
+curvature in `-1..=1`.
 
 ## 13. Invariants
 

@@ -40,9 +40,21 @@ fn run(
     events: Vec<Event>,
     modifiers: Modifiers,
 ) {
+    run_at(ctx, curve, state, events, modifiers, None);
+}
+
+fn run_at(
+    ctx: &egui::Context,
+    curve: &mut Curve,
+    state: &mut LineEditorState,
+    events: Vec<Event>,
+    modifiers: Modifiers,
+    time: Option<f64>,
+) {
     let _ = ctx.run(
         RawInput {
             screen_rect: Some(screen()),
+            time,
             modifiers,
             events,
             ..Default::default()
@@ -122,6 +134,41 @@ fn click_adds_a_snapped_point() {
     assert_eq!(curve.points()[0].time, beat(2));
     assert!((curve.points()[0].value - 0.5).abs() < 1e-9);
     assert_eq!(state.selected.len(), 1);
+}
+
+#[test]
+fn click_adds_a_second_point_at_the_same_time() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let pos = position(2.0, 0.8);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(pos)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(pos, true)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(pos, false)],
+        Modifiers::NONE,
+    );
+    let points = curve.points_at(beat(2));
+    assert_eq!(points.len(), 2);
+    assert!((points[0].value - 0.2).abs() < 1e-6);
+    assert!((points[1].value - 0.8).abs() < 1e-6);
+    assert!((curve.value_at(beat(2), -1.0) - 0.8).abs() < 1e-6);
 }
 
 #[test]
@@ -326,4 +373,146 @@ fn marquee_selects_points_inside_the_rectangle() {
     assert!(state.selected.contains(&beat(2)));
     assert!(state.selected.contains(&beat(4)));
     assert!(!state.selected.contains(&beat(6)));
+}
+
+#[test]
+fn dragging_a_point_stays_attached_across_frames() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let start = position(2.0, 0.2);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(start)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(start, true)],
+        Modifiers::NONE,
+    );
+    for step in 1..=4 {
+        let end = position(2.0 + f64::from(step) * 0.25, 0.2 + f64::from(step) * 0.05);
+        run(
+            &ctx,
+            &mut curve,
+            &mut state,
+            vec![Event::PointerMoved(end)],
+            Modifiers::NONE,
+        );
+    }
+    let end = position(3.0, 0.4);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(end, false)],
+        Modifiers::NONE,
+    );
+    assert_eq!(curve.points()[0].time, beat(3));
+    assert!((curve.points()[0].value - 0.4).abs() < 1e-9);
+}
+
+#[test]
+fn double_clicking_a_point_removes_it() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    run_at(
+        &ctx,
+        &mut curve,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+        Some(0.0),
+    );
+    let pos = position(2.0, 0.2);
+    let mut t = 0.1;
+    for _ in 0..2 {
+        run_at(
+            &ctx,
+            &mut curve,
+            &mut state,
+            vec![Event::PointerMoved(pos)],
+            Modifiers::NONE,
+            Some(t),
+        );
+        t += 0.1;
+        run_at(
+            &ctx,
+            &mut curve,
+            &mut state,
+            vec![pointer(pos, true)],
+            Modifiers::NONE,
+            Some(t),
+        );
+        t += 0.1;
+        run_at(
+            &ctx,
+            &mut curve,
+            &mut state,
+            vec![pointer(pos, false)],
+            Modifiers::NONE,
+            Some(t),
+        );
+        t += 0.1;
+    }
+    assert_eq!(curve.points().len(), 1);
+    assert_eq!(curve.points()[0].time, beat(6));
+}
+
+#[test]
+fn clicking_the_line_adds_and_drags_a_point_immediately() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let press = position(4.0, 0.5);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(press)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(press, true)],
+        Modifiers::NONE,
+    );
+    assert_eq!(curve.points().len(), 3);
+    assert_eq!(curve.points()[1].time, beat(4));
+
+    let end = position(5.0, 0.6);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(end)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(end, false)],
+        Modifiers::NONE,
+    );
+    let moved = curve
+        .points()
+        .iter()
+        .find(|point| point.time == beat(5))
+        .expect("the dragged point should land at beat 5");
+    assert!(
+        (moved.value - 0.6).abs() < 1e-6,
+        "moved value {}",
+        moved.value
+    );
 }

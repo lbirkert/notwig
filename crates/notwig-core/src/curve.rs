@@ -23,8 +23,7 @@ pub struct CurvePoint {
     pub value: f64,
     /// Bend of the segment that starts at this point.
     ///
-    /// `0` is linear, positive values ease out then in, and negative values
-    /// invert that shape.
+    /// `0` is linear, positive values ease in, and negative values ease out.
     #[serde(default)]
     pub curvature: f64,
 }
@@ -48,7 +47,8 @@ impl CurvePoint {
     }
 }
 
-/// An ordered, unique set of curve points.
+/// An ordered set of curve points. Multiple points may share one time to
+/// represent a vertical step.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Curve {
@@ -62,10 +62,11 @@ impl Curve {
         Self::default()
     }
 
-    /// Builds a curve from points, sorting by time.
+    /// Builds a curve from points, using a stable sort by time.
     ///
-    /// Duplicate times, non-finite values, and non-finite curvature are
-    /// rejected instead of silently merged.
+    /// Multiple points may share a time; their original order is preserved
+    /// within that time so a vertical step has a well-defined direction.
+    /// Non-finite values and curvature are rejected.
     pub fn from_points(points: impl IntoIterator<Item = CurvePoint>) -> Result<Self, CoreError> {
         let mut points: Vec<CurvePoint> = points.into_iter().collect();
         points.sort_by_key(|point| point.time);
@@ -78,13 +79,6 @@ impl Curve {
             if !point.curvature.is_finite() {
                 return Err(CoreError::ValidationFailed {
                     reason: "curve point curvature must be finite".into(),
-                });
-            }
-        }
-        for pair in points.windows(2) {
-            if pair[0].time == pair[1].time {
-                return Err(CoreError::ValidationFailed {
-                    reason: "curve points must have unique times".into(),
                 });
             }
         }
@@ -110,6 +104,8 @@ impl Curve {
     }
 
     /// Returns a point by time.
+    ///
+    /// When several points share `time`, one of them is returned.
     #[must_use]
     pub fn point(&self, time: TimeMus) -> Option<&CurvePoint> {
         self.points
@@ -118,12 +114,20 @@ impl Curve {
             .map(|index| &self.points[index])
     }
 
+    /// Returns all points at `time`, in curve order.
+    #[must_use]
+    pub fn points_at(&self, time: TimeMus) -> &[CurvePoint] {
+        let start = self.points.partition_point(|point| point.time < time);
+        let end = self.points.partition_point(|point| point.time <= time);
+        &self.points[start..end]
+    }
+
     /// Validates ordering and finite values.
     pub fn validate(&self) -> Result<(), CoreError> {
         for pair in self.points.windows(2) {
-            if pair[0].time >= pair[1].time {
+            if pair[0].time > pair[1].time {
                 return Err(CoreError::ValidationFailed {
-                    reason: "curve points must be ordered by unique time".into(),
+                    reason: "curve points must be ordered by time".into(),
                 });
             }
         }
@@ -145,13 +149,15 @@ impl Curve {
     /// Evaluates the curve at `time`.
     ///
     /// An empty curve returns `fallback`. Times before the first point and
-    /// after the last point hold the nearest endpoint value.
+    /// after the last point hold the nearest endpoint value. When several
+    /// points share a time, the segment approaches the first value and the
+    /// exact time evaluates to the last value, forming a vertical step.
     #[must_use]
     pub fn value_at(&self, time: TimeMus, fallback: f64) -> f64 {
         let Some(first) = self.points.first() else {
             return fallback;
         };
-        if time <= first.time {
+        if time < first.time {
             return first.value;
         }
         let last = self.points.last().unwrap_or(first);
@@ -181,11 +187,13 @@ impl Curve {
 
 /// Maps a linear segment ratio through `curvature`.
 ///
-/// The endpoints are preserved and the result stays in `[0, 1]` for any
-/// curvature in [`MIN_CURVATURE`]..=[`MAX_CURVATURE`].
+/// Positive curvature eases in (slow start), negative curvature eases out
+/// (fast start), and `0` is linear. The endpoints are preserved and the result
+/// stays in `[0, 1]` for any curvature in
+/// [`MIN_CURVATURE`]..=[`MAX_CURVATURE`].
 #[must_use]
 pub fn shape_ratio(ratio: f64, curvature: f64) -> f64 {
     let t = ratio.clamp(0.0, 1.0);
     let curve = curvature.clamp(MIN_CURVATURE, MAX_CURVATURE);
-    (t + curve * t * (1.0 - t) * (2.0 * t - 1.0)).clamp(0.0, 1.0)
+    t.powf(2.0_f64.powf(curve)).clamp(0.0, 1.0)
 }
