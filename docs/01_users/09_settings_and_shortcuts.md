@@ -20,8 +20,9 @@ The Audio page selects the output system:
   separate low-latency monitor path, the render-ahead worker, and the small
   device callback buffer. This option is disabled in the browser build, where
   project audio runs in the output callback.
-- **Device Block Size**: the output device callback block. Its range is fixed at
-  16 to 2048 samples in steps of 16 and does not depend on the project buffer.
+- **Device Block Size**: the output device callback block. It defaults to 512
+  samples. Its range is fixed at 16 to 2048 samples in steps of 16 and does not
+  depend on the project buffer.
 - **High latency buffer**: the large project render block, 16 to 8192 samples in
   steps of 16, and never smaller than the Device Block Size. Raising the device
   block above the high-latency buffer raises the latter to match; the device

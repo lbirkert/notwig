@@ -69,6 +69,7 @@ fn missing_or_malformed_config_falls_back_to_defaults() {
     assert_eq!(loaded.driver, defaults.driver);
     assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(loaded.block_size, 512);
+    assert_eq!(loaded.low_latency_block_size, 512);
 
     let malformed = temp_path();
     std::fs::create_dir_all(malformed.parent().unwrap()).unwrap();
@@ -77,6 +78,7 @@ fn missing_or_malformed_config_falls_back_to_defaults() {
     assert_eq!(loaded.driver, defaults.driver);
     assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(loaded.block_size, 512);
+    assert_eq!(loaded.low_latency_block_size, 512);
 
     std::fs::remove_dir_all(malformed.parent().unwrap()).unwrap();
 }
@@ -87,7 +89,7 @@ fn config_tolerates_missing_and_extra_fields() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(
         &path,
-        br#"{"driver":"CoreAudio","block_size":128,"future_field":true}"#,
+        br#"{"driver":"CoreAudio","block_size":128,"low_latency_block_size":64,"future_field":true}"#,
     )
     .unwrap();
 
@@ -95,6 +97,7 @@ fn config_tolerates_missing_and_extra_fields() {
     assert_eq!(loaded.driver, "CoreAudio");
     assert_eq!(loaded.device, SYSTEM_OUT_DEVICE_ID);
     assert_eq!(loaded.block_size, 128);
+    assert_eq!(loaded.low_latency_block_size, 64);
 
     std::fs::write(&path, br#"{"driver":"CoreAudio","device":"Speakers"}"#).unwrap();
     let loaded = load_from_path(&path);

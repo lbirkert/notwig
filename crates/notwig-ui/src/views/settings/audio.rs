@@ -102,7 +102,7 @@ impl NotwigUi {
             self.audio_draft.block_size = 512;
         }
         if self.audio_draft.low_latency_block_size == 0 {
-            self.audio_draft.low_latency_block_size = 16;
+            self.audio_draft.low_latency_block_size = 512;
         }
         self.audio_draft.low_latency_block_size = self
             .audio_draft

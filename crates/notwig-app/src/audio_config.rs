@@ -7,7 +7,7 @@ use crate::audio::AudioSettings;
 
 const CONFIG_VERSION: u32 = 2;
 const DEFAULT_BLOCK_SIZE: u32 = 512;
-const DEFAULT_LOW_LATENCY_BLOCK_SIZE: u32 = 16;
+const DEFAULT_LOW_LATENCY_BLOCK_SIZE: u32 = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct PersistedAudioSettings {

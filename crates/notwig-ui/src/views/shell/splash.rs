@@ -7,26 +7,36 @@ use super::NotwigUi;
 impl NotwigUi {
     /// Paints the startup wordmark without taking input or blocking the UI.
     ///
-    /// `opacity` is supplied by the app layer so the splash fades in and out
-    /// while the workspace and audio engine are already starting underneath.
+    /// `opacity` is supplied by the app layer for the text only. The backdrop
+    /// stays fully opaque while the splash is active so the workspace never
+    /// shows through it during the fade.
     pub fn show_startup_splash(&self, ctx: &egui::Context, opacity: f32) {
         let opacity = opacity.clamp(0.0, 1.0);
-        if opacity <= 0.0 {
-            return;
-        }
         let screen = ctx.screen_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new("notwig-startup-splash"),
         ));
-        painter.rect_filled(
-            screen,
-            egui::CornerRadius::ZERO,
-            with_opacity(theme::APP_BAR, opacity),
-        );
+        painter.rect_filled(screen, egui::CornerRadius::ZERO, theme::APP_BAR);
+        if opacity <= 0.0 {
+            return;
+        }
 
         let title_size = (screen.height() * 0.18).clamp(48.0, 132.0);
         let title_pos = screen.center() - egui::vec2(0.0, title_size * 0.08);
+
+        let brand = crate::widgets::brand::icon(ctx, true);
+        let brand_size = brand.size_vec2();
+        let logo_height = title_size * 0.6;
+        let logo_width = logo_height * (brand_size.x / brand_size.y.max(1.0));
+        let logo_center = egui::pos2(title_pos.x, title_pos.y - title_size * 0.9);
+        painter.image(
+            brand.id(),
+            egui::Rect::from_center_size(logo_center, egui::vec2(logo_width, logo_height)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            with_opacity(egui::Color32::WHITE, opacity),
+        );
+
         painter.text(
             title_pos,
             Align2::CENTER_CENTER,
