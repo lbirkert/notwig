@@ -1914,6 +1914,76 @@ fn select_gain_point_with_modifiers(
 }
 
 #[test]
+fn gain_points_can_be_added_beyond_the_clip_end() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    let content = ui.clip_editor_content_rect;
+    let point = egui::pos2(content.left() + 4.0 * 80.0, gain_editor_y(content, 6.0));
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::PointerMoved(point)],
+    );
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(point, true)],
+    );
+    let intents = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(point, false)],
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("adding beyond the clip should commit a gain curve");
+    assert_eq!(curve.points_at(TimeMus::new(4, 1)).len(), 1);
+}
+
+#[test]
+fn gain_points_can_be_moved_beyond_the_clip_end() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    let content = ui.clip_editor_content_rect;
+    let start = egui::pos2(content.left() + 3.0 * 80.0, gain_editor_y(content, 6.0));
+    let end = egui::pos2(content.left() + 4.0 * 80.0, gain_editor_y(content, 6.0));
+    for event in [
+        egui::Event::PointerMoved(start),
+        pointer_event(start, true),
+        egui::Event::PointerMoved(end),
+    ] {
+        let _ = run_panel(&ctx, &mut ui, &doc, &runtime, vec![event]);
+    }
+    let intents = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(end, false)],
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("moving beyond the clip should commit a gain curve");
+    assert_eq!(curve.points_at(TimeMus::new(4, 1)).len(), 1);
+}
+
+#[test]
 fn selecting_gain_points_extends_the_time_selection() {
     let (doc, clip) = gain_curve_doc(id::<Clip>(60));
     let (mut ui, ctx) = open_gain_editor(&doc, clip);

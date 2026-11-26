@@ -879,6 +879,75 @@ fn paste_clears_the_destination_range_before_inserting() {
 }
 
 #[test]
+fn duplicating_an_audio_clip_copies_its_gain_curve() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(710));
+    workspace
+        .apply(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: notwig_core::AssetEntry {
+                id: asset,
+                kind: notwig_core::AssetKind::Audio,
+                uri: "assets/gain.wav".into(),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(96_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        })
+        .unwrap();
+    let clip = Id::<ClipMarker>::from_uuid(Uuid::from_u128(711));
+    workspace
+        .apply(CommandPayload::CreateClip {
+            id: clip,
+            track_id: track,
+            kind: ClipKind::Audio,
+            range: notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 96_000,
+                gain_db: Db(0.0),
+                gain_curve: None,
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
+            }),
+        })
+        .unwrap();
+    let curve = notwig_core::Curve::from_points([
+        notwig_core::CurvePoint::new(Rational::new(1, 1), -6.0),
+        notwig_core::CurvePoint::new(Rational::new(3, 1), 3.0),
+    ])
+    .unwrap();
+    workspace
+        .apply(CommandPayload::SetClipGainCurve {
+            clip_id: clip,
+            curve: Some(curve.clone()),
+        })
+        .unwrap();
+    let copied = workspace.duplicate_clip(clip).unwrap();
+    let ClipPayload::Audio(audio) = &workspace.doc.arranger.clips[&copied].payload else {
+        panic!("expected audio clip");
+    };
+    assert_eq!(audio.gain_curve, Some(curve));
+}
+
+#[test]
 fn duplicate_places_a_fresh_clip_after_the_source() {
     let mut workspace = Workspace::new_empty().unwrap();
     workspace.create_track(TrackKind::Instrument).unwrap();

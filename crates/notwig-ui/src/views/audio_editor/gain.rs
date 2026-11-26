@@ -41,8 +41,8 @@ pub(super) fn draw_gain_line_editor(
         value_min: MIN_GAIN_DB,
         value_max: MAX_GAIN_DB,
         baseline: Some(0.0),
-        min_time: Some(TimeMus::zero()),
-        max_time: Some(clip.range.length()),
+        min_time: None,
+        max_time: None,
         format_value: Some(format_gain),
     };
     let response = line_editor::show_with_background(

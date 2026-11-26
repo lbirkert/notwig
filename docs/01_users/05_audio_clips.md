@@ -90,6 +90,9 @@ editor:
   Cmd/Ctrl over a segment shows the vertical move cursor.
 
 The curve is an offset in dB on top of the clip gain and any per-event gain.
+Gain points may sit before the clip start or after the clip end, just like audio
+events; playback holds the nearest endpoint outside the point range. The gain
+curve belongs to the audio clip and is copied with clip copy/duplicate.
 Gain edits are previewed on the waveform and through playback while you drag,
 then committed as one undo entry on release.
 The waveform behind the curve is scaled by the curve locally, so the displayed

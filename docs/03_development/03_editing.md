@@ -824,8 +824,12 @@ and emits one command on release.
 | Option/Alt-drag a segment | Bend the segment's curvature; diagonal resize cursor on hover |
 | Cmd/Ctrl-drag a segment | Move both endpoint values up or down; vertical resize cursor on hover |
 
-Segment curvature is stored on the left point and applies only to the segment
-to its right. Positive curvature eases in (slow start), negative curvature eases
+Gain curve points may lie outside the clip range. The line editor keeps the
+curve's time bounds open for gain editing, just as audio events may extend
+beyond the clip container. Arranger extraction carries the curve with the clip
+content, shifting its local times when the extracted window starts later, so
+copy, paste, and duplicate preserve gain. Segment curvature is stored on the left point and
+applies only to the segment to its right. Positive curvature eases in (slow start), negative curvature eases
 out (fast start), and zero is linear. `Curve::value_at` preserves the endpoints,
 holds the nearest endpoint outside the point range, and stays monotonic for
 curvature in `-2..=2`. Negative curvature is the exact horizontal and vertical

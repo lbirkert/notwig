@@ -134,7 +134,7 @@ pub fn join_clips(
                 source_start_sample: first.source_start_sample,
                 source_end_sample: first.source_end_sample,
                 gain_db: first.gain_db,
-                gain_curve: None,
+                gain_curve: first.gain_curve.clone(),
                 fade_in_samples: first.fade_in_samples,
                 fade_out_samples: first.fade_out_samples,
                 fade_shape: first.fade_shape,
@@ -261,7 +261,7 @@ impl<'a> ArrangerModel<'a> {
                     source_start_sample: audio.source_start_sample,
                     source_end_sample: audio.source_end_sample,
                     gain_db: audio.gain_db,
-                    gain_curve: None,
+                    gain_curve: shifted_curve(audio.gain_curve.as_ref(), left),
                     fade_in_samples: 0,
                     fade_out_samples: 0,
                     fade_shape: audio.fade_shape,
@@ -287,7 +287,7 @@ impl<'a> ArrangerModel<'a> {
                     source_start_sample: source_start,
                     source_end_sample: source_end,
                     gain_db: audio.gain_db,
-                    gain_curve: None,
+                    gain_curve: shifted_curve(audio.gain_curve.as_ref(), left),
                     fade_in_samples: 0,
                     fade_out_samples: 0,
                     fade_shape: audio.fade_shape,
@@ -393,4 +393,13 @@ impl EditModel for ArrangerModel<'_> {
                 | (TrackKind::Audio, ObjectKind::ClipAudio)
         )
     }
+}
+
+fn shifted_curve(curve: Option<&crate::Curve>, offset: TimeMus) -> Option<crate::Curve> {
+    let curve = curve?;
+    crate::Curve::from_points(curve.points().iter().copied().map(|mut point| {
+        point.time = point.time - offset;
+        point
+    }))
+    .ok()
 }
