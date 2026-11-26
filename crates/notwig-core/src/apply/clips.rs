@@ -197,6 +197,29 @@ pub(super) fn set_clip_gain_curve(
     curve: Option<crate::Curve>,
     changes: &mut Changes,
 ) -> Result<Vec<EngineMsg>, CoreError> {
+    set_clip_curve(doc, clip_id, curve, changes, |audio, curve| {
+        audio.gain_curve = curve;
+    })
+}
+
+pub(super) fn set_clip_pan_curve(
+    doc: &mut ProjectDoc,
+    clip_id: ClipId,
+    curve: Option<crate::Curve>,
+    changes: &mut Changes,
+) -> Result<Vec<EngineMsg>, CoreError> {
+    set_clip_curve(doc, clip_id, curve, changes, |audio, curve| {
+        audio.pan_curve = curve;
+    })
+}
+
+fn set_clip_curve(
+    doc: &mut ProjectDoc,
+    clip_id: ClipId,
+    curve: Option<crate::Curve>,
+    changes: &mut Changes,
+    set: impl FnOnce(&mut crate::sequencer::AudioClipData, Option<crate::Curve>),
+) -> Result<Vec<EngineMsg>, CoreError> {
     let clip = doc
         .arranger
         .clips
@@ -207,7 +230,7 @@ pub(super) fn set_clip_gain_curve(
             reason: "clip is not an audio clip".into(),
         });
     };
-    audio.gain_curve = curve;
+    set(audio, curve);
     changes.affected.clips.insert(clip_id);
     changes.push(DocChange::ClipUpserted(clip_id));
     doc.validate().map_err(|err| CoreError::ValidationFailed {

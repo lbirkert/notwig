@@ -9,8 +9,8 @@ use crate::web::package::WebExtensionPackage;
 use crate::web::panel::WebExtensionPanelHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
-    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionConfig,
-    ExtensionInfo, ExtensionStatus,
+    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
+    ExtensionConfig, ExtensionInfo, ExtensionStatus,
 };
 
 /// Browser host for WASM extension packages.
@@ -31,6 +31,7 @@ impl WebExtensionHost {
         let mut by_type = BTreeMap::new();
         let mut by_command = BTreeMap::new();
         let mut commands = BTreeMap::new();
+        let mut audio_sub_editors = BTreeMap::new();
         let mut infos = Vec::new();
         let mut errors = Vec::new();
         for package in packages {
@@ -69,6 +70,17 @@ impl WebExtensionHost {
                             by_command.insert(command.id.clone(), Arc::clone(&extension));
                         }
                     }
+                    for editor in &extension.audio_sub_editors {
+                        if audio_sub_editors.contains_key(&editor.id) {
+                            tracing::warn!(
+                                sub_editor = %editor.id,
+                                extension = %extension.manifest.id,
+                                "duplicate browser extension audio sub-editor id"
+                            );
+                        } else {
+                            audio_sub_editors.insert(editor.id.clone(), editor.clone());
+                        }
+                    }
                 }
                 Err(error) => {
                     errors.push(format!("{}: {error}", package.id()));
@@ -81,6 +93,7 @@ impl WebExtensionHost {
                 by_type,
                 by_command,
                 commands,
+                audio_sub_editors,
                 infos,
             }),
             errors,
@@ -109,6 +122,12 @@ impl WebExtensionHost {
     #[must_use]
     pub fn commands(&self) -> Vec<CommandDescriptor> {
         self.loaded.commands()
+    }
+
+    /// Returns resolved audio-editor sub-editors from all loaded packages.
+    #[must_use]
+    pub fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
+        self.loaded.audio_sub_editors()
     }
 
     /// Executes a contributed command against a bounded context.
@@ -199,11 +218,26 @@ fn load_package(
             extension_id: Some(package.manifest.id.clone()),
         })
         .collect();
+    let audio_sub_editors = package
+        .manifest
+        .audio_sub_editor_contributions()
+        .filter_map(|contribution| {
+            Some(AudioSubEditorDescriptor {
+                id: contribution.id.clone(),
+                title: contribution.title.clone().unwrap_or_default(),
+                category: contribution.category.clone().unwrap_or_default(),
+                order: contribution.order,
+                kind: contribution.kind.clone()?,
+                extension_id: Some(package.manifest.id.clone()),
+            })
+        })
+        .collect();
     Ok(WebLoadedExtension {
         manifest: package.manifest.clone(),
         module,
         specs,
         commands,
+        audio_sub_editors,
         info,
     })
 }

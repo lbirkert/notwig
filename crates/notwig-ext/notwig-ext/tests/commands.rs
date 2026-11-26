@@ -51,7 +51,7 @@ fn write_extension() -> PathBuf {
         "version": "0.1.0",
         "api_version": 5,
         "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
-        "capabilities": ["command"],
+        "capabilities": ["command", "audio_editor"],
         "devices": [],
         "contributes": [{
             "id": "com.test.commands.noop",
@@ -60,6 +60,22 @@ fn write_extension() -> PathBuf {
             "title": "No-op",
             "category": "Test",
             "when": "focus == midi_editor"
+        }, {
+            "id": "com.test.commands.pan",
+            "point": "notwig.audio_editor.sub_editor",
+            "contract": "notwig.audio_editor.sub_editor@1",
+            "title": "Clip Pan",
+            "category": "Audio",
+            "order": 5,
+            "kind": {
+                "curve": {
+                    "target": "pan",
+                    "value_min": -1.0,
+                    "value_max": 1.0,
+                    "baseline": 0.0,
+                    "format": "pan"
+                }
+            }
         }]
     });
     std::fs::write(
@@ -90,5 +106,16 @@ fn host_resolves_and_executes_wasm_commands() {
         .execute_command("com.test.commands.noop", &CommandContext::default())
         .expect("execute command");
     assert_eq!(effect, CommandEffect::None);
+
+    let editors = host.audio_sub_editors();
+    assert_eq!(editors.len(), 1);
+    assert_eq!(editors[0].id, "com.test.commands.pan");
+    assert_eq!(
+        editors[0].extension_id.as_deref(),
+        Some("com.test.commands")
+    );
+    let curve = editors[0].curve().expect("curve sub-editor");
+    assert_eq!(curve.target, notwig_ext_api::CurveTarget::Pan);
+    assert_eq!(curve.baseline, Some(0.0));
     let _ = std::fs::remove_dir_all(root);
 }

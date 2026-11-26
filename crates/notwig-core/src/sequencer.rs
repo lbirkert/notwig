@@ -89,6 +89,10 @@ pub struct AudioClipData {
     /// Time-varying gain offset in dB, relative to `gain_db` and slice gain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gain_curve: Option<Curve>,
+    /// Time-varying stereo pan in `-1..=1`, where `-1` is hard left and `1` is
+    /// hard right. `None` leaves the clip un-panned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pan_curve: Option<Curve>,
     pub fade_in_samples: u64,
     pub fade_out_samples: u64,
     pub fade_shape: FadeShape,
@@ -258,6 +262,9 @@ impl NoteEntity {
 impl AudioClipData {
     fn validate(&self, range: RangeMus, doc: &ProjectDoc) -> Result<(), CoreError> {
         if let Some(curve) = &self.gain_curve {
+            curve.validate()?;
+        }
+        if let Some(curve) = &self.pan_curve {
             curve.validate()?;
         }
         if self.source_end_sample <= self.source_start_sample {

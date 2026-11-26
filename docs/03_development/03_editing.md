@@ -794,9 +794,12 @@ The clip editor is closed by dragging its top handle down. Its height remains re
 ### 12.2 Line editor
 
 The core line editor is a reusable time/value surface for automation, clip gain,
-pan, and other modulatable values. The canonical curve model is
+clip pan, and other modulatable values. The canonical curve model is
 `notwig_core::Curve`; the interaction widget is
-`notwig_ui::widgets::line_editor`.
+`notwig_ui::widgets::line_editor`. The audio editor adapter in
+`views/audio_editor/curve.rs` binds the same widget to canonical clip curves, so
+the built-in Gain editor and extension-contributed curve editors share editing,
+selection, clipboard, preview, and commit behavior.
 
 The widget owns only ephemeral gesture state: the current point or segment drag
 and the marquee rectangle. Coarse/fine modifier changes use the shared
@@ -824,9 +827,11 @@ and emits one command on release.
 | Option/Alt-drag a segment | Bend the segment's curvature; diagonal resize cursor on hover |
 | Cmd/Ctrl-drag a segment | Move both endpoint values up or down; vertical resize cursor on hover |
 
-Gain curve points may lie outside the clip range. The line editor keeps the
-curve's time bounds open for gain editing, just as audio events may extend
-beyond the clip container. Arranger extraction carries the curve with the clip
+Gain and pan curve points may lie outside the clip range. The line editor keeps
+the curve's time bounds open for curve editing, just as audio events may extend
+beyond the clip container. An extension curve contribution names a host curve
+target (`gain` or `pan`), value range, baseline, and formatting; it never draws
+or stores the curve itself. Arranger extraction carries the curve with the clip
 content, shifting its local times when the extracted window starts later, so
 copy, paste, and duplicate preserve gain. Segment curvature is stored on the left point and
 applies only to the segment to its right. Positive curvature eases in (slow start), negative curvature eases

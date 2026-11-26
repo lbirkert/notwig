@@ -30,6 +30,7 @@
 #![deny(unsafe_code)]
 
 pub mod abi;
+pub mod audio_editor;
 pub mod command;
 pub mod config;
 pub mod context;
@@ -46,6 +47,11 @@ pub mod status;
 pub mod target;
 
 pub use abi::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, pack_ptr_len, unpack_ptr_len};
+pub use audio_editor::{
+    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorDescriptor,
+    AudioSubEditorKind, CurveTarget, CurveTargetSpec, CurveValueFormat,
+    MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
+};
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
     CommandExtension, CommandFocus, CommandId, CommandSelection, CommandTimeSelection,

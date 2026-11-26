@@ -64,9 +64,9 @@ belongs to a different editor.
 
 ## Clip gain and fades
 
-Audio clips store gain, an optional gain curve, and linear fades, and the engine
-renders them. The **Gain** sub-editor exposes the curve as a reusable line
-editor:
+Audio clips store gain, optional gain and pan curves, and linear fades, and the
+engine renders them. The **Gain** sub-editor exposes the gain curve as a
+reusable line editor:
 
 - hover the curve to show the add-point cursor, then click the line to insert
   and drag a point immediately;
@@ -98,8 +98,26 @@ then committed as one undo entry on release.
 The waveform behind the curve is scaled by the curve locally, so the displayed
 audio follows the gain shape. The same locally scaled waveform is used in the
 arranger and the audio editor. The line editor is shared UI code and is ready
-for automation and other modulatable values. Clip pan, fade shapes, crossfades, reverse, and time stretching are not
-implemented.
+for automation and other modulatable values.
+
+## Clip pan
+
+The **Clip Pan** sub-editor is supplied by the example extension. It uses the
+same global curve editor as Gain, so every gesture, shortcut, selection rule,
+and undo boundary is identical:
+
+- click the center line to add and drag a pan point;
+- drag points in time and value, or bend segments to shape the pan curve;
+- copy, cut, paste, duplicate, delete, and select all use the audio editor's
+  point selection;
+- points may sit outside the clip; playback holds the nearest endpoint.
+
+Pan values run from hard left (`-1`) through center (`0`) to hard right (`1`).
+The hover label shows `L`, `C`, or `R` percentages. A missing pan curve, or a
+flat center curve, leaves the clip unchanged. Clip pan curves are saved with the
+project and copied with the clip.
+
+Fade shapes, crossfades, reverse, and time stretching are not implemented.
 
 ## Waveform and navigation
 

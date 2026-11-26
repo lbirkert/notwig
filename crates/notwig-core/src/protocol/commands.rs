@@ -220,6 +220,10 @@ pub enum CommandPayload {
         clip_id: ClipId,
         curve: Option<crate::curve::Curve>,
     },
+    SetClipPanCurve {
+        clip_id: ClipId,
+        curve: Option<crate::curve::Curve>,
+    },
     SetParam {
         device_id: DeviceId,
         param_id: ParamId,

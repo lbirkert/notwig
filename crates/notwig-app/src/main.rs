@@ -359,6 +359,7 @@ fn run_demo(dir: &Path) -> Result<(), AppError> {
                 source_end_sample: u64::from(sample_rate),
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 480,
                 fade_out_samples: 480,
                 fade_shape: FadeShape::Linear,

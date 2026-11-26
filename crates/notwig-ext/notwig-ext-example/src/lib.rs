@@ -4,15 +4,34 @@
 //! host-owned edit families, and command palette/shortcut integration. It
 //! modifies existing selected notes only; the host applies the batch and
 //! records one undo entry.
+//!
+//! `notwig.ext.example.pan` demonstrates an audio-editor sub-editor. The host
+//! owns the shared curve editor, the canonical clip pan curve, and the undo
+//! boundary; the extension only declares the sub-editor and its value mapping.
 
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
 use notwig_ext_api::{
-    CommandContext, CommandEdit, CommandEffect, CommandExtension, Extension, notwig_extension,
+    CommandContext, CommandEdit, CommandEffect, CommandExtension, CurveTarget, CurveTargetSpec,
+    CurveValueFormat, Extension, notwig_extension,
 };
 
 /// Humanize command id. This must match `extension.json`.
 pub const HUMANIZE_COMMAND_ID: &str = "notwig.ext.example.humanize";
+/// Clip pan sub-editor id. This must match `extension.json`.
+pub const PAN_SUB_EDITOR_ID: &str = "notwig.ext.example.pan";
+
+/// Value mapping declared by the clip pan sub-editor.
+#[must_use]
+pub const fn pan_target_spec() -> CurveTargetSpec {
+    CurveTargetSpec {
+        target: CurveTarget::Pan,
+        value_min: -1.0,
+        value_max: 1.0,
+        baseline: Some(0.0),
+        format: CurveValueFormat::Pan,
+    }
+}
 
 /// Nudges selected note timing and velocity deterministically.
 pub struct HumanizeCommand;
@@ -78,6 +97,33 @@ fn note_seed(revision: u64, id: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pan_target_spec_matches_the_manifest() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../extension.json")).expect("valid manifest json");
+        let contribution = manifest["contributes"]
+            .as_array()
+            .expect("contributions")
+            .iter()
+            .find(|entry| entry["id"] == PAN_SUB_EDITOR_ID)
+            .expect("pan contribution");
+        assert_eq!(
+            contribution["point"],
+            notwig_ext_api::AUDIO_SUB_EDITOR_POINT
+        );
+        assert_eq!(
+            contribution["contract"],
+            notwig_ext_api::AUDIO_SUB_EDITOR_CONTRACT
+        );
+        let kind = &contribution["kind"]["curve"];
+        let spec = pan_target_spec();
+        assert_eq!(kind["target"], spec.target.as_str());
+        assert_eq!(kind["value_min"], spec.value_min);
+        assert_eq!(kind["value_max"], spec.value_max);
+        assert_eq!(kind["baseline"], spec.baseline.expect("baseline"));
+        assert_eq!(kind["format"], "pan");
+    }
 
     #[cfg(test)]
     fn context() -> CommandContext {

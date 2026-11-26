@@ -1,6 +1,7 @@
 use notwig_ext_api::{
-    COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandEdit, CommandEffect, CommandExtension,
-    CommandFocus, CommandSelection, Extension, ExtensionManifest, evaluate_when, validate_when,
+    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, COMMAND_CONTRACT, COMMAND_POINT,
+    CommandContext, CommandEdit, CommandEffect, CommandExtension, CommandFocus, CommandSelection,
+    CurveTarget, Extension, ExtensionManifest, evaluate_when, validate_when,
 };
 
 struct EchoCommand;
@@ -124,4 +125,71 @@ fn command_runtime_rejects_unknown_ids() {
             .execute_command_bytes("com.example.missing", &bytes)
             .is_none()
     );
+}
+
+#[test]
+fn manifest_accepts_audio_sub_editor_contribution() {
+    let manifest: ExtensionManifest = serde_json::from_str(&format!(
+        r#"{{
+            "manifest_version": 2,
+            "id": "com.example.pan",
+            "name": "Pan",
+            "version": "0.1.0",
+            "api_version": 5,
+            "capabilities": ["audio_editor"],
+            "contributes": [{{
+                "id": "com.example.pan.editor",
+                "point": "{AUDIO_SUB_EDITOR_POINT}",
+                "contract": "{AUDIO_SUB_EDITOR_CONTRACT}",
+                "title": "Clip Pan",
+                "category": "Audio",
+                "order": 3,
+                "kind": {{
+                    "curve": {{
+                        "target": "pan",
+                        "value_min": -1.0,
+                        "value_max": 1.0,
+                        "baseline": 0.0,
+                        "format": "pan"
+                    }}
+                }}
+            }}]
+        }}"#
+    ))
+    .expect("parse manifest");
+    manifest.validate_source().expect("valid manifest");
+    let contribution = manifest
+        .audio_sub_editor_contributions()
+        .next()
+        .expect("pan sub-editor");
+    assert_eq!(contribution.order, 3);
+    let curve = contribution
+        .kind
+        .as_ref()
+        .and_then(|kind| kind.curve())
+        .expect("curve target");
+    assert_eq!(curve.target, CurveTarget::Pan);
+}
+
+#[test]
+fn audio_sub_editor_requires_a_curve_kind() {
+    let manifest: ExtensionManifest = serde_json::from_str(&format!(
+        r#"{{
+            "manifest_version": 2,
+            "id": "com.example.pan",
+            "name": "Pan",
+            "version": "0.1.0",
+            "api_version": 5,
+            "capabilities": ["audio_editor"],
+            "contributes": [{{
+                "id": "com.example.pan.editor",
+                "point": "{AUDIO_SUB_EDITOR_POINT}",
+                "contract": "{AUDIO_SUB_EDITOR_CONTRACT}",
+                "title": "Clip Pan",
+                "category": "Audio"
+            }}]
+        }}"#
+    ))
+    .expect("parse manifest");
+    assert!(manifest.validate_source().is_err());
 }

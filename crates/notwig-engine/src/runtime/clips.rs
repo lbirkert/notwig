@@ -72,6 +72,7 @@ impl ActivePlan {
                             slice.source_end_sample,
                             slice.gain_db.to_gain().0,
                             audio.gain_curve.as_ref(),
+                            audio.pan_curve.as_ref(),
                             u64::try_from(clip_start).unwrap_or(0),
                             &map,
                             0,
@@ -96,6 +97,7 @@ impl ActivePlan {
                         audio.source_end_sample,
                         audio.gain_db.to_gain().0,
                         audio.gain_curve.as_ref(),
+                        audio.pan_curve.as_ref(),
                         clip_start,
                         &map,
                         audio.fade_in_samples,
@@ -119,6 +121,7 @@ fn render_audio_region(
     source_end: u64,
     gain: f32,
     gain_curve: Option<&Curve>,
+    pan_curve: Option<&Curve>,
     clip_start_sample: u64,
     map: &TempoMap,
     fade_in_samples: u64,
@@ -145,15 +148,23 @@ fn render_audio_region(
         } else {
             ((source_end - source) as f32 / fade_out_samples as f32).min(1.0)
         };
-        let curve_gain = gain_curve.map_or(1.0, |curve| {
+        let (curve_gain, pan_left, pan_right) = if gain_curve.is_some() || pan_curve.is_some() {
             let local = map.samples_to_mus(absolute.saturating_sub(clip_start_sample));
-            Db(curve.value_at(local, 0.0) as f32).to_gain().0
-        });
+            let curve_gain = gain_curve.map_or(1.0, |curve| {
+                Db(curve.value_at(local, 0.0) as f32).to_gain().0
+            });
+            let (pan_left, pan_right) = pan_curve.map_or((1.0, 1.0), |curve| {
+                clip_pan_gains(curve.value_at(local, 0.0) as f32)
+            });
+            (curve_gain, pan_left, pan_right)
+        } else {
+            (1.0, 1.0, 1.0)
+        };
         let envelope = fade_in.min(fade_out) * gain * curve_gain;
         let (left, right) = sample_frame(asset, source);
         let idx = i * 2;
-        track.buffer[idx] += left * envelope;
-        track.buffer[idx + 1] += right * envelope;
+        track.buffer[idx] += left * envelope * pan_left;
+        track.buffer[idx + 1] += right * envelope * pan_right;
     }
 }
 
@@ -169,5 +180,16 @@ fn sample_frame(asset: &AudioAssetBuffer, frame: u64) -> (f32, f32) {
             asset.samples.get(start).copied().unwrap_or(0.0),
             asset.samples.get(start + 1).copied().unwrap_or(0.0),
         ),
+    }
+}
+
+/// Applies a balance-style clip pan. A centered or missing pan is unity gain,
+/// so adding a flat pan curve does not attenuate the clip.
+fn clip_pan_gains(pan: f32) -> (f32, f32) {
+    let pan = pan.clamp(-1.0, 1.0);
+    if pan < 0.0 {
+        (1.0, 1.0 + pan)
+    } else {
+        (1.0 - pan, 1.0)
     }
 }

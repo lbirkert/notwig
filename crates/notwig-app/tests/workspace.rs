@@ -345,6 +345,7 @@ fn audio_editor_copy_replaces_the_arranger_clipboard() {
                 source_end_sample: 96_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -494,6 +495,7 @@ fn delete_time_range_splits_multiple_audio_slices() {
                 source_end_sample: 96_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -663,6 +665,7 @@ fn adding_an_audio_event_keeps_the_clip_range() {
                 source_end_sample: 48_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -784,6 +787,7 @@ fn copying_a_time_range_trims_audio_slice_windows() {
                 source_end_sample: 96_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -921,6 +925,7 @@ fn duplicating_an_audio_clip_copies_its_gain_curve() {
                 source_end_sample: 96_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -945,6 +950,76 @@ fn duplicating_an_audio_clip_copies_its_gain_curve() {
         panic!("expected audio clip");
     };
     assert_eq!(audio.gain_curve, Some(curve));
+}
+
+#[test]
+fn duplicating_an_audio_clip_copies_its_pan_curve() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.create_track(TrackKind::Audio).unwrap();
+    let track = workspace
+        .doc
+        .tracks
+        .values()
+        .find(|track| track.kind == TrackKind::Audio)
+        .unwrap()
+        .id;
+    let asset = Id::<AssetMarker>::from_uuid(Uuid::from_u128(712));
+    workspace
+        .apply(CommandPayload::RegisterAsset {
+            asset_id: asset,
+            entry: notwig_core::AssetEntry {
+                id: asset,
+                kind: notwig_core::AssetKind::Audio,
+                uri: "assets/pan.wav".into(),
+                original_name: None,
+                hash: None,
+                format: "wav".into(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                duration_samples: Some(96_000),
+                original_sample_rate: Some(48_000),
+                original_channels: Some(2),
+            },
+        })
+        .unwrap();
+    let clip = Id::<ClipMarker>::from_uuid(Uuid::from_u128(713));
+    workspace
+        .apply(CommandPayload::CreateClip {
+            id: clip,
+            track_id: track,
+            kind: ClipKind::Audio,
+            range: notwig_core::RangeMus::new(Rational::zero(), Rational::new(4, 1)).unwrap(),
+            payload: ClipPayload::Audio(notwig_core::AudioClipData {
+                asset_id: asset,
+                source_start_sample: 0,
+                source_end_sample: 96_000,
+                gain_db: Db(0.0),
+                gain_curve: None,
+                pan_curve: None,
+                fade_in_samples: 0,
+                fade_out_samples: 0,
+                fade_shape: notwig_core::sequencer::FadeShape::Linear,
+                slices: Vec::new(),
+                slices_enabled: false,
+            }),
+        })
+        .unwrap();
+    let curve = notwig_core::Curve::from_points([
+        notwig_core::CurvePoint::new(Rational::new(1, 1), -6.0),
+        notwig_core::CurvePoint::new(Rational::new(3, 1), 3.0),
+    ])
+    .unwrap();
+    workspace
+        .apply(CommandPayload::SetClipPanCurve {
+            clip_id: clip,
+            curve: Some(curve.clone()),
+        })
+        .unwrap();
+    let copied = workspace.duplicate_clip(clip).unwrap();
+    let ClipPayload::Audio(audio) = &workspace.doc.arranger.clips[&copied].payload else {
+        panic!("expected audio clip");
+    };
+    assert_eq!(audio.pan_curve, Some(curve));
 }
 
 #[test]
@@ -1743,6 +1818,7 @@ fn clip_range_changes_keep_audio_events_intact() {
                 source_end_sample: 48_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -1829,6 +1905,7 @@ fn extending_an_audio_clip_left_adds_leading_silence() {
                 source_end_sample: 24_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,

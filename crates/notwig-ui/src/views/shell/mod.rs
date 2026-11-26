@@ -38,6 +38,7 @@ pub struct NotwigUi {
     pub(crate) extension_panel_textures: BTreeMap<String, BTreeMap<u64, egui::TextureHandle>>,
     pub(crate) last_extension_frames: BTreeMap<String, notwig_ext_api::PanelFrame>,
     pub(crate) extension_panel_keyboard: bool,
+    pub(crate) extension_audio_sub_editors: Vec<notwig_ext_api::AudioSubEditorDescriptor>,
     pub(crate) extension_index_input: String,
     pub(crate) extension_index_requested: bool,
     pub(crate) extension_filter: crate::settings::ExtensionFilter,
@@ -122,6 +123,7 @@ impl Default for NotwigUi {
             extension_panel_textures: BTreeMap::new(),
             last_extension_frames: BTreeMap::new(),
             extension_panel_keyboard: false,
+            extension_audio_sub_editors: Vec::new(),
             extension_index_input: String::new(),
             extension_index_requested: false,
             extension_filter: crate::settings::ExtensionFilter::default(),
@@ -310,6 +312,28 @@ impl NotwigUi {
     pub fn set_extension_commands(&mut self, commands: Vec<notwig_ext_api::CommandDescriptor>) {
         self.commands.replace_extension_commands(commands.clone());
         self.shortcuts.add_defaults(&commands);
+    }
+
+    /// Replaces the audio-editor sub-editors supplied by loaded extensions.
+    ///
+    /// An active extension sub-editor that disappears falls back to Audio
+    /// Events instead of leaving the editor on a missing surface.
+    pub fn set_extension_audio_sub_editors(
+        &mut self,
+        editors: Vec<notwig_ext_api::AudioSubEditorDescriptor>,
+    ) {
+        self.extension_audio_sub_editors = editors;
+        let still_present = self.clip_editor.as_ref().is_some_and(|state| {
+            state
+                .sub_editor
+                .extension_id()
+                .is_none_or(|id| self.extension_audio_sub_editors.iter().any(|e| e.id == id))
+        });
+        if !still_present {
+            if let Some(state) = &mut self.clip_editor {
+                state.switch_sub_editor(crate::views::audio_editor::AudioSubEditor::AudioEvents);
+            }
+        }
     }
 
     /// Returns the resolved command catalog.
@@ -552,6 +576,13 @@ pub mod test_api {
         commands: Vec<notwig_ext_api::CommandDescriptor>,
     ) {
         ui.set_extension_commands(commands);
+    }
+
+    pub fn set_extension_audio_sub_editors(
+        ui: &mut NotwigUi,
+        editors: Vec<notwig_ext_api::AudioSubEditorDescriptor>,
+    ) {
+        ui.set_extension_audio_sub_editors(editors);
     }
 
     pub fn open_command_palette(ui: &mut NotwigUi) {

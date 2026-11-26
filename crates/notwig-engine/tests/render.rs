@@ -114,6 +114,7 @@ fn add_audio_clip_with_gain(
                 source_end_sample: samples,
                 gain_db,
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
@@ -236,6 +237,47 @@ fn clip_gain_curve_affects_audio_over_time() {
     assert!(
         early > late * 2.0,
         "gain curve should fade the clip: early {early}, late {late}"
+    );
+}
+
+#[test]
+fn clip_pan_curve_pans_audio() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 500, 24_000);
+    add_audio_clip(&mut doc, track, asset, 20, 1);
+    let clip = id::<ClipMarker>(20);
+    let curve = Curve::from_points([
+        CurvePoint::new(TimeMus::zero(), -1.0),
+        CurvePoint::new(TimeMus::new(1, 1), -1.0),
+    ])
+    .unwrap();
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipPanCurve {
+            clip_id: clip,
+            curve: Some(curve),
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(24_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 24_000).unwrap();
+    let left = output[0].abs();
+    let right = output[1].abs();
+    assert!(
+        left > 0.3,
+        "hard-left pan should keep the left channel: {left}"
+    );
+    assert!(
+        right < 1e-6,
+        "hard-left pan should mute the right channel: {right}"
     );
 }
 

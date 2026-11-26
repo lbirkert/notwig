@@ -194,6 +194,14 @@ pub enum UiIntent {
         clip_id: ClipId,
         curve: Option<notwig_core::Curve>,
     },
+    SetClipPanCurve {
+        clip_id: ClipId,
+        curve: Option<notwig_core::Curve>,
+    },
+    PreviewClipPanCurve {
+        clip_id: ClipId,
+        curve: Option<notwig_core::Curve>,
+    },
     CreateMidiNote {
         clip_id: ClipId,
         note: NoteEntity,

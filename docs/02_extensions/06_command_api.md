@@ -5,8 +5,8 @@ commands with manifest metadata, a bounded context, host-owned edit families,
 command palette integration, and default keybindings. The reference package is
 `crates/notwig-ext/notwig-ext-example`.
 
-Commands supplement devices; they do not give an extension access to
-`ProjectDoc`, the audio callback, or host UI. The host validates the result,
+Commands supplement devices and audio sub-editors; they do not give an
+extension access to `ProjectDoc`, the audio callback, or host UI. The host validates the result,
 applies it through `notwig_core::apply`, and records one undo entry.
 
 ## Manifest

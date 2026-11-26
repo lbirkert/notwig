@@ -66,7 +66,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `manifest_version` | no | Manifest layout. Omit or use `1` for device-only packages; command contributions require `2`. |
+| `manifest_version` | no | Manifest layout. Omit or use `1` for device-only packages; contributions require `2`. |
 | `id` | yes | Stable package identity. Device type IDs should use it as a prefix. |
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
@@ -76,7 +76,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
 | `devices` | no | Devices registered by the package. |
-| `contributes` | no | Extension-point contributions. The first supported point is `notwig.command`; see the [Command API](06_command_api.md). |
+| `contributes` | no | Extension-point contributions: `notwig.command` and `notwig.audio_editor.sub_editor`. See the [Command API](06_command_api.md) and [Audio Sub-editor API](07_audio_sub_editor_api.md). |
 | `description` | no | Short text shown in the explorer. |
 | `image` | no | Relative icon path in the package. The index copies it to `extensions/<id>.png` for the explorer. |
 
@@ -98,6 +98,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `device` | Device registration and DSP. |
 | `ui.panel` | Guest-owned panels. |
 | `command` | Command contributions and command palette entries. |
+| `audio_editor` | Audio-editor sub-editor contributions. |
 
 An extension without `ui.panel` still appears in the device browser and uses the
 generic parameter view. See the

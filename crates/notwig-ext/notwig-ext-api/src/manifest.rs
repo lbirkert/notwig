@@ -4,6 +4,10 @@ use notwig_core::SchemaVersion;
 use serde::{Deserialize, Serialize};
 
 use crate::abi::ABI_VERSION;
+use crate::audio_editor::{
+    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorKind,
+    MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
+};
 use crate::command::{
     COMMAND_CONTRACT, COMMAND_POINT, MAX_COMMAND_DESCRIPTION_BYTES, MAX_COMMAND_WHEN_BYTES,
 };
@@ -21,6 +25,9 @@ pub enum ExtensionCapability {
     /// Contributes commands to the host command registry.
     #[serde(rename = "command")]
     Command,
+    /// Contributes audio-editor sub-editors.
+    #[serde(rename = "audio_editor")]
+    AudioEditor,
 }
 
 /// One device type declared by an extension manifest.
@@ -66,9 +73,10 @@ pub struct ExtensionInclude {
 
 /// One contribution declared by a manifest.
 ///
-/// The first supported point is [`COMMAND_POINT`]. A contribution carries the
-/// generic envelope (`id`, `point`, `contract`) plus point-specific metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A command contribution uses [`COMMAND_POINT`]; an audio-editor sub-editor
+/// uses [`AUDIO_SUB_EDITOR_POINT`]. A contribution carries the generic envelope
+/// (`id`, `point`, `contract`) plus point-specific metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionContribution {
     /// Stable contribution id, namespaced by the owning extension.
     pub id: String,
@@ -91,13 +99,19 @@ pub struct ExtensionContribution {
     /// Suggested keybindings as config strings.
     #[serde(default)]
     pub default_bindings: Vec<String>,
+    /// Selector ordering for audio-editor sub-editors.
+    #[serde(default)]
+    pub order: i32,
+    /// Audio-editor sub-editor behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AudioSubEditorKind>,
 }
 
 /// Parsed `extension.json` manifest.
 ///
 /// Unknown fields are rejected. Installed packages require at least one
 /// entrypoint; source manifests validated by `cargo notwig-ext` may omit them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionManifest {
     /// Manifest layout version. Version 1 is the original device-only layout.
@@ -236,58 +250,14 @@ impl ExtensionManifest {
                     contribution.id
                 )));
             }
-            if contribution.point != COMMAND_POINT {
-                return Err(ManifestError::Invalid(format!(
-                    "unsupported extension point: {}",
-                    contribution.point
-                )));
-            }
-            if contribution.contract != COMMAND_CONTRACT {
-                return Err(ManifestError::Invalid(format!(
-                    "unsupported command contract: {}",
-                    contribution.contract
-                )));
-            }
-            let title = contribution.title.as_deref().unwrap_or_default();
-            if title.trim().is_empty() {
-                return Err(ManifestError::Invalid(format!(
-                    "command {} must declare a title",
-                    contribution.id
-                )));
-            }
-            let category = contribution.category.as_deref().unwrap_or_default();
-            if category.trim().is_empty() {
-                return Err(ManifestError::Invalid(format!(
-                    "command {} must declare a category",
-                    contribution.id
-                )));
-            }
-            if contribution
-                .description
-                .as_deref()
-                .is_some_and(|description| description.len() > MAX_COMMAND_DESCRIPTION_BYTES)
-            {
-                return Err(ManifestError::Invalid(format!(
-                    "command {} description is too long",
-                    contribution.id
-                )));
-            }
-            if let Some(when) = &contribution.when {
-                if when.len() > MAX_COMMAND_WHEN_BYTES {
+            match contribution.point.as_str() {
+                COMMAND_POINT => validate_command_contribution(contribution)?,
+                AUDIO_SUB_EDITOR_POINT => validate_audio_sub_editor_contribution(contribution)?,
+                point => {
                     return Err(ManifestError::Invalid(format!(
-                        "command {} condition is too long",
-                        contribution.id
+                        "unsupported extension point: {point}"
                     )));
                 }
-                crate::command::validate_when(when).map_err(|error| {
-                    ManifestError::Invalid(format!("command {} {error}", contribution.id))
-                })?;
-            }
-            if contribution.default_bindings.len() > 8 {
-                return Err(ManifestError::Invalid(format!(
-                    "command {} declares too many default bindings",
-                    contribution.id
-                )));
             }
         }
         let mut seen = std::collections::BTreeSet::new();
@@ -314,6 +284,13 @@ impl ExtensionManifest {
             .filter(|contribution| contribution.point == COMMAND_POINT)
     }
 
+    /// Returns audio-editor sub-editor contributions in manifest order.
+    pub fn audio_sub_editor_contributions(&self) -> impl Iterator<Item = &ExtensionContribution> {
+        self.contributes
+            .iter()
+            .filter(|contribution| contribution.point == AUDIO_SUB_EDITOR_POINT)
+    }
+
     /// Returns `true` when the manifest declares `capability`.
     #[must_use]
     pub fn has_capability(&self, capability: ExtensionCapability) -> bool {
@@ -336,6 +313,102 @@ impl ExtensionManifest {
             .iter()
             .find(|entry| target::canonical(&entry.target) == Some(wanted))
     }
+}
+
+fn validate_command_contribution(
+    contribution: &ExtensionContribution,
+) -> Result<(), ManifestError> {
+    if contribution.contract != COMMAND_CONTRACT {
+        return Err(ManifestError::Invalid(format!(
+            "unsupported command contract: {}",
+            contribution.contract
+        )));
+    }
+    let title = contribution.title.as_deref().unwrap_or_default();
+    if title.trim().is_empty() {
+        return Err(ManifestError::Invalid(format!(
+            "command {} must declare a title",
+            contribution.id
+        )));
+    }
+    let category = contribution.category.as_deref().unwrap_or_default();
+    if category.trim().is_empty() {
+        return Err(ManifestError::Invalid(format!(
+            "command {} must declare a category",
+            contribution.id
+        )));
+    }
+    if contribution
+        .description
+        .as_deref()
+        .is_some_and(|description| description.len() > MAX_COMMAND_DESCRIPTION_BYTES)
+    {
+        return Err(ManifestError::Invalid(format!(
+            "command {} description is too long",
+            contribution.id
+        )));
+    }
+    if let Some(when) = &contribution.when {
+        if when.len() > MAX_COMMAND_WHEN_BYTES {
+            return Err(ManifestError::Invalid(format!(
+                "command {} condition is too long",
+                contribution.id
+            )));
+        }
+        crate::command::validate_when(when).map_err(|error| {
+            ManifestError::Invalid(format!("command {} {error}", contribution.id))
+        })?;
+    }
+    if contribution.default_bindings.len() > 8 {
+        return Err(ManifestError::Invalid(format!(
+            "command {} declares too many default bindings",
+            contribution.id
+        )));
+    }
+    Ok(())
+}
+
+fn validate_audio_sub_editor_contribution(
+    contribution: &ExtensionContribution,
+) -> Result<(), ManifestError> {
+    if contribution.contract != AUDIO_SUB_EDITOR_CONTRACT {
+        return Err(ManifestError::Invalid(format!(
+            "unsupported audio sub-editor contract: {}",
+            contribution.contract
+        )));
+    }
+    let title = contribution.title.as_deref().unwrap_or_default();
+    if title.trim().is_empty() {
+        return Err(ManifestError::Invalid(format!(
+            "audio sub-editor {} must declare a title",
+            contribution.id
+        )));
+    }
+    if title.len() > MAX_AUDIO_SUB_EDITOR_TITLE_BYTES {
+        return Err(ManifestError::Invalid(format!(
+            "audio sub-editor {} title is too long",
+            contribution.id
+        )));
+    }
+    let category = contribution.category.as_deref().unwrap_or_default();
+    if category.trim().is_empty() {
+        return Err(ManifestError::Invalid(format!(
+            "audio sub-editor {} must declare a category",
+            contribution.id
+        )));
+    }
+    let Some(kind) = &contribution.kind else {
+        return Err(ManifestError::Invalid(format!(
+            "audio sub-editor {} must declare a kind",
+            contribution.id
+        )));
+    };
+    if let Some(curve) = kind.curve() {
+        curve.validate().map_err(|error| {
+            ManifestError::Invalid(format!("audio sub-editor {} {error}", contribution.id))
+        })?;
+    }
+    Ok(())
 }
 
 fn validate_relative_image(image: &str) -> Result<(), ManifestError> {

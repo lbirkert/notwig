@@ -131,6 +131,7 @@ fn audio_doc() -> (ProjectDoc, ClipId) {
                 source_end_sample: 24_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,

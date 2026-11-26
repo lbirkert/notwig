@@ -14,6 +14,7 @@ notwig-core = { workspace = true, default-features = false }
 notwig-ext-api = { workspace = true, default-features = false }
 
 [dev-dependencies]
+serde_json.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 
 [lints]

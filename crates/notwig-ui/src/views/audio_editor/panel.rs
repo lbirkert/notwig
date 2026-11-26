@@ -62,6 +62,7 @@ impl NotwigUi {
         let clip_start = clip.range.start;
         let display_range = state.preview_range.unwrap_or(clip.range);
         let mut snap = self.state.snap;
+        let extension_editors = self.extension_audio_sub_editors.clone();
 
         handle_clip_editor_actions(
             self,
@@ -165,16 +166,39 @@ impl NotwigUi {
                         .layout(egui::Layout::left_to_right(egui::Align::Center)),
                     |ui| {
                         ui.add_space(8.0);
-                        ui.menu_button(state.sub_editor.label(), |ui| {
+                        let active_label = state.sub_editor.extension_id().map_or_else(
+                            || state.sub_editor.label().to_owned(),
+                            |id| {
+                                extension_editors
+                                    .iter()
+                                    .find(|editor| editor.id == id)
+                                    .map_or_else(
+                                        || "Extension".into(),
+                                        |editor| editor.title.clone(),
+                                    )
+                            },
+                        );
+                        ui.menu_button(active_label, |ui| {
                             for editor in AudioSubEditor::ALL {
                                 if ui
                                     .selectable_label(state.sub_editor == editor, editor.label())
                                     .clicked()
                                 {
-                                    state.sub_editor = editor;
-                                    state.drag = None;
-                                    state.line_editor.cancel_gestures();
+                                    state.switch_sub_editor(editor);
                                     ui.close();
+                                }
+                            }
+                            if !extension_editors.is_empty() {
+                                ui.separator();
+                                for editor in &extension_editors {
+                                    let selected =
+                                        state.sub_editor.extension_id() == Some(editor.id.as_str());
+                                    if ui.selectable_label(selected, &editor.title).clicked() {
+                                        state.switch_sub_editor(AudioSubEditor::Extension(
+                                            editor.id.clone(),
+                                        ));
+                                        ui.close();
+                                    }
                                 }
                             }
                         })
@@ -317,8 +341,8 @@ impl NotwigUi {
                             bypass,
                         );
                     }
-                } else {
-                    super::gain::draw_gain_line_editor(
+                } else if state.sub_editor == AudioSubEditor::Gain {
+                    super::curve::draw_curve_sub_editor(
                         self,
                         ui,
                         &mut state,
@@ -328,6 +352,27 @@ impl NotwigUi {
                         map,
                         timeline_grid,
                         lanes,
+                        notwig_ext_api::CurveTarget::Gain,
+                        super::curve::gain_style(),
+                    );
+                } else if let Some(spec) = state
+                    .sub_editor
+                    .extension_id()
+                    .and_then(|id| extension_editors.iter().find(|editor| editor.id == id))
+                    .and_then(notwig_ext_api::AudioSubEditorDescriptor::curve)
+                {
+                    super::curve::draw_curve_sub_editor(
+                        self,
+                        ui,
+                        &mut state,
+                        &mut audio,
+                        &clip,
+                        runtime,
+                        map,
+                        timeline_grid,
+                        lanes,
+                        spec.target,
+                        super::curve::extension_style(spec),
                     );
                 }
 

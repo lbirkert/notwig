@@ -8,27 +8,45 @@ use crate::widgets::line_editor::LineEditorState;
 
 use super::model::ClipLane;
 
-/// Host-owned audio editor surface.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Active audio editor surface.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum AudioSubEditor {
     /// Editable audio events on the clip timeline.
     #[default]
     AudioEvents,
     /// Per-event gain, or clip gain when the clip is not in slice mode.
     Gain,
+    /// A sub-editor contributed by an extension.
+    Extension(String),
 }
 
 impl AudioSubEditor {
-    /// Sub-editors in selector order.
+    /// Built-in sub-editors in selector order.
     pub const ALL: [Self; 2] = [Self::AudioEvents, Self::Gain];
 
-    /// Human-readable selector label.
+    /// Human-readable label for built-in sub-editors.
     #[must_use]
-    pub const fn label(self) -> &'static str {
+    pub fn label(&self) -> &str {
         match self {
             Self::AudioEvents => "Audio Events",
             Self::Gain => "Gain",
+            Self::Extension(id) => id,
         }
+    }
+
+    /// Returns the extension contribution id when this is an extension entry.
+    #[must_use]
+    pub fn extension_id(&self) -> Option<&str> {
+        match self {
+            Self::Extension(id) => Some(id),
+            Self::AudioEvents | Self::Gain => None,
+        }
+    }
+
+    /// Returns whether this surface edits a shared time/value curve.
+    #[must_use]
+    pub fn is_curve(&self) -> bool {
+        matches!(self, Self::Gain | Self::Extension(_))
     }
 }
 
@@ -112,6 +130,14 @@ impl ClipEditorState {
             line_editor: LineEditorState::default(),
             initialized: false,
         }
+    }
+
+    /// Switches the active surface and clears transient curve state.
+    pub(crate) fn switch_sub_editor(&mut self, sub_editor: AudioSubEditor) {
+        self.sub_editor = sub_editor;
+        self.drag = None;
+        self.curve_selection.clear();
+        self.line_editor.cancel_gestures();
     }
 
     #[doc(hidden)]

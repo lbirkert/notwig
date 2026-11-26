@@ -1,8 +1,12 @@
-//! Clip gain line editor.
+//! Shared clip curve editor.
+//!
+//! Built-in Gain and extension-supplied curve sub-editors use the same
+//! `widgets::line_editor` surface and canonical clip curve command path.
 
 use egui::{Id, Rect};
 use notwig_core::sequencer::AudioClipData;
-use notwig_core::{ClipEntity, TempoMap, TimeMus};
+use notwig_core::{ClipEntity, Curve, TempoMap, TimeMus};
+use notwig_ext_api::{CurveTarget, CurveTargetSpec, CurveValueFormat};
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -17,9 +21,77 @@ use super::state::ClipEditorState;
 pub(super) const MIN_GAIN_DB: f64 = -60.0;
 /// Highest gain offset shown by the gain sub-editor.
 pub(super) const MAX_GAIN_DB: f64 = 24.0;
+/// Lowest pan shown by the pan sub-editor.
+pub(super) const MIN_PAN: f64 = -1.0;
+/// Highest pan shown by the pan sub-editor.
+pub(super) const MAX_PAN: f64 = 1.0;
 
-/// Draws the clip gain line editor and commits edits as one intent.
-pub(super) fn draw_gain_line_editor(
+/// Layout and formatting for one shared curve sub-editor.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CurveEditorStyle {
+    value_min: f64,
+    value_max: f64,
+    baseline: Option<f64>,
+    format: fn(f64) -> String,
+}
+
+impl CurveEditorStyle {
+    fn config(self) -> LineEditorConfig {
+        LineEditorConfig {
+            value_min: self.value_min,
+            value_max: self.value_max,
+            baseline: self.baseline,
+            min_time: None,
+            max_time: None,
+            format_value: Some(self.format),
+        }
+    }
+}
+
+/// Returns the built-in gain curve style.
+pub(super) fn gain_style() -> CurveEditorStyle {
+    CurveEditorStyle {
+        value_min: MIN_GAIN_DB,
+        value_max: MAX_GAIN_DB,
+        baseline: Some(0.0),
+        format: format_gain,
+    }
+}
+
+/// Returns the style declared by an extension curve contribution.
+pub(super) fn extension_style(spec: &CurveTargetSpec) -> CurveEditorStyle {
+    CurveEditorStyle {
+        value_min: spec.value_min,
+        value_max: spec.value_max,
+        baseline: spec.baseline,
+        format: match spec.format {
+            CurveValueFormat::Decibels => format_gain,
+            CurveValueFormat::Pan => format_pan,
+        },
+    }
+}
+
+/// Returns the canonical curve for `target`.
+pub(super) fn target_curve(audio: &AudioClipData, target: CurveTarget) -> Option<&Curve> {
+    match target {
+        CurveTarget::Gain => audio.gain_curve.as_ref(),
+        CurveTarget::Pan => audio.pan_curve.as_ref(),
+    }
+}
+
+pub(super) fn target_curve_mut(
+    audio: &mut AudioClipData,
+    target: CurveTarget,
+) -> &mut Option<Curve> {
+    match target {
+        CurveTarget::Gain => &mut audio.gain_curve,
+        CurveTarget::Pan => &mut audio.pan_curve,
+    }
+}
+
+/// Draws one shared curve sub-editor and commits edits as a host intent.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_curve_sub_editor(
     notwig: &mut NotwigUi,
     ui: &mut egui::Ui,
     state: &mut ClipEditorState,
@@ -29,43 +101,33 @@ pub(super) fn draw_gain_line_editor(
     map: TempoMap,
     timeline: TimelineGrid,
     lanes: Rect,
+    target: CurveTarget,
+    style: CurveEditorStyle,
 ) {
     let mut local_timeline = timeline;
     local_timeline.start = timeline.start - clip.range.start;
-    let mut curve = audio.gain_curve.clone().unwrap_or_default();
+    let mut curve = target_curve(audio, target).cloned().unwrap_or_default();
     let mut local_time_selection = state.bar_selection.and_then(|range| {
         notwig_core::RangeMus::new(range.start - clip.range.start, range.end - clip.range.start)
             .ok()
     });
-    let config = LineEditorConfig {
-        value_min: MIN_GAIN_DB,
-        value_max: MAX_GAIN_DB,
-        baseline: Some(0.0),
-        min_time: None,
-        max_time: None,
-        format_value: Some(format_gain),
-    };
     let response = line_editor::show_with_background(
         ui,
         lanes,
-        Id::new(("clip-gain-line", clip.id)),
+        Id::new(("clip-curve-line", clip.id, target.as_str())),
         local_timeline,
-        &config,
+        &style.config(),
         &mut curve,
         &mut state.curve_selection,
         &mut local_time_selection,
         &mut state.line_editor,
         &mut |ui, curve| {
-            draw_clip_waveform(
-                ui,
-                runtime,
-                audio,
-                clip,
-                map,
-                timeline,
-                lanes,
-                (!curve.is_empty()).then_some(curve),
-            );
+            let background = if target == CurveTarget::Gain {
+                Some(curve)
+            } else {
+                target_curve(audio, CurveTarget::Gain)
+            };
+            draw_clip_waveform(ui, runtime, audio, clip, map, timeline, lanes, background);
         },
     );
     if let Some(selected) = selected_curve_range(&curve, &state.curve_selection) {
@@ -79,18 +141,35 @@ pub(super) fn draw_gain_line_editor(
             .ok()
     });
     if response.committed {
-        let curve = (!curve.is_empty()).then_some(curve);
-        audio.gain_curve.clone_from(&curve);
-        notwig.emit(UiIntent::SetClipGainCurve {
-            clip_id: clip.id,
-            curve,
-        });
+        let stored = (!curve.is_empty()).then_some(curve);
+        target_curve_mut(audio, target).clone_from(&stored);
+        emit_curve_intent(notwig, target, clip.id, stored, false);
     } else if response.changed {
-        notwig.emit(UiIntent::PreviewClipGainCurve {
-            clip_id: clip.id,
-            curve: (!curve.is_empty()).then_some(curve),
-        });
+        emit_curve_intent(
+            notwig,
+            target,
+            clip.id,
+            (!curve.is_empty()).then_some(curve),
+            true,
+        );
     }
+}
+
+/// Emits the commit or preview intent for a canonical curve target.
+pub(super) fn emit_curve_intent(
+    notwig: &mut NotwigUi,
+    target: CurveTarget,
+    clip_id: notwig_core::ClipId,
+    curve: Option<Curve>,
+    preview: bool,
+) {
+    let intent = match (target, preview) {
+        (CurveTarget::Gain, false) => UiIntent::SetClipGainCurve { clip_id, curve },
+        (CurveTarget::Gain, true) => UiIntent::PreviewClipGainCurve { clip_id, curve },
+        (CurveTarget::Pan, false) => UiIntent::SetClipPanCurve { clip_id, curve },
+        (CurveTarget::Pan, true) => UiIntent::PreviewClipPanCurve { clip_id, curve },
+    };
+    notwig.emit(intent);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -102,7 +181,7 @@ fn draw_clip_waveform(
     map: TempoMap,
     timeline: TimelineGrid,
     lanes: Rect,
-    curve: Option<&notwig_core::Curve>,
+    curve: Option<&Curve>,
 ) {
     if audio.uses_slices() {
         for slice in &audio.slices {
@@ -153,7 +232,7 @@ fn draw_gain_waveform(
     duration: TimeMus,
     source_start: u64,
     source_end: u64,
-    curve: Option<&notwig_core::Curve>,
+    curve: Option<&Curve>,
     map: TempoMap,
     local_start: TimeMus,
     timeline: TimelineGrid,
@@ -185,7 +264,7 @@ fn draw_gain_waveform(
 }
 
 fn selected_curve_range(
-    curve: &notwig_core::Curve,
+    curve: &Curve,
     selection: &std::collections::BTreeSet<usize>,
 ) -> Option<notwig_core::RangeMus> {
     let mut start = None;
@@ -194,16 +273,23 @@ fn selected_curve_range(
         let Some(point) = curve.points().get(*index) else {
             continue;
         };
-        start = Some(start.map_or(point.time, |value: notwig_core::TimeMus| {
-            value.min(point.time)
-        }));
-        end = Some(end.map_or(point.time, |value: notwig_core::TimeMus| {
-            value.max(point.time)
-        }));
+        start = Some(start.map_or(point.time, |value: TimeMus| value.min(point.time)));
+        end = Some(end.map_or(point.time, |value: TimeMus| value.max(point.time)));
     }
     notwig_core::RangeMus::new(start?, end?).ok()
 }
 
 fn format_gain(value: f64) -> String {
     format!("{value:+.2} dB")
+}
+
+fn format_pan(value: f64) -> String {
+    let percent = (value.clamp(MIN_PAN, MAX_PAN) * 100.0).round();
+    if percent.abs() < 0.5 {
+        "C".into()
+    } else if percent < 0.0 {
+        format!("L{:.0}", -percent)
+    } else {
+        format!("R{percent:.0}")
+    }
 }

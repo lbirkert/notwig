@@ -47,6 +47,7 @@ impl NotwigUi {
                 source_end_sample: source_end,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::FadeShape::Linear,

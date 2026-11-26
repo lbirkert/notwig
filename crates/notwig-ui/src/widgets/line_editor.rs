@@ -432,7 +432,7 @@ pub fn show_with_background(
                     .interact_pos()
                     .or_else(|| input.pointer.hover_pos())
             })
-            .or_else(|| release_pointer)
+            .or(release_pointer)
             .unwrap_or(drag.origin_pointer);
         response.changed |= apply_point_drag(
             drag,

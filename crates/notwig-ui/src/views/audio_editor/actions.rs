@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use notwig_core::edit::{self, Plan, Selection};
 use notwig_core::sequencer::{AudioClipData, AudioSlice};
 use notwig_core::{Curve, CurvePoint, RangeMus, SliceId, TempoMap, TimeMus};
+use notwig_ext_api::CurveTarget;
 
 use crate::Clipboard;
 use crate::commands::ShortcutCommand;
@@ -39,10 +40,10 @@ pub fn handle_clip_editor_actions(
     let duplicate = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate);
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);
     let select_all = ui.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll);
-    if state.sub_editor == AudioSubEditor::Gain {
-        handle_gain_actions(
-            ui, ctx, state, audio, clip, clipboard, playhead, copy, cut, paste, duplicate, delete,
-            select_all,
+    if let Some(target) = active_curve_target(ui, state) {
+        handle_curve_actions(
+            ui, ctx, state, audio, clip, clipboard, playhead, target, copy, cut, paste, duplicate,
+            delete, select_all,
         );
         return;
     }
@@ -104,7 +105,7 @@ pub fn handle_clip_editor_actions(
                 "Clipboard contains devices.".into(),
             )),
             Clipboard::Curve(_) => ui.emit(UiIntent::ClipboardError(
-                "Clipboard belongs to the gain editor.".into(),
+                "Clipboard belongs to a curve editor.".into(),
             )),
             Clipboard::Empty => {
                 ui.emit(UiIntent::ClipboardError("Clipboard is empty.".into()));
@@ -119,8 +120,21 @@ pub fn handle_clip_editor_actions(
     }
 }
 
+fn active_curve_target(ui: &NotwigUi, state: &ClipEditorState) -> Option<CurveTarget> {
+    match &state.sub_editor {
+        AudioSubEditor::Gain => Some(CurveTarget::Gain),
+        AudioSubEditor::Extension(id) => ui
+            .extension_audio_sub_editors
+            .iter()
+            .find(|editor| editor.id == *id)
+            .and_then(notwig_ext_api::AudioSubEditorDescriptor::curve)
+            .map(|spec| spec.target),
+        AudioSubEditor::AudioEvents => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
-fn handle_gain_actions(
+fn handle_curve_actions(
     ui: &mut NotwigUi,
     ctx: &egui::Context,
     state: &mut ClipEditorState,
@@ -128,6 +142,7 @@ fn handle_gain_actions(
     clip: &notwig_core::ClipEntity,
     clipboard: &Clipboard,
     playhead: TimeMus,
+    target: CurveTarget,
     copy: bool,
     cut: bool,
     paste: bool,
@@ -135,7 +150,9 @@ fn handle_gain_actions(
     delete: bool,
     select_all: bool,
 ) {
-    let mut curve = audio.gain_curve.clone().unwrap_or_default();
+    let mut curve = super::curve::target_curve(audio, target)
+        .cloned()
+        .unwrap_or_default();
     let mut changed = false;
     if select_all {
         state.curve_selection = (0..curve.len()).collect();
@@ -171,7 +188,7 @@ fn handle_gain_actions(
             .unwrap_or_else(TimeMus::zero);
         let mut offset = state
             .bar_selection
-            .map_or(end - start, |range| range.length());
+            .map_or(end - start, notwig_core::RangeMus::length);
         if offset <= TimeMus::zero() {
             offset = TimeMus::new(1, 1);
         }
@@ -232,11 +249,8 @@ fn handle_gain_actions(
     }
     if changed {
         let stored = (!curve.is_empty()).then_some(curve);
-        audio.gain_curve.clone_from(&stored);
-        ui.emit(UiIntent::SetClipGainCurve {
-            clip_id: state.clip_id,
-            curve: stored,
-        });
+        super::curve::target_curve_mut(audio, target).clone_from(&stored);
+        super::curve::emit_curve_intent(ui, target, state.clip_id, stored, false);
     }
 }
 

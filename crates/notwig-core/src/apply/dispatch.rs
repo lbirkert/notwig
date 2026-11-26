@@ -264,6 +264,9 @@ fn apply_payload(
         CommandPayload::SetClipGainCurve { clip_id, curve } => {
             clips::set_clip_gain_curve(doc, *clip_id, curve.clone(), changes)
         }
+        CommandPayload::SetClipPanCurve { clip_id, curve } => {
+            clips::set_clip_pan_curve(doc, *clip_id, curve.clone(), changes)
+        }
         CommandPayload::SetDeviceState {
             device_id,
             state_ref,

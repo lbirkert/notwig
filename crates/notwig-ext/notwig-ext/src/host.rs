@@ -5,8 +5,8 @@ use std::sync::Arc;
 use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
-    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionInfo,
-    ExtensionManifest, ExtensionSettings, ExtensionStatus, target,
+    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
+    ExtensionInfo, ExtensionManifest, ExtensionSettings, ExtensionStatus, target,
 };
 use wasmtime::Module;
 
@@ -43,6 +43,7 @@ impl ExtensionHost {
         let mut by_type = BTreeMap::new();
         let mut by_command = BTreeMap::new();
         let mut commands = BTreeMap::new();
+        let mut audio_sub_editors = BTreeMap::new();
         let mut infos = Vec::new();
 
         for failure in report.failures {
@@ -61,6 +62,7 @@ impl ExtensionHost {
                     runtime: None,
                     specs: Vec::new(),
                     commands: Vec::new(),
+                    audio_sub_editors: Vec::new(),
                     status: ExtensionStatus::Disabled,
                     error: None,
                 }
@@ -91,6 +93,17 @@ impl ExtensionHost {
                         by_command.insert(command.id.clone(), Arc::clone(&extension));
                     }
                 }
+                for editor in &extension.audio_sub_editors {
+                    if audio_sub_editors.contains_key(&editor.id) {
+                        tracing::warn!(
+                            sub_editor = %editor.id,
+                            extension = %extension.manifest.id,
+                            "duplicate extension audio sub-editor id"
+                        );
+                    } else {
+                        audio_sub_editors.insert(editor.id.clone(), editor.clone());
+                    }
+                }
             }
         }
 
@@ -100,6 +113,7 @@ impl ExtensionHost {
                 by_type,
                 by_command,
                 commands,
+                audio_sub_editors,
                 infos,
             }),
         })
@@ -121,6 +135,12 @@ impl ExtensionHost {
     #[must_use]
     pub fn commands(&self) -> Vec<CommandDescriptor> {
         self.loaded.commands()
+    }
+
+    /// Returns resolved audio-editor sub-editors from all loaded extensions.
+    #[must_use]
+    pub fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
+        self.loaded.audio_sub_editors()
     }
 
     /// Executes a contributed command against a bounded context.
@@ -227,6 +247,19 @@ fn load_candidate(
             extension_id: Some(manifest.id.clone()),
         })
         .collect();
+    let audio_sub_editors = manifest
+        .audio_sub_editor_contributions()
+        .filter_map(|contribution| {
+            Some(AudioSubEditorDescriptor {
+                id: contribution.id.clone(),
+                title: contribution.title.clone().unwrap_or_default(),
+                category: contribution.category.clone().unwrap_or_default(),
+                order: contribution.order,
+                kind: contribution.kind.clone()?,
+                extension_id: Some(manifest.id.clone()),
+            })
+        })
+        .collect();
     Ok(LoadedExtension {
         dir: dir.to_path_buf(),
         manifest: manifest.clone(),
@@ -234,6 +267,7 @@ fn load_candidate(
         runtime: Some(runtime),
         specs,
         commands,
+        audio_sub_editors,
         status: ExtensionStatus::Loaded,
         error: None,
     })
@@ -274,6 +308,7 @@ fn failed(
         runtime: None,
         specs: Vec::new(),
         commands: Vec::new(),
+        audio_sub_editors: Vec::new(),
         status: ExtensionStatus::Failed,
         error: Some(error.to_string()),
     }

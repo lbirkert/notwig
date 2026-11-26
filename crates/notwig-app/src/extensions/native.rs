@@ -7,8 +7,8 @@ use std::sync::mpsc;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec};
 use notwig_ext::{ExtensionHost, InstalledExtension, install_zip_bytes, uninstall};
 use notwig_ext_api::{
-    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionConfig,
-    ExtensionIndexEntry, ExtensionInfo,
+    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
+    ExtensionConfig, ExtensionIndexEntry, ExtensionInfo,
 };
 
 use super::ExtensionEvent;
@@ -152,6 +152,13 @@ impl ExtensionManager {
         self.host
             .as_ref()
             .map(ExtensionHost::commands)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
+        self.host
+            .as_ref()
+            .map(ExtensionHost::audio_sub_editors)
             .unwrap_or_default()
     }
 

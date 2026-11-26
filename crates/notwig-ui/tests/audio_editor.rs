@@ -50,6 +50,7 @@ fn audio() -> AudioClipData {
         source_end_sample: 48_000,
         gain_db: Db(0.0),
         gain_curve: None,
+        pan_curve: None,
         fade_in_samples: 0,
         fade_out_samples: 0,
         fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -134,6 +135,7 @@ fn panel_doc_with_slices(clip_start: i64, slices_enabled: bool) -> (ProjectDoc, 
                 source_end_sample: 48_000,
                 gain_db: Db(0.0),
                 gain_curve: None,
+                pan_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
@@ -335,6 +337,117 @@ fn audio_editor_header_selects_audio_events_and_gain() {
         texts.iter().any(|text| text.contains("Gain")),
         "expected the Gain selector button, got {texts:?}"
     );
+}
+
+#[test]
+fn removing_an_extension_sub_editor_falls_back_to_audio_events() {
+    let (doc, clip) = panel_doc(0);
+    let mut ui = NotwigUi::default();
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    ui.set_extension_audio_sub_editors(vec![notwig_ext_api::AudioSubEditorDescriptor {
+        id: "notwig.test.pan".into(),
+        title: "Clip Pan".into(),
+        category: "Audio".into(),
+        order: 10,
+        kind: notwig_ext_api::AudioSubEditorKind::Curve(notwig_ext_api::CurveTargetSpec {
+            target: notwig_ext_api::CurveTarget::Pan,
+            value_min: -1.0,
+            value_max: 1.0,
+            baseline: Some(0.0),
+            format: notwig_ext_api::CurveValueFormat::Pan,
+        }),
+        extension_id: Some("notwig.test".into()),
+    }]);
+    set_sub_editor(
+        ui.clip_editor.as_mut().expect("clip editor open"),
+        AudioSubEditor::Extension("notwig.test.pan".into()),
+    );
+    ui.set_extension_audio_sub_editors(Vec::new());
+    let state = ui.clip_editor.as_ref().expect("clip editor open");
+    assert_eq!(state.sub_editor, AudioSubEditor::AudioEvents);
+}
+
+#[test]
+fn extension_curve_sub_editor_edits_the_clip_pan_curve() {
+    let (doc, clip) = panel_doc_with_slices(0, false);
+    let mut runtime = RuntimeView::default();
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
+    let mut ui = NotwigUi::default();
+    ui.set_extension_audio_sub_editors(vec![notwig_ext_api::AudioSubEditorDescriptor {
+        id: "notwig.test.pan".into(),
+        title: "Clip Pan".into(),
+        category: "Audio".into(),
+        order: 10,
+        kind: notwig_ext_api::AudioSubEditorKind::Curve(notwig_ext_api::CurveTargetSpec {
+            target: notwig_ext_api::CurveTarget::Pan,
+            value_min: -1.0,
+            value_max: 1.0,
+            baseline: Some(0.0),
+            format: notwig_ext_api::CurveValueFormat::Pan,
+        }),
+        extension_id: Some("notwig.test".into()),
+    }]);
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    set_sub_editor(
+        ui.clip_editor.as_mut().expect("clip editor open"),
+        AudioSubEditor::Extension("notwig.test.pan".into()),
+    );
+    let ctx = egui::Context::default();
+    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    let output = run_panel_with_output(&ctx, &mut ui, &doc, &runtime, Vec::new()).1;
+    let mut texts = Vec::new();
+    for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut texts);
+    }
+    assert!(
+        texts.iter().any(|text| text.contains("Clip Pan")),
+        "expected the extension sub-editor selector, got {texts:?}"
+    );
+
+    let content = ui.clip_editor_content_rect;
+    let point = egui::pos2(content.left() + 120.0, pan_editor_y(content, 0.0));
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::PointerMoved(point)],
+    );
+    let _ = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(point, true)],
+    );
+    let intents = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![pointer_event(point, false)],
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipPanCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("the extension pan editor should commit a pan curve");
+    assert_eq!(curve.points().len(), 1);
 }
 
 #[test]
@@ -1838,6 +1951,12 @@ fn gain_editor_y(content: egui::Rect, db: f64) -> f32 {
     let top = content.top() + 38.0;
     let bottom = content.bottom();
     bottom - ((db + 60.0) / 84.0) as f32 * (bottom - top)
+}
+
+fn pan_editor_y(content: egui::Rect, pan: f64) -> f32 {
+    let top = content.top() + 38.0;
+    let bottom = content.bottom();
+    bottom - (f64::midpoint(pan, 1.0)) as f32 * (bottom - top)
 }
 
 fn gain_curve_doc(clip: ClipId) -> (ProjectDoc, ClipId) {

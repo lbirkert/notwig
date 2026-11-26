@@ -11,8 +11,8 @@ use notwig_ext::{
     validate_extension_id,
 };
 use notwig_ext_api::{
-    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, ExtensionConfig,
-    ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
+    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
+    ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
@@ -224,6 +224,13 @@ impl ExtensionManager {
         self.host
             .as_ref()
             .map(WebExtensionHost::commands)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
+        self.host
+            .as_ref()
+            .map(WebExtensionHost::audio_sub_editors)
             .unwrap_or_default()
     }
 

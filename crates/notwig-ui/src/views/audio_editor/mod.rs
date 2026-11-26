@@ -6,7 +6,7 @@ use crate::shell::NotwigUi;
 pub(super) const SCROLLBAR_H: f32 = 18.0;
 
 pub(crate) mod actions;
-pub(crate) mod gain;
+pub(crate) mod curve;
 pub(crate) mod geometry;
 pub(crate) mod model;
 pub(crate) mod navigation;

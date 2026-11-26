@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
-use notwig_ext_api::{CommandDescriptor, ExtensionInfo, ExtensionManifest, ExtensionStatus};
+use notwig_ext_api::{
+    AudioSubEditorDescriptor, CommandDescriptor, ExtensionInfo, ExtensionManifest, ExtensionStatus,
+};
 use wasmtime::Module;
 
 use crate::abi::ExtensionEngines;
@@ -21,6 +23,7 @@ pub(crate) struct LoadedExtension {
     pub(crate) runtime: Option<ExtensionRuntime>,
     pub(crate) specs: Vec<DeviceSpec>,
     pub(crate) commands: Vec<CommandDescriptor>,
+    pub(crate) audio_sub_editors: Vec<AudioSubEditorDescriptor>,
     pub(crate) status: ExtensionStatus,
     pub(crate) error: Option<String>,
 }
@@ -30,6 +33,7 @@ pub(crate) struct LoadedExtensions {
     pub(crate) by_type: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) by_command: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) commands: BTreeMap<String, CommandDescriptor>,
+    pub(crate) audio_sub_editors: BTreeMap<String, AudioSubEditorDescriptor>,
     pub(crate) infos: Vec<ExtensionInfo>,
 }
 
@@ -44,6 +48,18 @@ impl LoadedExtensions {
 
     pub(crate) fn commands(&self) -> Vec<CommandDescriptor> {
         self.commands.values().cloned().collect()
+    }
+
+    pub(crate) fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
+        let mut editors: Vec<_> = self.audio_sub_editors.values().cloned().collect();
+        editors.sort_by(|a, b| {
+            a.category
+                .cmp(&b.category)
+                .then_with(|| a.order.cmp(&b.order))
+                .then_with(|| a.title.cmp(&b.title))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        editors
     }
 
     pub(crate) fn specs(&self) -> Vec<DeviceSpec> {

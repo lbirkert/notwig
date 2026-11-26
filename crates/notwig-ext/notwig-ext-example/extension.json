@@ -3,9 +3,9 @@
   "id": "notwig.ext.example",
   "name": "Notwig Extension Examples",
   "vendor": "Notwig",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "api_version": 5,
-  "capabilities": ["command"],
+  "capabilities": ["command", "audio_editor"],
   "contributes": [
     {
       "id": "notwig.ext.example.humanize",
@@ -16,8 +16,25 @@
       "description": "Nudge the timing and velocity of selected MIDI notes.",
       "when": "focus == midi_editor && selection.notes > 0",
       "default_bindings": ["Ctrl+Alt+H"]
+    },
+    {
+      "id": "notwig.ext.example.pan",
+      "point": "notwig.audio_editor.sub_editor",
+      "contract": "notwig.audio_editor.sub_editor@1",
+      "title": "Clip Pan",
+      "category": "Audio",
+      "order": 10,
+      "kind": {
+        "curve": {
+          "target": "pan",
+          "value_min": -1.0,
+          "value_max": 1.0,
+          "baseline": 0.0,
+          "format": "pan"
+        }
+      }
     }
   ],
-  "description": "Examples for the Notwig extension API, including MIDI commands.",
+  "description": "Examples for the Notwig extension API, including MIDI commands and an audio-editor clip pan sub-editor.",
   "image": "icon.png"
 }

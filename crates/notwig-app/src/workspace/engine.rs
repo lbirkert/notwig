@@ -29,6 +29,29 @@ impl Workspace {
         clip_id: notwig_core::ClipId,
         curve: Option<notwig_core::Curve>,
     ) -> Result<(), String> {
+        self.preview_clip_curve(clip_id, curve, |audio, curve| {
+            audio.gain_curve = curve;
+        })
+    }
+
+    /// Publishes a pan-curve preview without changing the document or undo
+    /// history. The final committed command follows on pointer release.
+    pub fn preview_clip_pan_curve(
+        &mut self,
+        clip_id: notwig_core::ClipId,
+        curve: Option<notwig_core::Curve>,
+    ) -> Result<(), String> {
+        self.preview_clip_curve(clip_id, curve, |audio, curve| {
+            audio.pan_curve = curve;
+        })
+    }
+
+    fn preview_clip_curve(
+        &mut self,
+        clip_id: notwig_core::ClipId,
+        curve: Option<notwig_core::Curve>,
+        set: impl Fn(&mut notwig_core::sequencer::AudioClipData, Option<notwig_core::Curve>),
+    ) -> Result<(), String> {
         if let Some(curve) = &curve {
             curve.validate().map_err(|error| error.to_string())?;
         }
@@ -41,7 +64,7 @@ impl Workspace {
                 let notwig_core::ClipPayload::Audio(audio) = &mut clip.payload else {
                     continue;
                 };
-                audio.gain_curve.clone_from(&curve);
+                set(audio, curve.clone());
             }
         }
         self.engine_control
