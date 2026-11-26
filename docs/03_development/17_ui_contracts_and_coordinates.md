@@ -150,12 +150,12 @@ resolved times and never snaps.
 
 Waveforms are read-only view data in an `Arc<WaveformCache>` keyed by `AssetId`.
 Display samples are per-channel means. A signed min/max pyramid starts at a
-64-sample bucket and doubles to the whole asset, and a cached mean pyramid starts
-at an 8-sample bucket and doubles to the sample-graph threshold. `draw_waveform`
-maps the requested `full_rect` linearly onto the source window, intersects it
-with the visible clip, clamps to the asset's frame count, and builds only
-visible geometry. Above 256 samples per pixel it draws the pyramid envelope; at
-256 or fewer it draws the sample graph from the cached mean levels (or decoded
-samples at the closest zoom). Close rendering fills the area without an extra
-stroke. Sliced waveforms start after `silent_prefix_samples`; over-trimmed
+64-sample bucket and doubles to the whole asset, and a cached window-peak
+pyramid starts at an 8-sample bucket and doubles to the sample-graph threshold.
+`draw_waveform` maps the requested `full_rect` linearly onto the source window,
+intersects it with the visible clip, clamps to the asset's frame count, and
+builds only visible geometry. Above 256 samples per pixel it draws the pyramid
+envelope; at 256 or fewer it draws the sample graph from the cached window-peak
+levels (or decoded samples at the closest zoom). Close rendering fills the area
+without an extra stroke. Sliced waveforms start after `silent_prefix_samples`; over-trimmed
 events never stretch the source.

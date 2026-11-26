@@ -250,7 +250,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `fine_drag.rs` | Shared coarse/fine drag offsets that accumulate across Shift toggles |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
-| `waveform.rs` | Signed min/max and cached mean pyramids, level-of-detail selection, sample-level drawing |
+| `waveform.rs` | Signed min/max and cached window-peak pyramids, level-of-detail selection, sample-level drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |

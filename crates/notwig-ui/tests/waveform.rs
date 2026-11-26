@@ -4,8 +4,8 @@ use egui::{Rect, pos2};
 use notwig_core::{AudioAssetBuffer, Curve, CurvePoint, SampleRate, TempoMap, TimeMus};
 use notwig_ui::AudioWaveform;
 use notwig_ui::test_api::waveform::{
-    draw_waveform, draw_waveform_with_gain, level_for, mean_at, mean_level_for, min_max,
-    min_max_at, sample, uses_sample_graph,
+    draw_waveform, draw_waveform_with_gain, level_for, min_max, min_max_at, sample,
+    uses_sample_graph, window_peak_at, window_peak_level_for,
 };
 
 #[test]
@@ -84,25 +84,29 @@ fn waveform_mode_starts_the_sample_graph_at_the_close_threshold() {
 }
 
 #[test]
-fn sample_graph_switches_between_cached_mean_levels() {
+fn sample_graph_switches_between_cached_peak_levels() {
     let waveform = AudioWaveform::from_samples(
         (0..4_096)
             .map(|index| (index as f32 * 0.05).sin())
             .collect::<Vec<f32>>(),
     );
-    assert_eq!(mean_level_for(&waveform, 8.0), 8);
-    assert_eq!(mean_level_for(&waveform, 100.0), 64);
-    assert_eq!(mean_level_for(&waveform, 200.0), 128);
-    assert_eq!(mean_level_for(&waveform, 256.0), 256);
+    assert_eq!(window_peak_level_for(&waveform, 8.0), 8);
+    assert_eq!(window_peak_level_for(&waveform, 100.0), 64);
+    assert_eq!(window_peak_level_for(&waveform, 200.0), 128);
+    assert_eq!(window_peak_level_for(&waveform, 256.0), 256);
 }
 
 #[test]
-fn cached_mean_matches_the_exact_window_mean() {
-    let samples: Vec<f32> = (0..512).map(|index| index as f32 / 512.0).collect();
+fn cached_peak_matches_the_exact_window_peak() {
+    let samples: Vec<f32> = (0..512)
+        .map(|index| {
+            let position = index as f32 / 512.0;
+            if index == 3 { -0.9 } else { position }
+        })
+        .collect();
     let waveform = AudioWaveform::from_samples(samples);
-    let expected = (0..8).map(|index| index as f32 / 512.0).sum::<f32>() / 8.0;
-    let actual = mean_at(&waveform, 8.0, 0).expect("bucket 8 mean");
-    assert!((actual - expected).abs() < 1e-6, "{actual} != {expected}");
+    let actual = window_peak_at(&waveform, 8.0, 0).expect("bucket 8 peak");
+    assert_eq!(actual, -0.9);
 }
 
 #[test]

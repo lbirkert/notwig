@@ -20,7 +20,7 @@ There are three separate paths, and only one of them is a real CPU cost:
    resamples it to the project rate with `rubato`, duplicates mono to stereo,
    encodes a managed WAV in memory, hashes the final bytes, writes the file, and
    returns the PCM buffer. `Workspace` then builds the signed min/max waveform
-   pyramid and the cached mean levels used by close rendering (see
+   pyramid and the cached window-peak levels used by close rendering (see
    [`Waveform Rendering`](10_waveform_rendering.md)).
 3. **Project load.** `Workspace::load_assets` decodes every stored WAV asset and
    rebuilds its waveform pyramids synchronously while opening the project.
@@ -52,7 +52,7 @@ Multiple files share one import thread, so imports are serialized. Project open
 does its decoding and waveform work synchronously on the loading thread.
 
 The bundle already reserves a `peaks/` directory, but nothing writes to or reads
-from it. Waveform pyramids and mean caches are rebuilt from PCM every time.
+from it. Waveform pyramids and window-peak caches are rebuilt from PCM every time.
 
 ## 3. Measurements
 
@@ -73,7 +73,7 @@ times; they include single-thread work only.
 | `resample` High (44.1 -> 48) | 228 ms | ~56 ms | `rubato` synchronous FFT |
 | `resample` Standard (44.1 -> 48) | 24 ms | ~56 ms | Same `rubato` FFT path |
 | Same-rate `resample` | 1.7 ms | 1.8 ms | Buffer clone |
-| Waveform pyramids, min/max + mean (replaces flat 2048-bucket peaks) | 11 ms | ~11-15 ms | One linear post-decode pass; mean levels stop at the close-render threshold |
+| Waveform pyramids, min/max + window peak (replaces flat 2048-bucket peaks) | 11 ms | ~11-15 ms | One linear post-decode pass; window-peak levels stop at the close-render threshold |
 | Encode WAV bytes | - | 8 ms | New in-memory encode |
 | SHA-256 over WAV bytes | 63 ms | 63 ms | Still the dominant hash cost |
 | Write WAV bytes to disk | 20 ms | 14 ms | Same managed file |

@@ -13,8 +13,9 @@ const BASE_BUCKET: u64 = 64;
 /// the only renderer.
 const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 256.0;
 /// Below this bucket the sample graph reads the decoded samples directly.
-/// Cached mean levels start here and double up to the sample-graph threshold.
-const MEAN_BASE_BUCKET: u64 = 8;
+/// Cached window-peak levels start here and double up to the sample-graph
+/// threshold.
+const PEAK_BASE_BUCKET: u64 = 8;
 const WAVEFORM: Color32 = Color32::BLACK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +61,7 @@ fn waveform_mode(samples_per_pixel: f64) -> WaveformMode {
 pub struct AudioWaveform {
     audio: Arc<AudioAssetBuffer>,
     levels: Arc<[PeakLevel]>,
-    means: Arc<[MeanLevel]>,
+    window_peaks: Arc<[WindowPeakLevel]>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -71,20 +72,20 @@ struct PeakLevel {
 }
 
 #[derive(Debug, PartialEq)]
-struct MeanLevel {
+struct WindowPeakLevel {
     bucket: u64,
-    mean: Vec<f32>,
+    peak: Vec<f32>,
 }
 
 impl AudioWaveform {
     #[must_use]
     pub fn new(audio: Arc<AudioAssetBuffer>) -> Self {
         let levels = build_levels(&audio);
-        let means = build_means(&audio);
+        let window_peaks = build_window_peaks(&audio);
         Self {
             audio,
             levels: levels.into(),
-            means: means.into(),
+            window_peaks: window_peaks.into(),
         }
     }
 
@@ -133,8 +134,8 @@ impl AudioWaveform {
         self.levels.get(index).or_else(|| self.levels.first())
     }
 
-    fn mean_level_for(&self, samples_per_pixel: f64) -> Option<&MeanLevel> {
-        self.means
+    fn window_peak_level_for(&self, samples_per_pixel: f64) -> Option<&WindowPeakLevel> {
+        self.window_peaks
             .iter()
             .rev()
             .find(|level| level.bucket as f64 <= samples_per_pixel)
@@ -225,15 +226,14 @@ fn build_levels(audio: &AudioAssetBuffer) -> Vec<PeakLevel> {
     levels
 }
 
-fn build_means(audio: &AudioAssetBuffer) -> Vec<MeanLevel> {
+fn build_window_peaks(audio: &AudioAssetBuffer) -> Vec<WindowPeakLevel> {
     let frames = audio.frame_count();
     if frames == 0 {
         return Vec::new();
     }
     let channels = usize::from(audio.channels.max(1));
-    let count = frames.div_ceil(MEAN_BASE_BUCKET) as usize;
-    let mut sums = vec![0.0_f64; count];
-    let mut counts = vec![0_u32; count];
+    let count = frames.div_ceil(PEAK_BASE_BUCKET) as usize;
+    let mut peaks = vec![0.0_f32; count];
     for frame in 0..frames {
         let base = frame as usize * channels;
         let mut sum = 0.0_f32;
@@ -241,42 +241,38 @@ fn build_means(audio: &AudioAssetBuffer) -> Vec<MeanLevel> {
             sum += audio.samples.get(base + channel).copied().unwrap_or(0.0);
         }
         let sample = sum / channels as f32;
-        let bucket = (frame / MEAN_BASE_BUCKET) as usize;
-        sums[bucket] += f64::from(sample);
-        counts[bucket] = counts[bucket].saturating_add(1);
+        let bucket = (frame / PEAK_BASE_BUCKET) as usize;
+        if sample.abs() > peaks[bucket].abs() {
+            peaks[bucket] = sample;
+        }
     }
-    let max_bucket = SAMPLE_GRAPH_SAMPLES_PER_PIXEL.max(MEAN_BASE_BUCKET as f64) as u64;
-    let mut bucket = MEAN_BASE_BUCKET;
+    let max_bucket = SAMPLE_GRAPH_SAMPLES_PER_PIXEL.max(PEAK_BASE_BUCKET as f64) as u64;
+    let mut bucket = PEAK_BASE_BUCKET;
     let mut levels = Vec::new();
     loop {
-        let mean = sums
-            .iter()
-            .zip(&counts)
-            .map(|(sum, count)| {
-                if *count == 0 {
-                    0.0
-                } else {
-                    (*sum / f64::from(*count)) as f32
-                }
-            })
-            .collect();
-        levels.push(MeanLevel { bucket, mean });
-        if sums.len() <= 1 || bucket >= max_bucket {
+        let next = (peaks.len() > 1 && bucket < max_bucket).then(|| combine_window_peaks(&peaks));
+        levels.push(WindowPeakLevel {
+            bucket,
+            peak: peaks,
+        });
+        let Some(next) = next else {
             break;
-        }
-        let next_len = sums.len().div_ceil(2);
-        let mut next_sums = vec![0.0_f64; next_len];
-        let mut next_counts = vec![0_u32; next_len];
-        for (index, (sum, count)) in sums.iter().zip(&counts).enumerate() {
-            let parent = index / 2;
-            next_sums[parent] += *sum;
-            next_counts[parent] = next_counts[parent].saturating_add(*count);
-        }
-        sums = next_sums;
-        counts = next_counts;
+        };
+        peaks = next;
         bucket = bucket.saturating_mul(2);
     }
     levels
+}
+
+fn combine_window_peaks(previous: &[f32]) -> Vec<f32> {
+    let mut peaks = vec![0.0_f32; previous.len().div_ceil(2)];
+    for (index, &value) in previous.iter().enumerate() {
+        let parent = index / 2;
+        if value.abs() > peaks[parent].abs() {
+            peaks[parent] = value;
+        }
+    }
+    peaks
 }
 
 pub(crate) fn draw_waveform(
@@ -404,13 +400,13 @@ fn draw_sample_graph(
     let half = rect.height() * 0.42;
     let mut points = Vec::new();
     let samples_per_pixel = span / f64::from(rect.width().max(1.0));
-    if let Some(level) = waveform.mean_level_for(samples_per_pixel) {
+    if let Some(level) = waveform.window_peak_level_for(samples_per_pixel) {
         let bucket = level.bucket;
         let first_bucket = (first / bucket) as usize;
         let last_bucket = (last / bucket) as usize;
         points.reserve(last_bucket.saturating_sub(first_bucket).saturating_add(1));
         for index in first_bucket..=last_bucket {
-            let Some(&value) = level.mean.get(index) else {
+            let Some(&value) = level.peak.get(index) else {
                 continue;
             };
             let center_frame = index as f64 * bucket as f64 + (bucket as f64 - 1.0) * 0.5;
@@ -539,16 +535,20 @@ pub mod test_api {
             .map_or(0, |level| level.bucket as usize)
     }
 
-    pub fn mean_level_for(waveform: &AudioWaveform, samples_per_pixel: f64) -> usize {
+    pub fn window_peak_level_for(waveform: &AudioWaveform, samples_per_pixel: f64) -> usize {
         waveform
-            .mean_level_for(samples_per_pixel)
+            .window_peak_level_for(samples_per_pixel)
             .map_or(0, |level| level.bucket as usize)
     }
 
-    pub fn mean_at(waveform: &AudioWaveform, samples_per_pixel: f64, index: usize) -> Option<f32> {
+    pub fn window_peak_at(
+        waveform: &AudioWaveform,
+        samples_per_pixel: f64,
+        index: usize,
+    ) -> Option<f32> {
         waveform
-            .mean_level_for(samples_per_pixel)
-            .and_then(|level| level.mean.get(index).copied())
+            .window_peak_level_for(samples_per_pixel)
+            .and_then(|level| level.peak.get(index).copied())
     }
 
     pub fn sample(waveform: &AudioWaveform, frame: u64) -> f32 {

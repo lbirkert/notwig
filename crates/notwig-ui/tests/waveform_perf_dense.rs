@@ -1,6 +1,8 @@
 use egui::{Rect, pos2};
 use notwig_ui::AudioWaveform;
-use notwig_ui::test_api::waveform::{draw_waveform, level_for, mean_level_for, uses_sample_graph};
+use notwig_ui::test_api::waveform::{
+    draw_waveform, level_for, uses_sample_graph, window_peak_level_for,
+};
 
 fn dense_samples(count: usize) -> Vec<f32> {
     (0..count)
@@ -28,9 +30,9 @@ fn close_threshold_starts_the_sample_graph_and_pyramid_envelope() {
     assert_eq!(level_for(&waveform, 64.0), 64);
     assert_eq!(level_for(&waveform, 128.0), 128);
     assert_eq!(level_for(&waveform, 4096.0), 4096);
-    assert_eq!(mean_level_for(&waveform, 64.0), 64);
-    assert_eq!(mean_level_for(&waveform, 200.0), 128);
-    assert_eq!(mean_level_for(&waveform, 256.0), 256);
+    assert_eq!(window_peak_level_for(&waveform, 64.0), 64);
+    assert_eq!(window_peak_level_for(&waveform, 200.0), 128);
+    assert_eq!(window_peak_level_for(&waveform, 256.0), 256);
 }
 
 fn mesh_indices(output: &egui::FullOutput) -> usize {
@@ -67,9 +69,9 @@ fn dense_sample_graph_below_the_threshold_bounds_geometry() {
     );
 
     assert_eq!(
-        mean_level_for(&waveform, 100.0),
+        window_peak_level_for(&waveform, 100.0),
         64,
-        "the sample graph should read a cached mean level below the threshold"
+        "the sample graph should read a cached peak level below the threshold"
     );
     let indices = mesh_indices(&output);
     assert!(indices > 0, "the waveform should draw something");
