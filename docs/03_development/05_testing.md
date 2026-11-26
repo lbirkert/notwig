@@ -183,7 +183,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Widget and waveform primitives | ✅ Implemented | ⭐⭐⭐ | `notwig-ui/tests/widgets.rs`, `waveform.rs`, `fine_drag.rs`, and `device_browser.rs`. |
 | Arranger zoom and pan | ✅ Implemented | ⭐⭐⭐ | |
 | Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | Covered in `audio_editor.rs`. |
-| Audio editor sub-editors | ✅ Implemented | ⭐⭐⭐⭐ | `audio_editor.rs` covers the Audio Events/Gain selector and gain-curve commits; `line_editor.rs` covers line-only insertion, same-time points, multi-frame point and segment drags, double-click deletion, curvature, fine mode, and marquee/time selection; `audio_editor.rs` covers gain-point duplicate and Backspace through the editor actions. |
+| Audio editor sub-editors | ✅ Implemented | ⭐⭐⭐⭐ | `audio_editor.rs` covers the Audio Events/Gain selector and gain-curve commits; `line_editor.rs` covers line-only insertion, same-time points, neighbor clamping, multi-frame point and segment drags, double-click deletion, curvature, fine mode, and marquee/time selection; `audio_editor.rs` covers gain-point duplicate and Backspace through the editor actions. |
 | Audio editor trim and clip bounds | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Audio editor copy, cut, paste, duplicate, delete | ✅ Implemented | ⭐⭐⭐⭐⭐ | |
 | Drop target resolution | ✅ Implemented | ⭐⭐⭐⭐ | |

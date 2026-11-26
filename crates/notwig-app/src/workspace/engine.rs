@@ -22,6 +22,34 @@ impl Workspace {
         Ok(())
     }
 
+    /// Publishes a gain-curve preview without changing the document or undo
+    /// history. The final committed command follows on pointer release.
+    pub fn preview_clip_gain_curve(
+        &mut self,
+        clip_id: notwig_core::ClipId,
+        curve: Option<notwig_core::Curve>,
+    ) -> Result<(), String> {
+        if let Some(curve) = &curve {
+            curve.validate().map_err(|error| error.to_string())?;
+        }
+        let mut schedule = PlaybackSchedule::from_doc(&self.doc);
+        for clips in schedule.tracks.values_mut() {
+            for clip in clips {
+                if clip.id != clip_id {
+                    continue;
+                }
+                let notwig_core::ClipPayload::Audio(audio) = &mut clip.payload else {
+                    continue;
+                };
+                audio.gain_curve.clone_from(&curve);
+            }
+        }
+        self.engine_control
+            .data_mut()
+            .set_schedule(Arc::new(schedule));
+        Ok(())
+    }
+
     pub(super) fn preserved_playhead_samples(&self) -> u64 {
         let engine_playhead = self
             .engine_control

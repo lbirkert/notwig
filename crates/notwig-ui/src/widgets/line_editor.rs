@@ -618,7 +618,8 @@ fn sample_curve(
                 1_000_000,
             );
             let x = x_for_time(timeline, rect, time);
-            let value = curve.value_at(time, left.value);
+            let shaped = notwig_core::shape_ratio(ratio, left.curvature);
+            let value = left.value + (right.value - left.value) * shaped;
             out.push(egui::pos2(x, y_for_value(config, rect, value)));
         }
     }
@@ -740,36 +741,30 @@ fn apply_segment_drag(
 }
 
 fn allowed_time_delta(curve: &Curve, selected: &BTreeSet<usize>) -> (f64, f64) {
-    let unselected: Vec<f64> = curve
+    let mut min_delta = f64::NEG_INFINITY;
+    let mut max_delta = f64::INFINITY;
+    for (selected_index, selected_point) in curve
         .points()
         .iter()
         .enumerate()
-        .filter(|(index, _)| !selected.contains(index))
-        .map(|(_, point)| point.time.as_f64())
-        .collect();
-    let selected_times: Vec<f64> = selected
-        .iter()
-        .filter_map(|index| curve.points().get(*index))
-        .map(|point| point.time.as_f64())
-        .collect();
-    let mut min_delta = f64::NEG_INFINITY;
-    let mut max_delta = f64::INFINITY;
-    for beats in selected_times {
-        if let Some(before) = unselected
-            .iter()
-            .copied()
-            .filter(|candidate| *candidate < beats)
-            .reduce(f64::max)
-        {
-            min_delta = min_delta.max(before - beats + TIME_EPSILON);
-        }
-        if let Some(after) = unselected
-            .iter()
-            .copied()
-            .filter(|candidate| *candidate > beats)
-            .reduce(f64::min)
-        {
-            max_delta = max_delta.min(after - beats - TIME_EPSILON);
+        .filter(|(index, _)| selected.contains(index))
+    {
+        let beats = selected_point.time.as_f64();
+        for (index, point) in curve.points().iter().enumerate() {
+            if selected.contains(&index) {
+                continue;
+            }
+            let candidate = point.time.as_f64();
+            if candidate < beats {
+                min_delta = min_delta.max(candidate - beats + TIME_EPSILON);
+            } else if candidate > beats {
+                max_delta = max_delta.min(candidate - beats - TIME_EPSILON);
+            } else if index < selected_index {
+                // Keep the stable order of points that share one time.
+                min_delta = min_delta.max(0.0);
+            } else {
+                max_delta = max_delta.min(0.0);
+            }
         }
     }
     (min_delta, max_delta)

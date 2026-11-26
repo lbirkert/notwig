@@ -79,6 +79,11 @@ pub(super) fn draw_gain_line_editor(
             clip_id: clip.id,
             curve,
         });
+    } else if response.changed {
+        notwig.emit(UiIntent::PreviewClipGainCurve {
+            clip_id: clip.id,
+            curve: (!curve.is_empty()).then_some(curve),
+        });
     }
 }
 

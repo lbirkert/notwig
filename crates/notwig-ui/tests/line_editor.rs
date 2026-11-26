@@ -820,3 +820,45 @@ fn clicking_off_the_curve_does_not_add_a_point() {
     assert_eq!(curve.points().len(), 2);
     assert!(selected.is_empty());
 }
+
+#[test]
+fn points_cannot_be_dragged_past_their_neighbors() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
+    let start = position(2.0, 0.2);
+    let end = position(7.0, 0.2);
+    for (event, modifiers) in [
+        (Event::PointerMoved(start), Modifiers::NONE),
+        (pointer(start, true), Modifiers::NONE),
+        (Event::PointerMoved(end), Modifiers::NONE),
+        (pointer(end, false), Modifiers::NONE),
+    ] {
+        run(
+            &ctx,
+            &mut curve,
+            &mut selected,
+            &mut time_selection,
+            &mut state,
+            vec![event],
+            modifiers,
+        );
+    }
+    let moved = curve
+        .points()
+        .iter()
+        .find(|point| (point.value - 0.2).abs() < 1e-9)
+        .expect("moved point");
+    assert!(moved.time < beat(6), "moved time was {:?}", moved.time);
+}

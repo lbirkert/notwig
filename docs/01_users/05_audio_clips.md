@@ -86,6 +86,8 @@ editor:
   Cmd/Ctrl over a segment shows the vertical move cursor.
 
 The curve is an offset in dB on top of the clip gain and any per-event gain.
+Gain edits are previewed on the waveform and through playback while you drag,
+then committed as one undo entry on release.
 The waveform behind the curve is scaled by the curve locally, so the displayed
 audio follows the gain shape. The same locally scaled waveform is used in the
 arranger and the audio editor. The line editor is shared UI code and is ready
