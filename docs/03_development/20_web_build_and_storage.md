@@ -33,10 +33,12 @@ book/
   index.html, 01_users/, 02_extensions/, 03_development/   mdBook docs
 ```
 
-The workflow (`.github/workflows/pages.yml`) builds extension ZIPs for wasm and
-macos-arm64, runs `scripts/build-extensions.sh`, `mdbook build`, and `wasm-pack`,
-copies `docs/extensions.json` and extension assets, writes the CNAME, and
-deploys.
+The workflow (`.github/workflows/pages.yml`) builds extension ZIPs for wasm,
+runs `scripts/build-extensions.sh`, `mdbook build`, and `wasm-pack`, copies
+`docs/extensions.json` and extension assets, writes the CNAME, and deploys.
+macOS extension builds are temporarily disabled to keep CI runtime down; the
+matrix entry and the macOS rows in `docs/extensions.csv` are kept commented so
+they can be restored together.
 
 ## eframe and WebRunner entry
 

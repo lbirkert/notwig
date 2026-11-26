@@ -27,10 +27,12 @@ jobs:
             target: wasm
             slug: wasm
             rust_targets: wasm32-unknown-unknown
-          - os: macos-15
-            target: macos-aarch64
-            slug: macos-arm64
-            rust_targets: aarch64-apple-darwin
+          # Temporarily disabled: macOS extension builds cost too much runner time.
+          # Re-enable this entry together with the macOS rows in docs/extensions.csv.
+          # - os: macos-15
+          #   target: macos-aarch64
+          #   slug: macos-arm64
+          #   rust_targets: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

@@ -1,5 +1,6 @@
 source,hash
-docs/extensions/ext-devices-macos-arm64.zip,
+# macOS extension builds are temporarily disabled in Pages CI.
+# docs/extensions/ext-devices-macos-arm64.zip,
 docs/extensions/ext-devices-wasm.zip,
-docs/extensions/ext-example-macos-arm64.zip,
+# docs/extensions/ext-example-macos-arm64.zip,
 docs/extensions/ext-example-wasm.zip,

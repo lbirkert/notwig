@@ -121,14 +121,16 @@ The CSV has a `source,hash` header. Each row is one target ZIP, local or remote:
 
 ```csv
 source,hash
-docs/extensions/ext-devices-macos-arm64.zip,
+# macOS extension builds are temporarily disabled in Pages CI.
+# docs/extensions/ext-devices-macos-arm64.zip,
 docs/extensions/ext-devices-wasm.zip,
-docs/extensions/ext-example-macos-arm64.zip,
+# docs/extensions/ext-example-macos-arm64.zip,
 docs/extensions/ext-example-wasm.zip,
 ```
 
 The Pages workflow publishes both the stock device pack and the command API
-example. Install `Notwig Extension Examples` from the index to test the
+example for WASM. macOS extension builds are temporarily disabled to keep CI
+runtime down. Install `Notwig Extension Examples` from the index to test the
 `Humanize Notes` command.
 
 Hashes are SHA-256 lowercase hex. Leave a hash blank to compute it while building
