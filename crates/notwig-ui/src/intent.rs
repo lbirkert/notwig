@@ -186,6 +186,10 @@ pub enum UiIntent {
         clip_id: ClipId,
         slices: Vec<notwig_core::sequencer::AudioSlice>,
     },
+    SetClipGainCurve {
+        clip_id: ClipId,
+        curve: Option<notwig_core::Curve>,
+    },
     CreateMidiNote {
         clip_id: ClipId,
         note: NoteEntity,

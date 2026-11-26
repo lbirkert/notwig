@@ -5,6 +5,7 @@ pub(crate) mod brand;
 pub(crate) mod drop_target;
 pub(crate) mod form;
 pub(crate) mod icons;
+pub(crate) mod line_editor;
 pub(crate) mod theme;
 pub(crate) mod timeline;
 

@@ -395,6 +395,7 @@ fn mixed_clip_doc() -> ProjectDoc {
                 source_start_sample: 0,
                 source_end_sample: 96_000,
                 gain_db: notwig_core::Db(0.0),
+                gain_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,

@@ -1,4 +1,4 @@
-use notwig_core::{AudioAssetBuffer, ClipPayload};
+use notwig_core::{AudioAssetBuffer, ClipPayload, Curve, Db, TempoMap};
 
 use super::{ActivePlan, TrackRuntime};
 
@@ -71,6 +71,9 @@ impl ActivePlan {
                             source_start,
                             slice.source_end_sample,
                             slice.gain_db.to_gain().0,
+                            audio.gain_curve.as_ref(),
+                            u64::try_from(clip_start).unwrap_or(0),
+                            &map,
                             0,
                             0,
                             start_sample,
@@ -92,6 +95,9 @@ impl ActivePlan {
                         audio.source_start_sample,
                         audio.source_end_sample,
                         audio.gain_db.to_gain().0,
+                        audio.gain_curve.as_ref(),
+                        clip_start,
+                        &map,
                         audio.fade_in_samples,
                         audio.fade_out_samples,
                         start_sample,
@@ -103,6 +109,7 @@ impl ActivePlan {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_audio_region(
     track: &mut TrackRuntime,
     asset: &AudioAssetBuffer,
@@ -111,6 +118,9 @@ fn render_audio_region(
     source_start: u64,
     source_end: u64,
     gain: f32,
+    gain_curve: Option<&Curve>,
+    clip_start_sample: u64,
+    map: &TempoMap,
     fade_in_samples: u64,
     fade_out_samples: u64,
     start_sample: u64,
@@ -135,7 +145,11 @@ fn render_audio_region(
         } else {
             ((source_end - source) as f32 / fade_out_samples as f32).min(1.0)
         };
-        let envelope = fade_in.min(fade_out) * gain;
+        let curve_gain = gain_curve.map_or(1.0, |curve| {
+            let local = map.samples_to_mus(absolute.saturating_sub(clip_start_sample));
+            Db(curve.value_at(local, 0.0) as f32).to_gain().0
+        });
+        let envelope = fade_in.min(fade_out) * gain * curve_gain;
         let (left, right) = sample_frame(asset, source);
         let idx = i * 2;
         track.buffer[idx] += left * envelope;

@@ -10,11 +10,10 @@ use notwig_core::{
 use notwig_ui::test_api::audio_editor::{
     AudioSubEditor, ClipEdge, ClipLane, SliceDrag, SliceDragMode, SliceLowered, SliceModel,
     SliceSelection, clamp_slice_start, clip_edge_drag, delete_range, drag_origin_start,
-    edge_preview_range, emit_slices, event_color, gain_y, geometry_duration,
-    geometry_silent_prefix, geometry_source_end, geometry_source_start, geometry_start,
-    group_move_shift, handle_clip_editor_actions, lower_slice_plan, playhead_for_strip,
-    set_drag_origin_start, set_sub_editor, slice_drag, slice_geometry, slice_model,
-    source_duration,
+    edge_preview_range, emit_slices, event_color, geometry_duration, geometry_silent_prefix,
+    geometry_source_end, geometry_source_start, geometry_start, group_move_shift,
+    handle_clip_editor_actions, lower_slice_plan, playhead_for_strip, set_drag_origin_start,
+    set_sub_editor, slice_drag, slice_geometry, slice_model, source_duration,
 };
 use notwig_ui::{
     AudioWaveform, ClipEditorState, Clipboard, EditFocus, NotwigUi, RuntimeView, UiIntent,
@@ -50,6 +49,7 @@ fn audio() -> AudioClipData {
         source_start_sample: 0,
         source_end_sample: 48_000,
         gain_db: Db(0.0),
+        gain_curve: None,
         fade_in_samples: 0,
         fade_out_samples: 0,
         fade_shape: notwig_core::sequencer::FadeShape::Linear,
@@ -133,6 +133,7 @@ fn panel_doc_with_slices(clip_start: i64, slices_enabled: bool) -> (ProjectDoc, 
                 source_start_sample: 0,
                 source_end_sample: 48_000,
                 gain_db: Db(0.0),
+                gain_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
@@ -326,81 +327,10 @@ fn audio_editor_header_selects_audio_events_and_gain() {
         texts.iter().any(|text| text.contains("Gain")),
         "expected the Gain selector button, got {texts:?}"
     );
-    assert!(
-        texts.iter().any(|text| text.contains("+0.0 dB")),
-        "expected the slice gain readout, got {texts:?}"
-    );
 }
 
 #[test]
-fn gain_sub_editor_commits_a_slice_gain_drag() {
-    let (doc, clip) = panel_doc(0);
-    let mut runtime = RuntimeView::default();
-    runtime.insert_waveform(
-        id::<Asset>(600),
-        AudioWaveform::from_samples(vec![0.25; 128]),
-    );
-    let mut ui = NotwigUi::default();
-    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
-        ui.state
-            .selection
-            .select_clip(clip, clip_entity.track_id, false);
-    }
-    ui.open_clip_editor(clip);
-    let ctx = egui::Context::default();
-    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
-    set_sub_editor(
-        ui.clip_editor.as_mut().expect("clip editor open"),
-        AudioSubEditor::Gain,
-    );
-    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
-
-    let content = ui.clip_editor_content_rect;
-    let lanes_top = content.top() + 38.0;
-    let point = egui::pos2(
-        content.left() + 20.0,
-        gain_y(0.0, lanes_top, content.bottom()),
-    );
-    let _ = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![egui::Event::PointerMoved(point)],
-    );
-    let _ = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![pointer_event(point, true)],
-    );
-    let _ = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![egui::Event::PointerMoved(point - egui::vec2(0.0, 30.0))],
-    );
-    let intents = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![pointer_event(point - egui::vec2(0.0, 30.0), false)],
-    );
-    let gain = intents
-        .iter()
-        .find_map(|intent| match intent {
-            UiIntent::SetClipSlices { slices, .. } => slices.first().map(|slice| slice.gain_db.0),
-            _ => None,
-        })
-        .expect("gain drag should commit slice edits");
-    assert!(gain > 5.0, "expected an upward gain drag, got {gain}");
-}
-
-#[test]
-fn gain_sub_editor_commits_clip_gain_when_not_sliced() {
+fn gain_sub_editor_adds_a_curve_point() {
     let (doc, clip) = panel_doc_with_slices(0, false);
     let mut runtime = RuntimeView::default();
     runtime.insert_waveform(
@@ -423,11 +353,7 @@ fn gain_sub_editor_commits_clip_gain_when_not_sliced() {
     let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
 
     let content = ui.clip_editor_content_rect;
-    let lanes_top = content.top() + 38.0;
-    let point = egui::pos2(
-        content.left() + 20.0,
-        gain_y(0.0, lanes_top, content.bottom()),
-    );
+    let point = egui::pos2(content.left() + 120.0, content.center().y);
     let _ = run_panel(
         &ctx,
         &mut ui,
@@ -442,28 +368,21 @@ fn gain_sub_editor_commits_clip_gain_when_not_sliced() {
         &runtime,
         vec![pointer_event(point, true)],
     );
-    let _ = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![egui::Event::PointerMoved(point - egui::vec2(0.0, 30.0))],
-    );
     let intents = run_panel(
         &ctx,
         &mut ui,
         &doc,
         &runtime,
-        vec![pointer_event(point - egui::vec2(0.0, 30.0), false)],
+        vec![pointer_event(point, false)],
     );
-    let gain = intents
+    let curve = intents
         .iter()
         .find_map(|intent| match intent {
-            UiIntent::SetClipGain { gain_db, .. } => Some(gain_db.0),
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
             _ => None,
         })
-        .expect("clip gain drag should commit a clip gain edit");
-    assert!(gain > 5.0, "expected an upward gain drag, got {gain}");
+        .expect("gain line editor should commit a clip gain curve");
+    assert_eq!(curve.points().len(), 1);
 }
 
 #[test]

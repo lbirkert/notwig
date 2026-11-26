@@ -181,10 +181,10 @@ Dependencies worth planning around:
 | --- | --- | --- | --- |
 | Audio clip playback | ✅ Implemented | ⭐⭐⭐⭐⭐ | Sample-indexed source windows, gain, and fades. |
 | Audio slices | ✅ Implemented | ⭐⭐⭐⭐ | Per-slice source window, gain, and optional asset. Events may extend beyond the clip container; playback clips them to the container. |
-| Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Host-owned Audio Events/Gain sub-editor selector, slice selection, move, trim, copy, cut, paste, duplicate, delete, and time selection. |
+| Audio editor | ✅ Implemented | ⭐⭐⭐⭐ | Host-owned Audio Events/Gain selector, gain line editor, slice selection, move, trim, copy, cut, paste, duplicate, delete, and time selection. |
 | Audio trim | ✅ Implemented | ⭐⭐⭐⭐⭐ | Clip range edits trim the source window. |
 | Linear fades | 🧪 Partial | ⭐⭐⭐⭐ | Stored and rendered. No editor and no fade-shape choice. |
-| Audio clip gain | ✅ Implemented | ⭐⭐⭐⭐ | Stored and rendered. The Gain sub-editor edits clip gain or per-event gain. |
+| Audio clip gain | ✅ Implemented | ⭐⭐⭐⭐ | Stored and rendered. The Gain sub-editor edits a reusable gain curve with points and segment curvature. |
 | Clip pan | 📋 Planned | ⭐⭐⭐ |  |
 | Fade shapes | 📋 Planned | ⭐⭐⭐ |  |
 | Reverse | 📋 Planned | ⭐⭐ |  |

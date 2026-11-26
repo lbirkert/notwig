@@ -113,6 +113,7 @@ fn add_audio_clip_with_gain(
                 source_start_sample: 0,
                 source_end_sample: samples,
                 gain_db,
+                gain_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,
@@ -199,6 +200,43 @@ fn renders_audio_clip_through_master() {
     assert!(peak > 0.2, "peak was {peak}");
     let tail = &output[48_000..];
     assert!(tail.iter().all(|sample| sample.abs() < 1e-6));
+}
+
+#[test]
+fn clip_gain_curve_affects_audio_over_time() {
+    let mut doc = base_doc();
+    let (track, _) = add_track(&mut doc, 2, TrackKind::Audio);
+    let asset = add_asset(&mut doc, 500, 24_000);
+    add_audio_clip(&mut doc, track, asset, 20, 1);
+    let clip = id::<ClipMarker>(20);
+    let curve = Curve::from_points([
+        CurvePoint::new(TimeMus::zero(), 0.0),
+        CurvePoint::new(TimeMus::new(1, 1), -12.0),
+    ])
+    .unwrap();
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipGainCurve {
+            clip_id: clip,
+            curve: Some(curve),
+        }),
+    )
+    .unwrap();
+    doc = result.doc;
+
+    let mut engine = prepare_engine(
+        &doc,
+        vec![(asset, audio_buffer(24_000, 0.5))],
+        Arc::new(StockDeviceFactory),
+        EngineConfig::new(48_000, 256),
+    );
+    let output = engine.render_offline(0, 24_000).unwrap();
+    let early = output[0].abs();
+    let late = output[20_000 * 2].abs();
+    assert!(
+        early > late * 2.0,
+        "gain curve should fade the clip: early {early}, late {late}"
+    );
 }
 
 #[test]

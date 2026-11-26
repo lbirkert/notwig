@@ -791,6 +791,31 @@ The toolbar buttons toggle each editor against the current selection. Opening on
 
 The clip editor is closed by dragging its top handle down. Its height remains resizable. Clip start and clip end are adjusted only by dragging their handles in the clip editor; event edits never resize the clip.
 
+### 12.2 Line editor
+
+The core line editor is a reusable time/value surface for automation, clip gain,
+pan, and other modulatable values. The canonical curve model is
+`notwig_core::Curve`; the interaction widget is
+`notwig_ui::widgets::line_editor`.
+
+The widget owns only ephemeral state: point selection, the current point or
+segment drag, and the marquee rectangle. The caller owns the curve, value range,
+time bounds, snapping grid, and commit boundary. A drag previews locally and
+emits one command on release.
+
+| Gesture | Result |
+| --- | --- |
+| Click empty space | Add a point at the snapped time and pointer value |
+| Drag a point | Move selected points in time and value; `Shift` uses fine steps and bypasses horizontal snapping |
+| Additive click or drag on a point | Toggle or add the point to the selection |
+| Drag empty space | Marquee-select points inside the rectangle |
+| Option/Alt-drag a segment | Bend the segment's curvature |
+| Cmd/Ctrl-drag a segment | Move both endpoint values up or down |
+
+Segment curvature is stored on the left point and applies only to the segment
+to its right. `Curve::value_at` preserves the endpoints, holds the nearest
+endpoint outside the point range, and stays monotonic for curvature in `-1..=1`.
+
 ## 13. Invariants
 
 1. Every span satisfies `start <= end`. A dispatchable time selection also satisfies `start < end` and has at least one lane.

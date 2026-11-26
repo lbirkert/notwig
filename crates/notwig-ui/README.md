@@ -48,7 +48,7 @@ extension devices inside their guest egui context. Disable default features
 | `views/dsp.rs` | DSP load analysis window |
 | `views/info/` | Left info panel sections |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation; panel split into range selection, slice paint, slice gestures |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, gain line-editor adapter; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, parameters, EQ, dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/settings/` | Settings window/navigation plus audio, audio channels, extensions, and shortcuts |
@@ -56,6 +56,7 @@ extension devices inside their guest egui context. Disable default features
 | `views/render.rs` | Render mixdown window |
 | `widgets/` | App-only knobs, faders, draggable numbers, form helpers, brand assets, icons, timeline |
 | `widgets/timeline/` | Beat strip (`beat_strip/` interaction + paint), clip visuals, grid, selection, drop preview, interaction math |
+| `widgets/line_editor.rs` | Reusable point/segment line editor for automation, clip gain, pan, and other modulatable values |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, and sample-level drawing |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |

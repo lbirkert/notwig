@@ -261,6 +261,9 @@ fn apply_payload(
         CommandPayload::SetClipSlices { clip_id, slices } => {
             clips::set_clip_slices(doc, *clip_id, slices, changes)
         }
+        CommandPayload::SetClipGainCurve { clip_id, curve } => {
+            clips::set_clip_gain_curve(doc, *clip_id, curve.clone(), changes)
+        }
         CommandPayload::SetDeviceState {
             device_id,
             state_ref,

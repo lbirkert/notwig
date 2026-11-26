@@ -1,7 +1,8 @@
 use notwig_core::edit::Selection;
-use notwig_core::{ClipId, Db, RangeMus, SliceId, TimeMus};
+use notwig_core::{ClipId, RangeMus, SliceId, TimeMus};
 
 use crate::state::{SelectionGroup, Viewport};
+use crate::widgets::line_editor::LineEditorState;
 
 use super::model::ClipLane;
 
@@ -42,8 +43,7 @@ pub struct ClipEditorState {
     pub(super) preview_range: Option<RangeMus>,
     pub(super) range_start: Option<TimeMus>,
     pub(super) bar_drag: Option<BarDrag>,
-    pub(super) gain_drag: Option<GainDrag>,
-    pub(super) clip_gain_drag: Option<ClipGainDrag>,
+    pub(super) line_editor: LineEditorState,
     pub(super) initialized: bool,
 }
 
@@ -89,18 +89,6 @@ pub(super) struct BarDrag {
     pub(super) slices: Vec<SliceId>,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct GainDrag {
-    pub(super) origin_pointer_y: f32,
-    pub(super) origin_gains: Vec<(SliceId, Db)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ClipGainDrag {
-    pub(super) origin_pointer_y: f32,
-    pub(super) origin_gain: Db,
-}
-
 impl ClipEditorState {
     pub fn new(clip_id: ClipId) -> Self {
         Self {
@@ -117,8 +105,7 @@ impl ClipEditorState {
             preview_range: None,
             range_start: None,
             bar_drag: None,
-            gain_drag: None,
-            clip_gain_drag: None,
+            line_editor: LineEditorState::default(),
             initialized: false,
         }
     }

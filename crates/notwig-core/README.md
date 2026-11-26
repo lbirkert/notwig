@@ -47,7 +47,8 @@ or commands uses the types in this crate.
 | `ids.rs` | Typed opaque entity IDs |
 | `time.rs` | `TimeMus`, `TimeAudio`, `RangeMus`, `Rational`, `TempoMap`, units |
 | `tracks.rs` | Track kinds, mixer, routing, `TrackForest` |
-| `sequencer.rs` | `ClipEntity`, `MidiClipData`, `AudioClipData`, `AudioSlice` |
+| `sequencer.rs` | `ClipEntity`, `MidiClipData`, `AudioClipData`, `AudioSlice`, audio gain curves |
+| `curve.rs` | Ordered time/value curves, curvature interpolation, and validation |
 | `protocol/` | Commands, deltas, queries, plans, schedules, engine messages, RT events |
 | `apply/` | Command application by family: transport, tracks, clips, notes, devices, assets, audio; `apply` enforces an end-state document validation |
 | `edit/` | Edit algebra (`algebra/`: materialize, delete, paste, move, trim) and arranger adapter |

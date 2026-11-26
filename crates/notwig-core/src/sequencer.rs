@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
+use crate::curve::Curve;
 use crate::domain::ProjectDoc;
 use crate::ids::{AssetId, ClipId, NoteId, TrackId};
 use crate::time::{Color, Db, Norm01, RangeMus, TimeMus};
@@ -85,6 +86,9 @@ pub struct AudioClipData {
     pub source_start_sample: u64,
     pub source_end_sample: u64,
     pub gain_db: Db,
+    /// Time-varying gain offset in dB, relative to `gain_db` and slice gain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gain_curve: Option<Curve>,
     pub fade_in_samples: u64,
     pub fade_out_samples: u64,
     pub fade_shape: FadeShape,
@@ -253,6 +257,9 @@ impl NoteEntity {
 
 impl AudioClipData {
     fn validate(&self, range: RangeMus, doc: &ProjectDoc) -> Result<(), CoreError> {
+        if let Some(curve) = &self.gain_curve {
+            curve.validate()?;
+        }
         if self.source_end_sample <= self.source_start_sample {
             return Err(CoreError::ValidationFailed {
                 reason: "audio source range must be non-empty".into(),

@@ -88,6 +88,7 @@ fn add_clip(
                 source_start_sample: source_start,
                 source_end_sample: source_end,
                 gain_db: Db(0.0),
+                gain_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: FadeShape::Linear,

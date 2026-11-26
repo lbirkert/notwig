@@ -216,6 +216,10 @@ pub enum CommandPayload {
         clip_id: ClipId,
         slices: Vec<crate::sequencer::AudioSlice>,
     },
+    SetClipGainCurve {
+        clip_id: ClipId,
+        curve: Option<crate::curve::Curve>,
+    },
     SetParam {
         device_id: DeviceId,
         param_id: ParamId,

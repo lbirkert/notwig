@@ -78,7 +78,8 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `ids.rs` | Typed opaque IDs (`Id<T>`, `TrackId`, `ClipId`, ...) |
 | `time.rs` | Musical/audio time, ranges, tempo map, units, colors, schema version |
 | `tracks.rs` | Track kinds, routing, mixer, track forest/projections |
-| `sequencer.rs` | Arranger clips, MIDI/audio payloads, notes, audio slices |
+| `sequencer.rs` | Arranger clips, MIDI/audio payloads, notes, audio slices, audio gain curves |
+| `curve.rs` | Reusable ordered time/value curve, curvature interpolation, and validation |
 | `protocol/` | Command, delta, query, plan, schedule, engine-message, and runtime-event schemas in focused modules |
 | `apply/` | Pure-ish command application: dispatch, transport, tracks, clips, notes, devices, assets, audio math |
 | `edit/` | Editor-agnostic editing algebra (`algebra/`: materialize, delete, paste, move, trim) and arranger adapter |
@@ -232,7 +233,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, gain sub-editor; panel split into range selection, slice paint, slice gestures |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, gain line-editor adapter; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
@@ -245,6 +246,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/` | App-only draggable numbers, form helpers, brand assets, icons, theme |
 | `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
 | `widgets/timeline/` | Shared beat strip (`beat_strip/`: interaction and paint), clip visuals, grid, snap controls, selection, drop preview, interaction math |
+| `widgets/line_editor.rs` | Reusable point/segment line editor for automation, clip gain, pan, and other modulatable values |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |

@@ -85,6 +85,7 @@ pub mod test_api {
     pub use crate::views::settings::test_api as settings;
     pub use crate::waveform::test_api as waveform;
     pub use crate::widgets::drop_target::test_api as drop_target;
+    pub use crate::widgets::line_editor::test_api as line_editor;
     pub use crate::widgets::test_api as widgets;
     pub use crate::widgets::timeline::test_api as timeline;
 }

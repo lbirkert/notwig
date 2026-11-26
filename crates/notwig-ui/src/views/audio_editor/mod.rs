@@ -33,14 +33,6 @@ pub mod test_api {
         state.sub_editor = sub_editor;
     }
 
-    pub fn gain_y(db: f32, top: f32, bottom: f32) -> f32 {
-        super::gain::y_for_gain(
-            db,
-            top + super::gain::LANE_PADDING,
-            bottom - super::gain::LANE_PADDING,
-        )
-    }
-
     pub fn lower_slice_plan(
         slices: &[AudioSlice],
         map: &TempoMap,

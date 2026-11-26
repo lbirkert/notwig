@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod apply;
+pub mod curve;
 pub mod domain;
 pub mod dsp;
 pub mod edit;
@@ -11,6 +12,7 @@ pub mod time;
 pub mod tracks;
 
 pub use apply::{ApplyResult, apply};
+pub use curve::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, shape_ratio};
 pub use domain::{
     AssetEntry, AssetIndex, AssetKind, AudioAssetBuffer, DeviceChain, DeviceInstance, DeviceKind,
     Meta, ParamValue, ProjectDoc, SCHEMA_VERSION, SoloContext, StateBlobRef, TransportDoc,

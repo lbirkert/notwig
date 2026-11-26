@@ -110,6 +110,7 @@ fn with_audio_clip(
                 source_start_sample: 0,
                 source_end_sample: 48_000,
                 gain_db: Db(0.0),
+                gain_curve: None,
                 fade_in_samples: 0,
                 fade_out_samples: 0,
                 fade_shape: notwig_core::sequencer::FadeShape::Linear,

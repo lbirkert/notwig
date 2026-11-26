@@ -368,6 +368,12 @@ impl NotwigApp {
                     .apply(CommandPayload::SetClipSlices { clip_id, slices });
                 let _ = self.report(result);
             }
+            UiIntent::SetClipGainCurve { clip_id, curve } => {
+                let result = self
+                    .workspace
+                    .apply(CommandPayload::SetClipGainCurve { clip_id, curve });
+                let _ = self.report(result);
+            }
             UiIntent::CreateMidiNote { clip_id, note } => {
                 let result = self.workspace.create_note(clip_id, note);
                 let _ = self.report(result);

@@ -173,8 +173,7 @@ impl NotwigUi {
                                 {
                                     state.sub_editor = editor;
                                     state.drag = None;
-                                    state.gain_drag = None;
-                                    state.clip_gain_drag = None;
+                                    state.line_editor.cancel_gestures();
                                     ui.close();
                                 }
                             }
@@ -319,16 +318,13 @@ impl NotwigUi {
                         );
                     }
                 } else {
-                    super::gain::draw_gain_lane(
+                    super::gain::draw_gain_line_editor(
                         self,
                         ui,
-                        &painter,
                         &mut state,
                         &mut audio,
                         &clip,
-                        &map,
                         timeline_grid,
-                        content.left(),
                         lanes,
                     );
                 }

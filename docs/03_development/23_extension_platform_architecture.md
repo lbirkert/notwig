@@ -616,10 +616,13 @@ command handler runs on the audio thread.
 The host-owned selector is implemented. The audio editor strip header is now a
 sub-editor menu with built-in `Audio Events` and `Gain` entries
 (`crates/notwig-ui/src/views/audio_editor/`). Audio Events keeps the slice lane;
-Gain edits per-event gain, or clip gain when the clip is not in slice mode.
-Switching surfaces clears in-progress drags and preserves the clip time mapping,
-playhead, loop range, snap grid, and scrollbar. The extension contribution point
-below is still the design for extension-supplied sub-editors.
+Gain uses the reusable `widgets::line_editor` over the clip's canonical
+`gain_curve`. The line editor supports point insertion and movement, segment
+curvature, segment value moves, marquee selection, grid snapping, and fine
+adjustment. Switching surfaces clears in-progress drags and preserves the clip
+time mapping, playhead, loop range, snap grid, and scrollbar. The extension
+contribution point below is still the design for extension-supplied
+sub-editors.
 
 `notwig.audio_editor.sub_editor` is an augment point. A contribution declares:
 

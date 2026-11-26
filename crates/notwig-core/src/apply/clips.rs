@@ -191,6 +191,31 @@ pub(super) fn set_clip_slices(
     Ok(vec![schedule_msg(doc)])
 }
 
+pub(super) fn set_clip_gain_curve(
+    doc: &mut ProjectDoc,
+    clip_id: ClipId,
+    curve: Option<crate::Curve>,
+    changes: &mut Changes,
+) -> Result<Vec<EngineMsg>, CoreError> {
+    let clip = doc
+        .arranger
+        .clips
+        .get_mut(&clip_id)
+        .ok_or_else(|| not_found(&clip_id))?;
+    let ClipPayload::Audio(audio) = &mut clip.payload else {
+        return Err(CoreError::ValidationFailed {
+            reason: "clip is not an audio clip".into(),
+        });
+    };
+    audio.gain_curve = curve;
+    changes.affected.clips.insert(clip_id);
+    changes.push(DocChange::ClipUpserted(clip_id));
+    doc.validate().map_err(|err| CoreError::ValidationFailed {
+        reason: err.to_string(),
+    })?;
+    Ok(vec![schedule_msg(doc)])
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_clip(
     doc: &mut ProjectDoc,

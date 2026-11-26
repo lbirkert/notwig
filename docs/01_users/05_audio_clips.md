@@ -64,9 +64,22 @@ belongs to a different editor.
 
 ## Clip gain and fades
 
-Audio clips store gain and linear fades, and the engine renders both. The
-current UI does not expose editing controls for them. Clip pan, fade shapes,
-crossfades, reverse, and time stretching are not implemented.
+Audio clips store gain, an optional gain curve, and linear fades, and the engine
+renders them. The **Gain** sub-editor exposes the curve as a reusable line
+editor:
+
+- click empty space to add a point;
+- drag a point to move it in time and value (`Shift` uses fine time and value
+  steps and bypasses snapping);
+- drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
+- drag empty space to marquee-select points;
+- **Option/Alt**-drag a segment to bend its curvature;
+- **Cmd/Ctrl**-drag a segment to move both endpoint values up or down.
+
+The curve is an offset in dB on top of the clip gain and any per-event gain. The
+line editor is shared UI code and is ready for automation and other modulatable
+values. Clip pan, fade shapes, crossfades, reverse, and time stretching are not
+implemented.
 
 ## Waveform and navigation
 
