@@ -1,6 +1,6 @@
-use notwig_core::TrackId;
 use notwig_core::edit::{ClipContent, Extract};
 use notwig_core::sequencer::AudioSlice;
+use notwig_core::{CurvePoint, TrackId};
 
 use crate::views::audio_editor::ClipLane;
 
@@ -10,6 +10,7 @@ pub enum Clipboard {
     Empty,
     Arranger(Extract<TrackId, ClipContent>),
     AudioClip(Extract<ClipLane, AudioSlice>),
+    Curve(Vec<CurvePoint>),
     Devices,
 }
 

@@ -120,6 +120,7 @@ impl NotwigUi {
         if paste && !editor_focused {
             if devices.is_empty() {
                 match &runtime.clipboard {
+                    Clipboard::Curve(_) => {}
                     Clipboard::Devices => {
                         let track_id = self.selected_track(doc).or_else(|| {
                             self.last_pointer

@@ -346,7 +346,7 @@ impl Workspace {
         let extract = match &self.clipboard {
             Clipboard::Arranger(extract) => extract.clone(),
             Clipboard::Empty => return Ok(SelectionInfo::default()),
-            Clipboard::AudioClip(_) => {
+            Clipboard::AudioClip(_) | Clipboard::Curve(_) => {
                 return Err("Clipboard belongs to another editor.".into());
             }
             Clipboard::Devices => {

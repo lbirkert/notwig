@@ -135,17 +135,7 @@ impl NotwigUi {
                     } else {
                         None
                     },
-                    time_selection: if state.sub_editor == AudioSubEditor::Gain {
-                        state.line_editor.time_selection.and_then(|range| {
-                            notwig_core::RangeMus::new(
-                                range.start + clip.range.start,
-                                range.end + clip.range.start,
-                            )
-                            .ok()
-                        })
-                    } else {
-                        state.bar_selection
-                    },
+                    time_selection: state.bar_selection,
                     play_start: runtime.play_start,
                     playhead: playhead_for_strip(runtime),
                     show_play_start: true,

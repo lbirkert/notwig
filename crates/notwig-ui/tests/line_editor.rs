@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use egui::{Event, Id, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 use notwig_core::{Curve, CurvePoint, TimeMus};
 use notwig_ui::test_api::line_editor::{LineEditorConfig, LineEditorState, show};
@@ -36,16 +38,29 @@ fn screen() -> Rect {
 fn run(
     ctx: &egui::Context,
     curve: &mut Curve,
+    selected: &mut BTreeSet<usize>,
+    time_selection: &mut Option<notwig_core::RangeMus>,
     state: &mut LineEditorState,
     events: Vec<Event>,
     modifiers: Modifiers,
 ) {
-    run_at(ctx, curve, state, events, modifiers, None);
+    run_at(
+        ctx,
+        curve,
+        selected,
+        time_selection,
+        state,
+        events,
+        modifiers,
+        None,
+    );
 }
 
 fn run_at(
     ctx: &egui::Context,
     curve: &mut Curve,
+    selected: &mut BTreeSet<usize>,
+    time_selection: &mut Option<notwig_core::RangeMus>,
     state: &mut LineEditorState,
     events: Vec<Event>,
     modifiers: Modifiers,
@@ -70,6 +85,8 @@ fn run_at(
                         grid(),
                         &config(),
                         curve,
+                        selected,
+                        time_selection,
                         state,
                     );
                 });
@@ -107,11 +124,23 @@ fn click_adds_a_snapped_point() {
     let ctx = egui::Context::default();
     let mut curve = Curve::new();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let pos = position(2.2, 0.5);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(pos)],
         Modifiers::NONE,
@@ -119,6 +148,8 @@ fn click_adds_a_snapped_point() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(pos, true)],
         Modifiers::NONE,
@@ -126,6 +157,8 @@ fn click_adds_a_snapped_point() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(pos, false)],
         Modifiers::NONE,
@@ -133,42 +166,7 @@ fn click_adds_a_snapped_point() {
     assert_eq!(curve.points().len(), 1);
     assert_eq!(curve.points()[0].time, beat(2));
     assert!((curve.points()[0].value - 0.5).abs() < 1e-9);
-    assert_eq!(state.selected.len(), 1);
-}
-
-#[test]
-fn click_adds_a_second_point_at_the_same_time() {
-    let ctx = egui::Context::default();
-    let mut curve = point_curve();
-    let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
-    let pos = position(2.0, 0.8);
-    run(
-        &ctx,
-        &mut curve,
-        &mut state,
-        vec![Event::PointerMoved(pos)],
-        Modifiers::NONE,
-    );
-    run(
-        &ctx,
-        &mut curve,
-        &mut state,
-        vec![pointer(pos, true)],
-        Modifiers::NONE,
-    );
-    run(
-        &ctx,
-        &mut curve,
-        &mut state,
-        vec![pointer(pos, false)],
-        Modifiers::NONE,
-    );
-    let points = curve.points_at(beat(2));
-    assert_eq!(points.len(), 2);
-    assert!((points[0].value - 0.2).abs() < 1e-6);
-    assert!((points[1].value - 0.8).abs() < 1e-6);
-    assert!((curve.value_at(beat(2), -1.0) - 0.8).abs() < 1e-6);
+    assert_eq!(selected.len(), 1);
 }
 
 #[test]
@@ -176,12 +174,24 @@ fn dragging_a_point_moves_time_and_value() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(2.0, 0.2);
     let end = position(3.1, 0.3);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::NONE,
@@ -189,6 +199,8 @@ fn dragging_a_point_moves_time_and_value() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::NONE,
@@ -196,6 +208,8 @@ fn dragging_a_point_moves_time_and_value() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::NONE,
@@ -203,6 +217,8 @@ fn dragging_a_point_moves_time_and_value() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::NONE,
@@ -217,12 +233,24 @@ fn shift_drag_uses_fine_time_and_value() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(2.0, 0.2);
     let end = position(2.1, 0.3);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::SHIFT,
@@ -230,6 +258,8 @@ fn shift_drag_uses_fine_time_and_value() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::SHIFT,
@@ -237,6 +267,8 @@ fn shift_drag_uses_fine_time_and_value() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::SHIFT,
@@ -244,6 +276,8 @@ fn shift_drag_uses_fine_time_and_value() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::SHIFT,
@@ -258,12 +292,24 @@ fn option_drag_bends_the_segment() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(4.0, 0.5);
     let end = position(4.0, 0.625);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::ALT,
@@ -271,6 +317,8 @@ fn option_drag_bends_the_segment() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::ALT,
@@ -278,6 +326,8 @@ fn option_drag_bends_the_segment() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::ALT,
@@ -285,6 +335,8 @@ fn option_drag_bends_the_segment() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::ALT,
@@ -298,12 +350,24 @@ fn command_drag_moves_both_segment_points() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(4.0, 0.5);
     let end = position(4.0, 0.625);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::COMMAND,
@@ -311,6 +375,8 @@ fn command_drag_moves_both_segment_points() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::COMMAND,
@@ -318,6 +384,8 @@ fn command_drag_moves_both_segment_points() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::COMMAND,
@@ -325,6 +393,8 @@ fn command_drag_moves_both_segment_points() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::COMMAND,
@@ -339,12 +409,24 @@ fn marquee_selects_points_inside_the_rectangle() {
     let mut curve =
         Curve::from_points([point_at(2, 0.2), point_at(4, 0.8), point_at(6, 0.5)]).unwrap();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = Pos2::new(1.0, HEIGHT - 1.0);
     let end = Pos2::new(4.2 * PPB, 1.0);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::NONE,
@@ -352,6 +434,8 @@ fn marquee_selects_points_inside_the_rectangle() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::NONE,
@@ -359,6 +443,8 @@ fn marquee_selects_points_inside_the_rectangle() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::NONE,
@@ -366,15 +452,17 @@ fn marquee_selects_points_inside_the_rectangle() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::NONE,
     );
-    assert!(state.selected.contains(&0));
-    assert!(state.selected.contains(&1));
-    assert!(!state.selected.contains(&2));
+    assert!(selected.contains(&0));
+    assert!(selected.contains(&1));
+    assert!(!selected.contains(&2));
     assert_eq!(
-        state.time_selection,
+        time_selection,
         Some(notwig_core::RangeMus::new(beat(0), beat(4)).expect("marquee time selection"))
     );
 }
@@ -384,11 +472,23 @@ fn dragging_a_point_stays_attached_across_frames() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(2.0, 0.2);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::NONE,
@@ -396,6 +496,8 @@ fn dragging_a_point_stays_attached_across_frames() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::NONE,
@@ -405,6 +507,8 @@ fn dragging_a_point_stays_attached_across_frames() {
         run(
             &ctx,
             &mut curve,
+            &mut selected,
+            &mut time_selection,
             &mut state,
             vec![Event::PointerMoved(end)],
             Modifiers::NONE,
@@ -414,6 +518,8 @@ fn dragging_a_point_stays_attached_across_frames() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::NONE,
@@ -427,9 +533,13 @@ fn double_clicking_a_point_removes_it() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
     run_at(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         Vec::new(),
         Modifiers::NONE,
@@ -441,6 +551,8 @@ fn double_clicking_a_point_removes_it() {
         run_at(
             &ctx,
             &mut curve,
+            &mut selected,
+            &mut time_selection,
             &mut state,
             vec![Event::PointerMoved(pos)],
             Modifiers::NONE,
@@ -450,6 +562,8 @@ fn double_clicking_a_point_removes_it() {
         run_at(
             &ctx,
             &mut curve,
+            &mut selected,
+            &mut time_selection,
             &mut state,
             vec![pointer(pos, true)],
             Modifiers::NONE,
@@ -459,6 +573,8 @@ fn double_clicking_a_point_removes_it() {
         run_at(
             &ctx,
             &mut curve,
+            &mut selected,
+            &mut time_selection,
             &mut state,
             vec![pointer(pos, false)],
             Modifiers::NONE,
@@ -475,11 +591,23 @@ fn clicking_the_line_adds_and_drags_a_point_immediately() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let press = position(4.0, 0.5);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(press)],
         Modifiers::NONE,
@@ -487,6 +615,8 @@ fn clicking_the_line_adds_and_drags_a_point_immediately() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(press, true)],
         Modifiers::NONE,
@@ -498,6 +628,8 @@ fn clicking_the_line_adds_and_drags_a_point_immediately() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::NONE,
@@ -505,6 +637,8 @@ fn clicking_the_line_adds_and_drags_a_point_immediately() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::NONE,
@@ -526,11 +660,23 @@ fn release_applies_the_final_pointer_position() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(2.0, 0.2);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::NONE,
@@ -538,6 +684,8 @@ fn release_applies_the_final_pointer_position() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::NONE,
@@ -545,6 +693,8 @@ fn release_applies_the_final_pointer_position() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(position(3.0, 0.3))],
         Modifiers::NONE,
@@ -552,6 +702,8 @@ fn release_applies_the_final_pointer_position() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(position(4.0, 0.4), false)],
         Modifiers::NONE,
@@ -566,12 +718,24 @@ fn points_at_the_same_time_move_independently() {
     let mut curve =
         Curve::from_points([point_at(2, 0.2), point_at(2, 0.8), point_at(6, 0.5)]).unwrap();
     let mut state = LineEditorState::default();
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
     let start = position(2.0, 0.8);
     let end = position(3.0, 0.9);
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(start)],
         Modifiers::NONE,
@@ -579,6 +743,8 @@ fn points_at_the_same_time_move_independently() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(start, true)],
         Modifiers::NONE,
@@ -586,6 +752,8 @@ fn points_at_the_same_time_move_independently() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![Event::PointerMoved(end)],
         Modifiers::NONE,
@@ -593,59 +761,62 @@ fn points_at_the_same_time_move_independently() {
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
         vec![pointer(end, false)],
         Modifiers::NONE,
     );
-    assert_eq!(state.selected.len(), 1);
+    assert_eq!(selected.len(), 1);
     assert_eq!(curve.points_at(beat(2)).len(), 1);
     assert_eq!(curve.points_at(beat(2))[0].value, 0.2);
     assert_eq!(curve.points_at(beat(3))[0].value, 0.9);
 }
 
 #[test]
-fn backspace_deletes_selected_points() {
+fn clicking_off_the_curve_does_not_add_a_point() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();
     let mut state = LineEditorState::default();
-    let start = position(2.0, 0.2);
-    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let mut selected = BTreeSet::new();
+    let mut time_selection = None;
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
-        vec![Event::PointerMoved(start)],
+        Vec::new(),
+        Modifiers::NONE,
+    );
+    let empty = position(0.5, 0.9);
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        vec![Event::PointerMoved(empty)],
         Modifiers::NONE,
     );
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
-        vec![pointer(start, true)],
+        vec![pointer(empty, true)],
         Modifiers::NONE,
     );
     run(
         &ctx,
         &mut curve,
+        &mut selected,
+        &mut time_selection,
         &mut state,
-        vec![pointer(start, false)],
+        vec![pointer(empty, false)],
         Modifiers::NONE,
     );
-    assert_eq!(state.selected.len(), 1);
-    run(
-        &ctx,
-        &mut curve,
-        &mut state,
-        vec![Event::Key {
-            key: egui::Key::Backspace,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: Modifiers::NONE,
-        }],
-        Modifiers::NONE,
-    );
-    assert_eq!(curve.points().len(), 1);
-    assert_eq!(curve.points()[0].time, beat(6));
-    assert!(state.selected.is_empty());
+    assert_eq!(curve.points().len(), 2);
+    assert!(selected.is_empty());
 }

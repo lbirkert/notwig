@@ -68,15 +68,16 @@ Audio clips store gain, an optional gain curve, and linear fades, and the engine
 renders them. The **Gain** sub-editor exposes the curve as a reusable line
 editor:
 
-- click the line to insert a point and drag it immediately;
-- click empty space to add a point, including a second point at the same time
-  for a vertical step;
+- hover the curve to show the add-point cursor, then click the line to insert
+  and drag a point immediately;
 - drag a point to move it in time and value (`Shift` uses fine time and value
   steps and bypasses snapping);
 - double-click a point to delete it;
 - drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
 - drag empty space to marquee-select points and set a time selection;
 - press **Backspace** to delete selected points;
+- use the normal audio-editor copy, cut, paste, and duplicate shortcuts on the
+  selected points;
 - **Option/Alt**-drag a segment to bend its curvature: positive bends ease in,
   negative bends ease out; holding Option/Alt over a segment shows the curvature
   drag cursor;

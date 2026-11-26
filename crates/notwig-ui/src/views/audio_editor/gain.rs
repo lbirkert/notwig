@@ -35,6 +35,10 @@ pub(super) fn draw_gain_line_editor(
     let mut local_timeline = timeline;
     local_timeline.start = timeline.start - clip.range.start;
     let mut curve = audio.gain_curve.clone().unwrap_or_default();
+    let mut local_time_selection = state.bar_selection.and_then(|range| {
+        notwig_core::RangeMus::new(range.start - clip.range.start, range.end - clip.range.start)
+            .ok()
+    });
     let config = LineEditorConfig {
         value_min: MIN_GAIN_DB,
         value_max: MAX_GAIN_DB,
@@ -50,8 +54,14 @@ pub(super) fn draw_gain_line_editor(
         local_timeline,
         &config,
         &mut curve,
+        &mut state.curve_selection,
+        &mut local_time_selection,
         &mut state.line_editor,
     );
+    state.bar_selection = local_time_selection.and_then(|range| {
+        notwig_core::RangeMus::new(range.start + clip.range.start, range.end + clip.range.start)
+            .ok()
+    });
     if response.committed {
         let curve = (!curve.is_empty()).then_some(curve);
         audio.gain_curve.clone_from(&curve);

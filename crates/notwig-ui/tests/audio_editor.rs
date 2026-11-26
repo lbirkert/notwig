@@ -396,7 +396,7 @@ fn gain_sub_editor_adds_a_curve_point() {
     );
 
     let content = ui.clip_editor_content_rect;
-    let point = egui::pos2(content.left() + 120.0, content.center().y);
+    let point = egui::pos2(content.left() + 120.0, gain_editor_y(content, 0.0));
     let _ = run_panel(
         &ctx,
         &mut ui,
@@ -1791,4 +1791,132 @@ fn deleting_a_zero_width_bar_selection_splits_every_crossing_slice() {
             .count(),
         2
     );
+}
+
+fn gain_editor_y(content: egui::Rect, db: f64) -> f32 {
+    let top = content.top() + 38.0;
+    let bottom = content.bottom();
+    bottom - ((db + 60.0) / 84.0) as f32 * (bottom - top)
+}
+
+fn gain_curve_doc(clip: ClipId) -> (ProjectDoc, ClipId) {
+    let (doc, _) = panel_doc_with_slices(0, false);
+    let curve = notwig_core::Curve::from_points([
+        notwig_core::CurvePoint::new(TimeMus::new(1, 1), 0.0),
+        notwig_core::CurvePoint::new(TimeMus::new(3, 1), 6.0),
+    ])
+    .unwrap();
+    let result = apply(
+        &doc,
+        &Command::new(CommandPayload::SetClipGainCurve {
+            clip_id: clip,
+            curve: Some(curve),
+        }),
+    )
+    .unwrap();
+    (result.doc, clip)
+}
+
+fn open_gain_editor(doc: &ProjectDoc, clip: ClipId) -> (NotwigUi, egui::Context) {
+    let mut ui = NotwigUi::default();
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    set_sub_editor(
+        ui.clip_editor.as_mut().expect("clip editor open"),
+        AudioSubEditor::Gain,
+    );
+    let ctx = egui::Context::default();
+    let runtime = RuntimeView::default();
+    let _ = run_panel(&ctx, &mut ui, doc, &runtime, Vec::new());
+    (ui, ctx)
+}
+
+fn select_first_gain_point(
+    ui: &mut NotwigUi,
+    ctx: &egui::Context,
+    doc: &ProjectDoc,
+    runtime: &RuntimeView,
+) {
+    let content = ui.clip_editor_content_rect;
+    let point = egui::pos2(content.left() + 80.0, gain_editor_y(content, 0.0));
+    let _ = run_panel(
+        ctx,
+        ui,
+        doc,
+        runtime,
+        vec![egui::Event::PointerMoved(point)],
+    );
+    let _ = run_panel(ctx, ui, doc, runtime, vec![pointer_event(point, true)]);
+    let _ = run_panel(ctx, ui, doc, runtime, vec![pointer_event(point, false)]);
+}
+
+#[test]
+fn gain_points_duplicate_with_the_audio_editor_selection() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    select_first_gain_point(&mut ui, &ctx, &doc, &runtime);
+    let modifiers = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(panel_screen()),
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::D,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("duplicate should commit a gain curve");
+    assert!(curve.points().len() > 2);
+}
+
+#[test]
+fn backspace_deletes_selected_gain_points() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    select_first_gain_point(&mut ui, &ctx, &doc, &runtime);
+    let intents = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::Key {
+            key: egui::Key::Backspace,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("backspace should commit a gain curve");
+    assert_eq!(curve.points().len(), 1);
 }

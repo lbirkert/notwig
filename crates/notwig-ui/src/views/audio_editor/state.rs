@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use notwig_core::edit::Selection;
 use notwig_core::{ClipId, RangeMus, SliceId, TimeMus};
 
@@ -43,6 +45,7 @@ pub struct ClipEditorState {
     pub(super) preview_range: Option<RangeMus>,
     pub(super) range_start: Option<TimeMus>,
     pub(super) bar_drag: Option<BarDrag>,
+    pub(super) curve_selection: BTreeSet<usize>,
     pub(super) line_editor: LineEditorState,
     pub(super) initialized: bool,
 }
@@ -105,6 +108,7 @@ impl ClipEditorState {
             preview_range: None,
             range_start: None,
             bar_drag: None,
+            curve_selection: BTreeSet::new(),
             line_editor: LineEditorState::default(),
             initialized: false,
         }

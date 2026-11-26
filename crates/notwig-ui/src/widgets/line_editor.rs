@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use egui::{Color32, Id, Key, Pos2, Rect, Sense, Stroke, Vec2};
+use egui::{Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
 use notwig_core::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, RangeMus, TimeMus};
 
 use crate::theme;
@@ -49,10 +49,6 @@ impl Default for LineEditorConfig {
 /// Persistent selection and gesture state for a line editor.
 #[derive(Debug, Clone, Default)]
 pub struct LineEditorState {
-    /// Selected point indices in the current curve.
-    pub selected: BTreeSet<usize>,
-    /// Time range produced by the last marquee selection.
-    pub time_selection: Option<RangeMus>,
     drag: Option<PointDrag>,
     segment: Option<SegmentDrag>,
     marquee: Option<MarqueeDrag>,
@@ -64,38 +60,11 @@ pub mod test_api {
 }
 
 impl LineEditorState {
-    /// Returns whether points are selected.
-    #[must_use]
-    pub fn has_selection(&self) -> bool {
-        !self.selected.is_empty()
-    }
-
     /// Cancels in-progress point, segment, and marquee gestures.
     pub fn cancel_gestures(&mut self) {
         self.drag = None;
         self.segment = None;
         self.marquee = None;
-    }
-
-    /// Removes selected points from `curve`.
-    fn delete_selected(&mut self, curve: &mut Curve) -> bool {
-        if self.selected.is_empty() {
-            return false;
-        }
-        let points: Vec<CurvePoint> = curve
-            .points()
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !self.selected.contains(index))
-            .map(|(_, point)| *point)
-            .collect();
-        let Ok(next) = Curve::from_points(points) else {
-            return false;
-        };
-        *curve = next;
-        self.selected.clear();
-        self.time_selection = None;
-        true
     }
 }
 
@@ -148,26 +117,19 @@ pub fn show(
     timeline: TimelineGrid,
     config: &LineEditorConfig,
     curve: &mut Curve,
+    selected: &mut BTreeSet<usize>,
+    time_selection: &mut Option<RangeMus>,
     state: &mut LineEditorState,
 ) -> LineEditorResponse {
     if rect.width() <= 1.0 || rect.height() <= 1.0 {
         return LineEditorResponse::default();
     }
     if state.drag.is_none() && state.segment.is_none() && state.marquee.is_none() {
-        state.selected.retain(|index| *index < curve.len());
+        selected.retain(|index| *index < curve.len());
     }
     let modifiers = ui.input(|input| input.modifiers);
     let bypass = modifiers.shift;
     let mut response = LineEditorResponse::default();
-
-    if !ui.ctx().wants_keyboard_input()
-        && ui.input(|input| input.key_pressed(Key::Backspace))
-        && state.delete_selected(curve)
-    {
-        response.changed = true;
-        response.committed = true;
-        response.selection_changed = true;
-    }
 
     let background = ui.interact(rect, id.with("line-editor-bg"), Sense::click_and_drag());
     let (primary_pressed, primary_released, press_origin) = ui.input(|input| {
@@ -197,6 +159,8 @@ pub fn show(
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
         } else if modifiers.command {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        } else {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }
 
@@ -214,42 +178,17 @@ pub fn show(
         );
         let value = curve.value_at(time, value_for_y(config, rect, pointer.y));
         if let Some(point) = add_point(curve, time, value) {
-            state.selected.clear();
-            state.selected.insert(point);
-            state.time_selection = None;
+            selected.clear();
+            selected.insert(point);
+            *time_selection = None;
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
-                selected: state.selected.clone(),
+                selected: selected.clone(),
                 primary: point,
                 changed: true,
             });
             response.changed = true;
-            response.selection_changed = true;
-        }
-    }
-
-    // Clicking empty space still adds a point on release.
-    if background.clicked()
-        && !pointer_over_point
-        && state.drag.is_none()
-        && !modifiers.alt
-        && !modifiers.command
-    {
-        let time = clamp_time(
-            timeline.snap(
-                time_for_x(timeline, rect, pointer_x(&background, ui, rect)),
-                bypass,
-            ),
-            config,
-        );
-        let value = value_for_y(config, rect, pointer_y(&background, ui, rect));
-        if let Some(point) = add_point(curve, time, value) {
-            state.selected.clear();
-            state.selected.insert(point);
-            state.time_selection = None;
-            response.changed = true;
-            response.committed = true;
             response.selection_changed = true;
         }
     }
@@ -261,22 +200,22 @@ pub fn show(
             // A line click already started the new point drag.
         } else if let Some(index) = point_at_origin {
             let additive = modifiers.command || modifiers.shift;
-            if !state.selected.contains(&index) {
+            if !selected.contains(&index) {
                 if additive {
-                    state.selected.insert(index);
+                    selected.insert(index);
                 } else {
-                    state.selected.clear();
-                    state.selected.insert(index);
+                    selected.clear();
+                    selected.insert(index);
                 }
                 response.selection_changed = true;
             }
             if !additive {
-                state.time_selection = None;
+                *time_selection = None;
             }
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
-                selected: state.selected.clone(),
+                selected: selected.clone(),
                 primary: index,
                 changed: false,
             });
@@ -299,7 +238,7 @@ pub fn show(
                 origin: pointer,
                 current: pointer,
             });
-            state.time_selection = marquee_time_selection(
+            *time_selection = marquee_time_selection(
                 curve,
                 timeline,
                 rect,
@@ -307,7 +246,7 @@ pub fn show(
                     origin: pointer,
                     current: pointer,
                 },
-                &state.selected,
+                selected,
                 bypass,
             );
         }
@@ -325,19 +264,19 @@ pub fn show(
                 config,
                 modifiers.shift,
                 curve,
-                &mut state.selected,
+                selected,
             );
         }
         if let Some(marquee) = &mut state.marquee {
             marquee.current = pointer;
             let selection = marquee_selection(curve, timeline, rect, config, marquee);
-            let selection_changed = selection != state.selected;
+            let selection_changed = selection != *selected;
             if selection_changed {
-                state.selected = selection;
+                *selected = selection;
                 response.selection_changed = true;
             }
-            state.time_selection =
-                marquee_time_selection(curve, timeline, rect, marquee, &state.selected, bypass);
+            *time_selection =
+                marquee_time_selection(curve, timeline, rect, marquee, selected, bypass);
             let _ = selection_changed;
         }
         if let Some(segment) = &mut state.segment {
@@ -360,7 +299,7 @@ pub fn show(
                 config,
                 modifiers.shift,
                 curve,
-                &mut state.selected,
+                selected,
             );
         }
         if let Some(drag) = state.drag.take() {
@@ -380,12 +319,12 @@ pub fn show(
                 marquee.current = pointer;
             }
             let selection = marquee_selection(curve, timeline, rect, config, &marquee);
-            if selection != state.selected {
-                state.selected = selection;
+            if selection != *selected {
+                *selected = selection;
                 response.selection_changed = true;
             }
-            state.time_selection =
-                marquee_time_selection(curve, timeline, rect, &marquee, &state.selected, bypass);
+            *time_selection =
+                marquee_time_selection(curve, timeline, rect, &marquee, selected, bypass);
         }
     }
 
@@ -401,7 +340,7 @@ pub fn show(
                 config,
                 modifiers.shift,
                 curve,
-                &mut state.selected,
+                selected,
             );
         }
         if let Some(drag) = state.drag.take() {
@@ -440,8 +379,8 @@ pub fn show(
                 .collect();
             if let Ok(next) = Curve::from_points(points) {
                 *curve = next;
-                state.selected.clear();
-                state.time_selection = None;
+                selected.clear();
+                *time_selection = None;
                 response.changed = true;
                 response.committed = true;
                 response.selection_changed = true;
@@ -451,13 +390,13 @@ pub fn show(
         if point_response.clicked() {
             let additive = modifiers.command || modifiers.shift;
             if additive {
-                if !state.selected.remove(&index) {
-                    state.selected.insert(index);
+                if !selected.remove(&index) {
+                    selected.insert(index);
                 }
-            } else if !state.selected.contains(&index) {
-                state.selected.clear();
-                state.selected.insert(index);
-                state.time_selection = None;
+            } else if !selected.contains(&index) {
+                selected.clear();
+                selected.insert(index);
+                *time_selection = None;
             }
             response.selection_changed = true;
         }
@@ -466,7 +405,16 @@ pub fn show(
         }
     }
 
-    draw_curve(ui, rect, timeline, config, curve, state);
+    draw_curve(
+        ui,
+        rect,
+        timeline,
+        config,
+        curve,
+        selected,
+        time_selection.as_ref(),
+        state,
+    );
     response
 }
 
@@ -476,10 +424,12 @@ fn draw_curve(
     timeline: TimelineGrid,
     config: &LineEditorConfig,
     curve: &Curve,
+    selected: &BTreeSet<usize>,
+    time_selection: Option<&RangeMus>,
     state: &LineEditorState,
 ) {
     let painter = ui.painter().with_clip_rect(rect);
-    if let Some(range) = state.time_selection {
+    if let Some(range) = time_selection {
         let x1 = x_for_time(timeline, rect, range.start);
         let x2 = x_for_time(timeline, rect, range.end);
         let selection = Rect::from_min_max(
@@ -525,7 +475,7 @@ fn draw_curve(
             x_for_time(timeline, rect, point.time),
             y_for_value(config, rect, point.value),
         );
-        let selected = state.selected.contains(&index);
+        let selected = selected.contains(&index);
         painter.circle(
             center,
             POINT_RADIUS,
@@ -821,6 +771,11 @@ fn line_hit(
     config: &LineEditorConfig,
     pointer: Pos2,
 ) -> bool {
+    if curve.is_empty() {
+        return config.baseline.is_some_and(|baseline| {
+            (pointer.y - y_for_value(config, rect, baseline)).abs() <= LINE_HIT_RADIUS
+        });
+    }
     let mut line = Vec::new();
     sample_curve(curve, timeline, rect, config, &mut line);
     line.windows(2).any(|pair| {
@@ -882,22 +837,6 @@ fn segment_left_at(curve: &Curve, timeline: TimelineGrid, rect: Rect, x: f32) ->
     } else {
         Some(points.len() - 2)
     }
-}
-
-fn pointer_x(response: &egui::Response, ui: &egui::Ui, rect: Rect) -> f32 {
-    response
-        .interact_pointer_pos()
-        .or_else(|| ui.input(|input| input.pointer.hover_pos()))
-        .unwrap_or(rect.center())
-        .x
-}
-
-fn pointer_y(response: &egui::Response, ui: &egui::Ui, rect: Rect) -> f32 {
-    response
-        .interact_pointer_pos()
-        .or_else(|| ui.input(|input| input.pointer.hover_pos()))
-        .unwrap_or(rect.center())
-        .y
 }
 
 fn drag_start_pos(ui: &egui::Ui, response: &egui::Response) -> Option<Pos2> {
