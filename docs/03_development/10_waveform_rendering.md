@@ -31,6 +31,10 @@ in that range, and emitted one `line_segment` per step. Three things were wrong:
 - A signed min/max pyramid: levels at bucket sizes 64, 128, 256, ... up to one
   bucket for the whole asset. Each bucket stores the minimum and maximum
   downmixed sample in that range.
+- A cached mean pyramid for the sample graph: levels at bucket sizes 8, 16, 32,
+  ... up to the sample-graph threshold. Each bucket stores the mean downmixed
+  sample in that range. Means are combined from child sums and counts so the
+  final partial bucket stays exact.
 
 Display samples are the per-frame mean of the asset channels. Stereo material
 therefore appears as a single waveform in the clip, which is what the editors
@@ -46,40 +50,42 @@ future versioned cache.
 
 ## 3. Level selection
 
-`AudioWaveform::level_for(samples_per_pixel)` picks the largest pyramid bucket
-that is no larger than the number of source samples covered by one screen pixel.
-Each pixel then reads at most two buckets, so the per-frame cost is bounded by
-the number of visible pixels, not by the zoom level.
+`AudioWaveform::level_for(samples_per_pixel)` picks the largest min/max pyramid
+bucket that is no larger than the number of source samples covered by one screen
+pixel. Each pixel then reads at most two buckets, so the per-frame cost is
+bounded by the number of visible pixels, not by the zoom level.
 
-When fewer than 64 samples map to a pixel, the renderer switches to the sample
-graph instead of deriving a finer per-pixel envelope from the decoded samples.
-The envelope and the sample graph therefore meet directly at the baseline bucket;
-there is no intermediate level-of-detail stage between them.
+`AudioWaveform::mean_level_for(samples_per_pixel)` does the same for the cached
+mean levels used by the sample graph. The renderer reads one cached mean per
+visible bucket instead of re-averaging the decoded samples for every column.
+Below the smallest cached bucket (8 samples) the graph still reads decoded
+samples directly, which is cheap because only a few samples map to a pixel.
+
+The sample graph engages at a wider zoom than the pyramid's baseline bucket.
+Once one pixel covers more than the sample-graph threshold (256 samples), the
+renderer switches to the min/max envelope.
 
 ## 4. Two render modes
 
-Both modes draw a fully opaque black signed area with a fully opaque black line:
+Both modes emit a fully opaque black signed area as a single triangle mesh. The
+close mode draws only the area; it does not stroke a line over the fill.
 
-- **Area envelope** (64 or more samples per pixel). For each pixel column, read
-  the signed `min` and `max` from the selected pyramid level and fill the area
-  between them. This is a single triangle mesh per waveform, not one shape per
-  column, and it preserves asymmetry around zero.
-- **Sample graph** (fewer than 64 samples per pixel). Walk the sample points
-  across the visible range, fill the area between the graph and the zero axis,
-  and draw a one-pixel line. Segments that cross zero are split at the crossing
-  so the fill is two triangles rather than a self-intersecting polygon. The
-  sample stride adapts to the pixel span, and each bucket is averaged before it
-  becomes a graph point. This prevents points from jumping up or down when the
-  stride changes with zoom. This is the
-  Bitwig-style close-up detail where individual waveform cycles are visible.
-  This mode starts as soon as the pyramid envelope would no longer be
-  sufficient, so zooming in goes straight from the envelope to individual
-  samples.
+- **Area envelope** (more than 256 samples per pixel). For each pixel column,
+  read the signed `min` and `max` from the selected pyramid level and fill the
+  area between them. This preserves asymmetry around zero.
+- **Sample graph** (256 or fewer samples per pixel). Walk the cached mean buckets
+  across the visible range and fill the area between the graph and the zero
+  axis. Segments that cross zero are split at the crossing so the fill is two
+  triangles rather than a self-intersecting polygon. Using a cached mean level
+  keeps each graph point stable when the zoom changes and avoids re-averaging up
+  to hundreds of samples per pixel. This is the Bitwig-style close-up detail
+  where individual waveform cycles are visible; at the closest zoom the graph
+  reads decoded samples directly.
 
 `waveform_mode(samples_per_pixel)` makes the choice: it returns the sample graph
-when one pixel covers at most 64 samples (the baseline bucket) and the area
-envelope otherwise. The sample-graph point count is bounded by the visible pixel
-width, not by the source sample count.
+when one pixel covers at most 256 samples and the area envelope otherwise. The
+sample-graph point count is bounded by the visible pixel width, not by the source
+sample count.
 
 Both modes clip against the painter's visible rectangle before building any
 geometry. A long clip that extends far off-screen therefore contributes only the
@@ -101,11 +107,14 @@ share the same zoom and navigation gestures.
 - Source ranges and sample indices are clamped to the asset buffer.
 - Min/max values stay signed; do not collapse them to absolute peaks.
 - Drawing cost scales with visible pixels, not with clip length or zoom.
-- The filled area and line use the shared opaque black waveform color; the curve
-  fill uses the shared `widgets::area` mesh so overlapping segments never
-  accumulate extra opacity.
+- The sample graph reads cached mean levels instead of re-averaging decoded
+  samples per column; the envelope reads the min/max pyramid. Below the smallest
+  mean bucket the graph reads decoded samples directly.
+- The filled area uses the shared opaque black waveform color; close rendering
+  does not add a stroke over the fill. The curve fill uses the shared
+  `widgets::area` mesh so overlapping segments never accumulate extra opacity.
 - `crates/notwig-ui/tests/waveform.rs` covers downmixing, signed min/max, pyramid
-  level selection, render-mode thresholds, and the adaptive sample-graph
-  geometry bound.
+  and mean level selection, render-mode thresholds, area-only close rendering,
+  and the adaptive sample-graph geometry bound.
   `crates/notwig-ui/tests/timeline.rs` covers the visible source-window mapping
   and minimum clip geometry at low zoom.

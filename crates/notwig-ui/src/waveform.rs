@@ -2,16 +2,19 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use egui::epaint::{Vertex, WHITE_UV};
-use egui::{Color32, Mesh, Painter, Rect, Shape, Stroke, pos2};
+use egui::{Color32, Mesh, Painter, Rect, Shape, pos2};
 use notwig_core::{AssetId, AudioAssetBuffer, Curve, Db, TempoMap, TimeMus};
 
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
 const BASE_BUCKET: u64 = 64;
-/// Once a pixel covers fewer samples than the baseline pyramid bucket, the
-/// sample graph is the only renderer. There is no intermediate per-sample
-/// envelope stage between the pyramid and the sample graph.
-const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = BASE_BUCKET as f64;
+/// The sample graph takes over at a wider zoom than the pyramid's baseline
+/// bucket so it engages earlier. Above this threshold the pyramid envelope is
+/// the only renderer.
+const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 256.0;
+/// Below this bucket the sample graph reads the decoded samples directly.
+/// Cached mean levels start here and double up to the sample-graph threshold.
+const MEAN_BASE_BUCKET: u64 = 8;
 const WAVEFORM: Color32 = Color32::BLACK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,9 +46,8 @@ impl WaveformGain<'_> {
     }
 }
 
-/// Pick the renderer from the current zoom. The sample graph takes over as soon
-/// as the pyramid would stop being sufficient; between that point and the
-/// closest zoom there is no separate finer-grained envelope mode.
+/// Pick the renderer from the current zoom. The sample graph engages at a wider
+/// zoom than the pyramid's baseline so close rendering starts sooner.
 fn waveform_mode(samples_per_pixel: f64) -> WaveformMode {
     if samples_per_pixel <= SAMPLE_GRAPH_SAMPLES_PER_PIXEL {
         WaveformMode::SampleGraph
@@ -58,6 +60,7 @@ fn waveform_mode(samples_per_pixel: f64) -> WaveformMode {
 pub struct AudioWaveform {
     audio: Arc<AudioAssetBuffer>,
     levels: Arc<[PeakLevel]>,
+    means: Arc<[MeanLevel]>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -67,13 +70,21 @@ struct PeakLevel {
     max: Vec<f32>,
 }
 
+#[derive(Debug, PartialEq)]
+struct MeanLevel {
+    bucket: u64,
+    mean: Vec<f32>,
+}
+
 impl AudioWaveform {
     #[must_use]
     pub fn new(audio: Arc<AudioAssetBuffer>) -> Self {
         let levels = build_levels(&audio);
+        let means = build_means(&audio);
         Self {
             audio,
             levels: levels.into(),
+            means: means.into(),
         }
     }
 
@@ -120,6 +131,13 @@ impl AudioWaveform {
             .partition_point(|level| level.bucket as f64 <= samples_per_pixel)
             .saturating_sub(1);
         self.levels.get(index).or_else(|| self.levels.first())
+    }
+
+    fn mean_level_for(&self, samples_per_pixel: f64) -> Option<&MeanLevel> {
+        self.means
+            .iter()
+            .rev()
+            .find(|level| level.bucket as f64 <= samples_per_pixel)
     }
 
     fn min_max(&self, start: f64, end: f64, level: Option<&PeakLevel>) -> (f32, f32) {
@@ -203,6 +221,60 @@ fn build_levels(audio: &AudioAssetBuffer) -> Vec<PeakLevel> {
             min,
             max,
         });
+    }
+    levels
+}
+
+fn build_means(audio: &AudioAssetBuffer) -> Vec<MeanLevel> {
+    let frames = audio.frame_count();
+    if frames == 0 {
+        return Vec::new();
+    }
+    let channels = usize::from(audio.channels.max(1));
+    let count = frames.div_ceil(MEAN_BASE_BUCKET) as usize;
+    let mut sums = vec![0.0_f64; count];
+    let mut counts = vec![0_u32; count];
+    for frame in 0..frames {
+        let base = frame as usize * channels;
+        let mut sum = 0.0_f32;
+        for channel in 0..channels {
+            sum += audio.samples.get(base + channel).copied().unwrap_or(0.0);
+        }
+        let sample = sum / channels as f32;
+        let bucket = (frame / MEAN_BASE_BUCKET) as usize;
+        sums[bucket] += f64::from(sample);
+        counts[bucket] = counts[bucket].saturating_add(1);
+    }
+    let max_bucket = SAMPLE_GRAPH_SAMPLES_PER_PIXEL.max(MEAN_BASE_BUCKET as f64) as u64;
+    let mut bucket = MEAN_BASE_BUCKET;
+    let mut levels = Vec::new();
+    loop {
+        let mean = sums
+            .iter()
+            .zip(&counts)
+            .map(|(sum, count)| {
+                if *count == 0 {
+                    0.0
+                } else {
+                    (*sum / f64::from(*count)) as f32
+                }
+            })
+            .collect();
+        levels.push(MeanLevel { bucket, mean });
+        if sums.len() <= 1 || bucket >= max_bucket {
+            break;
+        }
+        let next_len = sums.len().div_ceil(2);
+        let mut next_sums = vec![0.0_f64; next_len];
+        let mut next_counts = vec![0_u32; next_len];
+        for (index, (sum, count)) in sums.iter().zip(&counts).enumerate() {
+            let parent = index / 2;
+            next_sums[parent] += *sum;
+            next_counts[parent] = next_counts[parent].saturating_add(*count);
+        }
+        sums = next_sums;
+        counts = next_counts;
+        bucket = bucket.saturating_mul(2);
     }
     levels
 }
@@ -328,34 +400,57 @@ fn draw_sample_graph(
     if last <= first {
         return;
     }
-    let stride = (span / f64::from(rect.width().max(1.0))).round().max(1.0) as u64;
     let center = rect.center().y;
     let half = rect.height() * 0.42;
     let mut points = Vec::new();
-    let mut frame = first;
-    loop {
-        let bucket_end = frame.saturating_add(stride).min(last.saturating_add(1));
-        let mut sum = 0.0_f32;
-        let mut count = 0_u64;
-        for sample_frame in frame..bucket_end {
-            let mut value = waveform.sample(sample_frame);
-            if let Some(gain) = gain {
-                value *= gain.gain_at(source_start, sample_frame);
+    let samples_per_pixel = span / f64::from(rect.width().max(1.0));
+    if let Some(level) = waveform.mean_level_for(samples_per_pixel) {
+        let bucket = level.bucket;
+        let first_bucket = (first / bucket) as usize;
+        let last_bucket = (last / bucket) as usize;
+        points.reserve(last_bucket.saturating_sub(first_bucket).saturating_add(1));
+        for index in first_bucket..=last_bucket {
+            let Some(&value) = level.mean.get(index) else {
+                continue;
+            };
+            let center_frame = index as f64 * bucket as f64 + (bucket as f64 - 1.0) * 0.5;
+            let x = rect.left() + ((center_frame - start) / span) as f32 * rect.width();
+            let value = graph_value(value, gain, source_start, center_frame);
+            points.push(pos2(x, center - value.clamp(-1.0, 1.0) * half));
+        }
+    } else {
+        let stride = samples_per_pixel.round().max(1.0) as u64;
+        let mut frame = first;
+        loop {
+            let bucket_end = frame.saturating_add(stride).min(last.saturating_add(1));
+            let mut sum = 0.0_f32;
+            let mut count = 0_u64;
+            for sample_frame in frame..bucket_end {
+                let mut value = waveform.sample(sample_frame);
+                if let Some(gain) = gain {
+                    value *= gain.gain_at(source_start, sample_frame);
+                }
+                sum += value;
+                count += 1;
             }
-            sum += value;
-            count += 1;
+            let value = if count == 0 { 0.0 } else { sum / count as f32 };
+            let center_frame = (frame as f64 + bucket_end as f64 - 1.0) * 0.5;
+            let x = rect.left() + ((center_frame - start) / span) as f32 * rect.width();
+            points.push(pos2(x, center - value.clamp(-1.0, 1.0) * half));
+            if bucket_end > last {
+                break;
+            }
+            frame = bucket_end;
         }
-        let value = if count == 0 { 0.0 } else { sum / count as f32 };
-        let center_frame = (frame as f64 + bucket_end as f64 - 1.0) * 0.5;
-        let x = rect.left() + ((center_frame - start) / span) as f32 * rect.width();
-        points.push(pos2(x, center - value.clamp(-1.0, 1.0) * half));
-        if bucket_end > last {
-            break;
-        }
-        frame = bucket_end;
     }
     crate::widgets::area::fill_polyline_area(painter, &points, center, WAVEFORM);
-    painter.add(Shape::line(points, Stroke::new(1.0_f32, WAVEFORM)));
+}
+
+fn graph_value(value: f32, gain: Option<&WaveformGain<'_>>, source_start: u64, frame: f64) -> f32 {
+    match gain {
+        Some(gain) => value * gain.gain_at_frame(source_start, frame),
+        None => value,
+    }
 }
 
 fn push_quad(
@@ -442,6 +537,18 @@ pub mod test_api {
         waveform
             .level_for(samples_per_pixel)
             .map_or(0, |level| level.bucket as usize)
+    }
+
+    pub fn mean_level_for(waveform: &AudioWaveform, samples_per_pixel: f64) -> usize {
+        waveform
+            .mean_level_for(samples_per_pixel)
+            .map_or(0, |level| level.bucket as usize)
+    }
+
+    pub fn mean_at(waveform: &AudioWaveform, samples_per_pixel: f64, index: usize) -> Option<f32> {
+        waveform
+            .mean_level_for(samples_per_pixel)
+            .and_then(|level| level.mean.get(index).copied())
     }
 
     pub fn sample(waveform: &AudioWaveform, frame: u64) -> f32 {

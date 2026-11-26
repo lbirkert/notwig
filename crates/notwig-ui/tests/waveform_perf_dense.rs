@@ -1,6 +1,6 @@
 use egui::{Rect, pos2};
 use notwig_ui::AudioWaveform;
-use notwig_ui::test_api::waveform::{draw_waveform, level_for, uses_sample_graph};
+use notwig_ui::test_api::waveform::{draw_waveform, level_for, mean_level_for, uses_sample_graph};
 
 fn dense_samples(count: usize) -> Vec<f32> {
     (0..count)
@@ -9,15 +9,17 @@ fn dense_samples(count: usize) -> Vec<f32> {
 }
 
 #[test]
-fn baseline_bucket_starts_the_sample_graph_and_pyramid_envelope() {
+fn close_threshold_starts_the_sample_graph_and_pyramid_envelope() {
     let waveform = AudioWaveform::from_samples(dense_samples(65_536));
-    for samples_per_pixel in [0.1, 0.5, 1.0, 8.0, 32.0, 48.0, 63.9, 64.0] {
+    for samples_per_pixel in [
+        0.1, 0.5, 1.0, 8.0, 32.0, 48.0, 63.9, 64.0, 128.0, 255.9, 256.0,
+    ] {
         assert!(
             uses_sample_graph(samples_per_pixel),
             "samples_per_pixel={samples_per_pixel} should use the sample graph"
         );
     }
-    for samples_per_pixel in [64.1, 128.0, 4096.0] {
+    for samples_per_pixel in [256.1, 512.0, 4096.0] {
         assert!(
             !uses_sample_graph(samples_per_pixel),
             "samples_per_pixel={samples_per_pixel} should use the pyramid envelope"
@@ -26,6 +28,9 @@ fn baseline_bucket_starts_the_sample_graph_and_pyramid_envelope() {
     assert_eq!(level_for(&waveform, 64.0), 64);
     assert_eq!(level_for(&waveform, 128.0), 128);
     assert_eq!(level_for(&waveform, 4096.0), 4096);
+    assert_eq!(mean_level_for(&waveform, 64.0), 64);
+    assert_eq!(mean_level_for(&waveform, 200.0), 128);
+    assert_eq!(mean_level_for(&waveform, 256.0), 256);
 }
 
 fn mesh_indices(output: &egui::FullOutput) -> usize {
@@ -44,8 +49,8 @@ fn mesh_indices(output: &egui::FullOutput) -> usize {
 }
 
 #[test]
-fn dense_envelope_above_the_baseline_bucket_bounds_geometry() {
-    let waveform = AudioWaveform::from_samples(dense_samples(1_000_000));
+fn dense_sample_graph_below_the_threshold_bounds_geometry() {
+    let waveform = AudioWaveform::from_samples(vec![0.5; 1_000_000]);
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
     let output = ctx.run(
@@ -62,9 +67,9 @@ fn dense_envelope_above_the_baseline_bucket_bounds_geometry() {
     );
 
     assert_eq!(
-        level_for(&waveform, 100.0),
+        mean_level_for(&waveform, 100.0),
         64,
-        "above the baseline bucket the envelope should use the pyramid"
+        "the sample graph should read a cached mean level below the threshold"
     );
     let indices = mesh_indices(&output);
     assert!(indices > 0, "the waveform should draw something");
@@ -75,7 +80,7 @@ fn dense_envelope_above_the_baseline_bucket_bounds_geometry() {
 }
 
 #[test]
-fn wide_span_above_the_bucket_uses_the_area_envelope() {
+fn wide_span_above_the_threshold_uses_the_area_envelope() {
     let waveform = AudioWaveform::from_samples(dense_samples(1_000_000));
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(1600.0, 200.0));
@@ -87,7 +92,7 @@ fn wide_span_above_the_bucket_uses_the_area_envelope() {
         |ctx| {
             let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(1600.0, 140.0));
             let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
-            let full = Rect::from_min_max(pos2(0.0, 40.0), pos2(10_000.0, 140.0));
+            let full = Rect::from_min_max(pos2(0.0, 40.0), pos2(1600.0, 140.0));
             draw_waveform(&painter, full, clip, &waveform, 0, 800_000);
         },
     );

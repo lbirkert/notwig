@@ -20,9 +20,10 @@ There are three separate paths, and only one of them is a real CPU cost:
    resamples it to the project rate with `rubato`, duplicates mono to stereo,
    encodes a managed WAV in memory, hashes the final bytes, writes the file, and
    returns the PCM buffer. `Workspace` then builds the signed min/max waveform
-   pyramid (see [`Waveform Rendering`](10_waveform_rendering.md)).
+   pyramid and the cached mean levels used by close rendering (see
+   [`Waveform Rendering`](10_waveform_rendering.md)).
 3. **Project load.** `Workspace::load_assets` decodes every stored WAV asset and
-   rebuilds its waveform pyramid synchronously while opening the project.
+   rebuilds its waveform pyramids synchronously while opening the project.
 
 There is no spectral analysis, loudness analysis, transient detection, or GPU
 work today. The visible "Analyzing audio..." state is the import pipeline.
@@ -44,14 +45,14 @@ For a dropped or imported file:
 6. `write_wav_f32_bytes` encodes a 32-bit float WAV in memory.
 7. `hash_bytes` computes SHA-256 over those final WAV bytes. The bytes are
    written to the asset-unique temp path and renamed to `<hash>.wav`.
-8. On the UI thread, `complete_audio_import` builds the waveform pyramid and
+8. On the UI thread, `complete_audio_import` builds the waveform pyramids and
    applies document commands.
 
 Multiple files share one import thread, so imports are serialized. Project open
 does its decoding and waveform work synchronously on the loading thread.
 
 The bundle already reserves a `peaks/` directory, but nothing writes to or reads
-from it. Waveform pyramids are rebuilt from PCM every time.
+from it. Waveform pyramids and mean caches are rebuilt from PCM every time.
 
 ## 3. Measurements
 
@@ -72,7 +73,7 @@ times; they include single-thread work only.
 | `resample` High (44.1 -> 48) | 228 ms | ~56 ms | `rubato` synchronous FFT |
 | `resample` Standard (44.1 -> 48) | 24 ms | ~56 ms | Same `rubato` FFT path |
 | Same-rate `resample` | 1.7 ms | 1.8 ms | Buffer clone |
-| Waveform pyramid (replaces flat 2048-bucket peaks) | 11 ms | ~11 ms | One linear post-decode pass |
+| Waveform pyramids, min/max + mean (replaces flat 2048-bucket peaks) | 11 ms | ~11-15 ms | One linear post-decode pass; mean levels stop at the close-render threshold |
 | Encode WAV bytes | - | 8 ms | New in-memory encode |
 | SHA-256 over WAV bytes | 63 ms | 63 ms | Still the dominant hash cost |
 | Write WAV bytes to disk | 20 ms | 14 ms | Same managed file |
@@ -142,7 +143,7 @@ the rest of the workspace stays at `opt-level = 0`. The first build after a
 clean checkout pays a one-time cost to compile optimized dependencies.
 
 Normalize per minute of stereo audio: decoding is 13-42 ms, `rubato` resampling
-is about 56 ms, the waveform pyramid is about 11 ms, and encoding plus hashing
+is about 56 ms, the waveform pyramids are about 11-15 ms, and encoding plus hashing
 plus writing is about 85 ms. Opening a project still repeats decode plus waveform
 work for every asset, so a
 project with ten five-minute assets pays roughly 1.3 s of avoidable synchronous

@@ -4,8 +4,8 @@ use egui::{Rect, pos2};
 use notwig_core::{AudioAssetBuffer, Curve, CurvePoint, SampleRate, TempoMap, TimeMus};
 use notwig_ui::AudioWaveform;
 use notwig_ui::test_api::waveform::{
-    draw_waveform, draw_waveform_with_gain, level_for, min_max, min_max_at, sample,
-    uses_sample_graph,
+    draw_waveform, draw_waveform_with_gain, level_for, mean_at, mean_level_for, min_max,
+    min_max_at, sample, uses_sample_graph,
 };
 
 #[test]
@@ -48,39 +48,61 @@ fn pyramid_levels_match_exact_ranges_at_their_bucket_size() {
 }
 
 #[test]
-fn waveform_mode_uses_envelope_above_the_baseline_bucket() {
+fn waveform_mode_uses_envelope_above_the_sample_graph_threshold() {
     assert!(
-        !uses_sample_graph(64.1),
-        "more than one baseline bucket per pixel should use the pyramid envelope"
-    );
-    assert!(
-        !uses_sample_graph(128.0),
-        "coarser zoom should stay on the pyramid envelope"
+        !uses_sample_graph(256.1),
+        "above the sample-graph threshold the pyramid envelope takes over"
     );
     assert!(
         !uses_sample_graph(1_000.0),
-        "very coarse zoom should stay on the pyramid envelope"
+        "coarser zoom should stay on the pyramid envelope"
     );
 }
 
 #[test]
-fn waveform_mode_starts_the_sample_graph_at_the_baseline_bucket() {
+fn waveform_mode_starts_the_sample_graph_at_the_close_threshold() {
     assert!(
         uses_sample_graph(0.5),
         "sub-pixel sample spacing should show individual samples"
     );
     assert!(
         uses_sample_graph(8.0),
-        "the intermediate envelope stage is gone below the baseline bucket"
-    );
-    assert!(
-        uses_sample_graph(63.9),
-        "just below the baseline bucket still uses the sample graph"
+        "the sample graph should engage before individual samples are visible"
     );
     assert!(
         uses_sample_graph(64.0),
+        "close rendering should engage sooner than the baseline bucket"
+    );
+    assert!(
+        uses_sample_graph(255.9),
+        "just below the close threshold still uses the sample graph"
+    );
+    assert!(
+        uses_sample_graph(256.0),
         "the sample-graph boundary is inclusive"
     );
+}
+
+#[test]
+fn sample_graph_switches_between_cached_mean_levels() {
+    let waveform = AudioWaveform::from_samples(
+        (0..4_096)
+            .map(|index| (index as f32 * 0.05).sin())
+            .collect::<Vec<f32>>(),
+    );
+    assert_eq!(mean_level_for(&waveform, 8.0), 8);
+    assert_eq!(mean_level_for(&waveform, 100.0), 64);
+    assert_eq!(mean_level_for(&waveform, 200.0), 128);
+    assert_eq!(mean_level_for(&waveform, 256.0), 256);
+}
+
+#[test]
+fn cached_mean_matches_the_exact_window_mean() {
+    let samples: Vec<f32> = (0..512).map(|index| index as f32 / 512.0).collect();
+    let waveform = AudioWaveform::from_samples(samples);
+    let expected = (0..8).map(|index| index as f32 / 512.0).sum::<f32>() / 8.0;
+    let actual = mean_at(&waveform, 8.0, 0).expect("bucket 8 mean");
+    assert!((actual - expected).abs() < 1e-6, "{actual} != {expected}");
 }
 
 #[test]
@@ -163,6 +185,48 @@ fn close_zoom_sample_graph_still_fills_the_area() {
         indices > 0,
         "close-zoom sample graph must fill the area, not only draw a line"
     );
+}
+
+#[test]
+fn close_zoom_sample_graph_draws_only_the_area() {
+    let waveform = AudioWaveform::from_samples(vec![0.5; 51_200]);
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
+            draw_waveform(&painter, clip, clip, &waveform, 0, 51_200);
+        },
+    );
+    assert!(
+        output.shapes.iter().any(|clipped| has_mesh(&clipped.shape)),
+        "close rendering should fill the area"
+    );
+    assert!(
+        !output.shapes.iter().any(|clipped| has_path(&clipped.shape)),
+        "close rendering should only draw the area, without a stroke over it"
+    );
+}
+
+fn has_mesh(shape: &egui::Shape) -> bool {
+    match shape {
+        egui::Shape::Mesh(_) => true,
+        egui::Shape::Vec(shapes) => shapes.iter().any(has_mesh),
+        _ => false,
+    }
+}
+
+fn has_path(shape: &egui::Shape) -> bool {
+    match shape {
+        egui::Shape::Path(_) => true,
+        egui::Shape::Vec(shapes) => shapes.iter().any(has_path),
+        _ => false,
+    }
 }
 
 #[test]
