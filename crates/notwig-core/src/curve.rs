@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::{CoreError, TimeMus};
 
 /// Lowest accepted segment curvature.
-pub const MIN_CURVATURE: f64 = -1.0;
+pub const MIN_CURVATURE: f64 = -2.0;
 /// Highest accepted segment curvature.
-pub const MAX_CURVATURE: f64 = 1.0;
+pub const MAX_CURVATURE: f64 = 2.0;
 
 /// One curve point.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -188,12 +188,18 @@ impl Curve {
 /// Maps a linear segment ratio through `curvature`.
 ///
 /// Positive curvature eases in (slow start), negative curvature eases out
-/// (fast start), and `0` is linear. The endpoints are preserved and the result
-/// stays in `[0, 1]` for any curvature in
+/// (fast start), and `0` is linear. Negative curvature is the exact horizontal
+/// and vertical mirror of the same positive magnitude. The endpoints are
+/// preserved and the result stays in `[0, 1]` for any curvature in
 /// [`MIN_CURVATURE`]..=[`MAX_CURVATURE`].
 #[must_use]
 pub fn shape_ratio(ratio: f64, curvature: f64) -> f64 {
     let t = ratio.clamp(0.0, 1.0);
     let curve = curvature.clamp(MIN_CURVATURE, MAX_CURVATURE);
-    t.powf(2.0_f64.powf(curve)).clamp(0.0, 1.0)
+    if curve >= 0.0 {
+        t.powf(2.0_f64.powf(curve))
+    } else {
+        1.0 - (1.0 - t).powf(2.0_f64.powf(-curve))
+    }
+    .clamp(0.0, 1.0)
 }

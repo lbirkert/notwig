@@ -30,28 +30,7 @@ pub(super) fn draw_gain_line_editor(
     timeline: TimelineGrid,
     lanes: Rect,
 ) {
-    if let Some(waveform) = runtime.waveforms.get(&audio.asset_id) {
-        let x1 = timeline.x_for_beat(clip.range.start, lanes.left());
-        let x2 = timeline.x_for_beat(clip.range.end, lanes.left());
-        if x2 > x1 {
-            let full_rect =
-                Rect::from_min_max(egui::pos2(x1, lanes.top()), egui::pos2(x2, lanes.bottom()));
-            let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
-                curve,
-                map,
-                local_start: TimeMus::zero(),
-            });
-            draw_waveform(
-                ui.painter(),
-                full_rect,
-                lanes,
-                waveform,
-                audio.source_start_sample,
-                audio.source_end_sample,
-                gain.as_ref(),
-            );
-        }
-    }
+    draw_clip_waveform(ui, runtime, audio, clip, map, timeline, lanes);
 
     let mut local_timeline = timeline;
     local_timeline.start = timeline.start - clip.range.start;
@@ -81,6 +60,96 @@ pub(super) fn draw_gain_line_editor(
             curve,
         });
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_clip_waveform(
+    ui: &mut egui::Ui,
+    runtime: &RuntimeView,
+    audio: &AudioClipData,
+    clip: &ClipEntity,
+    map: TempoMap,
+    timeline: TimelineGrid,
+    lanes: Rect,
+) {
+    if audio.uses_slices() {
+        for slice in &audio.slices {
+            let asset_id = slice.asset_id.unwrap_or(audio.asset_id);
+            let Some(waveform) = runtime.waveforms.get(&asset_id) else {
+                continue;
+            };
+            let silent = map.samples_to_mus(slice.silent_prefix_samples);
+            draw_gain_waveform(
+                ui,
+                waveform,
+                clip.range.start + slice.start + silent,
+                map.samples_to_mus(slice.audio_samples()),
+                slice.source_start_sample,
+                slice.source_end_sample,
+                audio.gain_curve.as_ref(),
+                map,
+                slice.start + silent,
+                timeline,
+                lanes,
+            );
+        }
+        return;
+    }
+    let Some(waveform) = runtime.waveforms.get(&audio.asset_id) else {
+        return;
+    };
+    draw_gain_waveform(
+        ui,
+        waveform,
+        clip.range.start,
+        clip.range.length(),
+        audio.source_start_sample,
+        audio.source_end_sample,
+        audio.gain_curve.as_ref(),
+        map,
+        TimeMus::zero(),
+        timeline,
+        lanes,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_gain_waveform(
+    ui: &mut egui::Ui,
+    waveform: &crate::waveform::AudioWaveform,
+    start: TimeMus,
+    duration: TimeMus,
+    source_start: u64,
+    source_end: u64,
+    curve: Option<&notwig_core::Curve>,
+    map: TempoMap,
+    local_start: TimeMus,
+    timeline: TimelineGrid,
+    lanes: Rect,
+) {
+    if duration <= TimeMus::zero() {
+        return;
+    }
+    let x1 = timeline.x_for_beat(start, lanes.left());
+    let x2 = timeline.x_for_beat(start + duration, lanes.left());
+    if x2 <= x1 {
+        return;
+    }
+    let full_rect = Rect::from_min_max(egui::pos2(x1, lanes.top()), egui::pos2(x2, lanes.bottom()));
+    let gain = curve.map(|curve| WaveformGain {
+        curve,
+        map,
+        local_start,
+    });
+    draw_waveform(
+        ui.painter(),
+        full_rect,
+        lanes,
+        waveform,
+        source_start,
+        source_end,
+        gain.as_ref(),
+    );
 }
 
 fn format_gain(value: f64) -> String {

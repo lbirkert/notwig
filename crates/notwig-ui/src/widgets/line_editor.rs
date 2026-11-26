@@ -151,6 +151,22 @@ pub fn show(
         gesture_origin.and_then(|pointer| point_at(curve, timeline, rect, config, pointer));
     let pointer_over_point = point_at_origin.is_some();
 
+    if let Some(segment) = &state.segment {
+        ui.ctx().set_cursor_icon(match segment.mode {
+            SegmentMode::Curvature => egui::CursorIcon::ResizeNwSe,
+            SegmentMode::Move => egui::CursorIcon::ResizeVertical,
+        });
+    } else if let Some(pointer) = ui.input(|input| input.pointer.hover_pos())
+        && !pointer_over_point
+        && line_hit(curve, timeline, rect, config, pointer)
+    {
+        if modifiers.alt {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+        } else if modifiers.command {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+    }
+
     // Clicking the line inserts a point immediately and starts a point drag.
     if primary_pressed
         && !pointer_over_point

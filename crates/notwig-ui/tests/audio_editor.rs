@@ -338,6 +338,34 @@ fn audio_editor_header_selects_audio_events_and_gain() {
 }
 
 #[test]
+fn gain_sub_editor_draws_slice_waveforms() {
+    let (doc, clip) = panel_doc(0);
+    let mut runtime = RuntimeView::default();
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
+    let mut ui = NotwigUi::default();
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    let ctx = egui::Context::default();
+    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    set_sub_editor(
+        ui.clip_editor.as_mut().expect("clip editor open"),
+        AudioSubEditor::Gain,
+    );
+    let (_, output) = run_panel_with_output(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    assert!(
+        output.shapes.iter().any(|clipped| has_mesh(&clipped.shape)),
+        "the gain editor should draw sliced clip waveforms behind the curve"
+    );
+}
+
+#[test]
 fn gain_sub_editor_adds_a_curve_point() {
     let (doc, clip) = panel_doc_with_slices(0, false);
     let mut runtime = RuntimeView::default();

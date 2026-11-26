@@ -46,7 +46,7 @@ fn curvature_preserves_endpoints_and_eases_in_or_out() {
 
 #[test]
 fn shape_ratio_is_monotonic_across_the_supported_range() {
-    for curvature in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+    for curvature in [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0] {
         let mut previous = shape_ratio(0.0, curvature);
         for step in 1..=100 {
             let value = shape_ratio(f64::from(step) / 100.0, curvature);
@@ -55,6 +55,20 @@ fn shape_ratio_is_monotonic_across_the_supported_range() {
                 "curvature {curvature} must not reverse"
             );
             previous = value;
+        }
+    }
+}
+
+#[test]
+fn negative_curvature_mirrors_positive_curvature() {
+    for curvature in [0.5, 1.0, 2.0] {
+        for step in 0..=20 {
+            let t = f64::from(step) / 20.0;
+            let mirrored = 1.0 - shape_ratio(1.0 - t, curvature);
+            assert!(
+                (shape_ratio(t, -curvature) - mirrored).abs() < 1e-12,
+                "curvature {curvature} at {t}"
+            );
         }
     }
 }

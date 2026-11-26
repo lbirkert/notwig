@@ -77,8 +77,10 @@ editor:
 - drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
 - drag empty space to marquee-select points;
 - **Option/Alt**-drag a segment to bend its curvature: positive bends ease in,
-  negative bends ease out;
-- **Cmd/Ctrl**-drag a segment to move both endpoint values up or down.
+  negative bends ease out; holding Option/Alt over a segment shows the curvature
+  drag cursor;
+- **Cmd/Ctrl**-drag a segment to move both endpoint values up or down; holding
+  Cmd/Ctrl over a segment shows the vertical move cursor.
 
 The curve is an offset in dB on top of the clip gain and any per-event gain.
 The waveform behind the curve is scaled by the curve locally, so the displayed
