@@ -180,7 +180,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Timeline math and waveform mapping | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/timeline.rs` covers coordinates, snapping, trim clamps, loop edges, and visible source windows. |
 | View state and selection | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/state.rs` covers selection modes, retention, and notification expiry. |
 | Clipboard and edit helpers | ✅ Implemented | ⭐⭐⭐⭐ | `notwig-ui/tests/edit.rs` and `clip_chrome.rs`. |
-| Widget and waveform primitives | ✅ Implemented | ⭐⭐⭐ | `notwig-ui/tests/widgets.rs`, `waveform.rs`, and `device_browser.rs`. |
+| Widget and waveform primitives | ✅ Implemented | ⭐⭐⭐ | `notwig-ui/tests/widgets.rs`, `waveform.rs`, `fine_drag.rs`, and `device_browser.rs`. |
 | Arranger zoom and pan | ✅ Implemented | ⭐⭐⭐ | |
 | Audio editor selection and move | ✅ Implemented | ⭐⭐⭐⭐⭐ | Covered in `audio_editor.rs`. |
 | Audio editor sub-editors | ✅ Implemented | ⭐⭐⭐⭐ | `audio_editor.rs` covers the Audio Events/Gain selector and gain-curve commits; `line_editor.rs` covers line-only insertion, same-time points, multi-frame point and segment drags, double-click deletion, curvature, fine mode, and marquee/time selection; `audio_editor.rs` covers gain-point duplicate and Backspace through the editor actions. |

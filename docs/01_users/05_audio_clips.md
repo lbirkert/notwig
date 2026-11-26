@@ -71,7 +71,8 @@ editor:
 - hover the curve to show the add-point cursor, then click the line to insert
   and drag a point immediately;
 - drag a point to move it in time and value (`Shift` uses fine time and value
-  steps and bypasses snapping);
+  steps and bypasses snapping; toggling it mid-drag keeps the coarse movement
+  already made);
 - double-click a point to delete it;
 - drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
 - drag empty space to marquee-select points and set a time selection;

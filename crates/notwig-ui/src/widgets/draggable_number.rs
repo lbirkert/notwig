@@ -1,5 +1,6 @@
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, Vec2};
 
+use crate::fine_drag::FineDrag;
 use crate::theme;
 
 const CONTROL_W: f32 = 72.0;
@@ -100,27 +101,28 @@ pub(crate) fn draggable_number(
             .input(|input| input.pointer.press_origin())
             .or_else(|| response.interact_pointer_pos())
         {
-            ui.data_mut(|data| data.insert_temp(drag_id, (value, origin)));
+            ui.data_mut(|data| data.insert_temp(drag_id, (value, origin, FineDrag::default())));
         }
     }
     let mut new_value = value;
     let mut changed = false;
     if response.dragged() {
-        if let Some((start_value, start_pos)) =
-            ui.data(|data| data.get_temp::<(f64, egui::Pos2)>(drag_id))
+        if let Some((start_value, start_pos, mut fine)) =
+            ui.data(|data| data.get_temp::<(f64, egui::Pos2, FineDrag)>(drag_id))
         {
             let pos = response
                 .interact_pointer_pos()
                 .or_else(|| ui.input(|input| input.pointer.hover_pos()))
                 .unwrap_or(start_pos);
-            let delta = pos - start_pos;
-            let fine = ui.input(|input| input.modifiers.shift);
-            new_value = dragged_value(start_value, delta.x, delta.y, speed, fine, min, max);
+            let raw = (pos.x - start_pos.x) - (pos.y - start_pos.y);
+            let update = fine.update(raw, ui.input(|input| input.modifiers.shift), 0.1);
+            new_value = clamp_value(start_value + update.offset * speed, min, max);
+            ui.data_mut(|data| data.insert_temp(drag_id, (start_value, start_pos, fine)));
             changed = (new_value - value).abs() > f64::EPSILON;
         }
     }
     if response.drag_stopped() {
-        ui.data_mut(|data| data.remove::<(f64, egui::Pos2)>(drag_id));
+        ui.data_mut(|data| data.remove::<(f64, egui::Pos2, FineDrag)>(drag_id));
     }
     draw_field(ui, rect, new_value, &response, format);
     changed.then_some(new_value)

@@ -799,7 +799,9 @@ pan, and other modulatable values. The canonical curve model is
 `notwig_ui::widgets::line_editor`.
 
 The widget owns only ephemeral gesture state: the current point or segment drag
-and the marquee rectangle. The audio editor owns the point selection and time
+and the marquee rectangle. Coarse/fine modifier changes use the shared
+`fine_drag` helper, which also drives numeric fields, knobs, faders, and track
+controls. The audio editor owns the point selection and time
 selection, so the usual copy, cut, paste, duplicate, delete, and select-all
 actions operate on the same selection. The caller also owns the curve, value
 range, time bounds, snapping grid, and commit boundary. A drag previews locally
@@ -810,7 +812,7 @@ and emits one command on release.
 | Hover the curve | Show the add-point cursor |
 | Click the line | Insert a point at the press position and start dragging it |
 | Click off the curve | No point is created |
-| Drag a point | Move selected points in time and value; `Shift` uses fine steps and bypasses horizontal snapping |
+| Drag a point | Move selected points in time and value; `Shift` switches to fine steps and bypasses horizontal snapping. Toggling Shift mid-drag preserves the coarse offset and adds subsequent fine motion; releasing Shift returns to the full coarse offset. |
 | Double-click a point | Delete that point; other points at the same time remain |
 | Additive click or drag on a point | Toggle or add the point to the selection |
 | Drag empty space | Marquee-select points inside the rectangle and set a time selection |

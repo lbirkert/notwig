@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use egui::{Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
 use notwig_core::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, RangeMus, TimeMus};
 
+use crate::fine_drag::FineDrag;
 use crate::theme;
 use crate::timeline::TimelineGrid;
 use crate::widgets::beats_to_time;
@@ -85,6 +86,8 @@ struct PointDrag {
     origin_curve: Curve,
     selected: BTreeSet<usize>,
     primary: usize,
+    time_drag: FineDrag,
+    value_drag: FineDrag,
     changed: bool,
 }
 
@@ -94,6 +97,7 @@ struct SegmentDrag {
     origin_curve: Curve,
     left: usize,
     mode: SegmentMode,
+    value_drag: FineDrag,
     changed: bool,
 }
 
@@ -186,6 +190,8 @@ pub fn show(
                 origin_curve: curve.clone(),
                 selected: selected.clone(),
                 primary: point,
+                time_drag: FineDrag::default(),
+                value_drag: FineDrag::default(),
                 changed: true,
             });
             response.changed = true;
@@ -217,6 +223,8 @@ pub fn show(
                 origin_curve: curve.clone(),
                 selected: selected.clone(),
                 primary: index,
+                time_drag: FineDrag::default(),
+                value_drag: FineDrag::default(),
                 changed: false,
             });
         } else if (modifiers.alt || modifiers.command)
@@ -231,6 +239,7 @@ pub fn show(
                 } else {
                     SegmentMode::Move
                 },
+                value_drag: FineDrag::default(),
                 changed: false,
             });
         } else {
@@ -355,6 +364,33 @@ pub fn show(
             response.changed |= segment.changed;
             response.committed |= segment.changed;
         }
+    }
+
+    // Keep the preview alive between press and egui's drag threshold so a
+    // freshly inserted point does not flicker out for a frame.
+    if ui.input(|input| input.pointer.primary_down())
+        && !background.dragged()
+        && let Some(drag) = state.drag.as_mut()
+    {
+        let pointer = ui
+            .input(|input| {
+                input
+                    .pointer
+                    .interact_pos()
+                    .or_else(|| input.pointer.hover_pos())
+            })
+            .or_else(|| release_pointer)
+            .unwrap_or(drag.origin_pointer);
+        response.changed |= apply_point_drag(
+            drag,
+            pointer,
+            timeline,
+            rect,
+            config,
+            modifiers.shift,
+            curve,
+            selected,
+        );
     }
 
     let points = curve.points().to_vec();
@@ -571,21 +607,25 @@ fn apply_point_drag(
     let Some(primary) = drag.origin_curve.points().get(drag.primary) else {
         return false;
     };
-    let beats = f64::from(pointer.x - drag.origin_pointer.x) / f64::from(timeline.pixels_per_beat);
-    let primary_raw = beats_to_time(primary.time.as_f64() + beats);
-    let primary_time = if fine {
-        primary_raw
+    let raw_beats = (pointer.x - drag.origin_pointer.x) / timeline.pixels_per_beat;
+    let time_update = drag.time_drag.update(raw_beats, fine, 1.0);
+    let origin_beats = primary.time.as_f64();
+    let mut delta_beats = if time_update.shift_started && !time_update.fine_from_start {
+        let snapped = timeline.snap(beats_to_time(origin_beats + time_update.coarse), false);
+        drag.time_drag.set_base(snapped.as_f64() - origin_beats)
+    } else if fine {
+        time_update.offset
     } else {
-        timeline.snap(primary_raw, false)
+        let snapped = timeline.snap(beats_to_time(origin_beats + time_update.coarse), false);
+        snapped.as_f64() - origin_beats
     };
-    let mut delta_beats = primary_time.as_f64() - primary.time.as_f64();
     let (min_delta, max_delta) = allowed_time_delta(&drag.origin_curve, &drag.selected);
     delta_beats = delta_beats.clamp(min_delta, max_delta);
-    let mut delta_value = -f64::from(pointer.y - drag.origin_pointer.y) / f64::from(rect.height())
-        * value_span(config);
-    if fine {
-        delta_value /= FINE_RATIO;
-    }
+    let raw_value = f64::from(drag.origin_pointer.y - pointer.y);
+    let value_update = drag
+        .value_drag
+        .update(raw_value as f32, fine, 1.0 / FINE_RATIO);
+    let delta_value = value_update.offset / f64::from(rect.height()) * value_span(config);
 
     let mut tagged: Vec<(usize, CurvePoint)> = drag
         .origin_curve
@@ -632,21 +672,16 @@ fn apply_segment_drag(
     let Some(right) = left.checked_add(1).filter(|index| *index < points.len()) else {
         return false;
     };
-    let vertical = f64::from(drag.origin_pointer.y - pointer.y) / f64::from(rect.height());
+    let raw_value = drag.origin_pointer.y - pointer.y;
+    let update = drag.value_drag.update(raw_value, fine, 1.0 / FINE_RATIO);
+    let vertical = update.offset / f64::from(rect.height());
     match drag.mode {
         SegmentMode::Curvature => {
-            let mut delta = vertical * 4.0;
-            if fine {
-                delta /= FINE_RATIO;
-            }
             points[left].curvature =
-                (points[left].curvature + delta).clamp(MIN_CURVATURE, MAX_CURVATURE);
+                (points[left].curvature + vertical * 4.0).clamp(MIN_CURVATURE, MAX_CURVATURE);
         }
         SegmentMode::Move => {
-            let mut delta = vertical * value_span(config);
-            if fine {
-                delta /= FINE_RATIO;
-            }
+            let delta = vertical * value_span(config);
             points[left].value =
                 (points[left].value + delta).clamp(config.value_min, config.value_max);
             points[right].value =

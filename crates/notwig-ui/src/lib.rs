@@ -18,6 +18,7 @@ mod waveform;
 mod widgets;
 
 pub mod components;
+mod fine_drag;
 pub mod palette;
 
 pub use components::{
@@ -78,6 +79,7 @@ pub use widgets::{
 #[cfg(feature = "app")]
 #[doc(hidden)]
 pub mod test_api {
+    pub use crate::fine_drag::test_api as fine_drag;
     pub use crate::shell::test_api as shell;
     pub use crate::views::audio_editor::test_api as audio_editor;
     pub use crate::views::device_editor::test_api as device_editor;

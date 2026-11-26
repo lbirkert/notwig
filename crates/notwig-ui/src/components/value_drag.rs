@@ -1,5 +1,14 @@
 use egui::{Id, Response};
 
+use crate::fine_drag::FineDrag;
+
+#[derive(Clone)]
+struct ValueDrag {
+    start_value: f64,
+    start_axis: f32,
+    fine: FineDrag,
+}
+
 /// Handles drag, double-click reset, and command-click numeric entry.
 ///
 /// Returns the new value when it changed this frame.
@@ -72,21 +81,30 @@ pub fn value_drag(
             .or_else(|| response.interact_pointer_pos())
             .unwrap_or(response.rect.center());
         let axis = if vertical { pos.y } else { pos.x };
-        ui.data_mut(|data| data.insert_temp(drag_id, (value, axis)));
+        ui.data_mut(|data| {
+            data.insert_temp(
+                drag_id,
+                ValueDrag {
+                    start_value: value,
+                    start_axis: axis,
+                    fine: FineDrag::default(),
+                },
+            );
+        });
     }
     if response.dragged() {
-        if let Some((start_value, start_axis)) =
-            ui.data(|data| data.get_temp::<(f64, f32)>(drag_id))
-        {
+        if let Some(mut drag) = ui.data(|data| data.get_temp::<ValueDrag>(drag_id)) {
             let pos = response
                 .interact_pointer_pos()
                 .or_else(|| ui.input(|input| input.pointer.hover_pos()))
                 .unwrap_or(response.rect.center());
             let axis = if vertical { pos.y } else { pos.x };
-            let delta = f64::from(axis - start_axis);
+            let update = drag
+                .fine
+                .update(axis - drag.start_axis, modifiers.shift, 0.1);
+            ui.data_mut(|data| data.insert_temp(drag_id, drag.clone()));
             let direction = if vertical { -1.0 } else { 1.0 };
-            let speed = if modifiers.shift { speed * 0.1 } else { speed };
-            let new_value = (start_value + direction * delta * speed).clamp(min, max);
+            let new_value = (drag.start_value + direction * update.offset * speed).clamp(min, max);
             if (new_value - value).abs() > f64::EPSILON {
                 return Some(new_value);
             }
