@@ -862,3 +862,76 @@ fn points_cannot_be_dragged_past_their_neighbors() {
         .expect("moved point");
     assert!(moved.time < beat(6), "moved time was {:?}", moved.time);
 }
+
+#[test]
+fn clicking_empty_curve_area_shrinks_the_time_selection() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    let mut selected = BTreeSet::from([0]);
+    let mut time_selection =
+        Some(notwig_core::RangeMus::new(beat(1), beat(5)).expect("initial time selection"));
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
+    let empty = position(0.5, 0.9);
+    for event in [
+        Event::PointerMoved(empty),
+        pointer(empty, true),
+        pointer(empty, false),
+    ] {
+        run(
+            &ctx,
+            &mut curve,
+            &mut selected,
+            &mut time_selection,
+            &mut state,
+            vec![event],
+            Modifiers::NONE,
+        );
+    }
+    let range = time_selection.expect("click should leave a time selection");
+    assert_eq!(range.start, range.end);
+    assert!(selected.is_empty());
+}
+
+#[test]
+fn a_new_point_fits_the_time_selection_to_itself() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    let mut selected = BTreeSet::from([0]);
+    let mut time_selection =
+        Some(notwig_core::RangeMus::new(beat(1), beat(5)).expect("initial time selection"));
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
+    let point = position(4.0, 0.5);
+    for event in [Event::PointerMoved(point), pointer(point, true)] {
+        run(
+            &ctx,
+            &mut curve,
+            &mut selected,
+            &mut time_selection,
+            &mut state,
+            vec![event],
+            Modifiers::NONE,
+        );
+    }
+    let range = time_selection.expect("new point should set a time selection");
+    assert_eq!(range.start, beat(4));
+    assert_eq!(range.end, beat(4));
+    assert_eq!(selected.len(), 1);
+}

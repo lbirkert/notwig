@@ -1878,6 +1878,41 @@ fn select_gain_point(
     let _ = run_panel(ctx, ui, doc, runtime, vec![pointer_event(point, false)]);
 }
 
+fn select_gain_point_with_modifiers(
+    ui: &mut NotwigUi,
+    ctx: &egui::Context,
+    doc: &ProjectDoc,
+    runtime: &RuntimeView,
+    time: i64,
+    db: f64,
+    modifiers: egui::Modifiers,
+) {
+    let content = ui.clip_editor_content_rect;
+    let point = egui::pos2(
+        content.left() + time as f32 * 80.0,
+        gain_editor_y(content, db),
+    );
+    for event in [
+        egui::Event::PointerMoved(point),
+        pointer_event(point, true),
+        pointer_event(point, false),
+    ] {
+        let mut intents = Vec::new();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(panel_screen()),
+                modifiers,
+                events: vec![event],
+                ..Default::default()
+            },
+            |ctx| {
+                intents = ui.show(ctx, doc, runtime);
+            },
+        );
+        let _ = intents;
+    }
+}
+
 #[test]
 fn selecting_gain_points_extends_the_time_selection() {
     let (doc, clip) = gain_curve_doc(id::<Clip>(60));
@@ -1890,7 +1925,15 @@ fn selecting_gain_points_extends_the_time_selection() {
         .and_then(ClipEditorState::bar_selection)
         .expect("first point should create a time selection");
     assert_eq!(first.start, TimeMus::new(1, 1));
-    select_gain_point(&mut ui, &ctx, &doc, &runtime, 3, 6.0);
+    select_gain_point_with_modifiers(
+        &mut ui,
+        &ctx,
+        &doc,
+        &runtime,
+        3,
+        6.0,
+        egui::Modifiers::SHIFT,
+    );
     let range = ui
         .clip_editor
         .as_ref()

@@ -75,8 +75,10 @@ editor:
   made and starts a new offset from the current point);
 - double-click a point to delete it;
 - drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
-- drag empty space to marquee-select points and set a time selection; selecting
-  points extends the time selection so it always covers them;
+- drag empty space to marquee-select points and set a time selection; clicking
+  empty space shrinks the time selection to a zero-width range;
+- select a point normally to fit the time selection to that point, or
+  **Shift/Cmd**-click to add it while keeping the previous time selection;
 - press **Backspace** to delete selected points;
 - use the normal audio-editor copy, cut, paste, and duplicate shortcuts on the
   selected points; duplicate uses the time-selection length as its offset and

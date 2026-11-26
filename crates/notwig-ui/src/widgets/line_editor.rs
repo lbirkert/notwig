@@ -214,8 +214,13 @@ pub fn show_with_background(
         );
         let value = curve.value_at(time, value_for_y(config, rect, pointer.y));
         if let Some(point) = add_point(curve, time, value) {
-            selected.clear();
-            selected.insert(point);
+            if modifiers.shift {
+                selected.insert(point);
+            } else {
+                selected.clear();
+                selected.insert(point);
+                *time_selection = RangeMus::new(time, time).ok();
+            }
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
@@ -229,6 +234,24 @@ pub fn show_with_background(
             response.changed = true;
             response.selection_changed = true;
         }
+    }
+
+    if background.clicked()
+        && !pointer_over_point
+        && state.drag.is_none()
+        && !modifiers.alt
+        && !modifiers.command
+        && let Some(pointer) = background
+            .interact_pointer_pos()
+            .or_else(|| ui.input(|input| input.pointer.hover_pos()))
+    {
+        let time = clamp_time(
+            timeline.snap(time_for_x(timeline, rect, pointer.x), bypass),
+            config,
+        );
+        selected.clear();
+        *time_selection = RangeMus::new(time, time).ok();
+        response.selection_changed = true;
     }
 
     if background.drag_started()
@@ -461,6 +484,7 @@ pub fn show_with_background(
             } else if !selected.contains(&index) {
                 selected.clear();
                 selected.insert(index);
+                *time_selection = RangeMus::new(point.time, point.time).ok();
             }
             response.selection_changed = true;
         }

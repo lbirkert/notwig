@@ -816,7 +816,9 @@ and emits one command on release.
 | Double-click a point | Delete that point; other points at the same time remain |
 | Additive click or drag on a point | Toggle or add the point to the selection |
 | Drag empty space | Marquee-select points inside the rectangle and set a time selection |
-| Select a point | Extend the time selection so it includes every selected point |
+| Click empty space | Clear point selection and shrink the time selection to a zero-width range |
+| Select a point | Fit the time selection to the selected point |
+| Shift/Cmd-click a point | Add it to the selection without clearing the time selection; the range extends to include it |
 | Backspace | Delete selected points |
 | Copy/Cut/Paste/Duplicate | Operate on the audio editor's point selection; duplicate offsets by the time-selection length and paste starts at its start |
 | Option/Alt-drag a segment | Bend the segment's curvature; diagonal resize cursor on hover |
