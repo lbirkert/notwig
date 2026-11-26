@@ -516,3 +516,42 @@ fn clicking_the_line_adds_and_drags_a_point_immediately() {
         moved.value
     );
 }
+
+#[test]
+fn release_applies_the_final_pointer_position() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let start = position(2.0, 0.2);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(start)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(start, true)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(position(3.0, 0.3))],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(position(4.0, 0.4), false)],
+        Modifiers::NONE,
+    );
+    assert_eq!(curve.points()[0].time, beat(4));
+    assert!((curve.points()[0].value - 0.4).abs() < 1e-6);
+}

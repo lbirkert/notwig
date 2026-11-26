@@ -277,22 +277,74 @@ pub fn show(
         }
     }
 
+    let release_pointer = background
+        .interact_pointer_pos()
+        .or_else(|| ui.input(|input| input.pointer.latest_pos()));
+
     if background.drag_stopped() {
-        if let Some(marquee) = state.marquee.take() {
+        if let (Some(drag), Some(pointer)) = (state.drag.as_mut(), release_pointer) {
+            response.changed |= apply_point_drag(
+                drag,
+                pointer,
+                timeline,
+                rect,
+                config,
+                modifiers.shift,
+                curve,
+                &mut state.selected,
+            );
+        }
+        if let Some(drag) = state.drag.take() {
+            response.changed |= drag.changed;
+            response.committed |= drag.changed;
+        }
+        if let (Some(segment), Some(pointer)) = (state.segment.as_mut(), release_pointer) {
+            response.changed |=
+                apply_segment_drag(segment, pointer, rect, config, modifiers.shift, curve);
+        }
+        if let Some(segment) = state.segment.take() {
+            response.changed |= segment.changed;
+            response.committed |= segment.changed;
+        }
+        if let Some(mut marquee) = state.marquee.take() {
+            if let Some(pointer) = release_pointer {
+                marquee.current = pointer;
+            }
             let selection = marquee_selection(curve, timeline, rect, config, &marquee);
             if selection != state.selected {
                 state.selected = selection;
                 response.selection_changed = true;
             }
         }
+    }
+
+    // A click on the line starts a point drag on press. Commit the final
+    // pointer position even when egui never crossed its drag threshold.
+    if primary_released {
+        if let (Some(drag), Some(pointer)) = (state.drag.as_mut(), release_pointer) {
+            response.changed |= apply_point_drag(
+                drag,
+                pointer,
+                timeline,
+                rect,
+                config,
+                modifiers.shift,
+                curve,
+                &mut state.selected,
+            );
+        }
+        if let Some(drag) = state.drag.take() {
+            response.changed |= drag.changed;
+            response.committed |= drag.changed;
+        }
+        if let (Some(segment), Some(pointer)) = (state.segment.as_mut(), release_pointer) {
+            response.changed |=
+                apply_segment_drag(segment, pointer, rect, config, modifiers.shift, curve);
+        }
         if let Some(segment) = state.segment.take() {
             response.changed |= segment.changed;
             response.committed |= segment.changed;
         }
-    }
-    if primary_released && let Some(drag) = state.drag.take() {
-        response.changed |= drag.changed;
-        response.committed |= drag.changed;
     }
 
     let points = curve.points().to_vec();
