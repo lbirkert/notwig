@@ -121,6 +121,25 @@ pub(crate) fn timeline_navigation(
     content_left: f32,
     viewport: &mut Viewport,
 ) {
+    timeline_navigation_impl(ui, content, content_left, viewport, false);
+}
+
+pub(crate) fn timeline_navigation_unbounded(
+    ui: &egui::Ui,
+    content: egui::Rect,
+    content_left: f32,
+    viewport: &mut Viewport,
+) {
+    timeline_navigation_impl(ui, content, content_left, viewport, true);
+}
+
+fn timeline_navigation_impl(
+    ui: &egui::Ui,
+    content: egui::Rect,
+    content_left: f32,
+    viewport: &mut Viewport,
+    allow_negative: bool,
+) {
     if !ui.rect_contains_pointer(content) {
         return;
     }
@@ -131,13 +150,40 @@ pub(crate) fn timeline_navigation(
     let middle_down = ui.input(|i| i.pointer.middle_down());
     let pointer_delta = ui.input(|i| i.pointer.delta());
     let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
-    navigation_update(
-        viewport,
-        pointer.x,
-        content_left,
-        zoom_delta,
-        middle_down,
-        pointer_delta,
-        scroll_delta,
-    );
+    let ppb = viewport
+        .pixels_per_beat
+        .clamp(Viewport::MIN_PPB, Viewport::MAX_PPB);
+    if (zoom_delta - 1.0).abs() > 1e-4 {
+        if allow_negative {
+            viewport.zoom_at_unbounded(pointer.x, content_left, zoom_delta);
+        } else {
+            viewport.zoom_at(pointer.x, content_left, zoom_delta);
+        }
+    }
+    if middle_down {
+        if pointer_delta.x.abs() > 0.0 {
+            let delta = -f64::from(pointer_delta.x) / f64::from(ppb);
+            if allow_negative {
+                viewport.pan_beats_unbounded(delta);
+            } else {
+                viewport.pan_beats(delta);
+            }
+        }
+        if pointer_delta.y.abs() > 0.0 {
+            let factor = (-f64::from(pointer_delta.y) * 0.012).exp() as f32;
+            if allow_negative {
+                viewport.zoom_at_unbounded(pointer.x, content_left, factor);
+            } else {
+                viewport.zoom_at(pointer.x, content_left, factor);
+            }
+        }
+    }
+    if !middle_down && scroll_delta.x.abs() > scroll_delta.y.abs() && scroll_delta.x.abs() > 0.01 {
+        let delta = -f64::from(scroll_delta.x) / f64::from(ppb);
+        if allow_negative {
+            viewport.pan_beats_unbounded(delta);
+        } else {
+            viewport.pan_beats(delta);
+        }
+    }
 }

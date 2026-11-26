@@ -7,7 +7,7 @@ use super::SCROLLBAR_H;
 use super::state::ClipEditorState;
 
 pub(super) fn clip_editor_navigation(state: &mut ClipEditorState, ui: &egui::Ui, content: Rect) {
-    crate::timeline::interaction::timeline_navigation(
+    crate::timeline::interaction::timeline_navigation_unbounded(
         ui,
         content,
         content.left(),

@@ -31,7 +31,7 @@ impl NotwigUi {
         let absolute = snap.snap(
             state
                 .viewport
-                .x_to_beat(pointer.x, self.clip_editor_content_rect.left()),
+                .x_to_beat_unbounded(pointer.x, self.clip_editor_content_rect.left()),
             ppb,
             doc.meta.bar_length(),
             false,

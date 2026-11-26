@@ -159,3 +159,11 @@ envelope; at 256 or fewer it draws the sample graph from the cached window-peak
 levels (or decoded samples at the closest zoom). Close rendering fills the area
 without an extra stroke. Sliced waveforms start after `silent_prefix_samples`; over-trimmed
 events never stretch the source.
+
+
+## Clip editor negative time
+
+The arranger viewport clamps its start at zero. The audio and MIDI clip editors
+use the unbounded viewport navigation and coordinate conversion so their
+timeline can pan left of the zeroth bar. This keeps content placed before bar
+zero visible and editable without changing the arranger's clamp.

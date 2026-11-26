@@ -32,9 +32,7 @@ pub(super) fn handle_background(
     if bg_resp.clicked() {
         if let Some(pos) = bg_resp.interact_pointer_pos() {
             let bypass = snap.bypassed(ui.input(|input| input.modifiers));
-            let beat = timeline_grid
-                .snap(timeline_grid.beat_for_x(pos.x, content_left), bypass)
-                .max(TimeMus::zero());
+            let beat = timeline_grid.snap(timeline_grid.beat_for_x(pos.x, content_left), bypass);
             if let Ok(range) = RangeMus::new(beat, beat) {
                 state.select_bar(range);
             }
@@ -43,9 +41,7 @@ pub(super) fn handle_background(
     if bg_resp.drag_started() {
         if let Some(pos) = drag_start_pos(ui, bg_resp) {
             let bypass = snap.bypassed(ui.input(|input| input.modifiers));
-            let beat = timeline_grid
-                .snap(timeline_grid.beat_for_x(pos.x, content_left), bypass)
-                .max(TimeMus::zero());
+            let beat = timeline_grid.snap(timeline_grid.beat_for_x(pos.x, content_left), bypass);
             if let Ok(range) = RangeMus::new(beat, beat) {
                 state.select_bar(range);
             }
@@ -55,9 +51,7 @@ pub(super) fn handle_background(
     if bg_resp.dragged() {
         if let (Some(origin), Some(pos)) = (state.range_start, bg_resp.interact_pointer_pos()) {
             let bypass = snap.bypassed(ui.input(|input| input.modifiers));
-            let beat = timeline_grid
-                .snap(timeline_grid.beat_for_x(pos.x, content_left), bypass)
-                .max(TimeMus::zero());
+            let beat = timeline_grid.snap(timeline_grid.beat_for_x(pos.x, content_left), bypass);
             if let Some(range) = crate::timeline::interaction::selection_range(origin, beat) {
                 state.select_bar(range);
             }

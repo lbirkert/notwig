@@ -185,3 +185,17 @@ fn notification_cap_evicts_oldest_first() {
         format!("note {}", UiState::NOTIFICATION_CAP + 5)
     );
 }
+
+#[test]
+fn unbounded_viewport_allows_negative_time() {
+    let mut viewport = Viewport {
+        start: TimeMus::zero(),
+        pixels_per_beat: 64.0,
+    };
+    viewport.pan_beats_unbounded(-4.0);
+    assert_eq!(viewport.start, TimeMus::new(-4, 1));
+    viewport.zoom_at_unbounded(100.0, 100.0, 2.0);
+    assert!(viewport.start < TimeMus::zero());
+    let beat = viewport.x_to_beat_unbounded(100.0, 100.0);
+    assert_eq!(beat, viewport.start);
+}

@@ -246,5 +246,4 @@ pub(super) fn finish_note_drag(
 
 pub(super) fn beat_at(x: f32, grid: &TimelineGrid, content_left: f32, bypass: bool) -> TimeMus {
     grid.snap(grid.beat_for_x(x, content_left), bypass)
-        .max(TimeMus::zero())
 }

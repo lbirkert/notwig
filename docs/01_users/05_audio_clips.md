@@ -112,6 +112,9 @@ pan use the same gestures as the arranger:
 - middle-drag horizontally to pan, vertically to zoom;
 - horizontal scrollbar to scroll.
 
+The clip editor may pan left of the zeroth bar so events and gain points placed
+before bar zero can be inspected and edited.
+
 You can zoom in to sample-level detail. The editor draws the grid and ruler
 across the visible range, including areas outside the clip. The content shading
 shows where the clip actually plays.

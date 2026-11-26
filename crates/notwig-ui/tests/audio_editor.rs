@@ -515,6 +515,47 @@ fn clicking_empty_lane_creates_a_zero_width_time_selection() {
 }
 
 #[test]
+fn audio_editor_can_select_time_before_the_zeroth_bar() {
+    let (doc, clip) = panel_doc(0);
+    let mut runtime = RuntimeView::default();
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
+    let mut ui = NotwigUi::default();
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    let ctx = egui::Context::default();
+    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    let content = ui.clip_editor_content_rect;
+    ui.clip_editor
+        .as_mut()
+        .expect("clip editor open")
+        .viewport
+        .start = TimeMus::new(-4, 1);
+    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    let point = egui::pos2(content.left() + 2.0 * 80.0, content.center().y);
+    for event in [
+        egui::Event::PointerMoved(point),
+        pointer_event(point, true),
+        pointer_event(point, false),
+    ] {
+        let _ = run_panel(&ctx, &mut ui, &doc, &runtime, vec![event]);
+    }
+    let range = ui
+        .clip_editor
+        .as_ref()
+        .and_then(ClipEditorState::bar_selection)
+        .expect("negative click should create a time selection");
+    assert_eq!(range.start, TimeMus::new(-2, 1));
+    assert_eq!(range.end, TimeMus::new(-2, 1));
+}
+
+#[test]
 fn copying_in_the_audio_editor_uses_the_shared_clipboard() {
     let (doc, clip) = panel_doc(0);
     let mut runtime = RuntimeView::default();

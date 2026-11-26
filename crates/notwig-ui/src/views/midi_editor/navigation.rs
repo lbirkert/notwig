@@ -29,15 +29,15 @@ pub(super) fn midi_editor_navigation(
     if (zoom_delta - 1.0).abs() > 1e-4 {
         state
             .viewport
-            .zoom_at(pointer.x, content.left(), zoom_delta);
+            .zoom_at_unbounded(pointer.x, content.left(), zoom_delta);
     }
     let middle = ui.input(|input| input.pointer.middle_down());
     if middle {
         let delta = ui.input(|input| input.pointer.delta());
         if delta.x.abs() > 0.0 {
-            state
-                .viewport
-                .pan_beats(-f64::from(delta.x) / f64::from(state.viewport.pixels_per_beat));
+            state.viewport.pan_beats_unbounded(
+                -f64::from(delta.x) / f64::from(state.viewport.pixels_per_beat),
+            );
         }
         if delta.y.abs() > 0.0 {
             state.pitch_scroll -= delta.y / ROW_HEIGHT;
@@ -49,9 +49,9 @@ pub(super) fn midi_editor_navigation(
     if !middle {
         if shift || scroll.x.abs() > scroll.y.abs() {
             if scroll.x.abs() > 0.01 {
-                state
-                    .viewport
-                    .pan_beats(-f64::from(scroll.x) / f64::from(state.viewport.pixels_per_beat));
+                state.viewport.pan_beats_unbounded(
+                    -f64::from(scroll.x) / f64::from(state.viewport.pixels_per_beat),
+                );
             }
         } else if scroll.y.abs() > 0.01 {
             state.pitch_scroll -= scroll.y / ROW_HEIGHT;

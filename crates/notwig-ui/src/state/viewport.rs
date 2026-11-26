@@ -59,9 +59,34 @@ impl Viewport {
         self.start = beats_to_time(new_start);
     }
 
+    /// Zooms without clamping the viewport start at zero.
+    ///
+    /// Clip editors use this so their timeline can pan left of the zeroth bar.
+    pub fn zoom_at_unbounded(&mut self, pointer_x: f32, timeline_left: f32, factor: f32) {
+        let ppb = self.pixels_per_beat.clamp(Self::MIN_PPB, Self::MAX_PPB);
+        let beat_under = self.start.as_f64() + f64::from((pointer_x - timeline_left) / ppb);
+        let new_ppb = (ppb * factor).clamp(Self::MIN_PPB, Self::MAX_PPB);
+        let new_start = beat_under - f64::from((pointer_x - timeline_left) / new_ppb);
+        self.pixels_per_beat = new_ppb;
+        self.start = beats_to_time(new_start);
+    }
+
     pub fn pan_beats(&mut self, delta: f64) {
         let start = (self.start.as_f64() + delta).max(0.0);
         self.start = beats_to_time(start);
+    }
+
+    /// Pans without clamping the viewport start at zero.
+    pub fn pan_beats_unbounded(&mut self, delta: f64) {
+        self.start = beats_to_time(self.start.as_f64() + delta);
+    }
+
+    /// Converts an x coordinate without clamping the resulting beat at zero.
+    #[must_use]
+    pub fn x_to_beat_unbounded(self, x: f32, timeline_left: f32) -> TimeMus {
+        let beats = f64::from(x - timeline_left) / f64::from(self.pixels_per_beat.max(0.001))
+            + self.start.as_f64();
+        beats_to_time(beats)
     }
 
     #[must_use]

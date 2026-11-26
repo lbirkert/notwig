@@ -46,9 +46,7 @@ pub(super) fn handle_slice(
     if body_resp.drag_started() {
         if let Some(pos) = drag_start_pos(ui, &body_resp) {
             let bypass = snap.bypassed(ui.input(|input| input.modifiers));
-            let beat = timeline_grid
-                .snap(timeline_grid.beat_for_x(pos.x, content_left), bypass)
-                .max(TimeMus::zero());
+            let beat = timeline_grid.snap(timeline_grid.beat_for_x(pos.x, content_left), bypass);
             if let Ok(range) = notwig_core::RangeMus::new(beat, beat) {
                 state.select_bar(range);
             }
@@ -59,9 +57,7 @@ pub(super) fn handle_slice(
         && let (Some(origin), Some(pos)) = (state.range_start, body_resp.interact_pointer_pos())
     {
         let bypass = snap.bypassed(ui.input(|input| input.modifiers));
-        let beat = timeline_grid
-            .snap(timeline_grid.beat_for_x(pos.x, content_left), bypass)
-            .max(TimeMus::zero());
+        let beat = timeline_grid.snap(timeline_grid.beat_for_x(pos.x, content_left), bypass);
         if let Some(range) = crate::timeline::interaction::selection_range(origin, beat) {
             state.select_bar(range);
         }
