@@ -57,7 +57,9 @@ pub struct LineEditorState {
 
 #[doc(hidden)]
 pub mod test_api {
-    pub use super::{LineEditorConfig, LineEditorResponse, LineEditorState, show};
+    pub use super::{
+        LineEditorConfig, LineEditorResponse, LineEditorState, show, show_with_background,
+    };
 }
 
 impl LineEditorState {
@@ -88,6 +90,7 @@ struct PointDrag {
     primary: usize,
     time_drag: FineDrag,
     value_drag: FineDrag,
+    last_time_delta: f64,
     changed: bool,
 }
 
@@ -124,6 +127,35 @@ pub fn show(
     selected: &mut BTreeSet<usize>,
     time_selection: &mut Option<RangeMus>,
     state: &mut LineEditorState,
+) -> LineEditorResponse {
+    show_with_background(
+        ui,
+        rect,
+        id,
+        timeline,
+        config,
+        curve,
+        selected,
+        time_selection,
+        state,
+        &mut |_, _| {},
+    )
+}
+
+/// Shows a line editor and lets the caller paint a background from the current
+/// preview curve after interaction and before the curve is drawn.
+#[allow(clippy::too_many_arguments)]
+pub fn show_with_background(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    id: Id,
+    timeline: TimelineGrid,
+    config: &LineEditorConfig,
+    curve: &mut Curve,
+    selected: &mut BTreeSet<usize>,
+    time_selection: &mut Option<RangeMus>,
+    state: &mut LineEditorState,
+    paint_background: &mut dyn FnMut(&mut egui::Ui, &Curve),
 ) -> LineEditorResponse {
     if rect.width() <= 1.0 || rect.height() <= 1.0 {
         return LineEditorResponse::default();
@@ -192,6 +224,7 @@ pub fn show(
                 primary: point,
                 time_drag: FineDrag::default(),
                 value_drag: FineDrag::default(),
+                last_time_delta: 0.0,
                 changed: true,
             });
             response.changed = true;
@@ -225,6 +258,7 @@ pub fn show(
                 primary: index,
                 time_drag: FineDrag::default(),
                 value_drag: FineDrag::default(),
+                last_time_delta: 0.0,
                 changed: false,
             });
         } else if (modifiers.alt || modifiers.command)
@@ -441,6 +475,7 @@ pub fn show(
         }
     }
 
+    paint_background(ui, curve);
     draw_curve(
         ui,
         rect,
@@ -608,19 +643,24 @@ fn apply_point_drag(
         return false;
     };
     let raw_beats = (pointer.x - drag.origin_pointer.x) / timeline.pixels_per_beat;
+    let was_shift = drag.time_drag.shift();
     let time_update = drag.time_drag.update(raw_beats, fine, 1.0);
     let origin_beats = primary.time.as_f64();
-    let mut delta_beats = if time_update.shift_started && !time_update.fine_from_start {
-        let snapped = timeline.snap(beats_to_time(origin_beats + time_update.coarse), false);
-        drag.time_drag.set_base(snapped.as_f64() - origin_beats)
+    let mut delta_beats = if time_update.shift_started {
+        if was_shift {
+            time_update.offset
+        } else {
+            drag.time_drag.set_base(drag.last_time_delta)
+        }
     } else if fine {
         time_update.offset
     } else {
-        let snapped = timeline.snap(beats_to_time(origin_beats + time_update.coarse), false);
+        let snapped = timeline.snap(beats_to_time(origin_beats + time_update.offset), false);
         snapped.as_f64() - origin_beats
     };
     let (min_delta, max_delta) = allowed_time_delta(&drag.origin_curve, &drag.selected);
     delta_beats = delta_beats.clamp(min_delta, max_delta);
+    drag.last_time_delta = delta_beats;
     let raw_value = f64::from(drag.origin_pointer.y - pointer.y);
     let value_update = drag
         .value_drag

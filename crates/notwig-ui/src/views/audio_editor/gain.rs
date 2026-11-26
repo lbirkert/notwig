@@ -30,8 +30,6 @@ pub(super) fn draw_gain_line_editor(
     timeline: TimelineGrid,
     lanes: Rect,
 ) {
-    draw_clip_waveform(ui, runtime, audio, clip, map, timeline, lanes);
-
     let mut local_timeline = timeline;
     local_timeline.start = timeline.start - clip.range.start;
     let mut curve = audio.gain_curve.clone().unwrap_or_default();
@@ -47,7 +45,7 @@ pub(super) fn draw_gain_line_editor(
         max_time: Some(clip.range.length()),
         format_value: Some(format_gain),
     };
-    let response = line_editor::show(
+    let response = line_editor::show_with_background(
         ui,
         lanes,
         Id::new(("clip-gain-line", clip.id)),
@@ -57,6 +55,18 @@ pub(super) fn draw_gain_line_editor(
         &mut state.curve_selection,
         &mut local_time_selection,
         &mut state.line_editor,
+        &mut |ui, curve| {
+            draw_clip_waveform(
+                ui,
+                runtime,
+                audio,
+                clip,
+                map,
+                timeline,
+                lanes,
+                (!curve.is_empty()).then_some(curve),
+            );
+        },
     );
     state.bar_selection = local_time_selection.and_then(|range| {
         notwig_core::RangeMus::new(range.start + clip.range.start, range.end + clip.range.start)
@@ -81,6 +91,7 @@ fn draw_clip_waveform(
     map: TempoMap,
     timeline: TimelineGrid,
     lanes: Rect,
+    curve: Option<&notwig_core::Curve>,
 ) {
     if audio.uses_slices() {
         for slice in &audio.slices {
@@ -96,7 +107,7 @@ fn draw_clip_waveform(
                 map.samples_to_mus(slice.audio_samples()),
                 slice.source_start_sample,
                 slice.source_end_sample,
-                audio.gain_curve.as_ref(),
+                curve,
                 map,
                 slice.start + silent,
                 timeline,
@@ -115,7 +126,7 @@ fn draw_clip_waveform(
         clip.range.length(),
         audio.source_start_sample,
         audio.source_end_sample,
-        audio.gain_curve.as_ref(),
+        curve,
         map,
         TimeMus::zero(),
         timeline,

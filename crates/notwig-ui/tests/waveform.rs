@@ -167,11 +167,7 @@ fn close_zoom_sample_graph_still_fills_the_area() {
 
 #[test]
 fn sample_graph_is_adaptive_at_the_envelope_boundary() {
-    let waveform = AudioWaveform::from_samples(
-        (0..51_200)
-            .map(|index| if index % 2 == 0 { 0.5 } else { -0.5 })
-            .collect::<Vec<f32>>(),
-    );
+    let waveform = AudioWaveform::from_samples(vec![0.5; 51_200]);
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
     let output = ctx.run(

@@ -9,7 +9,8 @@ fn shift_preserves_the_coarse_offset_and_adds_fine_motion() {
     assert!(!start.fine_from_start);
     assert_eq!(start.offset, 10.0);
     assert_eq!(drag.update(30.0, true, 0.1).offset, 11.0);
-    assert_eq!(drag.update(30.0, false, 0.1).offset, 30.0);
+    assert_eq!(drag.update(30.0, false, 0.1).offset, 11.0);
+    assert_eq!(drag.update(40.0, false, 0.1).offset, 21.0);
 }
 
 #[test]
@@ -23,12 +24,13 @@ fn shift_held_from_the_start_uses_fine_motion_from_the_origin() {
 }
 
 #[test]
-fn releasing_shift_restarts_from_the_full_coarse_delta() {
+fn releasing_shift_keeps_coarse_and_fine_offsets() {
     let mut drag = FineDrag::default();
     drag.update(10.0, false, 0.1);
     drag.update(20.0, true, 0.1);
-    drag.update(30.0, true, 0.1);
-    assert_eq!(drag.update(40.0, false, 0.1).offset, 40.0);
+    assert_eq!(drag.update(30.0, true, 0.1).offset, 11.0);
+    assert_eq!(drag.update(40.0, false, 0.1).offset, 11.0);
+    assert_eq!(drag.update(50.0, false, 0.1).offset, 21.0);
 }
 
 #[test]

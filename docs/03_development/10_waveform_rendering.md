@@ -68,8 +68,9 @@ Both modes draw a fully opaque black signed area with a fully opaque black line:
   across the visible range, fill the area between the graph and the zero axis,
   and draw a one-pixel line. Segments that cross zero are split at the crossing
   so the fill is two triangles rather than a self-intersecting polygon. The
-  sample stride adapts to the pixel span, so the boundary near the envelope mode
-  never builds one point per source sample across the viewport. This is the
+  sample stride adapts to the pixel span, and each bucket is averaged before it
+  becomes a graph point. This prevents points from jumping up or down when the
+  stride changes with zoom. This is the
   Bitwig-style close-up detail where individual waveform cycles are visible.
   This mode starts as soon as the pyramid envelope would no longer be
   sufficient, so zooming in goes straight from the envelope to individual

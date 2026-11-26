@@ -334,17 +334,25 @@ fn draw_sample_graph(
     let mut points = Vec::new();
     let mut frame = first;
     loop {
-        let x = rect.left() + ((frame as f64 - start) / span) as f32 * rect.width();
-        let mut value = waveform.sample(frame);
-        if let Some(gain) = gain {
-            value *= gain.gain_at(source_start, frame);
+        let bucket_end = frame.saturating_add(stride).min(last.saturating_add(1));
+        let mut sum = 0.0_f32;
+        let mut count = 0_u64;
+        for sample_frame in frame..bucket_end {
+            let mut value = waveform.sample(sample_frame);
+            if let Some(gain) = gain {
+                value *= gain.gain_at(source_start, sample_frame);
+            }
+            sum += value;
+            count += 1;
         }
-        let value = value.clamp(-1.0, 1.0);
-        points.push(pos2(x, center - value * half));
-        if frame >= last {
+        let value = if count == 0 { 0.0 } else { sum / count as f32 };
+        let center_frame = (frame as f64 + bucket_end as f64 - 1.0) * 0.5;
+        let x = rect.left() + ((center_frame - start) / span) as f32 * rect.width();
+        points.push(pos2(x, center - value.clamp(-1.0, 1.0) * half));
+        if bucket_end > last {
             break;
         }
-        frame = frame.saturating_add(stride).min(last);
+        frame = bucket_end;
     }
     crate::widgets::area::fill_polyline_area(painter, &points, center, WAVEFORM);
     painter.add(Shape::line(points, Stroke::new(1.0_f32, WAVEFORM)));

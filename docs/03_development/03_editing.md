@@ -812,7 +812,7 @@ and emits one command on release.
 | Hover the curve | Show the add-point cursor |
 | Click the line | Insert a point at the press position and start dragging it |
 | Click off the curve | No point is created |
-| Drag a point | Move selected points in time and value; `Shift` switches to fine steps and bypasses horizontal snapping. Toggling Shift mid-drag preserves the coarse offset and adds subsequent fine motion; releasing Shift returns to the full coarse offset. |
+| Drag a point | Move selected points in time and value; `Shift` switches to fine steps and bypasses horizontal snapping. Toggling Shift mid-drag preserves the current offset and adds subsequent motion at the new scale. Releasing Shift keeps both the coarse and fine offsets and starts a fresh coarse drag from that point. |
 | Double-click a point | Delete that point; other points at the same time remain |
 | Additive click or drag on a point | Toggle or add the point to the selection |
 | Drag empty space | Marquee-select points inside the rectangle and set a time selection |

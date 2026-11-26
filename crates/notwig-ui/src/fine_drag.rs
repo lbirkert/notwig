@@ -33,25 +33,18 @@ impl FineDrag {
         if !self.started {
             self.started = true;
             self.shift = shift;
-            self.anchor = shift.then_some(0.0);
+            self.anchor = Some(0.0);
             self.base = 0.0;
             fine_from_start = shift;
         } else if shift != self.shift {
             self.shift = shift;
-            if shift {
-                self.anchor = Some(raw_delta);
-                self.base = self.last;
-                shift_started = true;
-            } else {
-                self.anchor = None;
-            }
+            self.anchor = Some(raw_delta);
+            self.base = self.last;
+            shift_started = true;
         }
-        let offset = if self.shift {
-            let anchor = self.anchor.unwrap_or(raw_delta);
-            self.base + f64::from(raw_delta - anchor) * fine_ratio
-        } else {
-            coarse
-        };
+        let anchor = self.anchor.unwrap_or(0.0);
+        let ratio = if self.shift { fine_ratio } else { 1.0 };
+        let offset = self.base + f64::from(raw_delta - anchor) * ratio;
         self.last = offset;
         FineDragUpdate {
             offset,
@@ -72,6 +65,11 @@ impl FineDrag {
     /// Returns the last effective offset.
     pub fn offset(&self) -> f64 {
         self.last
+    }
+
+    /// Returns whether Shift is currently active for this drag.
+    pub fn shift(&self) -> bool {
+        self.shift
     }
 }
 
