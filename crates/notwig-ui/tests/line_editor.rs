@@ -370,9 +370,13 @@ fn marquee_selects_points_inside_the_rectangle() {
         vec![pointer(end, false)],
         Modifiers::NONE,
     );
-    assert!(state.selected.contains(&beat(2)));
-    assert!(state.selected.contains(&beat(4)));
-    assert!(!state.selected.contains(&beat(6)));
+    assert!(state.selected.contains(&0));
+    assert!(state.selected.contains(&1));
+    assert!(!state.selected.contains(&2));
+    assert_eq!(
+        state.time_selection,
+        Some(notwig_core::RangeMus::new(beat(0), beat(4)).expect("marquee time selection"))
+    );
 }
 
 #[test]
@@ -554,4 +558,94 @@ fn release_applies_the_final_pointer_position() {
     );
     assert_eq!(curve.points()[0].time, beat(4));
     assert!((curve.points()[0].value - 0.4).abs() < 1e-6);
+}
+
+#[test]
+fn points_at_the_same_time_move_independently() {
+    let ctx = egui::Context::default();
+    let mut curve =
+        Curve::from_points([point_at(2, 0.2), point_at(2, 0.8), point_at(6, 0.5)]).unwrap();
+    let mut state = LineEditorState::default();
+    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    let start = position(2.0, 0.8);
+    let end = position(3.0, 0.9);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(start)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(start, true)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(end)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(end, false)],
+        Modifiers::NONE,
+    );
+    assert_eq!(state.selected.len(), 1);
+    assert_eq!(curve.points_at(beat(2)).len(), 1);
+    assert_eq!(curve.points_at(beat(2))[0].value, 0.2);
+    assert_eq!(curve.points_at(beat(3))[0].value, 0.9);
+}
+
+#[test]
+fn backspace_deletes_selected_points() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    let start = position(2.0, 0.2);
+    run(&ctx, &mut curve, &mut state, Vec::new(), Modifiers::NONE);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::PointerMoved(start)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(start, true)],
+        Modifiers::NONE,
+    );
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![pointer(start, false)],
+        Modifiers::NONE,
+    );
+    assert_eq!(state.selected.len(), 1);
+    run(
+        &ctx,
+        &mut curve,
+        &mut state,
+        vec![Event::Key {
+            key: egui::Key::Backspace,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        }],
+        Modifiers::NONE,
+    );
+    assert_eq!(curve.points().len(), 1);
+    assert_eq!(curve.points()[0].time, beat(6));
+    assert!(state.selected.is_empty());
 }

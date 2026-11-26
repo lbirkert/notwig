@@ -12,13 +12,7 @@ const BASE_BUCKET: u64 = 64;
 /// sample graph is the only renderer. There is no intermediate per-sample
 /// envelope stage between the pyramid and the sample graph.
 const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = BASE_BUCKET as f64;
-const FILL: Color32 = Color32::from_black_alpha(132);
-const LINE: Color32 = Color32::from_black_alpha(190);
-/// Far zoom keeps the envelope readable instead of letting many thin columns
-/// blend into a faint grey.
-const ENVELOPE_FAR_ZOOM: f64 = 1024.0;
-const ENVELOPE_FILL_FAR_ALPHA: u8 = 220;
-const ENVELOPE_LINE_FAR_ALPHA: u8 = 235;
+const WAVEFORM: Color32 = Color32::BLACK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WaveformMode {
@@ -267,7 +261,7 @@ fn draw_envelope(
     source_start: u64,
     gain: Option<&WaveformGain<'_>>,
 ) {
-    let (fill, _line) = envelope_colors(samples_per_pixel);
+    let fill = WAVEFORM;
     let level = waveform.level_for(samples_per_pixel);
     let span = end - start;
     let columns = rect.width().ceil().max(1.0) as usize;
@@ -317,21 +311,6 @@ fn draw_envelope(
     }
 }
 
-/// Envelope alpha ramps from the close-zoom constants at the sample-graph
-/// boundary to nearly opaque black far out, where adjacent columns are dense.
-fn envelope_colors(samples_per_pixel: f64) -> (Color32, Color32) {
-    let t = ((samples_per_pixel - SAMPLE_GRAPH_SAMPLES_PER_PIXEL)
-        / (ENVELOPE_FAR_ZOOM - SAMPLE_GRAPH_SAMPLES_PER_PIXEL))
-        .clamp(0.0, 1.0) as f32;
-    let blend = |near: u8, far: u8| -> u8 {
-        (f32::from(near) + (f32::from(far) - f32::from(near)) * t).round() as u8
-    };
-    (
-        Color32::from_black_alpha(blend(FILL.a(), ENVELOPE_FILL_FAR_ALPHA)),
-        Color32::from_black_alpha(blend(LINE.a(), ENVELOPE_LINE_FAR_ALPHA)),
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 fn draw_sample_graph(
     painter: &Painter,
@@ -349,10 +328,12 @@ fn draw_sample_graph(
     if last <= first {
         return;
     }
+    let stride = (span / f64::from(rect.width().max(1.0))).round().max(1.0) as u64;
     let center = rect.center().y;
     let half = rect.height() * 0.42;
-    let mut points = Vec::with_capacity((last - first + 1) as usize);
-    for frame in first..=last {
+    let mut points = Vec::new();
+    let mut frame = first;
+    loop {
         let x = rect.left() + ((frame as f64 - start) / span) as f32 * rect.width();
         let mut value = waveform.sample(frame);
         if let Some(gain) = gain {
@@ -360,49 +341,13 @@ fn draw_sample_graph(
         }
         let value = value.clamp(-1.0, 1.0);
         points.push(pos2(x, center - value * half));
+        if frame >= last {
+            break;
+        }
+        frame = frame.saturating_add(stride).min(last);
     }
-    let mut mesh = Mesh::default();
-    mesh.reserve_vertices(points.len().saturating_sub(1) * 4);
-    mesh.reserve_triangles(points.len().saturating_sub(1) * 2);
-    for pair in points.windows(2) {
-        add_area_segment(&mut mesh, pair[0], pair[1], center, FILL);
-    }
-    if !mesh.is_empty() {
-        painter.add(Shape::mesh(mesh));
-    }
-    painter.add(Shape::line(points, Stroke::new(1.0_f32, LINE)));
-}
-
-fn add_area_segment(mesh: &mut Mesh, from: egui::Pos2, to: egui::Pos2, zero: f32, color: Color32) {
-    let from_side = from.y - zero;
-    let to_side = to.y - zero;
-    if from_side == 0.0 && to_side == 0.0 {
-        return;
-    }
-    if from_side.signum() == to_side.signum() || to_side == 0.0 {
-        push_quad(mesh, pos2(from.x, zero), pos2(to.x, zero), to, from, color);
-        return;
-    }
-    if from_side == 0.0 {
-        push_triangle(mesh, pos2(from.x, zero), pos2(to.x, zero), to, color);
-        return;
-    }
-    let crossing = (zero - from.y) / (to.y - from.y);
-    let x = from.x + (to.x - from.x) * crossing.clamp(0.0, 1.0);
-    push_triangle(mesh, pos2(from.x, zero), pos2(x, zero), from, color);
-    push_triangle(mesh, pos2(x, zero), pos2(to.x, zero), to, color);
-}
-
-fn push_triangle(mesh: &mut Mesh, a: egui::Pos2, b: egui::Pos2, c: egui::Pos2, color: Color32) {
-    let base = mesh.vertices.len() as u32;
-    for pos in [a, b, c] {
-        mesh.vertices.push(Vertex {
-            pos,
-            uv: WHITE_UV,
-            color,
-        });
-    }
-    mesh.add_triangle(base, base + 1, base + 2);
+    crate::widgets::area::fill_polyline_area(painter, &points, center, WAVEFORM);
+    painter.add(Shape::line(points, Stroke::new(1.0_f32, WAVEFORM)));
 }
 
 fn push_quad(

@@ -165,6 +165,48 @@ fn close_zoom_sample_graph_still_fills_the_area() {
     );
 }
 
+#[test]
+fn sample_graph_is_adaptive_at_the_envelope_boundary() {
+    let waveform = AudioWaveform::from_samples(
+        (0..51_200)
+            .map(|index| if index % 2 == 0 { 0.5 } else { -0.5 })
+            .collect::<Vec<f32>>(),
+    );
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
+            draw_waveform(&painter, clip, clip, &waveform, 0, 51_200);
+        },
+    );
+    let indices: usize = output
+        .shapes
+        .iter()
+        .map(|clipped| match &clipped.shape {
+            egui::Shape::Mesh(mesh) => mesh.indices.len(),
+            egui::Shape::Vec(shapes) => shapes
+                .iter()
+                .map(|shape| match shape {
+                    egui::Shape::Mesh(mesh) => mesh.indices.len(),
+                    _ => 0,
+                })
+                .sum(),
+            _ => 0,
+        })
+        .sum();
+    assert!(indices > 0);
+    assert!(
+        indices < 20_000,
+        "the sample graph should adapt to pixels at the boundary, built {indices} indices"
+    );
+}
+
 fn mesh_y_extents(output: &egui::FullOutput) -> Option<(f32, f32)> {
     fn visit(shape: &egui::Shape, min_y: &mut f32, max_y: &mut f32, found: &mut bool) {
         match shape {

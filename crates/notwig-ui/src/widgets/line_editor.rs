@@ -2,8 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use egui::{Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
-use notwig_core::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, TimeMus};
+use egui::{Color32, Id, Key, Pos2, Rect, Sense, Stroke, Vec2};
+use notwig_core::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, RangeMus, TimeMus};
 
 use crate::theme;
 use crate::timeline::TimelineGrid;
@@ -49,7 +49,10 @@ impl Default for LineEditorConfig {
 /// Persistent selection and gesture state for a line editor.
 #[derive(Debug, Clone, Default)]
 pub struct LineEditorState {
-    pub selected: BTreeSet<TimeMus>,
+    /// Selected point indices in the current curve.
+    pub selected: BTreeSet<usize>,
+    /// Time range produced by the last marquee selection.
+    pub time_selection: Option<RangeMus>,
     drag: Option<PointDrag>,
     segment: Option<SegmentDrag>,
     marquee: Option<MarqueeDrag>,
@@ -73,6 +76,27 @@ impl LineEditorState {
         self.segment = None;
         self.marquee = None;
     }
+
+    /// Removes selected points from `curve`.
+    fn delete_selected(&mut self, curve: &mut Curve) -> bool {
+        if self.selected.is_empty() {
+            return false;
+        }
+        let points: Vec<CurvePoint> = curve
+            .points()
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !self.selected.contains(index))
+            .map(|(_, point)| *point)
+            .collect();
+        let Ok(next) = Curve::from_points(points) else {
+            return false;
+        };
+        *curve = next;
+        self.selected.clear();
+        self.time_selection = None;
+        true
+    }
 }
 
 /// Result of one line-editor frame.
@@ -90,8 +114,8 @@ pub struct LineEditorResponse {
 struct PointDrag {
     origin_pointer: Pos2,
     origin_curve: Curve,
-    selected: BTreeSet<TimeMus>,
-    primary: TimeMus,
+    selected: BTreeSet<usize>,
+    primary: usize,
     changed: bool,
 }
 
@@ -99,7 +123,7 @@ struct PointDrag {
 struct SegmentDrag {
     origin_pointer: Pos2,
     origin_curve: Curve,
-    left: TimeMus,
+    left: usize,
     mode: SegmentMode,
     changed: bool,
 }
@@ -130,11 +154,20 @@ pub fn show(
         return LineEditorResponse::default();
     }
     if state.drag.is_none() && state.segment.is_none() && state.marquee.is_none() {
-        state.selected.retain(|time| curve.point(*time).is_some());
+        state.selected.retain(|index| *index < curve.len());
     }
     let modifiers = ui.input(|input| input.modifiers);
     let bypass = modifiers.shift;
     let mut response = LineEditorResponse::default();
+
+    if !ui.ctx().wants_keyboard_input()
+        && ui.input(|input| input.key_pressed(Key::Backspace))
+        && state.delete_selected(curve)
+    {
+        response.changed = true;
+        response.committed = true;
+        response.selection_changed = true;
+    }
 
     let background = ui.interact(rect, id.with("line-editor-bg"), Sense::click_and_drag());
     let (primary_pressed, primary_released, press_origin) = ui.input(|input| {
@@ -148,7 +181,7 @@ pub fn show(
         .or_else(|| background.interact_pointer_pos())
         .or_else(|| ui.input(|input| input.pointer.hover_pos()));
     let point_at_origin =
-        gesture_origin.and_then(|pointer| point_at(curve, timeline, rect, config, pointer));
+        gesture_origin.and_then(|pointer| point_index_at(curve, timeline, rect, config, pointer));
     let pointer_over_point = point_at_origin.is_some();
 
     if let Some(segment) = &state.segment {
@@ -183,6 +216,7 @@ pub fn show(
         if let Some(point) = add_point(curve, time, value) {
             state.selected.clear();
             state.selected.insert(point);
+            state.time_selection = None;
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
@@ -213,6 +247,7 @@ pub fn show(
         if let Some(point) = add_point(curve, time, value) {
             state.selected.clear();
             state.selected.insert(point);
+            state.time_selection = None;
             response.changed = true;
             response.committed = true;
             response.selection_changed = true;
@@ -224,22 +259,25 @@ pub fn show(
     {
         if state.drag.is_some() {
             // A line click already started the new point drag.
-        } else if let Some(time) = point_at_origin {
+        } else if let Some(index) = point_at_origin {
             let additive = modifiers.command || modifiers.shift;
-            if !state.selected.contains(&time) {
+            if !state.selected.contains(&index) {
                 if additive {
-                    state.selected.insert(time);
+                    state.selected.insert(index);
                 } else {
                     state.selected.clear();
-                    state.selected.insert(time);
+                    state.selected.insert(index);
                 }
                 response.selection_changed = true;
+            }
+            if !additive {
+                state.time_selection = None;
             }
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
                 selected: state.selected.clone(),
-                primary: time,
+                primary: index,
                 changed: false,
             });
         } else if (modifiers.alt || modifiers.command)
@@ -261,6 +299,17 @@ pub fn show(
                 origin: pointer,
                 current: pointer,
             });
+            state.time_selection = marquee_time_selection(
+                curve,
+                timeline,
+                rect,
+                &MarqueeDrag {
+                    origin: pointer,
+                    current: pointer,
+                },
+                &state.selected,
+                bypass,
+            );
         }
     }
 
@@ -282,10 +331,14 @@ pub fn show(
         if let Some(marquee) = &mut state.marquee {
             marquee.current = pointer;
             let selection = marquee_selection(curve, timeline, rect, config, marquee);
-            if selection != state.selected {
+            let selection_changed = selection != state.selected;
+            if selection_changed {
                 state.selected = selection;
                 response.selection_changed = true;
             }
+            state.time_selection =
+                marquee_time_selection(curve, timeline, rect, marquee, &state.selected, bypass);
+            let _ = selection_changed;
         }
         if let Some(segment) = &mut state.segment {
             response.changed |=
@@ -331,6 +384,8 @@ pub fn show(
                 state.selected = selection;
                 response.selection_changed = true;
             }
+            state.time_selection =
+                marquee_time_selection(curve, timeline, rect, &marquee, &state.selected, bypass);
         }
     }
 
@@ -385,9 +440,8 @@ pub fn show(
                 .collect();
             if let Ok(next) = Curve::from_points(points) {
                 *curve = next;
-                if curve.point(point.time).is_none() {
-                    state.selected.remove(&point.time);
-                }
+                state.selected.clear();
+                state.time_selection = None;
                 response.changed = true;
                 response.committed = true;
                 response.selection_changed = true;
@@ -397,12 +451,13 @@ pub fn show(
         if point_response.clicked() {
             let additive = modifiers.command || modifiers.shift;
             if additive {
-                if !state.selected.remove(&point.time) {
-                    state.selected.insert(point.time);
+                if !state.selected.remove(&index) {
+                    state.selected.insert(index);
                 }
-            } else if !state.selected.contains(&point.time) {
+            } else if !state.selected.contains(&index) {
                 state.selected.clear();
-                state.selected.insert(point.time);
+                state.selected.insert(index);
+                state.time_selection = None;
             }
             response.selection_changed = true;
         }
@@ -424,6 +479,27 @@ fn draw_curve(
     state: &LineEditorState,
 ) {
     let painter = ui.painter().with_clip_rect(rect);
+    if let Some(range) = state.time_selection {
+        let x1 = x_for_time(timeline, rect, range.start);
+        let x2 = x_for_time(timeline, rect, range.end);
+        let selection = Rect::from_min_max(
+            egui::pos2(x1, rect.top()),
+            egui::pos2(x2.max(x1), rect.bottom()),
+        );
+        painter.rect_filled(
+            selection,
+            egui::CornerRadius::ZERO,
+            Color32::from_rgba_unmultiplied(255, 210, 120, 18),
+        );
+        painter.line_segment(
+            [selection.left_top(), selection.left_bottom()],
+            Stroke::new(1.0_f32, theme::ACCENT),
+        );
+        painter.line_segment(
+            [selection.right_top(), selection.right_bottom()],
+            Stroke::new(1.0_f32, theme::ACCENT),
+        );
+    }
     if let Some(baseline) = config.baseline {
         let y = y_for_value(config, rect, baseline);
         painter.line_segment(
@@ -434,31 +510,22 @@ fn draw_curve(
 
     let mut line = Vec::new();
     sample_curve(curve, timeline, rect, config, &mut line);
-    for pair in line.windows(2) {
-        let [a, b] = pair else {
-            continue;
-        };
-        painter.add(egui::Shape::convex_polygon(
-            vec![
-                *a,
-                *b,
-                egui::pos2(b.x, rect.bottom()),
-                egui::pos2(a.x, rect.bottom()),
-            ],
-            Color32::from_rgba_unmultiplied(255, 154, 46, 20),
-            Stroke::NONE,
-        ));
-    }
+    crate::widgets::area::fill_polyline_area(
+        &painter,
+        &line,
+        rect.bottom(),
+        Color32::from_rgba_unmultiplied(255, 154, 46, 20),
+    );
     painter.add(egui::Shape::line(
         line,
         Stroke::new(2.0_f32, Color32::from_rgb(92, 72, 29)),
     ));
-    for point in curve.points() {
+    for (index, point) in curve.points().iter().enumerate() {
         let center = egui::pos2(
             x_for_time(timeline, rect, point.time),
             y_for_value(config, rect, point.value),
         );
-        let selected = state.selected.contains(&point.time);
+        let selected = state.selected.contains(&index);
         painter.circle(
             center,
             POINT_RADIUS,
@@ -549,16 +616,19 @@ fn apply_point_drag(
     config: &LineEditorConfig,
     fine: bool,
     curve: &mut Curve,
-    selected: &mut BTreeSet<TimeMus>,
+    selected: &mut BTreeSet<usize>,
 ) -> bool {
+    let Some(primary) = drag.origin_curve.points().get(drag.primary) else {
+        return false;
+    };
     let beats = f64::from(pointer.x - drag.origin_pointer.x) / f64::from(timeline.pixels_per_beat);
-    let primary_raw = beats_to_time(drag.primary.as_f64() + beats);
+    let primary_raw = beats_to_time(primary.time.as_f64() + beats);
     let primary_time = if fine {
         primary_raw
     } else {
         timeline.snap(primary_raw, false)
     };
-    let mut delta_beats = primary_time.as_f64() - drag.primary.as_f64();
+    let mut delta_beats = primary_time.as_f64() - primary.time.as_f64();
     let (min_delta, max_delta) = allowed_time_delta(&drag.origin_curve, &drag.selected);
     delta_beats = delta_beats.clamp(min_delta, max_delta);
     let mut delta_value = -f64::from(pointer.y - drag.origin_pointer.y) / f64::from(rect.height())
@@ -567,20 +637,27 @@ fn apply_point_drag(
         delta_value /= FINE_RATIO;
     }
 
-    let mut points = Vec::with_capacity(drag.origin_curve.len());
-    let mut next_selected = BTreeSet::new();
-    for point in drag.origin_curve.points() {
-        if drag.selected.contains(&point.time) {
-            let mut moved = *point;
-            moved.time = clamp_time(beats_to_time(point.time.as_f64() + delta_beats), config);
-            moved.value = (point.value + delta_value).clamp(config.value_min, config.value_max);
-            next_selected.insert(moved.time);
-            points.push(moved);
-        } else {
-            points.push(*point);
+    let mut tagged: Vec<(usize, CurvePoint)> = drag
+        .origin_curve
+        .points()
+        .iter()
+        .copied()
+        .enumerate()
+        .collect();
+    for (index, point) in &mut tagged {
+        if drag.selected.contains(index) {
+            point.time = clamp_time(beats_to_time(point.time.as_f64() + delta_beats), config);
+            point.value = (point.value + delta_value).clamp(config.value_min, config.value_max);
         }
     }
-    let Ok(next) = Curve::from_points(points) else {
+    tagged.sort_by_key(|(_, point)| point.time);
+    let next_selected = tagged
+        .iter()
+        .enumerate()
+        .filter(|(_, (origin, _))| drag.selected.contains(origin))
+        .map(|(index, _)| index)
+        .collect();
+    let Ok(next) = Curve::from_points(tagged.into_iter().map(|(_, point)| point)) else {
         return false;
     };
     if next == *curve {
@@ -601,9 +678,7 @@ fn apply_segment_drag(
     curve: &mut Curve,
 ) -> bool {
     let mut points = drag.origin_curve.points().to_vec();
-    let Some(left) = points.iter().position(|point| point.time == drag.left) else {
-        return false;
-    };
+    let left = drag.left;
     let Some(right) = left.checked_add(1).filter(|index| *index < points.len()) else {
         return false;
     };
@@ -639,17 +714,22 @@ fn apply_segment_drag(
     true
 }
 
-fn allowed_time_delta(curve: &Curve, selected: &BTreeSet<TimeMus>) -> (f64, f64) {
+fn allowed_time_delta(curve: &Curve, selected: &BTreeSet<usize>) -> (f64, f64) {
     let unselected: Vec<f64> = curve
         .points()
         .iter()
-        .filter(|point| !selected.contains(&point.time))
+        .enumerate()
+        .filter(|(index, _)| !selected.contains(index))
+        .map(|(_, point)| point.time.as_f64())
+        .collect();
+    let selected_times: Vec<f64> = selected
+        .iter()
+        .filter_map(|index| curve.points().get(*index))
         .map(|point| point.time.as_f64())
         .collect();
     let mut min_delta = f64::NEG_INFINITY;
     let mut max_delta = f64::INFINITY;
-    for time in selected {
-        let beats = time.as_f64();
+    for beats in selected_times {
         if let Some(before) = unselected
             .iter()
             .copied()
@@ -670,12 +750,19 @@ fn allowed_time_delta(curve: &Curve, selected: &BTreeSet<TimeMus>) -> (f64, f64)
     (min_delta, max_delta)
 }
 
-fn add_point(curve: &mut Curve, time: TimeMus, value: f64) -> Option<TimeMus> {
-    let mut points = curve.points().to_vec();
-    points.push(CurvePoint::new(time, value));
-    let next = Curve::from_points(points).ok()?;
+fn add_point(curve: &mut Curve, time: TimeMus, value: f64) -> Option<usize> {
+    let mut tagged: Vec<(bool, CurvePoint)> = curve
+        .points()
+        .iter()
+        .copied()
+        .map(|point| (false, point))
+        .collect();
+    tagged.push((true, CurvePoint::new(time, value)));
+    tagged.sort_by_key(|(_, point)| point.time);
+    let index = tagged.iter().position(|(added, _)| *added)?;
+    let next = Curve::from_points(tagged.into_iter().map(|(_, point)| point)).ok()?;
     *curve = next;
-    Some(time)
+    Some(index)
 }
 
 fn marquee_selection(
@@ -684,20 +771,47 @@ fn marquee_selection(
     rect: Rect,
     config: &LineEditorConfig,
     marquee: &MarqueeDrag,
-) -> BTreeSet<TimeMus> {
+) -> BTreeSet<usize> {
     let area = Rect::from_two_pos(marquee.origin, marquee.current);
     curve
         .points()
         .iter()
-        .filter(|point| {
+        .enumerate()
+        .filter(|(_, point)| {
             let pos = egui::pos2(
                 x_for_time(timeline, rect, point.time),
                 y_for_value(config, rect, point.value),
             );
             area.contains(pos)
         })
-        .map(|point| point.time)
+        .map(|(index, _)| index)
         .collect()
+}
+
+fn marquee_time_selection(
+    curve: &Curve,
+    timeline: TimelineGrid,
+    rect: Rect,
+    marquee: &MarqueeDrag,
+    selected: &BTreeSet<usize>,
+    bypass: bool,
+) -> Option<RangeMus> {
+    let mut start = timeline
+        .snap(time_for_x(timeline, rect, marquee.origin.x), bypass)
+        .as_f64();
+    let mut end = timeline
+        .snap(time_for_x(timeline, rect, marquee.current.x), bypass)
+        .as_f64();
+    if start > end {
+        std::mem::swap(&mut start, &mut end);
+    }
+    for index in selected {
+        if let Some(point) = curve.points().get(*index) {
+            start = start.min(point.time.as_f64());
+            end = end.max(point.time.as_f64());
+        }
+    }
+    RangeMus::new(beats_to_time(start), beats_to_time(end)).ok()
 }
 
 fn line_hit(
@@ -727,39 +841,46 @@ fn distance_to_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
     (point - (a + segment * t)).length()
 }
 
-fn point_at(
+fn point_index_at(
     curve: &Curve,
     timeline: TimelineGrid,
     rect: Rect,
     config: &LineEditorConfig,
     pointer: Pos2,
-) -> Option<TimeMus> {
-    curve.points().iter().find_map(|point| {
-        let center = egui::pos2(
-            x_for_time(timeline, rect, point.time),
-            y_for_value(config, rect, point.value),
-        );
-        ((center - pointer).length() <= POINT_HIT_RADIUS).then_some(point.time)
-    })
+) -> Option<usize> {
+    curve
+        .points()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, point)| {
+            let center = egui::pos2(
+                x_for_time(timeline, rect, point.time),
+                y_for_value(config, rect, point.value),
+            );
+            let distance = (center - pointer).length();
+            (distance <= POINT_HIT_RADIUS).then_some((index, distance))
+        })
+        .min_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(index, _)| index)
 }
 
-fn segment_left_at(curve: &Curve, timeline: TimelineGrid, rect: Rect, x: f32) -> Option<TimeMus> {
+fn segment_left_at(curve: &Curve, timeline: TimelineGrid, rect: Rect, x: f32) -> Option<usize> {
     let points = curve.points();
     if points.len() < 2 {
         return None;
     }
-    for pair in points.windows(2) {
+    for (index, pair) in points.windows(2).enumerate() {
         let x0 = x_for_time(timeline, rect, pair[0].time);
         let x1 = x_for_time(timeline, rect, pair[1].time);
         if x >= x0.min(x1) && x <= x0.max(x1) {
-            return Some(pair[0].time);
+            return Some(index);
         }
     }
     let first_x = x_for_time(timeline, rect, points[0].time);
     if x < first_x {
-        Some(points[0].time)
+        Some(0)
     } else {
-        Some(points[points.len() - 2].time)
+        Some(points.len() - 2)
     }
 }
 

@@ -1,6 +1,7 @@
 mod draggable_number;
 mod snap;
 
+pub(crate) mod area;
 pub(crate) mod brand;
 pub(crate) mod drop_target;
 pub(crate) mod form;

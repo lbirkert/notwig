@@ -74,6 +74,30 @@ fn negative_curvature_mirrors_positive_curvature() {
 }
 
 #[test]
+fn negative_curvature_mirrors_a_whole_segment() {
+    let positive = curve([
+        CurvePoint::new(time(0), 0.2).with_curvature(0.7),
+        CurvePoint::new(time(4), 0.8),
+    ]);
+    let negative = curve([
+        CurvePoint::new(time(0), 0.2).with_curvature(-0.7),
+        CurvePoint::new(time(4), 0.8),
+    ]);
+    for step in 0..=20 {
+        let t = f64::from(step) / 20.0 * 4.0;
+        let mirror = 4.0 - t;
+        let time = TimeMus::new((t * 1_000_000.0).round() as i64, 1_000_000);
+        let mirror_time = TimeMus::new((mirror * 1_000_000.0).round() as i64, 1_000_000);
+        let expected = 1.0 - positive.value_at(mirror_time, 0.0);
+        assert!(
+            (negative.value_at(time, 0.0) - expected).abs() < 1e-9,
+            "time {t}: {} vs {expected}",
+            negative.value_at(time, 0.0)
+        );
+    }
+}
+
+#[test]
 fn from_points_sorts_stably_and_allows_duplicate_times() {
     let curve = curve([
         CurvePoint::new(time(4), 4.0),

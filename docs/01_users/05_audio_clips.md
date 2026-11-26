@@ -75,7 +75,8 @@ editor:
   steps and bypasses snapping);
 - double-click a point to delete it;
 - drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
-- drag empty space to marquee-select points;
+- drag empty space to marquee-select points and set a time selection;
+- press **Backspace** to delete selected points;
 - **Option/Alt**-drag a segment to bend its curvature: positive bends ease in,
   negative bends ease out; holding Option/Alt over a segment shows the curvature
   drag cursor;

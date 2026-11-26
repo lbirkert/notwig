@@ -247,6 +247,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
 | `widgets/timeline/` | Shared beat strip (`beat_strip/`: interaction and paint), clip visuals, grid, snap controls, selection, drop preview, interaction math |
 | `widgets/line_editor.rs` | Reusable point/segment line editor for automation, clip gain, pan, and other modulatable values |
+| `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, sample-level drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |

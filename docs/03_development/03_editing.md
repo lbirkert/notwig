@@ -798,8 +798,8 @@ pan, and other modulatable values. The canonical curve model is
 `notwig_core::Curve`; the interaction widget is
 `notwig_ui::widgets::line_editor`.
 
-The widget owns only ephemeral state: point selection, the current point or
-segment drag, and the marquee rectangle. The caller owns the curve, value range,
+The widget owns only ephemeral state: point selection by curve index, the current
+point or segment drag, the marquee rectangle, and the marquee time selection. The caller owns the curve, value range,
 time bounds, snapping grid, and commit boundary. A drag previews locally and
 emits one command on release.
 
@@ -810,7 +810,8 @@ emits one command on release.
 | Drag a point | Move selected points in time and value; `Shift` uses fine steps and bypasses horizontal snapping |
 | Double-click a point | Delete that point; other points at the same time remain |
 | Additive click or drag on a point | Toggle or add the point to the selection |
-| Drag empty space | Marquee-select points inside the rectangle |
+| Drag empty space | Marquee-select points inside the rectangle and set a time selection |
+| Backspace | Delete selected points |
 | Option/Alt-drag a segment | Bend the segment's curvature; diagonal resize cursor on hover |
 | Cmd/Ctrl-drag a segment | Move both endpoint values up or down; vertical resize cursor on hover |
 

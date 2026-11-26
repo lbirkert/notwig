@@ -57,6 +57,7 @@ extension devices inside their guest egui context. Disable default features
 | `widgets/` | App-only knobs, faders, draggable numbers, form helpers, brand assets, icons, timeline |
 | `widgets/timeline/` | Beat strip (`beat_strip/` interaction + paint), clip visuals, grid, selection, drop preview, interaction math |
 | `widgets/line_editor.rs` | Reusable point/segment line editor for automation, clip gain, pan, and other modulatable values |
+| `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `waveform.rs` | Signed min/max waveform pyramid, level-of-detail selection, and sample-level drawing |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
