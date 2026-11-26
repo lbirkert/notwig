@@ -1,28 +1,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use egui::epaint::{Vertex, WHITE_UV};
-use egui::{Color32, Mesh, Painter, Rect, Shape, pos2};
+use egui::{Color32, Painter, Rect, pos2};
 use notwig_core::{AssetId, AudioAssetBuffer, Curve, Db, TempoMap, TimeMus};
 
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
-const BASE_BUCKET: u64 = 64;
-/// The sample graph takes over at a wider zoom than the pyramid's baseline
-/// bucket so it engages earlier. Above this threshold the pyramid envelope is
-/// the only renderer.
-const SAMPLE_GRAPH_SAMPLES_PER_PIXEL: f64 = 256.0;
 /// Below this bucket the sample graph reads the decoded samples directly.
-/// Cached window-peak levels start here and double up to the sample-graph
-/// threshold.
+/// Cached window-peak levels start here and double to the whole asset.
 const PEAK_BASE_BUCKET: u64 = 8;
 const WAVEFORM: Color32 = Color32::BLACK;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WaveformMode {
-    Envelope,
-    SampleGraph,
-}
 
 /// Gain curve applied to the waveform for display.
 #[derive(Clone, Copy)]
@@ -47,28 +34,10 @@ impl WaveformGain<'_> {
     }
 }
 
-/// Pick the renderer from the current zoom. The sample graph engages at a wider
-/// zoom than the pyramid's baseline so close rendering starts sooner.
-fn waveform_mode(samples_per_pixel: f64) -> WaveformMode {
-    if samples_per_pixel <= SAMPLE_GRAPH_SAMPLES_PER_PIXEL {
-        WaveformMode::SampleGraph
-    } else {
-        WaveformMode::Envelope
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioWaveform {
     audio: Arc<AudioAssetBuffer>,
-    levels: Arc<[PeakLevel]>,
     window_peaks: Arc<[WindowPeakLevel]>,
-}
-
-#[derive(Debug, PartialEq)]
-struct PeakLevel {
-    bucket: u64,
-    min: Vec<f32>,
-    max: Vec<f32>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -80,11 +49,9 @@ struct WindowPeakLevel {
 impl AudioWaveform {
     #[must_use]
     pub fn new(audio: Arc<AudioAssetBuffer>) -> Self {
-        let levels = build_levels(&audio);
         let window_peaks = build_window_peaks(&audio);
         Self {
             audio,
-            levels: levels.into(),
             window_peaks: window_peaks.into(),
         }
     }
@@ -121,109 +88,12 @@ impl AudioWaveform {
         sum / channels as f32
     }
 
-    fn level_for(&self, samples_per_pixel: f64) -> Option<&PeakLevel> {
-        if samples_per_pixel < BASE_BUCKET as f64 {
-            // Rendering uses the sample graph below the baseline bucket; this
-            // fallback only serves exact-data helpers and defensive callers.
-            return None;
-        }
-        let index = self
-            .levels
-            .partition_point(|level| level.bucket as f64 <= samples_per_pixel)
-            .saturating_sub(1);
-        self.levels.get(index).or_else(|| self.levels.first())
-    }
-
     fn window_peak_level_for(&self, samples_per_pixel: f64) -> Option<&WindowPeakLevel> {
         self.window_peaks
             .iter()
             .rev()
             .find(|level| level.bucket as f64 <= samples_per_pixel)
     }
-
-    fn min_max(&self, start: f64, end: f64, level: Option<&PeakLevel>) -> (f32, f32) {
-        let frames = self.audio.frame_count();
-        if frames == 0 || end <= start {
-            let sample = self.sample(start.max(0.0) as u64);
-            return (sample, sample);
-        }
-        let last = frames - 1;
-        let first_frame = (start.floor().max(0.0) as u64).min(last);
-        let end_frame = (end.ceil().max(0.0) as u64).clamp(first_frame.saturating_add(1), frames);
-        if let Some(level) = level {
-            let first_bucket = (first_frame / level.bucket) as usize;
-            let last_bucket = ((end_frame - 1) / level.bucket) as usize;
-            let mut min = f32::INFINITY;
-            let mut max = f32::NEG_INFINITY;
-            for bucket in first_bucket..=last_bucket {
-                if let (Some(low), Some(high)) = (level.min.get(bucket), level.max.get(bucket)) {
-                    min = min.min(*low);
-                    max = max.max(*high);
-                }
-            }
-            if min.is_finite() && max.is_finite() {
-                return (min, max);
-            }
-        }
-        let mut min = f32::INFINITY;
-        let mut max = f32::NEG_INFINITY;
-        for frame in first_frame..end_frame {
-            let sample = self.sample(frame);
-            min = min.min(sample);
-            max = max.max(sample);
-        }
-        if min.is_finite() && max.is_finite() {
-            (min, max)
-        } else {
-            (0.0, 0.0)
-        }
-    }
-}
-
-fn build_levels(audio: &AudioAssetBuffer) -> Vec<PeakLevel> {
-    let frames = audio.frame_count();
-    if frames == 0 {
-        return Vec::new();
-    }
-    let count = frames.div_ceil(BASE_BUCKET) as usize;
-    let mut min = vec![f32::INFINITY; count];
-    let mut max = vec![f32::NEG_INFINITY; count];
-    let channels = usize::from(audio.channels.max(1));
-    for frame in 0..frames {
-        let base = frame as usize * channels;
-        let mut sum = 0.0_f32;
-        for channel in 0..channels {
-            sum += audio.samples.get(base + channel).copied().unwrap_or(0.0);
-        }
-        let sample = sum / channels as f32;
-        let bucket = (frame / BASE_BUCKET) as usize;
-        min[bucket] = min[bucket].min(sample);
-        max[bucket] = max[bucket].max(sample);
-    }
-    let mut levels = vec![PeakLevel {
-        bucket: BASE_BUCKET,
-        min,
-        max,
-    }];
-    while levels.last().is_some_and(|level| level.min.len() > 1) {
-        let Some(previous) = levels.last() else {
-            break;
-        };
-        let count = previous.min.len().div_ceil(2);
-        let mut min = vec![f32::INFINITY; count];
-        let mut max = vec![f32::NEG_INFINITY; count];
-        for (index, (low, high)) in previous.min.iter().zip(&previous.max).enumerate() {
-            let bucket = index / 2;
-            min[bucket] = min[bucket].min(*low);
-            max[bucket] = max[bucket].max(*high);
-        }
-        levels.push(PeakLevel {
-            bucket: previous.bucket.saturating_mul(2),
-            min,
-            max,
-        });
-    }
-    levels
 }
 
 fn build_window_peaks(audio: &AudioAssetBuffer) -> Vec<WindowPeakLevel> {
@@ -246,11 +116,10 @@ fn build_window_peaks(audio: &AudioAssetBuffer) -> Vec<WindowPeakLevel> {
             peaks[bucket] = sample;
         }
     }
-    let max_bucket = SAMPLE_GRAPH_SAMPLES_PER_PIXEL.max(PEAK_BASE_BUCKET as f64) as u64;
     let mut bucket = PEAK_BASE_BUCKET;
     let mut levels = Vec::new();
     loop {
-        let next = (peaks.len() > 1 && bucket < max_bucket).then(|| combine_window_peaks(&peaks));
+        let next = (peaks.len() > 1).then(|| combine_window_peaks(&peaks));
         levels.push(WindowPeakLevel {
             bucket,
             peak: peaks,
@@ -297,86 +166,8 @@ pub(crate) fn draw_waveform(
     ) else {
         return;
     };
-    let samples_per_pixel = (end - start) / f64::from(rect.width().max(1.0));
     let painter = painter.with_clip_rect(rect);
-    match waveform_mode(samples_per_pixel) {
-        WaveformMode::SampleGraph => {
-            draw_sample_graph(&painter, rect, waveform, start, end, source_start, gain);
-        }
-        WaveformMode::Envelope => {
-            draw_envelope(
-                &painter,
-                rect,
-                waveform,
-                start,
-                end,
-                samples_per_pixel,
-                source_start,
-                gain,
-            );
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_envelope(
-    painter: &Painter,
-    rect: Rect,
-    waveform: &AudioWaveform,
-    start: f64,
-    end: f64,
-    samples_per_pixel: f64,
-    source_start: u64,
-    gain: Option<&WaveformGain<'_>>,
-) {
-    let fill = WAVEFORM;
-    let level = waveform.level_for(samples_per_pixel);
-    let span = end - start;
-    let columns = rect.width().ceil().max(1.0) as usize;
-    let step = rect.width() / columns as f32;
-    let center = rect.center().y;
-    let half = rect.height() * 0.42;
-    let mut mesh = Mesh::default();
-    mesh.reserve_vertices(columns * 4);
-    mesh.reserve_triangles(columns * 2);
-    for column in 0..columns {
-        let x0 = rect.left() + column as f32 * step;
-        let x1 = if column + 1 == columns {
-            rect.right()
-        } else {
-            x0 + step
-        };
-        let t0 = (x0 - rect.left()) / rect.width();
-        let t1 = (x1 - rect.left()) / rect.width();
-        let mut min_max = waveform.min_max(
-            start + f64::from(t0) * span,
-            start + f64::from(t1) * span,
-            level,
-        );
-        if let Some(gain) = gain {
-            let frame = start + f64::from(f32::midpoint(t0, t1)) * span;
-            let scale = gain.gain_at_frame(source_start, frame);
-            min_max.0 *= scale;
-            min_max.1 *= scale;
-        }
-        let (min, max) = min_max;
-        let top = center - max.clamp(-1.0, 1.0) * half;
-        let bottom = center - min.clamp(-1.0, 1.0) * half;
-        if bottom <= top {
-            continue;
-        }
-        push_quad(
-            &mut mesh,
-            pos2(x0, top),
-            pos2(x1, top),
-            pos2(x1, bottom),
-            pos2(x0, bottom),
-            fill,
-        );
-    }
-    if !mesh.is_empty() {
-        painter.add(Shape::mesh(mesh));
-    }
+    draw_sample_graph(&painter, rect, waveform, start, end, source_start, gain);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -449,26 +240,6 @@ fn graph_value(value: f32, gain: Option<&WaveformGain<'_>>, source_start: u64, f
     }
 }
 
-fn push_quad(
-    mesh: &mut Mesh,
-    a: egui::Pos2,
-    b: egui::Pos2,
-    c: egui::Pos2,
-    d: egui::Pos2,
-    color: Color32,
-) {
-    let base = mesh.vertices.len() as u32;
-    for pos in [a, b, c, d] {
-        mesh.vertices.push(Vertex {
-            pos,
-            uv: WHITE_UV,
-            color,
-        });
-    }
-    mesh.add_triangle(base, base + 1, base + 2);
-    mesh.add_triangle(base, base + 2, base + 3);
-}
-
 pub(crate) fn waveform_region(
     full_rect: Rect,
     clip_rect: Rect,
@@ -512,29 +283,6 @@ pub mod test_api {
     #[allow(clippy::wildcard_imports)]
     use super::*;
 
-    pub fn min_max(waveform: &AudioWaveform, start: u64, end: u64) -> (f32, f32) {
-        waveform.min_max(start as f64, end as f64, None)
-    }
-
-    pub fn min_max_at(
-        waveform: &AudioWaveform,
-        start: u64,
-        end: u64,
-        samples_per_pixel: f64,
-    ) -> (f32, f32) {
-        waveform.min_max(
-            start as f64,
-            end as f64,
-            waveform.level_for(samples_per_pixel),
-        )
-    }
-
-    pub fn level_for(waveform: &AudioWaveform, samples_per_pixel: f64) -> usize {
-        waveform
-            .level_for(samples_per_pixel)
-            .map_or(0, |level| level.bucket as usize)
-    }
-
     pub fn window_peak_level_for(waveform: &AudioWaveform, samples_per_pixel: f64) -> usize {
         waveform
             .window_peak_level_for(samples_per_pixel)
@@ -553,11 +301,6 @@ pub mod test_api {
 
     pub fn sample(waveform: &AudioWaveform, frame: u64) -> f32 {
         waveform.sample(frame)
-    }
-
-    /// Test-friendly projection of the private render-mode choice.
-    pub fn uses_sample_graph(samples_per_pixel: f64) -> bool {
-        super::waveform_mode(samples_per_pixel) == super::WaveformMode::SampleGraph
     }
 
     pub fn waveform_region(

@@ -250,7 +250,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `fine_drag.rs` | Shared coarse/fine drag offsets that accumulate across Shift toggles |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
-| `waveform.rs` | Signed min/max and cached window-peak pyramids, level-of-detail selection, sample-level drawing |
+| `waveform.rs` | Cached window-peak waveform pyramid, level-of-detail selection, sample-level drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
@@ -263,7 +263,7 @@ describes the extension subsystem and crate boundaries.
 | `main.rs` | Clap-based CLI entrypoint, demo/new/render/info/scan commands |
 | `gui/` | `eframe` app facade plus intents, audio supervision, recording, render, dialogs, plugin windows, extensions, platform edges |
 | `workspace/` | Project lifecycle facade plus command application, engine, persistence, transport, tracks, devices, device clipboard, clips, sample rate, render |
-| `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
+| `workspace/assets.rs` | Asset loading, import, relink, waveform pyramid, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |
 | `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |

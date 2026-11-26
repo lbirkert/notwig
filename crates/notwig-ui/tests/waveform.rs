@@ -4,17 +4,8 @@ use egui::{Rect, pos2};
 use notwig_core::{AudioAssetBuffer, Curve, CurvePoint, SampleRate, TempoMap, TimeMus};
 use notwig_ui::AudioWaveform;
 use notwig_ui::test_api::waveform::{
-    draw_waveform, draw_waveform_with_gain, level_for, min_max, min_max_at, sample,
-    uses_sample_graph, window_peak_at, window_peak_level_for,
+    draw_waveform, draw_waveform_with_gain, sample, window_peak_at, window_peak_level_for,
 };
-
-#[test]
-fn raw_min_max_keeps_signed_samples() {
-    let waveform = AudioWaveform::from_samples(vec![-0.5, 0.75, -0.25, 0.0]);
-    assert_eq!(waveform.frame_count(), 4);
-    assert_eq!(min_max(&waveform, 0, 4), (-0.5, 0.75));
-    assert_eq!(min_max(&waveform, 1, 2), (0.75, 0.75));
-}
 
 #[test]
 fn stereo_samples_are_downmixed_for_display() {
@@ -28,62 +19,6 @@ fn stereo_samples_are_downmixed_for_display() {
 }
 
 #[test]
-fn pyramid_levels_match_exact_ranges_at_their_bucket_size() {
-    let samples: Vec<f32> = (0..1024)
-        .map(|index| ((index as f32) * 0.017).sin())
-        .collect();
-    let waveform = AudioWaveform::from_samples(samples);
-    assert_eq!(level_for(&waveform, 64.0), 64);
-    assert_eq!(level_for(&waveform, 127.0), 64);
-    assert_eq!(level_for(&waveform, 128.0), 128);
-    assert_eq!(level_for(&waveform, 1024.0), 1024);
-    assert_eq!(
-        min_max_at(&waveform, 0, 1024, 64.0),
-        min_max(&waveform, 0, 1024)
-    );
-    assert_eq!(
-        min_max_at(&waveform, 0, 1024, 1024.0),
-        min_max(&waveform, 0, 1024)
-    );
-}
-
-#[test]
-fn waveform_mode_uses_envelope_above_the_sample_graph_threshold() {
-    assert!(
-        !uses_sample_graph(256.1),
-        "above the sample-graph threshold the pyramid envelope takes over"
-    );
-    assert!(
-        !uses_sample_graph(1_000.0),
-        "coarser zoom should stay on the pyramid envelope"
-    );
-}
-
-#[test]
-fn waveform_mode_starts_the_sample_graph_at_the_close_threshold() {
-    assert!(
-        uses_sample_graph(0.5),
-        "sub-pixel sample spacing should show individual samples"
-    );
-    assert!(
-        uses_sample_graph(8.0),
-        "the sample graph should engage before individual samples are visible"
-    );
-    assert!(
-        uses_sample_graph(64.0),
-        "close rendering should engage sooner than the baseline bucket"
-    );
-    assert!(
-        uses_sample_graph(255.9),
-        "just below the close threshold still uses the sample graph"
-    );
-    assert!(
-        uses_sample_graph(256.0),
-        "the sample-graph boundary is inclusive"
-    );
-}
-
-#[test]
 fn sample_graph_switches_between_cached_peak_levels() {
     let waveform = AudioWaveform::from_samples(
         (0..4_096)
@@ -94,6 +29,12 @@ fn sample_graph_switches_between_cached_peak_levels() {
     assert_eq!(window_peak_level_for(&waveform, 100.0), 64);
     assert_eq!(window_peak_level_for(&waveform, 200.0), 128);
     assert_eq!(window_peak_level_for(&waveform, 256.0), 256);
+    assert_eq!(window_peak_level_for(&waveform, 1_024.0), 1_024);
+    assert_eq!(
+        window_peak_level_for(&waveform, 100_000.0),
+        4_096,
+        "far zoom should use the whole-asset peak level"
+    );
 }
 
 #[test]
@@ -234,7 +175,7 @@ fn has_path(shape: &egui::Shape) -> bool {
 }
 
 #[test]
-fn sample_graph_is_adaptive_at_the_envelope_boundary() {
+fn sample_graph_is_adaptive_at_far_zoom() {
     let waveform = AudioWaveform::from_samples(vec![0.5; 51_200]);
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
