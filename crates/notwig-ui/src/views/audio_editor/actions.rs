@@ -169,7 +169,9 @@ fn handle_gain_actions(
             .map(|point| point.time)
             .max()
             .unwrap_or_else(TimeMus::zero);
-        let mut offset = end - start;
+        let mut offset = state
+            .bar_selection
+            .map_or(end - start, |range| range.length());
         if offset <= TimeMus::zero() {
             offset = TimeMus::new(1, 1);
         }
@@ -183,7 +185,9 @@ fn handle_gain_actions(
             .collect();
         if let Some(selection) = append_curve_points(&mut curve, copies) {
             state.curve_selection = selection;
-            state.bar_selection = None;
+            state.bar_selection = state
+                .bar_selection
+                .and_then(|range| RangeMus::new(range.start + offset, range.end + offset).ok());
             changed = true;
         }
     }

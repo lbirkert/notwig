@@ -216,7 +216,6 @@ pub fn show_with_background(
         if let Some(point) = add_point(curve, time, value) {
             selected.clear();
             selected.insert(point);
-            *time_selection = None;
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
@@ -247,9 +246,6 @@ pub fn show_with_background(
                     selected.insert(index);
                 }
                 response.selection_changed = true;
-            }
-            if !additive {
-                *time_selection = None;
             }
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
@@ -439,7 +435,7 @@ pub fn show_with_background(
         if point_response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
-        if point_response.double_clicked() {
+        if point_response.double_clicked() && selected.contains(&index) {
             let points: Vec<CurvePoint> = curve
                 .points()
                 .iter()
@@ -450,7 +446,6 @@ pub fn show_with_background(
             if let Ok(next) = Curve::from_points(points) {
                 *curve = next;
                 selected.clear();
-                *time_selection = None;
                 response.changed = true;
                 response.committed = true;
                 response.selection_changed = true;
@@ -466,7 +461,6 @@ pub fn show_with_background(
             } else if !selected.contains(&index) {
                 selected.clear();
                 selected.insert(index);
-                *time_selection = None;
             }
             response.selection_changed = true;
         }

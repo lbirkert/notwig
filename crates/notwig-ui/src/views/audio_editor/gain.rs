@@ -68,6 +68,12 @@ pub(super) fn draw_gain_line_editor(
             );
         },
     );
+    if let Some(selected) = selected_curve_range(&curve, &state.curve_selection) {
+        let start =
+            local_time_selection.map_or(selected.start, |range| range.start.min(selected.start));
+        let end = local_time_selection.map_or(selected.end, |range| range.end.max(selected.end));
+        local_time_selection = notwig_core::RangeMus::new(start, end).ok();
+    }
     state.bar_selection = local_time_selection.and_then(|range| {
         notwig_core::RangeMus::new(range.start + clip.range.start, range.end + clip.range.start)
             .ok()
@@ -176,6 +182,26 @@ fn draw_gain_waveform(
         source_end,
         gain.as_ref(),
     );
+}
+
+fn selected_curve_range(
+    curve: &notwig_core::Curve,
+    selection: &std::collections::BTreeSet<usize>,
+) -> Option<notwig_core::RangeMus> {
+    let mut start = None;
+    let mut end = None;
+    for index in selection {
+        let Some(point) = curve.points().get(*index) else {
+            continue;
+        };
+        start = Some(start.map_or(point.time, |value: notwig_core::TimeMus| {
+            value.min(point.time)
+        }));
+        end = Some(end.map_or(point.time, |value: notwig_core::TimeMus| {
+            value.max(point.time)
+        }));
+    }
+    notwig_core::RangeMus::new(start?, end?).ok()
 }
 
 fn format_gain(value: f64) -> String {

@@ -75,10 +75,12 @@ editor:
   made and starts a new offset from the current point);
 - double-click a point to delete it;
 - drag a point with **Cmd/Ctrl** or **Shift** to add it to the selection;
-- drag empty space to marquee-select points and set a time selection;
+- drag empty space to marquee-select points and set a time selection; selecting
+  points extends the time selection so it always covers them;
 - press **Backspace** to delete selected points;
 - use the normal audio-editor copy, cut, paste, and duplicate shortcuts on the
-  selected points;
+  selected points; duplicate uses the time-selection length as its offset and
+  paste starts at the time-selection start;
 - **Option/Alt**-drag a segment to bend its curvature: positive bends ease in,
   negative bends ease out; holding Option/Alt over a segment shows the curvature
   drag cursor;

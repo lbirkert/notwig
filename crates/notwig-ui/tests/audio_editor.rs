@@ -1854,6 +1854,52 @@ fn select_first_gain_point(
     let _ = run_panel(ctx, ui, doc, runtime, vec![pointer_event(point, false)]);
 }
 
+fn select_gain_point(
+    ui: &mut NotwigUi,
+    ctx: &egui::Context,
+    doc: &ProjectDoc,
+    runtime: &RuntimeView,
+    time: i64,
+    db: f64,
+) {
+    let content = ui.clip_editor_content_rect;
+    let point = egui::pos2(
+        content.left() + time as f32 * 80.0,
+        gain_editor_y(content, db),
+    );
+    let _ = run_panel(
+        ctx,
+        ui,
+        doc,
+        runtime,
+        vec![egui::Event::PointerMoved(point)],
+    );
+    let _ = run_panel(ctx, ui, doc, runtime, vec![pointer_event(point, true)]);
+    let _ = run_panel(ctx, ui, doc, runtime, vec![pointer_event(point, false)]);
+}
+
+#[test]
+fn selecting_gain_points_extends_the_time_selection() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    select_gain_point(&mut ui, &ctx, &doc, &runtime, 1, 0.0);
+    let first = ui
+        .clip_editor
+        .as_ref()
+        .and_then(ClipEditorState::bar_selection)
+        .expect("first point should create a time selection");
+    assert_eq!(first.start, TimeMus::new(1, 1));
+    select_gain_point(&mut ui, &ctx, &doc, &runtime, 3, 6.0);
+    let range = ui
+        .clip_editor
+        .as_ref()
+        .and_then(ClipEditorState::bar_selection)
+        .expect("selected points should keep a time selection");
+    assert_eq!(range.start, TimeMus::new(1, 1));
+    assert_eq!(range.end, TimeMus::new(3, 1));
+}
+
 #[test]
 fn gain_points_duplicate_with_the_audio_editor_selection() {
     let (doc, clip) = gain_curve_doc(id::<Clip>(60));
@@ -1890,6 +1936,106 @@ fn gain_points_duplicate_with_the_audio_editor_selection() {
         })
         .expect("duplicate should commit a gain curve");
     assert!(curve.points().len() > 2);
+}
+
+#[test]
+fn duplicate_uses_the_time_selection_length_as_offset() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    select_gain_point(&mut ui, &ctx, &doc, &runtime, 1, 0.0);
+    ui.clip_editor
+        .as_mut()
+        .expect("clip editor open")
+        .select_bar(RangeMus::new(TimeMus::new(1, 1), TimeMus::new(3, 1)).unwrap());
+    let modifiers = egui::Modifiers {
+        command: true,
+        ..Default::default()
+    };
+    let mut intents = Vec::new();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(panel_screen()),
+            modifiers,
+            events: vec![egui::Event::Key {
+                key: egui::Key::D,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            intents = ui.show(ctx, &doc, &runtime);
+        },
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("duplicate should commit a gain curve");
+    assert_eq!(curve.points_at(TimeMus::new(3, 1)).len(), 2);
+}
+
+#[test]
+fn copy_and_paste_gain_points_use_the_curve_clipboard() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let mut runtime = RuntimeView::default();
+    select_gain_point(&mut ui, &ctx, &doc, &runtime, 1, 0.0);
+    let intents = run_panel(&ctx, &mut ui, &doc, &runtime, vec![egui::Event::Copy]);
+    let copied = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipboard(Clipboard::Curve(points)) => Some(points.clone()),
+            _ => None,
+        })
+        .expect("copy should populate the curve clipboard");
+    assert_eq!(copied.len(), 1);
+    runtime.clipboard = Clipboard::Curve(copied);
+    ui.clip_editor
+        .as_mut()
+        .expect("clip editor open")
+        .select_bar(RangeMus::new(TimeMus::new(5, 1), TimeMus::new(6, 1)).unwrap());
+    let intents = run_panel(
+        &ctx,
+        &mut ui,
+        &doc,
+        &runtime,
+        vec![egui::Event::Paste("notwig-clipboard".into())],
+    );
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("paste should commit a gain curve");
+    assert_eq!(curve.points_at(TimeMus::new(5, 1)).len(), 1);
+}
+
+#[test]
+fn cut_gain_points_updates_the_clipboard_and_curve() {
+    let (doc, clip) = gain_curve_doc(id::<Clip>(60));
+    let (mut ui, ctx) = open_gain_editor(&doc, clip);
+    let runtime = RuntimeView::default();
+    select_gain_point(&mut ui, &ctx, &doc, &runtime, 1, 0.0);
+    let intents = run_panel(&ctx, &mut ui, &doc, &runtime, vec![egui::Event::Cut]);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::SetClipboard(Clipboard::Curve(points)) if points.len() == 1
+    )));
+    let curve = intents
+        .iter()
+        .find_map(|intent| match intent {
+            UiIntent::SetClipGainCurve { curve, .. } => curve.clone(),
+            _ => None,
+        })
+        .expect("cut should commit the remaining curve");
+    assert_eq!(curve.points().len(), 1);
 }
 
 #[test]
