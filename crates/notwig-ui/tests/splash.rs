@@ -20,7 +20,7 @@ fn count_meshes(shape: &egui::Shape) -> usize {
     }
 }
 
-fn run_splash(opacity: f32) -> egui::FullOutput {
+fn run_splash(content_opacity: f32, background_opacity: f32) -> egui::FullOutput {
     let ui = NotwigUi::default();
     let ctx = egui::Context::default();
     ctx.run(
@@ -32,14 +32,14 @@ fn run_splash(opacity: f32) -> egui::FullOutput {
             ..Default::default()
         },
         |ctx| {
-            ui.show_startup_splash(ctx, opacity);
+            ui.show_startup_splash(ctx, content_opacity, background_opacity);
         },
     )
 }
 
 #[test]
 fn startup_splash_paints_the_wordmark_and_logo() {
-    let output = run_splash(1.0);
+    let output = run_splash(1.0, 1.0);
     let mut texts = Vec::new();
     let mut meshes = 0;
     for clipped in &output.shapes {
@@ -57,8 +57,8 @@ fn startup_splash_paints_the_wordmark_and_logo() {
 }
 
 #[test]
-fn splash_background_stays_opaque_while_text_fades() {
-    let output = run_splash(0.1);
+fn splash_background_stays_opaque_while_text_fades_in() {
+    let output = run_splash(0.1, 1.0);
     let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 900.0));
     let background = output.shapes.iter().find_map(|clipped| {
         if let egui::Shape::Rect(shape) = &clipped.shape
@@ -81,8 +81,8 @@ fn splash_background_stays_opaque_while_text_fades() {
 }
 
 #[test]
-fn zero_opacity_paints_only_the_opaque_backdrop() {
-    let output = run_splash(0.0);
+fn entering_splash_paints_opaque_backdrop_without_text() {
+    let output = run_splash(0.0, 1.0);
     let mut texts = Vec::new();
     let mut meshes = 0;
     let mut has_backdrop = false;
@@ -96,9 +96,27 @@ fn zero_opacity_paints_only_the_opaque_backdrop() {
         }
     }
     assert!(has_backdrop, "the splash backdrop should not fade in");
+    assert!(texts.is_empty(), "text should be transparent at entry");
+    assert_eq!(meshes, 0, "logo should be transparent at entry");
+}
+
+#[test]
+fn splash_background_fades_out_with_text() {
+    let output = run_splash(0.5, 0.5);
+    let background = output.shapes.iter().find_map(|clipped| {
+        if let egui::Shape::Rect(shape) = &clipped.shape
+            && shape.rect.width() > 1000.0
+            && shape.rect.height() > 800.0
+        {
+            Some(shape.fill)
+        } else {
+            None
+        }
+    });
+    let background = background.expect("splash should still paint the fading backdrop");
     assert!(
-        texts.is_empty(),
-        "text should be fully transparent at 0 opacity"
+        (120..=136).contains(&background.a()),
+        "backdrop alpha should follow the exit fade, got {}",
+        background.a()
     );
-    assert_eq!(meshes, 0, "logo should be fully transparent at 0 opacity");
 }

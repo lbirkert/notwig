@@ -68,7 +68,12 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
 
 const STARTUP_SPLASH_DURATION: f32 = 1.5;
 const STARTUP_SPLASH_FADE_IN: f32 = 0.25;
-const STARTUP_SPLASH_FADE_OUT: f32 = 0.4;
+const STARTUP_SPLASH_FADE_OUT: f32 = 0.8;
+
+struct SplashOpacity {
+    content: f32,
+    background: f32,
+}
 
 struct StartupSplash {
     started: Instant,
@@ -81,7 +86,7 @@ impl StartupSplash {
         }
     }
 
-    fn opacity(&self) -> Option<f32> {
+    fn opacity(&self) -> Option<SplashOpacity> {
         let elapsed = self.started.elapsed().as_secs_f32();
         if elapsed >= STARTUP_SPLASH_DURATION {
             return None;
@@ -89,7 +94,11 @@ impl StartupSplash {
         let fade_in = (elapsed / STARTUP_SPLASH_FADE_IN).clamp(0.0, 1.0);
         let fade_out =
             ((STARTUP_SPLASH_DURATION - elapsed) / STARTUP_SPLASH_FADE_OUT).clamp(0.0, 1.0);
-        Some(fade_in.min(fade_out))
+        Some(SplashOpacity {
+            content: fade_in.min(fade_out),
+            // Never fade the backdrop in; it follows only the exit fade.
+            background: fade_out,
+        })
     }
 }
 
@@ -723,7 +732,8 @@ impl eframe::App for NotwigApp {
         }
         self.show_recovery_dialog(ctx);
         if let Some(opacity) = self.startup_splash.opacity() {
-            self.ui.show_startup_splash(ctx, opacity);
+            self.ui
+                .show_startup_splash(ctx, opacity.content, opacity.background);
             ctx.request_repaint();
         }
         if self.ui.take_shortcuts_dirty() {
