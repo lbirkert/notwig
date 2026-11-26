@@ -4,7 +4,8 @@ use egui::{Rect, pos2};
 use notwig_core::{AudioAssetBuffer, Curve, CurvePoint, SampleRate, TempoMap, TimeMus};
 use notwig_ui::AudioWaveform;
 use notwig_ui::test_api::waveform::{
-    draw_waveform, draw_waveform_with_gain, sample, window_peak_at, window_peak_level_for,
+    draw_waveform, draw_waveform_with_gain, far_level_for, far_peak_at, sample, uses_far_lines,
+    window_peak_at, window_peak_level_for,
 };
 
 #[test]
@@ -48,6 +49,28 @@ fn cached_peak_matches_the_exact_window_peak() {
     let waveform = AudioWaveform::from_samples(samples);
     let actual = window_peak_at(&waveform, 8.0, 0).expect("bucket 8 peak");
     assert_eq!(actual, -0.9);
+}
+
+#[test]
+fn cached_far_peaks_keep_positive_and_negative_extremes() {
+    let samples: Vec<f32> = (0..512)
+        .map(|index| match index {
+            3 => -0.9,
+            5 => 0.8,
+            _ => 0.0,
+        })
+        .collect();
+    let waveform = AudioWaveform::from_samples(samples);
+    assert_eq!(far_level_for(&waveform, 64.0), 64);
+    assert_eq!(far_peak_at(&waveform, 64.0, 0), Some((-0.9, 0.8)));
+}
+
+#[test]
+fn far_lines_take_over_above_the_sample_graph_threshold() {
+    assert!(!uses_far_lines(0.5));
+    assert!(!uses_far_lines(256.0));
+    assert!(uses_far_lines(256.1));
+    assert!(uses_far_lines(1_000.0));
 }
 
 #[test]
@@ -158,6 +181,41 @@ fn close_zoom_sample_graph_draws_only_the_area() {
     );
 }
 
+#[test]
+fn far_zoom_draws_positive_and_negative_peak_lines() {
+    let waveform = AudioWaveform::from_samples(
+        (0..1_000_000)
+            .map(|index| if index % 2 == 0 { 0.5 } else { -0.5 })
+            .collect::<Vec<f32>>(),
+    );
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
+            draw_waveform(&painter, clip, clip, &waveform, 0, 1_000_000);
+        },
+    );
+    assert!(
+        !output.shapes.iter().any(|clipped| has_mesh(&clipped.shape)),
+        "far rendering should not fill an area"
+    );
+    assert_eq!(
+        output
+            .shapes
+            .iter()
+            .map(|clipped| path_count(&clipped.shape))
+            .sum::<usize>(),
+        2,
+        "far rendering should draw one positive and one negative peak line"
+    );
+}
+
 fn has_mesh(shape: &egui::Shape) -> bool {
     match shape {
         egui::Shape::Mesh(_) => true,
@@ -174,8 +232,16 @@ fn has_path(shape: &egui::Shape) -> bool {
     }
 }
 
+fn path_count(shape: &egui::Shape) -> usize {
+    match shape {
+        egui::Shape::Path(_) => 1,
+        egui::Shape::Vec(shapes) => shapes.iter().map(path_count).sum(),
+        _ => 0,
+    }
+}
+
 #[test]
-fn sample_graph_is_adaptive_at_far_zoom() {
+fn sample_graph_is_adaptive_below_the_far_boundary() {
     let waveform = AudioWaveform::from_samples(vec![0.5; 51_200]);
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));

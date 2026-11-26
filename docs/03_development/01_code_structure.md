@@ -78,7 +78,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 | `ids.rs` | Typed opaque IDs (`Id<T>`, `TrackId`, `ClipId`, ...) |
 | `time.rs` | Musical/audio time, ranges, tempo map, units, colors, schema version |
 | `tracks.rs` | Track kinds, routing, mixer, track forest/projections |
-| `sequencer.rs` | Arranger clips, MIDI/audio payloads, notes, audio slices, audio gain curves |
+| `sequencer.rs` | Arranger clips, MIDI/audio payloads, notes, audio slices, audio gain and pan curves |
 | `curve.rs` | Reusable ordered time/value curve, curvature interpolation, and validation |
 | `protocol/` | Command, delta, query, plan, schedule, engine-message, and runtime-event schemas in focused modules |
 | `apply/` | Pure-ish command application: dispatch, transport, tracks, clips, notes, devices, assets, audio math |
@@ -233,7 +233,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, gain line-editor adapter; panel split into range selection, slice paint, slice gestures |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared gain/pan/extension curve adapter; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
@@ -250,7 +250,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `fine_drag.rs` | Shared coarse/fine drag offsets that accumulate across Shift toggles |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
-| `waveform.rs` | Cached window-peak waveform pyramid, level-of-detail selection, sample-level drawing |
+| `waveform.rs` | Cached window-peak and min/max waveform pyramids, level-of-detail selection, close area and far line drawing |
 | `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
@@ -263,7 +263,7 @@ describes the extension subsystem and crate boundaries.
 | `main.rs` | Clap-based CLI entrypoint, demo/new/render/info/scan commands |
 | `gui/` | `eframe` app facade plus intents, audio supervision, recording, render, dialogs, plugin windows, extensions, platform edges |
 | `workspace/` | Project lifecycle facade plus command application, engine, persistence, transport, tracks, devices, device clipboard, clips, sample rate, render |
-| `workspace/assets.rs` | Asset loading, import, relink, waveform pyramid, engine asset preparation |
+| `workspace/assets.rs` | Asset loading, import, relink, waveform pyramids, engine asset preparation |
 | `workspace/recovery.rs` | Session lock lifecycle, autosave recovery, discard |
 | `web/mod.rs` | Browser app construction |
 | `web/storage.rs` | OPFS project and extension storage, project picker, and ZIP download |

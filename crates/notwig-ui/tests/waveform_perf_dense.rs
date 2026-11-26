@@ -1,6 +1,6 @@
 use egui::{Rect, pos2};
 use notwig_ui::AudioWaveform;
-use notwig_ui::test_api::waveform::{draw_waveform, window_peak_level_for};
+use notwig_ui::test_api::waveform::{draw_waveform, far_level_for, window_peak_level_for};
 
 fn dense_samples(count: usize) -> Vec<f32> {
     (0..count)
@@ -21,12 +21,34 @@ fn cached_window_peaks_cover_all_zoom_levels() {
         65_536,
         "far zoom should use the whole-asset peak level"
     );
+    assert_eq!(far_level_for(&waveform, 64.0), 64);
+    assert_eq!(far_level_for(&waveform, 1_000.0), 512);
+    assert_eq!(
+        far_level_for(&waveform, 1_000_000.0),
+        65_536,
+        "far lines should use the whole-asset peak level"
+    );
 }
 
 fn mesh_indices(output: &egui::FullOutput) -> usize {
     fn count(shape: &egui::Shape) -> usize {
         match shape {
             egui::Shape::Mesh(mesh) => mesh.indices.len(),
+            egui::Shape::Vec(shapes) => shapes.iter().map(count).sum(),
+            _ => 0,
+        }
+    }
+    output
+        .shapes
+        .iter()
+        .map(|clipped| count(&clipped.shape))
+        .sum()
+}
+
+fn path_point_count(output: &egui::FullOutput) -> usize {
+    fn count(shape: &egui::Shape) -> usize {
+        match shape {
+            egui::Shape::Path(path) => path.points.len(),
             egui::Shape::Vec(shapes) => shapes.iter().map(count).sum(),
             _ => 0,
         }
@@ -70,7 +92,7 @@ fn dense_sample_graph_bounds_geometry() {
 }
 
 #[test]
-fn far_zoom_window_peak_graph_bounds_geometry() {
+fn far_zoom_line_envelope_bounds_geometry() {
     let waveform = AudioWaveform::from_samples(dense_samples(1_000_000));
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
@@ -88,14 +110,19 @@ fn far_zoom_window_peak_graph_bounds_geometry() {
     );
 
     assert_eq!(
-        window_peak_level_for(&waveform, 1_000.0),
+        far_level_for(&waveform, 1_000.0),
         512,
         "far zoom should use a coarse cached peak level"
     );
-    let indices = mesh_indices(&output);
-    assert!(indices > 0, "the waveform should draw something");
+    assert_eq!(
+        mesh_indices(&output),
+        0,
+        "far rendering should not fill an area"
+    );
+    let points = path_point_count(&output);
+    assert!(points > 0, "the waveform should draw peak lines");
     assert!(
-        indices < 10_000,
-        "far view built {indices} indices; it should scale with pixels"
+        points <= 2 * 801,
+        "far view built {points} line points; it should scale with pixels"
     );
 }

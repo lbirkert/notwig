@@ -150,13 +150,15 @@ resolved times and never snaps.
 
 Waveforms are read-only view data in an `Arc<WaveformCache>` keyed by `AssetId`.
 Display samples are per-channel means. A cached window-peak pyramid starts at an
-8-sample bucket and doubles to the whole asset. `draw_waveform` maps the
-requested `full_rect` linearly onto the source window, intersects it with the
-visible clip, clamps to the asset's frame count, and builds only visible
-geometry. The sample graph reads the cached peak level for the current zoom (or
-decoded samples at the closest zoom) and fills the area without an extra stroke.
-Sliced waveforms start after `silent_prefix_samples`; over-trimmed events never
-stretch the source.
+8-sample bucket and doubles to the whole asset; a cached min/max pyramid starts
+at a 64-sample bucket. `draw_waveform` maps the requested `full_rect` linearly
+onto the source window, intersects it with the visible clip, clamps to the
+asset's frame count, and builds only visible geometry. At 256 or fewer samples
+per pixel the sample graph reads cached window peaks (or decoded samples at the
+closest zoom) and fills the area without an extra stroke. Above that, far
+rendering reads min/max and draws one-pixel positive and negative peak lines
+instead of an area. Sliced waveforms start after `silent_prefix_samples`;
+over-trimmed events never stretch the source.
 
 
 ## Clip editor negative time
