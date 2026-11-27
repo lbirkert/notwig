@@ -4,8 +4,7 @@ use egui::{Rect, pos2};
 use notwig_core::{AudioAssetBuffer, Curve, CurvePoint, SampleRate, TempoMap, TimeMus};
 use notwig_ui::AudioWaveform;
 use notwig_ui::test_api::waveform::{
-    draw_waveform, draw_waveform_with_gain, far_level_for, far_peak_at, sample, uses_far_lines,
-    window_peak_at, window_peak_level_for,
+    draw_waveform, draw_waveform_with_gain, peak_level_blocks, range_peak, sample, uses_far_lines,
 };
 
 #[test]
@@ -20,49 +19,50 @@ fn stereo_samples_are_downmixed_for_display() {
 }
 
 #[test]
-fn sample_graph_switches_between_cached_peak_levels() {
-    let waveform = AudioWaveform::from_samples(
-        (0..4_096)
-            .map(|index| (index as f32 * 0.05).sin())
-            .collect::<Vec<f32>>(),
-    );
-    assert_eq!(window_peak_level_for(&waveform, 8.0), 8);
-    assert_eq!(window_peak_level_for(&waveform, 100.0), 64);
-    assert_eq!(window_peak_level_for(&waveform, 200.0), 128);
-    assert_eq!(window_peak_level_for(&waveform, 256.0), 256);
-    assert_eq!(window_peak_level_for(&waveform, 1_024.0), 1_024);
+fn peak_hierarchy_uses_power_of_four_blocks() {
+    let waveform = AudioWaveform::from_samples(vec![0.0; 4_096]);
     assert_eq!(
-        window_peak_level_for(&waveform, 100_000.0),
-        4_096,
-        "far zoom should use the whole-asset peak level"
+        peak_level_blocks(&waveform),
+        vec![4, 16, 64, 256, 1_024, 4_096]
     );
 }
 
 #[test]
-fn cached_peak_matches_the_exact_window_peak() {
-    let samples: Vec<f32> = (0..512)
-        .map(|index| {
-            let position = index as f32 / 512.0;
-            if index == 3 { -0.9 } else { position }
-        })
-        .collect();
-    let waveform = AudioWaveform::from_samples(samples);
-    let actual = window_peak_at(&waveform, 8.0, 0).expect("bucket 8 peak");
-    assert_eq!(actual, -0.9);
-}
-
-#[test]
-fn cached_far_peaks_keep_positive_and_negative_extremes() {
-    let samples: Vec<f32> = (0..512)
+fn range_peak_matches_brute_force_for_arbitrary_spans() {
+    let samples: Vec<f32> = (0..4_096)
         .map(|index| match index {
             3 => -0.9,
             5 => 0.8,
-            _ => 0.0,
+            1_000 => -1.0,
+            2_000 => 0.95,
+            _ => (index as f32 * 0.017).sin() * 0.5,
         })
         .collect();
-    let waveform = AudioWaveform::from_samples(samples);
-    assert_eq!(far_level_for(&waveform, 64.0), 64);
-    assert_eq!(far_peak_at(&waveform, 64.0, 0), Some((-0.9, 0.8)));
+    let waveform = AudioWaveform::from_samples(samples.clone());
+    for (start, end) in [
+        (0, 1),
+        (0, 3),
+        (1, 4),
+        (3, 17),
+        (5, 100),
+        (63, 64),
+        (64, 65),
+        (100, 1_000),
+        (1, 4_095),
+        (0, 4_096),
+        (4_090, 4_096),
+    ] {
+        let (expected_min, expected_max) = samples[start..end]
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &value| {
+                (min.min(value), max.max(value))
+            });
+        let actual = range_peak(&waveform, start as u64, end as u64);
+        assert!(
+            (actual.0 - expected_min).abs() < 1e-6 && (actual.1 - expected_max).abs() < 1e-6,
+            "span {start}..{end}: {actual:?} != ({expected_min}, {expected_max})"
+        );
+    }
 }
 
 #[test]

@@ -19,11 +19,11 @@ There are three separate paths, and only one of them is a real CPU cost:
 2. **Full import.** `notwig_project::import_asset` decodes the whole source,
    resamples it to the project rate with `rubato`, duplicates mono to stereo,
    encodes a managed WAV in memory, hashes the final bytes, writes the file, and
-   returns the PCM buffer. `Workspace` then builds the cached window-peak and
-   min/max waveform pyramids used by rendering (see
+   returns the PCM buffer. `Workspace` then builds the cached power-of-four
+   waveform peak hierarchy used by rendering (see
    [`Waveform Rendering`](10_waveform_rendering.md)).
 3. **Project load.** `Workspace::load_assets` decodes every stored WAV asset and
-   rebuilds its waveform pyramids synchronously while opening the project.
+   rebuilds its waveform peak hierarchy synchronously while opening the project.
 
 There is no spectral analysis, loudness analysis, transient detection, or GPU
 work today. The visible "Analyzing audio..." state is the import pipeline.
@@ -45,14 +45,14 @@ For a dropped or imported file:
 6. `write_wav_f32_bytes` encodes a 32-bit float WAV in memory.
 7. `hash_bytes` computes SHA-256 over those final WAV bytes. The bytes are
    written to the asset-unique temp path and renamed to `<hash>.wav`.
-8. On the UI thread, `complete_audio_import` builds the waveform pyramids and
+8. On the UI thread, `complete_audio_import` builds the waveform peak hierarchy and
    applies document commands.
 
 Multiple files share one import thread, so imports are serialized. Project open
 does its decoding and waveform work synchronously on the loading thread.
 
 The bundle already reserves a `peaks/` directory, but nothing writes to or reads
-from it. Waveform pyramids are rebuilt from PCM every time.
+from it. The waveform peak hierarchy is rebuilt from PCM every time.
 
 ## 3. Measurements
 
@@ -73,7 +73,7 @@ times; they include single-thread work only.
 | `resample` High (44.1 -> 48) | 228 ms | ~56 ms | `rubato` synchronous FFT |
 | `resample` Standard (44.1 -> 48) | 24 ms | ~56 ms | Same `rubato` FFT path |
 | Same-rate `resample` | 1.7 ms | 1.8 ms | Buffer clone |
-| Waveform pyramids, window peak + far min/max (replaces flat 2048-bucket peaks) | 11 ms | ~11-15 ms | One linear post-decode pass; levels go up to the whole asset |
+| Waveform peak hierarchy, 4x per level (replaces flat 2048-bucket peaks) | 11 ms | ~11-15 ms | One linear post-decode pass; levels go up to the whole asset |
 | Encode WAV bytes | - | 8 ms | New in-memory encode |
 | SHA-256 over WAV bytes | 63 ms | 63 ms | Still the dominant hash cost |
 | Write WAV bytes to disk | 20 ms | 14 ms | Same managed file |
@@ -143,7 +143,7 @@ the rest of the workspace stays at `opt-level = 0`. The first build after a
 clean checkout pays a one-time cost to compile optimized dependencies.
 
 Normalize per minute of stereo audio: decoding is 13-42 ms, `rubato` resampling
-is about 56 ms, the waveform pyramids are about 11-15 ms, and encoding plus hashing
+is about 56 ms, the waveform peak hierarchy is about 11-15 ms, and encoding plus hashing
 plus writing is about 85 ms. Opening a project still repeats decode plus waveform
 work for every asset, so a
 project with ten five-minute assets pays roughly 1.3 s of avoidable synchronous
@@ -156,7 +156,7 @@ The large gap is more likely architectural than a missing GPU decoder:
 - Notwig eagerly decodes **and** resamples **and** transcodes to WAV on import.
   A DAW can instead keep the original compressed file, build a waveform cache,
   and defer or stream decoding.
-- Notwig rebuilds waveform pyramids on every open. A persistent waveform cache
+- Notwig rebuilds the waveform peak hierarchy on every open. A persistent waveform cache
   is the standard DAW solution and is already implied by the bundle layout.
 - Notwig imports one file at a time on a single worker thread.
 - The old custom resampler computed two `sin` calls per tap per output frame.
@@ -229,7 +229,7 @@ shader-compilation overhead.
 | Avoid write-then-read-back hashing | **Implemented.** Removes the extra disk read; SHA-256 itself remains | Done; filename is still SHA-256 of stored bytes |
 | Precompute a custom sinc kernel table | Prototype was ~33 ms for the same clip, slightly faster than `rubato` | Not needed unless `rubato` overhead becomes material |
 | Use a faster content hash (for example BLAKE3) | Would attack the remaining ~63 ms SHA-256 cost at 48 kHz | Medium: changes asset naming/hash format |
-| Persist waveform pyramids under `peaks/` keyed by asset hash | Removes about 11 ms per minute per asset on open and re-import | Medium: needs a versioned waveform format and invalidation |
+| Persist the waveform peak hierarchy under `peaks/` keyed by asset hash | Removes about 11 ms per minute per asset on open and re-import | Medium: needs a versioned waveform format and invalidation |
 | Parallelize imports across files | Near-linear for multi-file drops on multiple cores | Medium: worker pool, ordering, error reporting, memory pressure |
 | Stream decode from `File`, preallocate output, reuse `SampleBuffer` | Modest decode improvement; avoids whole-file memory copy and per-packet allocations | Low-medium; touches the Symphonia loop |
 | Use a WAV fast path (`hound` or direct PCM conversion) | Avoids general-purpose codec overhead for the common case | Low; keeps Symphonia for compressed formats |
@@ -251,7 +251,7 @@ the current waveform renderer.
 
 The first two CPU items are done. The remaining work, in order:
 
-1. Persist and version waveform pyramids in `peaks/`; load them on open instead of decoding
+1. Persist and version the waveform peak hierarchy in `peaks/`; load it on open instead of decoding
    every asset synchronously.
 2. Decide whether the remaining SHA-256 cost is acceptable. If not, evaluate a
    faster content hash such as BLAKE3 (this changes asset naming semantics and
