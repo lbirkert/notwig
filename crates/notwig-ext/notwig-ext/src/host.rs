@@ -5,8 +5,8 @@ use std::sync::Arc;
 use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
-    ExtensionInfo, ExtensionManifest, ExtensionSettings, ExtensionStatus, target,
+    AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
+    DevicePanelHost, ExtensionInfo, ExtensionManifest, ExtensionSettings, ExtensionStatus, target,
 };
 use wasmtime::Module;
 
@@ -18,6 +18,7 @@ use crate::error::ExtensionError;
 use crate::instance::ExtensionInstance;
 use crate::native::NativeLibrary;
 use crate::panel::ExtensionPanelHost;
+use crate::sub_editor::ExtensionAudioSubEditorHost;
 
 /// Loaded extension registry and entry point for host integration.
 ///
@@ -44,6 +45,7 @@ impl ExtensionHost {
         let mut by_command = BTreeMap::new();
         let mut commands = BTreeMap::new();
         let mut audio_sub_editors = BTreeMap::new();
+        let mut by_audio_sub_editor = BTreeMap::new();
         let mut infos = Vec::new();
 
         for failure in report.failures {
@@ -102,6 +104,7 @@ impl ExtensionHost {
                         );
                     } else {
                         audio_sub_editors.insert(editor.id.clone(), editor.clone());
+                        by_audio_sub_editor.insert(editor.id.clone(), Arc::clone(&extension));
                     }
                 }
             }
@@ -112,6 +115,7 @@ impl ExtensionHost {
                 engines,
                 by_type,
                 by_command,
+                by_audio_sub_editor,
                 commands,
                 audio_sub_editors,
                 infos,
@@ -178,6 +182,12 @@ impl ExtensionHost {
     #[must_use]
     pub fn panel_host(&self) -> Box<dyn DevicePanelHost> {
         Box::new(ExtensionPanelHost::new(Arc::clone(&self.loaded)))
+    }
+
+    /// Creates a host that keeps per-clip extension sub-editor UI state.
+    #[must_use]
+    pub fn audio_sub_editor_host(&self) -> Box<dyn AudioSubEditorHost> {
+        Box::new(ExtensionAudioSubEditorHost::new(Arc::clone(&self.loaded)))
     }
 }
 

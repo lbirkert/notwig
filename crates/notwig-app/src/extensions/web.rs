@@ -11,8 +11,8 @@ use notwig_ext::{
     validate_extension_id,
 };
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
-    ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
+    AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
+    DevicePanelHost, ExtensionConfig, ExtensionIndexEntry, ExtensionInfo, ExtensionStatus,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
@@ -256,6 +256,12 @@ impl ExtensionManager {
 
     pub(crate) fn factory(&self) -> Option<Arc<dyn DeviceFactory>> {
         self.host.as_ref().map(WebExtensionHost::factory)
+    }
+
+    pub(crate) fn audio_sub_editor_host(&self) -> Option<Box<dyn AudioSubEditorHost>> {
+        self.host
+            .as_ref()
+            .map(WebExtensionHost::audio_sub_editor_host)
     }
 
     pub(crate) fn panel_host(&self) -> Option<Box<dyn DevicePanelHost>> {

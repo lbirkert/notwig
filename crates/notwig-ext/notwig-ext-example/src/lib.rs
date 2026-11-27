@@ -5,32 +5,95 @@
 //! modifies existing selected notes only; the host applies the batch and
 //! records one undo entry.
 //!
-//! `notwig.ext.example.pan` demonstrates an audio-editor sub-editor. The host
-//! owns the shared curve editor, the canonical clip pan curve, and the undo
-//! boundary; the extension only declares the sub-editor and its value mapping.
+//! `notwig.ext.example.pan` demonstrates an extension-drawn audio-editor
+//! sub-editor. The host owns the clip data, context snapshot, validation, and
+//! undo boundary; the extension draws its own panel and returns host-owned
+//! edits.
 
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
+use notwig_core::{Curve, CurvePoint};
 use notwig_ext_api::{
-    CommandContext, CommandEdit, CommandEffect, CommandExtension, CurveTarget, CurveTargetSpec,
-    CurveValueFormat, Extension, notwig_extension,
+    AudioSubEditorContext, AudioSubEditorExtension, CommandContext, CommandEdit, CommandEffect,
+    CommandExtension, Extension, notwig_extension,
 };
 
 /// Humanize command id. This must match `extension.json`.
 pub const HUMANIZE_COMMAND_ID: &str = "notwig.ext.example.humanize";
 /// Clip pan sub-editor id. This must match `extension.json`.
 pub const PAN_SUB_EDITOR_ID: &str = "notwig.ext.example.pan";
+/// Renderer id registered for the clip pan sub-editor.
+pub const PAN_RENDERER_ID: &str = "notwig.ext.example.pan_editor";
 
-/// Value mapping declared by the clip pan sub-editor.
-#[must_use]
-pub const fn pan_target_spec() -> CurveTargetSpec {
-    CurveTargetSpec {
-        target: CurveTarget::Pan,
-        value_min: -1.0,
-        value_max: 1.0,
-        baseline: Some(0.0),
-        format: CurveValueFormat::Pan,
+/// Extension-drawn clip pan sub-editor.
+#[derive(Debug, Default)]
+pub struct PanSubEditor {
+    value: f64,
+    committed: Option<f64>,
+    initialized: bool,
+}
+
+impl AudioSubEditorExtension for PanSubEditor {
+    fn new() -> Self {
+        Self::default()
     }
+
+    fn draw(
+        &mut self,
+        ui: &mut notwig_ext_api::egui::Ui,
+        context: &AudioSubEditorContext,
+    ) -> CommandEffect {
+        if !self.initialized {
+            self.value = initial_pan(&context.clip);
+            self.committed = Some(self.value);
+            self.initialized = true;
+        }
+        let mut changed = false;
+        ui.vertical_centered(|ui| {
+            ui.add_space(12.0);
+            ui.heading("Clip Pan");
+            ui.label("Draws and commits through the shown host edit family.");
+            changed = ui
+                .add(
+                    notwig_ext_api::egui::Slider::new(&mut self.value, -1.0..=1.0)
+                        .text("Pan")
+                        .show_value(true),
+                )
+                .changed();
+        });
+        let released = ui.input(|input| !input.pointer.primary_down());
+        if !changed || !released || self.committed == Some(self.value) {
+            return CommandEffect::None;
+        }
+        self.committed = Some(self.value);
+        pan_effect(context, self.value)
+    }
+}
+
+fn pan_effect(context: &AudioSubEditorContext, value: f64) -> CommandEffect {
+    let length = context.clip_range.length();
+    let Ok(curve) = Curve::from_points([
+        CurvePoint::new(TimeMus::zero(), value),
+        CurvePoint::new(length, value),
+    ]) else {
+        return CommandEffect::None;
+    };
+    CommandEffect::Apply {
+        edits: vec![CommandEdit::AudioCurves {
+            clip_id: context.clip_id,
+            gain_curve: None,
+            pan_curve: Some(Some(curve)),
+        }],
+        ui: Vec::new(),
+    }
+}
+
+fn initial_pan(clip: &notwig_ext_api::AudioSubEditorClip) -> f64 {
+    clip.pan_curve
+        .as_ref()
+        .and_then(|curve| curve.points().first().map(|point| point.value))
+        .unwrap_or(0.0)
+        .clamp(-1.0, 1.0)
 }
 
 /// Nudges selected note timing and velocity deterministically.
@@ -83,6 +146,7 @@ impl CommandExtension for HumanizeCommand {
 #[notwig_extension]
 pub fn extension(extension: &mut Extension) {
     extension.register_command::<HumanizeCommand>(HUMANIZE_COMMAND_ID);
+    extension.register_audio_sub_editor::<PanSubEditor>(PAN_RENDERER_ID);
 }
 
 fn note_seed(revision: u64, id: &str) -> u32 {
@@ -99,7 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pan_target_spec_matches_the_manifest() {
+    fn pan_renderer_matches_the_manifest() {
         let manifest: serde_json::Value =
             serde_json::from_str(include_str!("../extension.json")).expect("valid manifest json");
         let contribution = manifest["contributes"]
@@ -116,13 +180,58 @@ mod tests {
             contribution["contract"],
             notwig_ext_api::AUDIO_SUB_EDITOR_CONTRACT
         );
-        let kind = &contribution["kind"]["curve"];
-        let spec = pan_target_spec();
-        assert_eq!(kind["target"], spec.target.as_str());
-        assert_eq!(kind["value_min"], spec.value_min);
-        assert_eq!(kind["value_max"], spec.value_max);
-        assert_eq!(kind["baseline"], spec.baseline.expect("baseline"));
-        assert_eq!(kind["format"], "pan");
+        assert_eq!(contribution["kind"]["custom"]["renderer"], PAN_RENDERER_ID);
+    }
+
+    #[test]
+    fn pan_editor_commits_a_host_curve_edit() {
+        use notwig_core::sequencer::AudioClipData;
+        use notwig_core::{AssetId, ClipId, Db, FadeShape};
+        use uuid::Uuid;
+
+        let audio = AudioClipData {
+            asset_id: AssetId::from_uuid(Uuid::from_u128(1)),
+            source_start_sample: 0,
+            source_end_sample: 48_000,
+            gain_db: Db(0.0),
+            gain_curve: None,
+            pan_curve: None,
+            fade_in_samples: 0,
+            fade_out_samples: 0,
+            fade_shape: FadeShape::Linear,
+            slices: Vec::new(),
+            slices_enabled: false,
+        };
+        let context = AudioSubEditorContext {
+            editor_id: PAN_SUB_EDITOR_ID.into(),
+            revision: 1,
+            clip_id: ClipId::from_uuid(Uuid::from_u128(2)),
+            track_id: notwig_core::TrackId::from_uuid(Uuid::from_u128(3)),
+            clip_range: notwig_core::RangeMus::new(TimeMus::zero(), TimeMus::new(4, 1))
+                .expect("range"),
+            clip: audio.into(),
+            selected_slices: Vec::new(),
+            time_selection: None,
+            playhead: TimeMus::zero(),
+            loop_range: None,
+            tempo_bpm: 120.0,
+            sample_rate: 48_000,
+            snap_enabled: true,
+            grid: TimeMus::new(1, 4),
+            viewport_start: TimeMus::zero(),
+            pixels_per_beat: 80.0,
+            width: 400.0,
+            height: 200.0,
+            theme: notwig_ext_api::ThemeSnapshot::default(),
+            input: notwig_ext_api::panel_frame::PanelInput::default(),
+        };
+        let effect = pan_effect(&context, 0.25);
+        match effect {
+            CommandEffect::Apply { edits, .. } => {
+                assert!(matches!(edits[0], CommandEdit::AudioCurves { .. }));
+            }
+            other => panic!("expected an apply effect, got {other:?}"),
+        }
     }
 
     #[cfg(test)]

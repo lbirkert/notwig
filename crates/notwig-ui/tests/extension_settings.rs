@@ -39,7 +39,7 @@ fn runtime() -> RuntimeView {
         name: "Notwig Stock Devices".into(),
         vendor: "Notwig".into(),
         version: "0.1.0".into(),
-        api_version: 5,
+        api_version: 6,
         urls: vec![ExtensionIndexUrl {
             url: "https://example.com/notwig.ext.devices.zip".into(),
             hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
@@ -172,7 +172,7 @@ fn index_entry(hash: &str, targets: &[&str]) -> ExtensionIndexEntry {
         name: "Notwig Stock Devices".into(),
         vendor: "Notwig".into(),
         version: "0.1.0".into(),
-        api_version: 5,
+        api_version: 6,
         urls: vec![ExtensionIndexUrl {
             url: "https://example.com/notwig.ext.devices.zip".into(),
             hash: hash.into(),

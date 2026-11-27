@@ -32,6 +32,7 @@ pub(crate) struct LoadedExtensions {
     pub(crate) engines: Arc<ExtensionEngines>,
     pub(crate) by_type: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) by_command: BTreeMap<String, Arc<LoadedExtension>>,
+    pub(crate) by_audio_sub_editor: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) commands: BTreeMap<String, CommandDescriptor>,
     pub(crate) audio_sub_editors: BTreeMap<String, AudioSubEditorDescriptor>,
     pub(crate) infos: Vec<ExtensionInfo>,
@@ -44,6 +45,10 @@ impl LoadedExtensions {
 
     pub(crate) fn find_command(&self, command_id: &str) -> Option<&Arc<LoadedExtension>> {
         self.by_command.get(command_id)
+    }
+
+    pub(crate) fn find_audio_sub_editor(&self, editor_id: &str) -> Option<&Arc<LoadedExtension>> {
+        self.by_audio_sub_editor.get(editor_id)
     }
 
     pub(crate) fn commands(&self) -> Vec<CommandDescriptor> {

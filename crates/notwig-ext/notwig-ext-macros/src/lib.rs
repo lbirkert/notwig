@@ -39,8 +39,10 @@ use syn::{ItemFn, parse_macro_input};
 /// Both ABIs export `notwig_abi_version`, `notwig_device_describe`,
 /// `notwig_device_create`, `notwig_device_destroy`, `notwig_device_prepare`,
 /// `notwig_device_set_param`, `notwig_device_process`, `notwig_device_latency`,
-/// and `notwig_device_draw`. The WASM build additionally exports
-/// `notwig_alloc` and `notwig_free` for the host scratch heap.
+/// `notwig_device_draw`, `notwig_audio_sub_editor_create`,
+/// `notwig_audio_sub_editor_destroy`, and `notwig_audio_sub_editor_draw`. The
+/// WASM build additionally exports `notwig_alloc` and `notwig_free` for the
+/// host scratch heap.
 ///
 /// # ABI and panics
 ///
@@ -88,6 +90,39 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
             })
         }
     };
+    let wasm_sub_editor_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_audio_sub_editor_create(
+            renderer_ptr: i32,
+            renderer_len: i32,
+        ) -> i32 {
+            catch_value(-1, || {
+                with_str(renderer_ptr, renderer_len, |renderer| {
+                    extension().create_audio_sub_editor(renderer)
+                })
+                .unwrap_or(-1)
+            })
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_audio_sub_editor_destroy(handle: i32) {
+            catch_unit(|| extension().destroy_audio_sub_editor(handle));
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_audio_sub_editor_draw(
+            handle: i32,
+            ctx_ptr: i32,
+            ctx_len: i32,
+        ) -> i64 {
+            catch_value(0, || {
+                with_bytes(ctx_ptr, ctx_len, |bytes| {
+                    extension().draw_audio_sub_editor_pointer(handle, bytes)
+                })
+                .unwrap_or(0)
+            })
+        }
+    };
     let native_draw_exports = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn notwig_device_draw(
@@ -125,6 +160,47 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                     .unwrap_or(0)
                 })
                 .unwrap_or(0)
+            })
+        }
+    };
+    let native_sub_editor_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_audio_sub_editor_create(
+            renderer_ptr: *const u8,
+            renderer_len: usize,
+        ) -> i32 {
+            catch_value(-1, || {
+                unsafe {
+                    with_str_ptr(renderer_ptr, renderer_len, |renderer| {
+                        extension().create_audio_sub_editor(renderer)
+                    })
+                }
+                .unwrap_or(-1)
+            })
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_audio_sub_editor_destroy(handle: i32) {
+            catch_unit(|| extension().destroy_audio_sub_editor(handle));
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_audio_sub_editor_draw(
+            handle: i32,
+            ctx_ptr: *const u8,
+            ctx_len: usize,
+        ) -> NotwigNativeBytes {
+            catch_value(NotwigNativeBytes::empty(), || {
+                unsafe {
+                    with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
+                        extension()
+                            .draw_audio_sub_editor_bytes(handle, bytes)
+                            .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
+                                NotwigNativeBytes { ptr, len }
+                            })
+                    })
+                }
+                .unwrap_or_else(NotwigNativeBytes::empty)
             })
         }
     };
@@ -323,6 +399,7 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 })
             }
            #wasm_draw_exports
+           #wasm_sub_editor_exports
            #wasm_command_exports
         }
 
@@ -510,6 +587,7 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
                 })
             }
            #native_draw_exports
+           #native_sub_editor_exports
            #native_command_exports
         }
     };

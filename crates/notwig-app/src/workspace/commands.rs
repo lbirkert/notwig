@@ -136,6 +136,18 @@ impl Workspace {
                         CommandEdit::AudioSlices { clip_id, slices } => {
                             payloads.push(CommandPayload::SetClipSlices { clip_id, slices });
                         }
+                        CommandEdit::AudioCurves {
+                            clip_id,
+                            gain_curve,
+                            pan_curve,
+                        } => {
+                            if let Some(curve) = gain_curve {
+                                payloads.push(CommandPayload::SetClipGainCurve { clip_id, curve });
+                            }
+                            if let Some(curve) = pan_curve {
+                                payloads.push(CommandPayload::SetClipPanCurve { clip_id, curve });
+                            }
+                        }
                         CommandEdit::ClipFields {
                             clip_id,
                             range,

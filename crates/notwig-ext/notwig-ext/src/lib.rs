@@ -41,6 +41,8 @@ mod instance;
 mod native;
 #[cfg(feature = "native")]
 mod panel;
+#[cfg(feature = "native")]
+mod sub_editor;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod web;
 
@@ -54,6 +56,8 @@ pub use host::ExtensionHost;
 pub use install::{InstalledExtension, install_zip_bytes, install_zip_file, uninstall};
 #[cfg(feature = "native")]
 pub use panel::ExtensionPanelHost;
+#[cfg(feature = "native")]
+pub use sub_editor::ExtensionAudioSubEditorHost;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub use web::{WebExtensionHost, WebExtensionPackage};
 

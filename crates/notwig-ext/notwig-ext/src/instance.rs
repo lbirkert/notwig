@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
 use notwig_core::{ParamId, ParamValue};
-use notwig_ext_api::{CommandContext, CommandEffect, DeviceDrawContext, PanelFrame};
+use notwig_ext_api::{
+    AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect, DeviceDrawContext,
+    PanelFrame,
+};
 
 use crate::abi::{ExtensionEngines, ExtensionInstance as WasmInstance};
 use crate::compiled::ExtensionRuntime;
@@ -56,6 +59,34 @@ impl ExtensionInstance {
         match self {
             Self::Wasm(instance) => instance.set_param(handle, param_id, value),
             Self::Native(instance) => instance.set_param(handle, param_id, value),
+        }
+    }
+
+    pub(crate) fn create_audio_sub_editor(
+        &mut self,
+        renderer: &str,
+    ) -> Result<i32, ExtensionError> {
+        match self {
+            Self::Wasm(instance) => instance.create_audio_sub_editor(renderer),
+            Self::Native(instance) => instance.create_audio_sub_editor(renderer),
+        }
+    }
+
+    pub(crate) fn destroy_audio_sub_editor(&mut self, handle: i32) {
+        match self {
+            Self::Wasm(instance) => instance.destroy_audio_sub_editor(handle),
+            Self::Native(instance) => instance.destroy_audio_sub_editor(handle),
+        }
+    }
+
+    pub(crate) fn draw_audio_sub_editor(
+        &mut self,
+        handle: i32,
+        context: &AudioSubEditorContext,
+    ) -> Result<AudioSubEditorFrame, ExtensionError> {
+        match self {
+            Self::Wasm(instance) => instance.draw_audio_sub_editor(handle, context),
+            Self::Native(instance) => instance.draw_audio_sub_editor(handle, context),
         }
     }
 

@@ -7,6 +7,7 @@ use notwig_core::dsp::DeviceSpec;
 use crate::abi::{
     AbiStatus, DeviceStore, pack_ptr_len, packed_pointer, with_audio_frames, with_audio_frames_ptr,
 };
+use crate::audio_editor::{AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorFrame};
 use crate::command::{CommandContext, CommandEffect, CommandExtension, MAX_COMMAND_EDITS};
 use crate::context::{DeviceDrawContext, DeviceMeterSnapshot};
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
@@ -111,6 +112,16 @@ impl<T: DeviceExtension> DeviceInstance for T {
     }
 }
 
+trait SubEditorInstance: Send {
+    fn draw(&mut self, ui: &mut egui::Ui, context: &AudioSubEditorContext) -> CommandEffect;
+}
+
+impl<T: AudioSubEditorExtension> SubEditorInstance for T {
+    fn draw(&mut self, ui: &mut egui::Ui, context: &AudioSubEditorContext) -> CommandEffect {
+        AudioSubEditorExtension::draw(self, ui, context)
+    }
+}
+
 trait CommandInstance: Send {
     fn execute(&mut self, context: &CommandContext) -> CommandEffect;
 }
@@ -134,6 +145,10 @@ struct RegisteredDevice {
     create: fn() -> Box<dyn DeviceInstance>,
 }
 
+struct RegisteredAudioSubEditor {
+    create: fn() -> Box<dyn SubEditorInstance>,
+}
+
 struct DeviceSlot {
     channels: usize,
     instance: Box<dyn DeviceInstance>,
@@ -141,16 +156,28 @@ struct DeviceSlot {
     last_panel_bytes: Vec<u8>,
 }
 
+struct SubEditorSlot {
+    instance: Box<dyn SubEditorInstance>,
+    panel_context: Option<egui::Context>,
+    last_frame_bytes: Vec<u8>,
+}
+
 fn create_instance<D: DeviceExtension>() -> Box<dyn DeviceInstance> {
     Box::new(D::new())
+}
+
+fn create_sub_editor<T: AudioSubEditorExtension>() -> Box<dyn SubEditorInstance> {
+    Box::new(T::new())
 }
 
 /// Extension runtime shared by the generated ABI exports.
 pub struct Extension {
     devices: BTreeMap<String, RegisteredDevice>,
+    audio_sub_editors: BTreeMap<String, RegisteredAudioSubEditor>,
     commands: BTreeMap<String, RegisteredCommand>,
     last_command_bytes: Mutex<Vec<u8>>,
     instances: DeviceStore<DeviceSlot>,
+    sub_editor_instances: DeviceStore<SubEditorSlot>,
 }
 
 impl Extension {
@@ -159,9 +186,11 @@ impl Extension {
     pub const fn new() -> Self {
         Self {
             devices: BTreeMap::new(),
+            audio_sub_editors: BTreeMap::new(),
             commands: BTreeMap::new(),
             last_command_bytes: Mutex::new(Vec::new()),
             instances: DeviceStore::new(),
+            sub_editor_instances: DeviceStore::new(),
         }
     }
 
@@ -179,6 +208,21 @@ impl Extension {
             RegisteredDevice {
                 spec_json,
                 create: create_instance::<D>,
+            },
+        );
+    }
+
+    /// Registers one extension-drawn audio sub-editor renderer.
+    ///
+    /// The renderer id must match a `kind.custom.renderer` field in an
+    /// audio-editor contribution in the manifest. Registering the same id again
+    /// replaces the earlier implementation. A fresh instance is created per
+    /// visible clip and contribution id.
+    pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
+        self.audio_sub_editors.insert(
+            id.into(),
+            RegisteredAudioSubEditor {
+                create: create_sub_editor::<T>,
             },
         );
     }
@@ -374,6 +418,93 @@ impl Extension {
         self.instances
             .with(handle, |slot| slot.instance.latency())
             .unwrap_or(0)
+    }
+
+    /// Creates an audio sub-editor instance and returns its nonzero handle, or
+    /// `-1` when `renderer` is unknown.
+    pub fn create_audio_sub_editor(&self, renderer: &str) -> i32 {
+        let Some(editor) = self.audio_sub_editors.get(renderer) else {
+            return -1;
+        };
+        let instance = (editor.create)();
+        self.sub_editor_instances.create(SubEditorSlot {
+            instance,
+            panel_context: None,
+            last_frame_bytes: Vec::new(),
+        })
+    }
+
+    /// Destroys an audio sub-editor instance.
+    pub fn destroy_audio_sub_editor(&self, handle: i32) {
+        let _ = self.sub_editor_instances.remove(handle);
+    }
+
+    /// Draws an audio sub-editor and returns a packed pointer to the serialized
+    /// [`AudioSubEditorFrame`].
+    #[must_use]
+    pub fn draw_audio_sub_editor_pointer(&self, handle: i32, context_bytes: &[u8]) -> i64 {
+        let Some((ptr, len)) = self.draw_audio_sub_editor_bytes(handle, context_bytes) else {
+            return 0;
+        };
+        let Ok(ptr) = u32::try_from(ptr as usize) else {
+            return 0;
+        };
+        let Ok(len) = u32::try_from(len) else {
+            return 0;
+        };
+        i64::try_from(pack_ptr_len(ptr, len)).unwrap_or(0)
+    }
+
+    /// Draws an audio sub-editor and returns its validated frame.
+    #[must_use]
+    pub fn draw_audio_sub_editor_frame(
+        &self,
+        handle: i32,
+        context_bytes: &[u8],
+    ) -> Option<AudioSubEditorFrame> {
+        let context = postcard::from_bytes::<AudioSubEditorContext>(context_bytes).ok()?;
+        context.input.validate().ok()?;
+        self.sub_editor_instances
+            .with(handle, move |slot| {
+                let SubEditorSlot {
+                    instance,
+                    panel_context,
+                    ..
+                } = slot;
+                let panel_context = panel_context.get_or_insert_with(egui::Context::default);
+                let mut effect = CommandEffect::None;
+                let panel = crate::panel_frame::run_frame(
+                    panel_context,
+                    context.input.clone(),
+                    &context.theme,
+                    |ui| {
+                        effect = instance.draw(ui, &context);
+                    },
+                );
+                let frame = AudioSubEditorFrame { panel, effect };
+                frame.validate().ok()?;
+                Some(frame)
+            })
+            .ok()
+            .flatten()
+    }
+
+    /// Draws an audio sub-editor and returns a pointer/length pair to the
+    /// serialized [`AudioSubEditorFrame`].
+    #[must_use]
+    pub fn draw_audio_sub_editor_bytes(
+        &self,
+        handle: i32,
+        context_bytes: &[u8],
+    ) -> Option<(*const u8, usize)> {
+        let frame = self.draw_audio_sub_editor_frame(handle, context_bytes)?;
+        let bytes = postcard::to_allocvec(&frame).ok()?;
+        self.sub_editor_instances
+            .with(handle, move |slot| {
+                slot.last_frame_bytes = bytes;
+                (slot.last_frame_bytes.as_ptr(), slot.last_frame_bytes.len())
+            })
+            .ok()
     }
 
     /// Draws a device panel and returns a packed pointer to the serialized

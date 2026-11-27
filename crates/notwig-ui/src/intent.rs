@@ -302,6 +302,10 @@ pub enum UiIntent {
         command_id: String,
         context: CommandContext,
     },
+    ApplyExtensionEffect {
+        revision: u64,
+        effect: notwig_ext_api::CommandEffect,
+    },
     Quit,
     NewProject,
     CloseProject,

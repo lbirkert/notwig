@@ -6,8 +6,9 @@ use std::sync::Arc;
 use libloading::Library;
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, CommandContext, CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS,
-    MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
+    ABI_VERSION, AbiStatus, AudioSubEditorContext, AudioSubEditorFrame, CommandContext,
+    CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES,
+    PanelFrame,
 };
 
 use crate::error::ExtensionError;
@@ -29,6 +30,9 @@ type SetParamFn = unsafe extern "C" fn(i32, *const u8, usize, i32, f64) -> i32;
 type ProcessFn = unsafe extern "C" fn(i32, *mut f32, i32, *const u8, i32, i64, i32) -> i32;
 type LatencyFn = unsafe extern "C" fn(i32) -> i32;
 type DrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
+type SubEditorCreateFn = unsafe extern "C" fn(*const u8, usize) -> i32;
+type SubEditorDestroyFn = unsafe extern "C" fn(i32);
+type SubEditorDrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
 type CommandFn = unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> NativeBytes;
 
 /// A loaded native extension shared library.
@@ -42,6 +46,9 @@ pub(crate) struct NativeLibrary {
     process: ProcessFn,
     latency: LatencyFn,
     draw: DrawFn,
+    sub_editor_create: Option<SubEditorCreateFn>,
+    sub_editor_destroy: Option<SubEditorDestroyFn>,
+    sub_editor_draw: Option<SubEditorDrawFn>,
     command: Option<CommandFn>,
 }
 
@@ -86,6 +93,18 @@ impl NativeLibrary {
                 draw: *library
                     .get(b"notwig_device_draw\0")
                     .map_err(|error| missing_export("notwig_device_draw", error))?,
+                sub_editor_create: library
+                    .get::<SubEditorCreateFn>(b"notwig_audio_sub_editor_create\0")
+                    .ok()
+                    .map(|function| *function),
+                sub_editor_destroy: library
+                    .get::<SubEditorDestroyFn>(b"notwig_audio_sub_editor_destroy\0")
+                    .ok()
+                    .map(|function| *function),
+                sub_editor_draw: library
+                    .get::<SubEditorDrawFn>(b"notwig_audio_sub_editor_draw\0")
+                    .ok()
+                    .map(|function| *function),
                 command: library
                     .get::<CommandFn>(b"notwig_command_execute\0")
                     .ok()
@@ -226,6 +245,50 @@ impl NativeInstance {
             ));
         }
         Ok(effect)
+    }
+
+    pub(crate) fn create_audio_sub_editor(
+        &mut self,
+        renderer: &str,
+    ) -> Result<i32, ExtensionError> {
+        let Some(create) = self.library.sub_editor_create else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_audio_sub_editor_create".into(),
+            ));
+        };
+        let handle = unsafe { create(renderer.as_ptr(), renderer.len()) };
+        if handle < 0 {
+            return Err(ExtensionError::InvalidHandle);
+        }
+        Ok(handle)
+    }
+
+    pub(crate) fn destroy_audio_sub_editor(&mut self, handle: i32) {
+        if let Some(destroy) = self.library.sub_editor_destroy {
+            unsafe {
+                destroy(handle);
+            }
+        }
+    }
+
+    pub(crate) fn draw_audio_sub_editor(
+        &mut self,
+        handle: i32,
+        context: &AudioSubEditorContext,
+    ) -> Result<AudioSubEditorFrame, ExtensionError> {
+        let Some(draw) = self.library.sub_editor_draw else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_audio_sub_editor_draw".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode sub-editor context: {error}")))?;
+        let bytes = unsafe { draw(handle, context.as_ptr(), context.len()) };
+        let bytes = read_bytes_with_limit(bytes, MAX_PANEL_FRAME_BYTES)?;
+        let frame: AudioSubEditorFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode sub-editor frame: {error}")))?;
+        frame.validate().map_err(ExtensionError::Abi)?;
+        Ok(frame)
     }
 
     pub(crate) fn draw_panel(

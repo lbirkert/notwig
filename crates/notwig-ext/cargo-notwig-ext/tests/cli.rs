@@ -23,7 +23,7 @@ fn source_manifest() -> ExtensionManifest {
           "name": "Test Extension",
           "vendor": "Test",
           "version": "0.1.0",
-          "api_version": 5,
+          "api_version": 6,
           "capabilities": ["device", "ui.panel"],
           "devices": [{"name": "Test", "type_id": "com.test.extension.device"}],
           "image": "icon.png",

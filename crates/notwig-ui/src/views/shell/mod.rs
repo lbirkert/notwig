@@ -35,6 +35,7 @@ pub struct NotwigUi {
     pub intents: Vec<UiIntent>,
     pub registry: DeviceRegistry,
     pub(crate) device_panel_host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
+    pub(crate) audio_sub_editor_host: Option<Box<dyn notwig_ext_api::AudioSubEditorHost>>,
     pub(crate) extension_panel_textures: BTreeMap<String, BTreeMap<u64, egui::TextureHandle>>,
     pub(crate) last_extension_frames: BTreeMap<String, notwig_ext_api::PanelFrame>,
     pub(crate) extension_panel_keyboard: bool,
@@ -120,6 +121,7 @@ impl Default for NotwigUi {
             intents: Vec::new(),
             registry: notwig_core::dsp::stock_registry(),
             device_panel_host: None,
+            audio_sub_editor_host: None,
             extension_panel_textures: BTreeMap::new(),
             last_extension_frames: BTreeMap::new(),
             extension_panel_keyboard: false,
@@ -205,6 +207,14 @@ impl NotwigUi {
     ) {
         self.device_panel_host = host;
         self.last_extension_frames.clear();
+        self.extension_panel_textures.clear();
+    }
+
+    pub fn set_audio_sub_editor_host(
+        &mut self,
+        host: Option<Box<dyn notwig_ext_api::AudioSubEditorHost>>,
+    ) {
+        self.audio_sub_editor_host = host;
         self.extension_panel_textures.clear();
     }
 
@@ -583,6 +593,13 @@ pub mod test_api {
         editors: Vec<notwig_ext_api::AudioSubEditorDescriptor>,
     ) {
         ui.set_extension_audio_sub_editors(editors);
+    }
+
+    pub fn set_audio_sub_editor_host(
+        ui: &mut NotwigUi,
+        host: Option<Box<dyn notwig_ext_api::AudioSubEditorHost>>,
+    ) {
+        ui.set_audio_sub_editor_host(host);
     }
 
     pub fn open_command_palette(ui: &mut NotwigUi) {

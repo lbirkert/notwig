@@ -1,5 +1,9 @@
 use egui::{Color32, CornerRadius, Id, Rect, Sense, Vec2};
+use notwig_core::sequencer::{AudioClipData, AudioSlice};
 use notwig_core::{ClipPayload, ProjectDoc, TimeMus};
+use notwig_ext_api::{
+    AudioSubEditorClip, AudioSubEditorContext, AudioSubEditorDescriptor, CommandEffect,
+};
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -7,6 +11,8 @@ use crate::shell::NotwigUi;
 use crate::state::Viewport;
 use crate::theme;
 use crate::timeline::{ClipChrome, ClipChromeDrag, ClipChromeEdge, TimelineGrid};
+use crate::views::device_editor::panel_render::{paint_panel_frame_keyed, panel_input};
+use crate::views::device_editor::theme_snapshot;
 
 mod range_selection;
 mod slice_gestures;
@@ -355,25 +361,31 @@ impl NotwigUi {
                         notwig_ext_api::CurveTarget::Gain,
                         super::curve::gain_style(),
                     );
-                } else if let Some(spec) = state
+                } else if let Some(editor) = state
                     .sub_editor
                     .extension_id()
                     .and_then(|id| extension_editors.iter().find(|editor| editor.id == id))
-                    .and_then(notwig_ext_api::AudioSubEditorDescriptor::curve)
                 {
-                    super::curve::draw_curve_sub_editor(
-                        self,
-                        ui,
-                        &mut state,
-                        &mut audio,
-                        &clip,
-                        runtime,
-                        map,
-                        timeline_grid,
-                        lanes,
-                        spec.target,
-                        super::curve::extension_style(spec),
-                    );
+                    if let Some(spec) = editor.curve() {
+                        super::curve::draw_curve_sub_editor(
+                            self,
+                            ui,
+                            &mut state,
+                            &mut audio,
+                            &clip,
+                            runtime,
+                            map,
+                            timeline_grid,
+                            lanes,
+                            spec.target,
+                            super::curve::extension_style(spec),
+                        );
+                    } else if editor.custom().is_some() {
+                        self.extension_audio_sub_editor(
+                            ui, &state, &clip, &audio, doc, runtime, snap, grid, lanes, editor,
+                            &slices,
+                        );
+                    }
                 }
 
                 if let Some(preview) = &self.drag_preview
@@ -499,6 +511,84 @@ impl NotwigUi {
 }
 
 impl NotwigUi {
+    #[allow(clippy::too_many_arguments)]
+    fn extension_audio_sub_editor(
+        &mut self,
+        ui: &mut egui::Ui,
+        state: &super::state::ClipEditorState,
+        clip: &notwig_core::ClipEntity,
+        audio: &AudioClipData,
+        doc: &ProjectDoc,
+        runtime: &RuntimeView,
+        snap: crate::widgets::SnapSettings,
+        grid: TimeMus,
+        lanes: Rect,
+        editor: &AudioSubEditorDescriptor,
+        slices: &[AudioSlice],
+    ) {
+        let response = ui.interact(
+            lanes,
+            Id::new(("audio-sub-editor", state.clip_id, editor.id.as_str())),
+            Sense::click_and_drag(),
+        );
+        if response.clicked() {
+            response.request_focus();
+        }
+        let focused = response.has_focus();
+        let input = panel_input(ui, lanes, lanes.size(), focused);
+        let context = AudioSubEditorContext {
+            editor_id: editor.id.clone(),
+            revision: doc.revision,
+            clip_id: state.clip_id,
+            track_id: clip.track_id,
+            clip_range: clip.range,
+            clip: AudioSubEditorClip::from(audio),
+            selected_slices: slices
+                .iter()
+                .filter(|slice| state.selected.contains(&slice.id))
+                .cloned()
+                .collect(),
+            time_selection: state
+                .bar_selection
+                .and_then(|range| super::geometry::local_range(clip, range)),
+            playhead: runtime.playhead,
+            loop_range: if doc.transport.loop_enabled {
+                doc.transport.loop_range
+            } else {
+                None
+            },
+            tempo_bpm: doc.meta.tempo_bpm,
+            sample_rate: doc.meta.sample_rate.value(),
+            snap_enabled: snap.enabled,
+            grid,
+            viewport_start: state.viewport.start,
+            pixels_per_beat: state.viewport.pixels_per_beat,
+            width: lanes.width(),
+            height: lanes.height(),
+            theme: theme_snapshot(),
+            input,
+        };
+        let key = format!("audio-sub-editor:{}:{}", state.clip_id, editor.id);
+        let frame = self
+            .audio_sub_editor_host
+            .as_mut()
+            .and_then(|host| host.draw_audio_sub_editor(&editor.id, &context));
+        let Some(frame) = frame else {
+            paint_audio_sub_editor_placeholder(ui, lanes);
+            return;
+        };
+        paint_panel_frame_keyed(self, ui, &key, &frame.panel, lanes);
+        if frame.panel.wants_keyboard && focused {
+            self.extension_panel_keyboard = true;
+        }
+        if !matches!(frame.effect, CommandEffect::None) {
+            self.emit(UiIntent::ApplyExtensionEffect {
+                revision: context.revision,
+                effect: frame.effect,
+            });
+        }
+    }
+
     fn clip_editor_placeholder(&mut self, ctx: &egui::Context) {
         let open = crate::views::panel::bottom_panel(
             ctx,
@@ -524,4 +614,15 @@ impl NotwigUi {
             self.close_editor();
         }
     }
+}
+
+fn paint_audio_sub_editor_placeholder(ui: &egui::Ui, target: Rect) {
+    let target = target.intersect(ui.clip_rect());
+    ui.painter().with_clip_rect(target).text(
+        target.center(),
+        egui::Align2::CENTER_CENTER,
+        "Extension sub-editor unavailable",
+        egui::FontId::proportional(11.0),
+        theme::TEXT_MUTED,
+    );
 }

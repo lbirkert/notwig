@@ -21,7 +21,7 @@ still accepted for device-only packages.
   "name": "MIDI Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 5,
+  "api_version": 6,
   "capabilities": ["command"],
   "contributes": [
     {
@@ -141,6 +141,7 @@ Supported edit families are:
 | --- | --- |
 | `MidiNotes` | Upsert/remove notes in a MIDI clip. |
 | `AudioSlices` | Replace an audio clip's slices. |
+| `AudioCurves` | Change or clear an audio clip's canonical gain or pan curve. |
 | `ClipFields` | Change clip range, name, mute, or color. |
 | `TrackMixer` | Change volume, pan, mute, or solo. |
 | `DeviceParam` | Set one device parameter. |

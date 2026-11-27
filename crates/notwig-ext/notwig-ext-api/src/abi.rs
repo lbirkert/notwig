@@ -14,7 +14,7 @@ pub use store::DeviceStore;
 /// Hosts require an exact match with the version reported by the extension. Any
 /// change to an export signature, wire layout, or documented contract must bump
 /// this value; otherwise mismatched extensions are rejected at load time.
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 
 /// Maximum serialized metadata response from an extension.
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;

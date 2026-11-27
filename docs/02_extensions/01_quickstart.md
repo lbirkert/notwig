@@ -189,7 +189,7 @@ ABI on desktop targets. The device implements only the Rust surface.
   "name": "My Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 5,
+  "api_version": 6,
   "capabilities": ["device", "ui.panel"],
   "image": "icon.png",
   "devices": [

@@ -197,6 +197,20 @@ pub enum CommandEdit {
         /// New slice list.
         slices: Vec<AudioSlice>,
     },
+    /// Update host-owned audio clip curves.
+    ///
+    /// The outer option selects whether the curve changes. The inner option
+    /// sets the new curve, or clears it with `None`.
+    AudioCurves {
+        /// Target clip.
+        clip_id: ClipId,
+        /// Gain curve change, when requested.
+        #[serde(default)]
+        gain_curve: Option<Option<notwig_core::Curve>>,
+        /// Pan curve change, when requested.
+        #[serde(default)]
+        pan_curve: Option<Option<notwig_core::Curve>>,
+    },
     /// Update clip fields.
     ClipFields {
         /// Target clip.

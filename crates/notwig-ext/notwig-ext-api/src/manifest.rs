@@ -403,10 +403,17 @@ fn validate_audio_sub_editor_contribution(
             contribution.id
         )));
     };
-    if let Some(curve) = kind.curve() {
-        curve.validate().map_err(|error| {
-            ManifestError::Invalid(format!("audio sub-editor {} {error}", contribution.id))
-        })?;
+    match kind {
+        AudioSubEditorKind::Curve(curve) => {
+            curve.validate().map_err(|error| {
+                ManifestError::Invalid(format!("audio sub-editor {} {error}", contribution.id))
+            })?;
+        }
+        AudioSubEditorKind::Custom(custom) => {
+            custom.validate().map_err(|error| {
+                ManifestError::Invalid(format!("audio sub-editor {} {error}", contribution.id))
+            })?;
+        }
     }
     Ok(())
 }

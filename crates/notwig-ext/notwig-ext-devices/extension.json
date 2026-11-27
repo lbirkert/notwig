@@ -3,7 +3,7 @@
   "name": "Notwig Stock Devices",
   "vendor": "Notwig",
   "version": "0.1.0",
-  "api_version": 5,
+  "api_version": 6,
   "capabilities": [
     "device",
     "ui.panel"

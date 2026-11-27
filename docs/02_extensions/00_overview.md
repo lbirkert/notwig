@@ -25,7 +25,7 @@ DeviceExtension::spec  ──────►  DeviceSpec validation  ───�
 DeviceExtension::process ────►  audio buffers          ───►  engine
 DeviceExtension::draw ──►  PanelFrame + actions    ───►  panels
 CommandExtension       ──►  bounded context/effect  ───►  command palette
-audio sub-editor point ──►  shared curve declaration──►  audio editor
+audio sub-editor point ──►  curve or custom renderer ──►  audio editor
 ```
 
 - `notwig-ext-api` is the author-facing SDK. It has no `wasmtime`, `libloading`,
@@ -46,7 +46,7 @@ audio sub-editor point ──►  shared curve declaration──►  audio edito
   artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
-ABI version is `5`. The manifest layout is versioned separately: device-only
+ABI version is `6`. The manifest layout is versioned separately: device-only
 packages may omit `manifest_version`, while command and audio sub-editor
 contributions require version `2`. The WASM and native ABIs are different
 transport layers around the same Rust API.
@@ -58,7 +58,8 @@ An extension can:
 - add one or more audio effects or instruments to the device browser;
 - add commands that read the current selection and return validated edits, such
   as humanizing MIDI notes;
-- add audio-editor sub-editors over host-owned curves, such as clip pan;
+- add audio-editor sub-editors over host-owned curves, or draw a custom panel
+  that commits host-owned edits, such as clip pan;
 - read and write interleaved `f32` audio;
 - declare continuous, boolean, enum, and discrete parameters;
 - report processing latency;
@@ -99,4 +100,4 @@ Install native extensions only from trusted sources.
 6. [Command API](06_command_api.md) covers manifest v2 command contributions,
    the bounded context, host edit families, the palette, and keybindings.
 7. [Audio Sub-editor API](07_audio_sub_editor_api.md) covers shared curve
-   sub-editors in the audio editor.
+   sub-editors and custom extension-drawn editors in the audio editor.

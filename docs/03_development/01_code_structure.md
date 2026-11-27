@@ -114,8 +114,9 @@ that needs them; most cross-layer types live in `notwig-core`.
 
 ### `notwig-ext-api` — extension SDK and panel transport
 
-ABI v5 adds extension container metadata; the guest panel remains the only extension panel path. Extensions run a private
-`egui::Context` and return validated meshes, texture deltas, and host actions.
+ABI 6 adds extension-drawn audio sub-editor exports on top of the device panel
+path. Extensions run a private `egui::Context` and return validated meshes,
+texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 
 | Module | Responsibility |
 |---|---|
@@ -131,8 +132,9 @@ ABI v5 adds extension container metadata; the guest panel remains the only exten
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
 | `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
 | `command.rs` | Command contract, bounded context, host edit/UI families, declarative `when` evaluation, and `CommandExtension` |
-| `extension.rs` | `DeviceExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, and per-device panel draw dispatch |
-| `abi.rs` | ABI version (`5`), status codes, pointer/length packing, helper re-exports |
+| `audio_editor.rs` | Audio sub-editor contracts: shared curve targets, custom renderer specs, bounded context, frame, and host trait |
+| `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, and guest draw dispatch |
+| `abi.rs` | ABI version (`6`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -233,7 +235,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared gain/pan/extension curve adapter; panel split into range selection, slice paint, slice gestures |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared gain/pan/extension curve adapter, and extension-drawn custom sub-editor host; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
@@ -405,7 +407,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    emit parameter changes through `panel_frame::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship a source `extension.json` with `api_version: 5`, no `entrypoints`, the
+4. Ship a source `extension.json` with `api_version: 6`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
    with `cargo notwig-ext build --entrypoint <target>` on each platform, then run

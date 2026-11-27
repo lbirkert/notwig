@@ -4,7 +4,7 @@
   "name": "Notwig Extension Examples",
   "vendor": "Notwig",
   "version": "0.2.0",
-  "api_version": 5,
+  "api_version": 6,
   "capabilities": ["command", "audio_editor"],
   "contributes": [
     {
@@ -25,14 +25,11 @@
       "category": "Audio",
       "order": 10,
       "kind": {
-        "curve": {
-          "target": "pan",
-          "value_min": -1.0,
-          "value_max": 1.0,
-          "baseline": 0.0,
-          "format": "pan"
+        "custom": {
+          "renderer": "notwig.ext.example.pan_editor"
         }
-      }
+      },
+      "description": "Draw and commit the clip pan curve from an extension panel."
     }
   ],
   "description": "Examples for the Notwig extension API, including MIDI commands and an audio-editor clip pan sub-editor.",

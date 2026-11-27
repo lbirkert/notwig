@@ -132,7 +132,7 @@ fn device_context(
     }
 }
 
-fn theme_snapshot() -> ThemeSnapshot {
+pub(crate) fn theme_snapshot() -> ThemeSnapshot {
     ThemeSnapshot {
         accent: to_color32(theme::ACCENT),
         accent_dim: to_color32(theme::ACCENT_DIM),

@@ -9,7 +9,7 @@ use notwig_ext_api::{
 
 use crate::shell::NotwigUi;
 
-pub(super) fn panel_input(ui: &egui::Ui, target: Rect, size: Vec2, focused: bool) -> PanelInput {
+pub(crate) fn panel_input(ui: &egui::Ui, target: Rect, size: Vec2, focused: bool) -> PanelInput {
     let (events, modifiers, time, max_texture_side) = ui.input(|input| {
         let mut events = Vec::new();
         if let Some(pos) = input.pointer.hover_pos() {
@@ -96,16 +96,26 @@ pub(super) fn paint_panel_frame(
     frame: &PanelFrame,
     target: Rect,
 ) {
+    paint_panel_frame_keyed(state, ui, &device.id.to_string(), frame, target);
+    state.apply_panel_actions(ui, device, spec, &frame.actions);
+}
+
+pub(crate) fn paint_panel_frame_keyed(
+    state: &mut NotwigUi,
+    ui: &mut egui::Ui,
+    key: &str,
+    frame: &PanelFrame,
+    target: Rect,
+) {
     if frame.validate().is_err() {
         return;
     }
-    let device_key = device.id.to_string();
     let origin = target.min.to_vec2();
     let panel_clip = target.intersect(ui.clip_rect());
     {
         let textures = state
             .extension_panel_textures
-            .entry(device_key.clone())
+            .entry(key.to_owned())
             .or_default();
         for delta in &frame.textures {
             let image = delta.image.to_color_image();
@@ -126,7 +136,7 @@ pub(super) fn paint_panel_frame(
             } else if let Some(handle) = textures.get_mut(&delta.id) {
                 handle.set(image, options);
             } else {
-                let name = format!("extension-egui-{device_key}-{}", delta.id);
+                let name = format!("extension-egui-{key}-{}", delta.id);
                 let handle = ui.ctx().load_texture(name, image, options);
                 textures.insert(delta.id, handle);
             }
@@ -136,7 +146,7 @@ pub(super) fn paint_panel_frame(
     for primitive in &frame.primitives {
         let Some(texture) = state
             .extension_panel_textures
-            .get(&device_key)
+            .get(key)
             .and_then(|textures| textures.get(&primitive.mesh.texture_id))
         else {
             continue;
@@ -152,13 +162,12 @@ pub(super) fn paint_panel_frame(
             .with_clip_rect(clip)
             .add(egui::Shape::mesh(mesh));
     }
-    if let Some(textures) = state.extension_panel_textures.get_mut(&device_key) {
+    if let Some(textures) = state.extension_panel_textures.get_mut(key) {
         for id in &frame.free_textures {
             textures.remove(id);
         }
     }
 
-    state.apply_panel_actions(ui, device, spec, &frame.actions);
     if let Some(cursor) = frame.cursor {
         ui.ctx().set_cursor_icon(to_cursor(cursor));
     }
@@ -183,7 +192,7 @@ pub(super) fn to_cursor(cursor: CursorIcon) -> egui::CursorIcon {
     }
 }
 
-fn local_point(pos: Pos2, target: Rect) -> [f32; 2] {
+pub(crate) fn local_point(pos: Pos2, target: Rect) -> [f32; 2] {
     // Extension panels work in a local space with (0, 0) at the target's
     // top-left, matching the reported `width`/`height`.
     [pos.x - target.min.x, pos.y - target.min.y]

@@ -3,15 +3,16 @@
 A minimal extension package that demonstrates the Notwig command and audio
 sub-editor APIs. It contributes `notwig.ext.example.humanize`, which nudges the
 timing and velocity of selected MIDI notes, and `notwig.ext.example.pan`, a
-Clip Pan sub-editor for audio clips.
+custom Clip Pan sub-editor for audio clips.
 
 The crate is intentionally small: it uses `notwig-ext-api` only, registers one
-`CommandExtension`, and declares both contributions in `extension.json` with
-manifest version 2. The pan editor is a shared-curve contribution: the host owns
-the global curve editor, the canonical `pan_curve`, preview, commit, and undo.
-The extension supplies only the selector metadata and value mapping. It doubles
-as the reference for command context, host edit families, palette metadata,
-default keybindings, and shared audio-editor curve contributions.
+`CommandExtension` and one `AudioSubEditorExtension`, and declares both
+contributions in `extension.json` with manifest version 2. The pan editor draws
+its own panel inside the host audio editor and commits a host-owned
+`CommandEdit::AudioCurves` pan change. The host owns the context snapshot,
+validation, revision check, and undo boundary. It doubles as the reference for
+command context, host edit families, palette metadata, default keybindings, and
+extension-drawn audio-editor contributions.
 
 ```sh
 cargo build -p notwig-ext-example

@@ -1,11 +1,13 @@
-//! Author-facing SDK for building Notwig extension devices.
+//! Author-facing SDK for building Notwig extensions.
 //!
-//! An extension implements [`DeviceExtension`] for each device type, registers
-//! those types on an [`Extension`] runtime, and exposes one entrypoint
-//! annotated with [`notwig_extension`]. The macro generates the WASM or native
-//! ABI exports that the host uses to describe, create, prepare, process, and
-//! draw devices. Panels use the re-exported [`egui`] API and return a validated
-//! [`panel_frame::PanelFrame`].
+//! An extension implements [`DeviceExtension`] for each device type,
+//! [`CommandExtension`] for commands, and [`AudioSubEditorExtension`] for
+//! extension-drawn audio sub-editors. It registers implementations on an
+//! [`Extension`] runtime and exposes one entrypoint annotated with
+//! [`notwig_extension`]. The macro generates the WASM or native ABI exports
+//! that the host uses to describe, create, prepare, process, draw, execute, and
+//! render contributions. Panels use the re-exported [`egui`] API and return a
+//! validated [`panel_frame::PanelFrame`].
 //!
 //! ```text
 //! use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
@@ -48,9 +50,10 @@ pub mod target;
 
 pub use abi::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, pack_ptr_len, unpack_ptr_len};
 pub use audio_editor::{
-    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorDescriptor,
-    AudioSubEditorKind, CurveTarget, CurveTargetSpec, CurveValueFormat,
-    MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
+    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorClip, AudioSubEditorContext,
+    AudioSubEditorDescriptor, AudioSubEditorExtension, AudioSubEditorFrame, AudioSubEditorHost,
+    AudioSubEditorKind, CurveTarget, CurveTargetSpec, CurveValueFormat, CustomSubEditorSpec,
+    MAX_AUDIO_SUB_EDITOR_RENDERER_BYTES, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
 };
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,

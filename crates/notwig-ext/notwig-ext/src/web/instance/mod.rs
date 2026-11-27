@@ -31,6 +31,9 @@ pub(crate) struct WebExtensionInstance {
     process: Function,
     latency: Function,
     draw: Function,
+    sub_editor_create: Option<Function>,
+    sub_editor_destroy: Option<Function>,
+    sub_editor_draw: Option<Function>,
     command: Option<Function>,
     host_global: String,
 }
@@ -79,6 +82,24 @@ impl WebExtensionInstance {
             process: abi::export_function(&exports, "notwig_device_process")?,
             latency: abi::export_function(&exports, "notwig_device_latency")?,
             draw: abi::export_function(&exports, "notwig_device_draw")?,
+            sub_editor_create: Reflect::get(
+                &exports,
+                &JsValue::from_str("notwig_audio_sub_editor_create"),
+            )
+            .ok()
+            .and_then(|value| value.dyn_into().ok()),
+            sub_editor_destroy: Reflect::get(
+                &exports,
+                &JsValue::from_str("notwig_audio_sub_editor_destroy"),
+            )
+            .ok()
+            .and_then(|value| value.dyn_into().ok()),
+            sub_editor_draw: Reflect::get(
+                &exports,
+                &JsValue::from_str("notwig_audio_sub_editor_draw"),
+            )
+            .ok()
+            .and_then(|value| value.dyn_into().ok()),
             command: Reflect::get(&exports, &JsValue::from_str("notwig_command_execute"))
                 .ok()
                 .and_then(|value| value.dyn_into().ok()),

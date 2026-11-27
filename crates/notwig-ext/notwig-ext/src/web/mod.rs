@@ -4,6 +4,7 @@ mod host;
 mod instance;
 mod package;
 mod panel;
+mod sub_editor;
 
 pub use host::WebExtensionHost;
 pub use package::WebExtensionPackage;

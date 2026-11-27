@@ -24,7 +24,7 @@ packages are registered as stock-like device types in the app.
 
 ## 2. ABI version and target selection
 
-`ABI_VERSION` is `5`. The host requires an exact match in three places: the
+`ABI_VERSION` is `6`. The host requires an exact match in three places: the
 manifest `api_version`, the index entry `api_version`, and the value returned
 by the loaded module's `notwig_abi_version` export. Any change to an export
 signature, wire layout, or documented contract must bump the constant; there is
@@ -93,6 +93,9 @@ before `process`, `latency` is queried during prepare, and destroy runs on drop.
 | `notwig_device_process(handle, audio, frames, events, count, position, playing)` | audio block | `AbiStatus`; generated wrapper currently ignores `position` and `playing` |
 | `notwig_device_latency(handle)` | prepare | sample count |
 | `notwig_device_draw(handle, context)` | panel frame | postcard `PanelFrame` |
+| `notwig_audio_sub_editor_create(renderer)` | first custom sub-editor frame | positive handle or negative failure |
+| `notwig_audio_sub_editor_draw(handle, context)` | custom sub-editor frame | postcard `AudioSubEditorFrame` |
+| `notwig_audio_sub_editor_destroy(handle)` | sub-editor close / instance drop | removes the handle |
 | `notwig_device_destroy(handle)` | instance drop | removes the handle |
 
 ### Containers
@@ -153,6 +156,13 @@ actions must pass parameter validation. `TextureId::User` is rejected; managed
 guest texture ids are remapped into a per-panel namespace. The last valid frame
 is reused after a transient draw error. `wants_keyboard` suppresses host
 shortcuts on the following frame.
+
+Custom audio sub-editors use the same `PanelFrame` payload wrapped in an
+`AudioSubEditorFrame` with a `CommandEffect`. The host validates both the panel
+and the edit budget. The context is an `AudioSubEditorContext` snapshot keyed by
+clip and contribution id; the guest never receives the project document. The
+host checks the captured document revision before applying an edit, and applies
+an `Apply` effect as one undo batch.
 
 ## 8. Known gaps and documentation drift
 

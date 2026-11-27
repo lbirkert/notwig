@@ -99,6 +99,9 @@ impl NotwigApp {
                 command_id,
                 context,
             } => self.run_extension_command(&command_id, &context),
+            UiIntent::ApplyExtensionEffect { revision, effect } => {
+                self.apply_extension_effect(revision, effect);
+            }
             UiIntent::Quit
             | UiIntent::SelectTrack(_)
             | UiIntent::SelectClip(_)
@@ -865,6 +868,21 @@ impl NotwigApp {
                 self.uninstall_extension(&id);
             }
             UiIntent::ClearNotifications => self.ui.state.notifications.clear(),
+        }
+    }
+
+    fn apply_extension_effect(&mut self, revision: u64, effect: notwig_ext_api::CommandEffect) {
+        if revision != self.workspace.doc.revision {
+            self.notify_error("Extension edit is stale. Try again.".into());
+            return;
+        }
+        match self.workspace.apply_command_effect(effect) {
+            Ok(ui) => {
+                for request in ui {
+                    self.apply_command_ui(request);
+                }
+            }
+            Err(error) => self.notify_error(format!("Extension edit failed: {error}")),
         }
     }
 

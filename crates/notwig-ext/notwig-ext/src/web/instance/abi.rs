@@ -3,8 +3,8 @@
 use js_sys::{BigInt, Function, Object, Reflect};
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    CommandContext, CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES,
-    MAX_PANEL_FRAME_BYTES, PanelFrame,
+    AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect, DeviceDrawContext,
+    MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -127,6 +127,59 @@ impl WebExtensionInstance {
             .and_then(|value| value.as_f64())
             .and_then(|value| u32::try_from(value as i64).ok())
             .unwrap_or(0)
+    }
+
+    pub(crate) fn create_audio_sub_editor(
+        &mut self,
+        renderer: &str,
+    ) -> Result<i32, ExtensionError> {
+        let Some(create) = self.sub_editor_create.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_audio_sub_editor_create".into(),
+            ));
+        };
+        let (ptr, len) = self.write_input(renderer.as_bytes())?;
+        let handle = call_i32(&create, &[JsValue::from(ptr), JsValue::from(len)])?;
+        self.free_input(ptr, len);
+        if handle < 0 {
+            return Err(ExtensionError::InvalidHandle);
+        }
+        Ok(handle)
+    }
+
+    pub(crate) fn destroy_audio_sub_editor(&mut self, handle: i32) {
+        if let Some(destroy) = self.sub_editor_destroy.clone() {
+            let _ = destroy.call1(&JsValue::UNDEFINED, &JsValue::from(handle));
+        }
+    }
+
+    pub(crate) fn draw_audio_sub_editor(
+        &mut self,
+        handle: i32,
+        context: &AudioSubEditorContext,
+    ) -> Result<AudioSubEditorFrame, ExtensionError> {
+        let Some(draw) = self.sub_editor_draw.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_audio_sub_editor_draw".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context)
+            .map_err(|error| ExtensionError::Abi(format!("encode sub-editor context: {error}")))?;
+        let (ptr, len) = self.write_input(&context)?;
+        let packed = call_u64(
+            &draw,
+            &[
+                JsValue::from(handle),
+                JsValue::from(ptr),
+                JsValue::from(len),
+            ],
+        )?;
+        self.free_input(ptr, len);
+        let bytes = self.read_packed_bytes(packed, MAX_PANEL_FRAME_BYTES)?;
+        let frame: AudioSubEditorFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode sub-editor frame: {error}")))?;
+        frame.validate().map_err(ExtensionError::Abi)?;
+        Ok(frame)
     }
 
     pub(crate) fn draw_panel(

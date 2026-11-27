@@ -11,6 +11,8 @@ impl NotwigApp {
         self.workspace
             .set_extension_engine_runtime(self.extensions.engine_runtime());
         self.ui.set_device_panel_host(self.extensions.panel_host());
+        self.ui
+            .set_audio_sub_editor_host(self.extensions.audio_sub_editor_host());
         self.ui.set_extension_commands(self.extensions.commands());
         self.ui
             .set_extension_audio_sub_editors(self.extensions.audio_sub_editors());

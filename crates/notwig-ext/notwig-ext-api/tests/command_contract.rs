@@ -46,7 +46,7 @@ fn manifest(version: u32, with_contribution: bool) -> String {
             "id": "com.example.test",
             "name": "Test",
             "version": "0.1.0",
-            "api_version": 5,
+            "api_version": 6,
             "capabilities": ["command"],
             "devices": []{contributions}
         }}"#
@@ -135,7 +135,7 @@ fn manifest_accepts_audio_sub_editor_contribution() {
             "id": "com.example.pan",
             "name": "Pan",
             "version": "0.1.0",
-            "api_version": 5,
+            "api_version": 6,
             "capabilities": ["audio_editor"],
             "contributes": [{{
                 "id": "com.example.pan.editor",
@@ -172,14 +172,14 @@ fn manifest_accepts_audio_sub_editor_contribution() {
 }
 
 #[test]
-fn audio_sub_editor_requires_a_curve_kind() {
+fn audio_sub_editor_requires_a_kind() {
     let manifest: ExtensionManifest = serde_json::from_str(&format!(
         r#"{{
             "manifest_version": 2,
             "id": "com.example.pan",
             "name": "Pan",
             "version": "0.1.0",
-            "api_version": 5,
+            "api_version": 6,
             "capabilities": ["audio_editor"],
             "contributes": [{{
                 "id": "com.example.pan.editor",
@@ -187,6 +187,68 @@ fn audio_sub_editor_requires_a_curve_kind() {
                 "contract": "{AUDIO_SUB_EDITOR_CONTRACT}",
                 "title": "Clip Pan",
                 "category": "Audio"
+            }}]
+        }}"#
+    ))
+    .expect("parse manifest");
+    assert!(manifest.validate_source().is_err());
+}
+
+#[test]
+fn manifest_accepts_a_custom_audio_sub_editor() {
+    let manifest: ExtensionManifest = serde_json::from_str(&format!(
+        r#"{{
+            "manifest_version": 2,
+            "id": "com.example.pan",
+            "name": "Pan",
+            "version": "0.1.0",
+            "api_version": 6,
+            "capabilities": ["audio_editor"],
+            "contributes": [{{
+                "id": "com.example.pan.editor",
+                "point": "{AUDIO_SUB_EDITOR_POINT}",
+                "contract": "{AUDIO_SUB_EDITOR_CONTRACT}",
+                "title": "Clip Pan",
+                "category": "Audio",
+                "kind": {{
+                    "custom": {{
+                        "renderer": "com.example.pan.renderer"
+                    }}
+                }}
+            }}]
+        }}"#
+    ))
+    .expect("parse manifest");
+    manifest.validate_source().expect("valid manifest");
+    let contribution = manifest
+        .audio_sub_editor_contributions()
+        .next()
+        .expect("pan sub-editor");
+    let custom = contribution
+        .kind
+        .as_ref()
+        .and_then(|kind| kind.custom())
+        .expect("custom renderer");
+    assert_eq!(custom.renderer, "com.example.pan.renderer");
+}
+
+#[test]
+fn custom_audio_sub_editor_requires_a_renderer() {
+    let manifest: ExtensionManifest = serde_json::from_str(&format!(
+        r#"{{
+            "manifest_version": 2,
+            "id": "com.example.pan",
+            "name": "Pan",
+            "version": "0.1.0",
+            "api_version": 6,
+            "capabilities": ["audio_editor"],
+            "contributes": [{{
+                "id": "com.example.pan.editor",
+                "point": "{AUDIO_SUB_EDITOR_POINT}",
+                "contract": "{AUDIO_SUB_EDITOR_CONTRACT}",
+                "title": "Clip Pan",
+                "category": "Audio",
+                "kind": {{ "custom": {{ "renderer": " " }} }}
             }}]
         }}"#
     ))

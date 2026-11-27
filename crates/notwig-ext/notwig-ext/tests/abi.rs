@@ -80,7 +80,7 @@ fn module_wat() -> String {
   (data (i32.const 0) "{describe}")
   (data (i32.const 8192) "{frame}")
   (global $next (mut i32) (i32.const 16384))
-  (func (export "notwig_abi_version") (result i32) i32.const 5)
+  (func (export "notwig_abi_version") (result i32) i32.const 6)
   (func (export "notwig_alloc") (param $len i32) (result i32)
     (local $ptr i32)
     global.get $next
@@ -158,7 +158,7 @@ fn write_extension(with_ui: bool) -> PathBuf {
         "name": "Test Gain",
         "vendor": "Test",
         "version": "0.1.0",
-        "api_version": 5,
+        "api_version": 6,
         "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
         "capabilities": capabilities,
         "devices": [{

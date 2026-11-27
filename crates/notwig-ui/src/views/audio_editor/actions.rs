@@ -36,6 +36,14 @@ pub fn handle_clip_editor_actions(
     if ctx.wants_keyboard_input() {
         return;
     }
+    if state.sub_editor.extension_id().is_some_and(|id| {
+        ui.extension_audio_sub_editors
+            .iter()
+            .find(|editor| editor.id == id)
+            .is_some_and(|editor| editor.custom().is_some())
+    }) {
+        return;
+    }
     let (copy, cut, paste) = ui.shortcuts.copy_cut_paste_pressed(ctx);
     let duplicate = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate);
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);

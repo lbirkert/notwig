@@ -18,7 +18,7 @@ mod card;
 mod eq;
 mod extension;
 mod knob;
-mod panel_render;
+pub(crate) mod panel_render;
 mod params;
 mod plugin_kind;
 mod renderer;
@@ -28,6 +28,7 @@ use bracket::{Bracket, draw_bracket};
 
 pub(crate) use browser::DeviceBrowserState;
 pub(crate) use eq::EqDrag;
+pub(crate) use extension::theme_snapshot;
 pub(crate) use renderer::{DeviceRendererKind, card_width, device_renderer};
 
 const DEVICE_CARD_HEIGHT: f32 = 220.0;

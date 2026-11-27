@@ -7,10 +7,11 @@ use crate::web::device::WebExtensionDeviceFactory;
 use crate::web::instance::WebExtensionInstance;
 use crate::web::package::WebExtensionPackage;
 use crate::web::panel::WebExtensionPanelHost;
+use crate::web::sub_editor::WebExtensionAudioSubEditorHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost,
-    ExtensionConfig, ExtensionInfo, ExtensionStatus,
+    AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
+    DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionStatus,
 };
 
 /// Browser host for WASM extension packages.
@@ -32,6 +33,7 @@ impl WebExtensionHost {
         let mut by_command = BTreeMap::new();
         let mut commands = BTreeMap::new();
         let mut audio_sub_editors = BTreeMap::new();
+        let mut by_audio_sub_editor = BTreeMap::new();
         let mut infos = Vec::new();
         let mut errors = Vec::new();
         for package in packages {
@@ -79,6 +81,7 @@ impl WebExtensionHost {
                             );
                         } else {
                             audio_sub_editors.insert(editor.id.clone(), editor.clone());
+                            by_audio_sub_editor.insert(editor.id.clone(), Arc::clone(&extension));
                         }
                     }
                 }
@@ -92,6 +95,7 @@ impl WebExtensionHost {
             loaded: Arc::new(WebLoadedExtensions {
                 by_type,
                 by_command,
+                by_audio_sub_editor,
                 commands,
                 audio_sub_editors,
                 infos,
@@ -161,6 +165,14 @@ impl WebExtensionHost {
     #[must_use]
     pub fn panel_host(&self) -> Box<dyn DevicePanelHost> {
         Box::new(WebExtensionPanelHost::new(Arc::clone(&self.loaded)))
+    }
+
+    /// Creates a host that keeps per-clip extension sub-editor UI state.
+    #[must_use]
+    pub fn audio_sub_editor_host(&self) -> Box<dyn AudioSubEditorHost> {
+        Box::new(WebExtensionAudioSubEditorHost::new(Arc::clone(
+            &self.loaded,
+        )))
     }
 }
 

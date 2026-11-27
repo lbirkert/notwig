@@ -15,6 +15,7 @@ use notwig_ui::test_api::audio_editor::{
     handle_clip_editor_actions, lower_slice_plan, playhead_for_strip, set_drag_origin_start,
     set_sub_editor, slice_drag, slice_geometry, slice_model, source_duration,
 };
+use notwig_ui::test_api::shell::set_audio_sub_editor_host;
 use notwig_ui::{
     AudioWaveform, ClipEditorState, Clipboard, EditFocus, NotwigUi, RuntimeView, UiIntent,
 };
@@ -448,6 +449,81 @@ fn extension_curve_sub_editor_edits_the_clip_pan_curve() {
         })
         .expect("the extension pan editor should commit a pan curve");
     assert_eq!(curve.points().len(), 1);
+}
+
+struct RecordingSubEditorHost {
+    last_clip: std::sync::Arc<std::sync::Mutex<Option<ClipId>>>,
+    effect: notwig_ext_api::CommandEffect,
+}
+
+impl notwig_ext_api::AudioSubEditorHost for RecordingSubEditorHost {
+    fn draw_audio_sub_editor(
+        &mut self,
+        _editor_id: &str,
+        context: &notwig_ext_api::AudioSubEditorContext,
+    ) -> Option<notwig_ext_api::AudioSubEditorFrame> {
+        *self.last_clip.lock().expect("host lock") = Some(context.clip_id);
+        Some(notwig_ext_api::AudioSubEditorFrame {
+            panel: notwig_ext_api::PanelFrame::default(),
+            effect: self.effect.clone(),
+        })
+    }
+}
+
+#[test]
+fn custom_extension_sub_editor_receives_context_and_commits_edits() {
+    let (doc, clip) = panel_doc_with_slices(0, false);
+    let mut ui = NotwigUi::default();
+    ui.set_extension_audio_sub_editors(vec![notwig_ext_api::AudioSubEditorDescriptor {
+        id: "notwig.test.custom".into(),
+        title: "Custom Pan".into(),
+        category: "Audio".into(),
+        order: 10,
+        kind: notwig_ext_api::AudioSubEditorKind::Custom(notwig_ext_api::CustomSubEditorSpec {
+            renderer: "notwig.test.custom.renderer".into(),
+        }),
+        extension_id: Some("notwig.test".into()),
+    }]);
+    let curve =
+        notwig_core::Curve::from_points([notwig_core::CurvePoint::new(TimeMus::zero(), 0.25)])
+            .expect("curve");
+    let last_clip = std::sync::Arc::new(std::sync::Mutex::new(None));
+    set_audio_sub_editor_host(
+        &mut ui,
+        Some(Box::new(RecordingSubEditorHost {
+            last_clip: std::sync::Arc::clone(&last_clip),
+            effect: notwig_ext_api::CommandEffect::Apply {
+                edits: vec![notwig_ext_api::CommandEdit::AudioCurves {
+                    clip_id: clip,
+                    gain_curve: None,
+                    pan_curve: Some(Some(curve)),
+                }],
+                ui: Vec::new(),
+            },
+        })),
+    );
+    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
+        ui.state
+            .selection
+            .select_clip(clip, clip_entity.track_id, false);
+    }
+    ui.open_clip_editor(clip);
+    set_sub_editor(
+        ui.clip_editor.as_mut().expect("clip editor open"),
+        AudioSubEditor::Extension("notwig.test.custom".into()),
+    );
+    let ctx = egui::Context::default();
+    let mut runtime = RuntimeView::default();
+    runtime.insert_waveform(
+        id::<Asset>(600),
+        AudioWaveform::from_samples(vec![0.25; 128]),
+    );
+    let intents = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
+    assert_eq!(*last_clip.lock().expect("host lock"), Some(clip));
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        UiIntent::ApplyExtensionEffect { revision, .. } if *revision == doc.revision
+    )));
 }
 
 #[test]
