@@ -20,6 +20,11 @@ const ECHO_POINT: ExtensionPoint<dyn Echo> = ExtensionPoint::new("test.echo.poin
 #[extension_call(Echo)]
 struct Echoer;
 
+#[notwig_ext_trait(id = "test.debug.echo", version = 1)]
+pub trait DebugEcho: std::fmt::Debug {
+    fn value(&self, context: &ExtensionContext<'_>) -> Result<u32, ExtensionError>;
+}
+
 impl Echo for Echoer {
     fn echo(
         &self,
@@ -78,6 +83,13 @@ fn generated_handle_round_trips_method_calls() {
     let registry = CoreExtensionRegistry::new();
     let context = ExtensionContext::new(&registry);
     assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");
+    let debug_handle = DebugEchoHandle::new(
+        Arc::new(TestTransport {
+            dispatcher: Arc::new(Echoer),
+        }),
+        RemoteTarget::new("test.debug", 1),
+    );
+    assert!(format!("{debug_handle:?}").contains("DebugEchoHandle"));
     assert_eq!(
         handle.fail(&context, "nope".into()).unwrap_err(),
         ExtensionError::new("nope")
@@ -86,29 +98,26 @@ fn generated_handle_round_trips_method_calls() {
 }
 
 #[test]
-fn generated_handle_exposes_handler_bridge() {
+fn generated_interface_bridge_creates_handles_and_processes_calls() {
     let transport: SharedRpcTransport = Arc::new(TestTransport {
         dispatcher: Arc::new(Echoer),
     });
-    let handle = <EchoHandle as ExtensionTrait<Echoer>>::create_handle(
-        transport,
-        RemoteTarget::new("test.echoer", 7),
-    );
+    let handle =
+        <dyn Echo as ExtensionTrait>::create_handle(transport, RemoteTarget::new("test.echoer", 7));
     let registry = CoreExtensionRegistry::new();
     let context = ExtensionContext::new(&registry);
+    assert_eq!(
+        <dyn Echo as ExtensionTrait>::INTERFACE_ID,
+        EchoHandle::INTERFACE_ID
+    );
+    assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");
+
     let request = EchoRequest::echo {
         value: "direct".into(),
     };
     let payload = notwig_ext_api::postcard::to_allocvec(&request).unwrap();
-    let mut handler = Echoer;
-    let response =
-        <EchoHandle as ExtensionTrait<Echoer>>::process(&mut handler, &context, "echo", &payload)
-            .unwrap();
+    let mut call = Echoer;
+    let response = call.process(&context, "echo", &payload).unwrap();
     let response: EchoResponse = notwig_ext_api::postcard::from_bytes(&response).unwrap();
     assert!(matches!(response, EchoResponse::echo(Ok(value)) if value == "echo:direct"));
-    assert_eq!(
-        <EchoHandle as ExtensionTrait<Echoer>>::INTERFACE_ID,
-        EchoHandle::INTERFACE_ID
-    );
-    assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");
 }

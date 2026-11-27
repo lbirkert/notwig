@@ -153,8 +153,8 @@ Generated items:
 - `PanelRequest`, `PanelResponse`;
 - `PanelDispatcher` for the implementation side;
 - `ExtensionCall` via `#[derive(ExtensionCall)]` and `#[extension_call(Panel)]`;
-- `ExtensionTrait<H>` for the handle, linking scheduler construction with
-  raw-request handler dispatch;
+- `ExtensionTrait` for `dyn Trait`, with `type Handle = TraitHandle`;
+- scheduler-based handle construction through `ExtensionTrait::create_handle`;
 - interface descriptor, method ids, schema ids, and version metadata.
 
 Registration takes the actual instance:

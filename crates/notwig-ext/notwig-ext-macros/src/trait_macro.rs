@@ -178,6 +178,16 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             pub const METHOD_IDS: &'static [&'static str] = &[#(#method_names),*];
         }
 
+        impl ::core::fmt::Debug for #handle_ident {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!(#handle_ident))
+                    .field("interface_id", &Self::INTERFACE_ID)
+                    .field("interface_version", &Self::INTERFACE_VERSION)
+                    .field("target", &self.target)
+                    .finish_non_exhaustive()
+            }
+        }
+
         impl #trait_ident for #handle_ident {
             #(#handle_methods)*
         }
@@ -193,31 +203,17 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             ) -> ::core::result::Result<Vec<u8>, ::notwig_ext_api::ExtensionError>;
         }
 
-        impl<H: #trait_ident + Send + Sync + 'static> ::notwig_ext_api::ExtensionTrait<H>
-            for #handle_ident
-        {
+        impl ::notwig_ext_api::ExtensionTrait for dyn #trait_ident {
+            type Handle = #handle_ident;
+
             const INTERFACE_ID: &'static str = #id_lit;
             const INTERFACE_VERSION: u32 = #version;
 
             fn create_handle(
                 transport: ::notwig_ext_api::SharedRpcTransport,
                 target: ::notwig_ext_api::RemoteTarget,
-            ) -> Self {
-                Self::new(transport, target)
-            }
-
-            fn process(
-                handler: &mut H,
-                context: &::notwig_ext_api::ExtensionContext<'_>,
-                method: &str,
-                payload: &[u8],
-            ) -> ::core::result::Result<Vec<u8>, ::notwig_ext_api::ExtensionError> {
-                <H as #dispatcher_ident>::dispatch_extension(
-                    handler,
-                    context,
-                    method,
-                    payload,
-                )
+            ) -> Self::Handle {
+                #handle_ident::new(transport, target)
             }
         }
 
