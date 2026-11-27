@@ -62,8 +62,9 @@ Annotate the concrete implementation so the instance can be stored as
 `Box<dyn ExtensionCall>` without moving it across the ABI:
 
 ```rust
-#[notwig_ext_trait_impl(Echo)]
-impl Echo for MyEcho { /* ... */ }
+#[derive(ExtensionCall)]
+#[extension_call(Echo)]
+struct MyEcho;
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {

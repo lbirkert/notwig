@@ -364,15 +364,32 @@ fn result_type(output: &ReturnType, trait_ident: &syn::Ident) -> syn::Result<Typ
     Ok(value)
 }
 
-pub(crate) fn expand_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let trait_path = syn::parse_macro_input!(attr as syn::Path);
-    let item: syn::ItemImpl = syn::parse_macro_input!(item as syn::ItemImpl);
-    if item.trait_.is_none() {
-        return syn::Error::new_spanned(&item, "notwig_ext_trait_impl requires a trait impl")
-            .to_compile_error()
-            .into();
+pub(crate) fn expand_derive(item: TokenStream) -> TokenStream {
+    let input: syn::DeriveInput = syn::parse_macro_input!(item as syn::DeriveInput);
+    if !input.generics.params.is_empty() {
+        return syn::Error::new_spanned(
+            &input.generics,
+            "ExtensionCall derive does not support generic extension types yet",
+        )
+        .to_compile_error()
+        .into();
     }
-    let self_ty = item.self_ty.clone();
+    let Some(attribute) = input
+        .attrs
+        .iter()
+        .find(|attribute| attribute.path().is_ident("extension_call"))
+    else {
+        return syn::Error::new_spanned(
+            &input.ident,
+            "ExtensionCall derive requires #[extension_call(TraitName)]",
+        )
+        .to_compile_error()
+        .into();
+    };
+    let trait_path: syn::Path = match attribute.parse_args() {
+        Ok(path) => path,
+        Err(error) => return error.to_compile_error().into(),
+    };
     let trait_ident = trait_path
         .segments
         .last()
@@ -380,9 +397,8 @@ pub(crate) fn expand_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         .expect("trait path has at least one segment");
     let handle_ident = format_ident!("{}Handle", trait_ident);
     let dispatcher_ident = format_ident!("{}Dispatcher", trait_ident);
+    let self_ty = &input.ident;
     quote! {
-        #item
-
         impl ::notwig_ext_api::ExtensionCall for #self_ty {
             fn interface_id(&self) -> &'static str {
                 #handle_ident::INTERFACE_ID

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use notwig_ext_api::{
-    CoreExtensionRegistry, Extension, ExtensionContext, ExtensionError, ExtensionPoint,
-    RemoteTarget, RpcTransport, SharedRpcTransport, notwig_ext_trait, notwig_ext_trait_impl,
+    CoreExtensionRegistry, Extension, ExtensionCall, ExtensionContext, ExtensionError,
+    ExtensionPoint, RemoteTarget, RpcTransport, SharedRpcTransport, notwig_ext_trait,
 };
 
 #[notwig_ext_trait(id = "test.echo", version = 1)]
@@ -15,9 +15,10 @@ pub trait Echo {
 
 const ECHO_POINT: ExtensionPoint<dyn Echo> = ExtensionPoint::new("test.echo.point");
 
+#[derive(ExtensionCall)]
+#[extension_call(Echo)]
 struct Echoer;
 
-#[notwig_ext_trait_impl(Echo)]
 impl Echo for Echoer {
     fn echo(
         &self,

@@ -95,9 +95,10 @@ and boundaries. Start there when working inside a crate.
   Methods take `&self` plus `&ExtensionContext<'_>`, avoid generics/lifetimes,
   and return `Result<T, ExtensionError>` with owned postcard-serializable
   values. The context is the only supported path for calling other points.
-  Concrete impl blocks use `#[notwig_ext_trait_impl(TraitName)]` so the guest
-  can store the actual instance as `Box<dyn ExtensionCall>` without crossing the
-  ABI. `ExtensionCall::process` receives the context, method id, and payload.
+  Concrete types use `#[derive(ExtensionCall)]` plus
+  `#[extension_call(TraitName)]` so the guest can store the actual instance as
+  `Box<dyn ExtensionCall>` without crossing the ABI. `ExtensionCall::process`
+  receives the context, method id, and payload.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.

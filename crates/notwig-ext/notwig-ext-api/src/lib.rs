@@ -88,9 +88,7 @@ pub use manifest::{
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
-pub use notwig_ext_macros::{
-    notwig_ext, notwig_ext_trait, notwig_ext_trait_impl, notwig_extension,
-};
+pub use notwig_ext_macros::{ExtensionCall, notwig_ext, notwig_ext_trait, notwig_extension};
 pub use panel::{DevicePanelHost, PanelAction};
 pub use panel_frame::{
     MAX_PANEL_FRAME_BYTES, PanelEvent, PanelFrame, PanelImage, PanelInput, PanelMesh,

@@ -114,13 +114,14 @@ pub fn notwig_ext_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
     trait_macro::expand(attr, item)
 }
 
-/// Generates guest-side instance registration for an annotated trait impl.
+/// Derives guest-side callable-object registration for an extension trait.
 ///
 /// ```ignore
-/// #[notwig_ext_trait_impl(Echo)]
-/// impl Echo for Echoer { /* ... */ }
+/// #[derive(ExtensionCall)]
+/// #[extension_call(Echo)]
+/// struct Echoer;
 /// ```
-#[proc_macro_attribute]
-pub fn notwig_ext_trait_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
-    trait_macro::expand_impl(attr, item)
+#[proc_macro_derive(ExtensionCall, attributes(extension_call))]
+pub fn derive_extension_call(item: TokenStream) -> TokenStream {
+    trait_macro::expand_derive(item)
 }
