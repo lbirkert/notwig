@@ -98,7 +98,9 @@ and boundaries. Start there when working inside a crate.
   Concrete types use `#[derive(ExtensionCall)]` plus
   `#[extension_call(TraitName)]` so the guest can store the actual instance as
   `Box<dyn ExtensionCall>` without crossing the ABI. `ExtensionCall::process`
-  receives the context, method id, and payload.
+  receives the context, method id, and payload. The trait macro also generates
+  `ExtensionTrait<H>` for the handle so scheduler-based construction and raw
+  request dispatch share one interface definition.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.

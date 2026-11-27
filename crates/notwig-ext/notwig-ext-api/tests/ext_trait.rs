@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use notwig_ext_api::{
     CoreExtensionRegistry, Extension, ExtensionCall, ExtensionContext, ExtensionError,
-    ExtensionPoint, RemoteTarget, RpcTransport, SharedRpcTransport, notwig_ext_trait,
+    ExtensionPoint, ExtensionTrait, RemoteTarget, RpcTransport, SharedRpcTransport,
+    notwig_ext_trait,
 };
 
 #[notwig_ext_trait(id = "test.echo", version = 1)]
@@ -82,4 +83,32 @@ fn generated_handle_round_trips_method_calls() {
         ExtensionError::new("nope")
     );
     assert_eq!(handle.ping(&context).unwrap(), 42);
+}
+
+#[test]
+fn generated_handle_exposes_handler_bridge() {
+    let transport: SharedRpcTransport = Arc::new(TestTransport {
+        dispatcher: Arc::new(Echoer),
+    });
+    let handle = <EchoHandle as ExtensionTrait<Echoer>>::create_handle(
+        transport,
+        RemoteTarget::new("test.echoer", 7),
+    );
+    let registry = CoreExtensionRegistry::new();
+    let context = ExtensionContext::new(&registry);
+    let request = EchoRequest::echo {
+        value: "direct".into(),
+    };
+    let payload = notwig_ext_api::postcard::to_allocvec(&request).unwrap();
+    let mut handler = Echoer;
+    let response =
+        <EchoHandle as ExtensionTrait<Echoer>>::process(&mut handler, &context, "echo", &payload)
+            .unwrap();
+    let response: EchoResponse = notwig_ext_api::postcard::from_bytes(&response).unwrap();
+    assert!(matches!(response, EchoResponse::echo(Ok(value)) if value == "echo:direct"));
+    assert_eq!(
+        <EchoHandle as ExtensionTrait<Echoer>>::INTERFACE_ID,
+        EchoHandle::INTERFACE_ID
+    );
+    assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");
 }

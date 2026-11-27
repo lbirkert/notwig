@@ -56,7 +56,9 @@ generics/lifetimes, and return `Result<T, ExtensionError>`. The context is how a
 handler calls other extension points. Arguments and return values are postcard
 encoded. The generated handle takes an [`RpcTransport`] and `RemoteTarget`; the
 generated `EchoDispatcher` forwards the context and is implemented for every
-`Echo + Send + Sync` implementation.
+`Echo + Send + Sync` implementation. The macro also generates
+`ExtensionTrait<H>` for the handle, which exposes interface metadata, handle
+construction, and raw-request processing against an `H` handler.
 
 Annotate the concrete implementation so the instance can be stored as
 `Box<dyn ExtensionCall>` without moving it across the ABI:

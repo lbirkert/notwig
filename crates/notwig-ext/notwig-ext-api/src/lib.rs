@@ -101,6 +101,8 @@ pub use registration::{
     ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
 pub use registry::{CoreExtensionRegistry, ExtensionContext, RegistryError};
-pub use rpc::{ExtensionCall, ExtensionError, RemoteTarget, RpcTransport, SharedRpcTransport};
+pub use rpc::{
+    ExtensionCall, ExtensionError, ExtensionTrait, RemoteTarget, RpcTransport, SharedRpcTransport,
+};
 pub use serde;
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};
