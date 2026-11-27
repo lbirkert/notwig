@@ -137,9 +137,10 @@ impl ExtensionBuilder {
     /// the ABI.
     pub fn register_extension<I: ?Sized, T>(&mut self, point: ExtensionPoint<I>, instance: T)
     where
-        T: crate::rpc::ExtensionInstance<I>,
+        T: crate::rpc::ExtensionCall + 'static,
     {
-        instance.register_instance(&mut self.extension, point.id());
+        self.extension
+            .register_extension_call(point.id(), Box::new(instance));
     }
 
     /// Registers an implementation factory on `point`.

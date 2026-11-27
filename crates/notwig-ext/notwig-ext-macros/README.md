@@ -58,8 +58,8 @@ encoded. The generated handle takes an [`RpcTransport`] and `RemoteTarget`; the
 generated `EchoDispatcher` forwards the context and is implemented for every
 `Echo + Send + Sync` implementation.
 
-Annotate the concrete implementation so the instance can be registered without
-moving it across the ABI:
+Annotate the concrete implementation so the instance can be stored as
+`Box<dyn ExtensionCall>` without moving it across the ABI:
 
 ```rust
 #[notwig_ext_trait_impl(Echo)]

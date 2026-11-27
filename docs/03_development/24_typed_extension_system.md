@@ -152,7 +152,7 @@ Generated items:
 - `PanelHandle` with the same method surface;
 - `PanelRequest`, `PanelResponse`;
 - `PanelDispatcher` for the implementation side;
-- `ExtensionInstance<dyn Panel>` via `#[notwig_ext_trait_impl(Panel)]`;
+- `ExtensionCall` via `#[notwig_ext_trait_impl(Panel)]`;
 - interface descriptor, method ids, schema ids, and version metadata.
 
 Registration takes the actual instance:
@@ -161,8 +161,9 @@ Registration takes the actual instance:
 extension.register_extension(TRACK_PANEL, MyTrackPanel::new());
 ```
 
-The guest owns the instance; only postcard payloads and stable ids cross the
-WASM/native boundary.
+The guest owns the instance as `Box<dyn ExtensionCall>`; only postcard payloads
+and stable ids cross the WASM/native boundary. The scheduler selects the object
+by index and calls `ExtensionCall::process` with the method id and payload.
 
 The developer still writes a normal Rust implementation and annotates it so the
 guest can register the instance:

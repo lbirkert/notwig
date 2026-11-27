@@ -22,7 +22,7 @@ use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 use crate::registration::{
     DeviceRegistrationDescriptor, ExtensionPointDescriptor, ExtensionRegistrations,
 };
-use crate::rpc::RegisteredInterface;
+use crate::rpc::ExtensionCall;
 
 /// Marker interface for the built-in `notwig.devices` extension point.
 pub trait DeviceInterface {}
@@ -228,7 +228,7 @@ fn create_bottom_panel<T: BottomPanelExtension>() -> Box<dyn BottomPanelInstance
 /// Extension runtime shared by the generated ABI exports.
 pub struct Extension {
     extension_points: BTreeSet<String>,
-    typed_interfaces: BTreeMap<String, BTreeMap<String, RegisteredInterface>>,
+    typed_extensions: BTreeMap<String, Vec<Box<dyn ExtensionCall>>>,
     devices: BTreeMap<String, RegisteredDevice>,
     audio_sub_editors: BTreeMap<String, RegisteredAudioSubEditor>,
     bottom_panels: BTreeMap<String, RegisteredBottomPanel>,
@@ -246,7 +246,7 @@ impl Extension {
     pub const fn new() -> Self {
         Self {
             extension_points: BTreeSet::new(),
-            typed_interfaces: BTreeMap::new(),
+            typed_extensions: BTreeMap::new(),
             devices: BTreeMap::new(),
             audio_sub_editors: BTreeMap::new(),
             bottom_panels: BTreeMap::new(),
@@ -259,25 +259,30 @@ impl Extension {
         }
     }
 
-    /// Registers one typed interface instance in the guest runtime.
-    #[doc(hidden)]
-    pub fn register_typed_interface(&mut self, point_id: &str, interface: RegisteredInterface) {
-        self.typed_interfaces
-            .entry(point_id.to_owned())
-            .or_default()
-            .insert(interface.implementation_id.clone(), interface);
+    /// Registers one callable typed extension instance on `point`.
+    pub fn register_extension<I: ?Sized, T>(&mut self, point: ExtensionPoint<I>, instance: T)
+    where
+        T: ExtensionCall + 'static,
+    {
+        self.register_extension_call(point.id(), Box::new(instance));
     }
 
-    /// Returns a registered typed interface by point and implementation id.
+    /// Registers one callable typed extension instance in the guest runtime.
+    #[doc(hidden)]
+    pub fn register_extension_call(&mut self, point_id: &str, extension: Box<dyn ExtensionCall>) {
+        self.typed_extensions
+            .entry(point_id.to_owned())
+            .or_default()
+            .push(extension);
+    }
+
+    /// Returns registered typed extensions for `point_id`.
     #[must_use]
-    pub fn typed_interface(
-        &self,
-        point_id: &str,
-        implementation_id: &str,
-    ) -> Option<&RegisteredInterface> {
-        self.typed_interfaces
+    pub fn extension_calls(&self, point_id: &str) -> &[Box<dyn ExtensionCall>] {
+        self.typed_extensions
             .get(point_id)
-            .and_then(|interfaces| interfaces.get(implementation_id))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     /// Declares one extension point.

@@ -383,31 +383,27 @@ pub(crate) fn expand_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #item
 
-        impl ::notwig_ext_api::ExtensionInstance<dyn #trait_path> for #self_ty {
-            fn register_instance(
-                self,
-                extension: &mut ::notwig_ext_api::Extension,
-                point_id: &'static str,
-            ) {
-                let dispatch: ::notwig_ext_api::rpc::InterfaceDispatch = Box::new(
-                    move |context, method, payload| {
-                        <Self as #dispatcher_ident>::dispatch_extension(
-                            &self,
-                            context,
-                            method,
-                            payload,
-                        )
-                    },
-                );
-                extension.register_typed_interface(
-                    point_id,
-                    ::notwig_ext_api::RegisteredInterface {
-                        interface_id: #handle_ident::INTERFACE_ID,
-                        interface_version: #handle_ident::INTERFACE_VERSION,
-                        implementation_id: ::std::any::type_name::<Self>().to_owned(),
-                        dispatch,
-                    },
-                );
+        impl ::notwig_ext_api::ExtensionCall for #self_ty {
+            fn interface_id(&self) -> &'static str {
+                #handle_ident::INTERFACE_ID
+            }
+
+            fn interface_version(&self) -> u32 {
+                #handle_ident::INTERFACE_VERSION
+            }
+
+            fn process(
+                &mut self,
+                context: &::notwig_ext_api::ExtensionContext<'_>,
+                method: &str,
+                payload: &[u8],
+            ) -> Result<Vec<u8>, ::notwig_ext_api::ExtensionError> {
+                <Self as #dispatcher_ident>::dispatch_extension(
+                    self,
+                    context,
+                    method,
+                    payload,
+                )
             }
         }
     }

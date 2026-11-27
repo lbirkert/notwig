@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use notwig_ext_api::{
-    CoreExtensionRegistry, Extension, ExtensionContext, ExtensionError, ExtensionInstance,
-    ExtensionPoint, RemoteTarget, RpcTransport, SharedRpcTransport, notwig_ext_trait,
-    notwig_ext_trait_impl,
+    CoreExtensionRegistry, Extension, ExtensionContext, ExtensionError, ExtensionPoint,
+    RemoteTarget, RpcTransport, SharedRpcTransport, notwig_ext_trait, notwig_ext_trait_impl,
 };
 
 #[notwig_ext_trait(id = "test.echo", version = 1)]
@@ -62,12 +61,10 @@ impl RpcTransport for TestTransport {
 #[test]
 fn generated_registration_keeps_the_instance_inside_the_guest() {
     let mut extension = Extension::new();
-    Echoer.register_instance(&mut extension, ECHO_POINT.id());
-    assert!(
-        extension
-            .typed_interface(ECHO_POINT.id(), std::any::type_name::<Echoer>())
-            .is_some()
-    );
+    extension.register_extension(ECHO_POINT, Echoer);
+    let calls = extension.extension_calls(ECHO_POINT.id());
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].interface_id(), EchoHandle::INTERFACE_ID);
 }
 
 #[test]
