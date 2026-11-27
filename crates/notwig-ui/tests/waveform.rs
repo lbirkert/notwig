@@ -223,6 +223,10 @@ fn far_zoom_draws_positive_and_negative_peak_lines() {
             _ => None,
         })
         .expect("far rendering should produce a line mesh");
+    assert!(
+        mesh.vertices.len() <= 200 * 2 * 4,
+        "far rendering should draw at most one positive/negative line pair per pixel"
+    );
     let center = 90.0;
     let mut touches_zero = false;
     let mut reaches_positive = false;

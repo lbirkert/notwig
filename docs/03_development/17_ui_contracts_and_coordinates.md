@@ -155,11 +155,11 @@ over power-of-four windows (4, 16, 64, ... up to the whole asset).
 intersects it with the visible clip, clamps to the asset's frame count, and
 builds only visible geometry. Exact span peaks come from a range query that
 consumes the largest aligned 4^n blocks first, then progressively smaller ones.
-At 4096 or fewer samples per pixel the sample graph fills the area without an
-extra stroke. Above that, far rendering draws one-pixel vertical lines from zero
-to the positive and negative peaks instead of an area; its peak spans target
-about a quarter of a pixel. Both modes draw a one-pixel zero line across the
-visible rect. Sliced waveforms start after `silent_prefix_samples`; over-trimmed
+At 4096 or fewer samples per pixel the sample graph queries two spans per pixel
+and fills the area without an extra stroke. Above that, far rendering queries
+one span per pixel and draws one-pixel vertical lines from zero to the positive
+and negative peaks instead of an area. Both modes draw a one-pixel zero line
+across the visible rect. Sliced waveforms start after `silent_prefix_samples`; over-trimmed
 events never stretch the source.
 
 

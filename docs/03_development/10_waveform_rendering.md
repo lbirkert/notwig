@@ -65,8 +65,8 @@ hierarchy is therefore both the cache and the acceleration structure.
 per pixel it uses the close sample graph; above that it uses the far peak lines.
 Both call the same range-peak query for each screen span.
 
-- **Sample graph** (4096 or fewer samples per pixel). Query one span per pixel
-  column, use the signed peak with the larger magnitude from the returned
+- **Sample graph** (4096 or fewer samples per pixel). Query two spans per pixel
+  column, use the signed peak with the larger magnitude from each returned
   min/max, and fill the area between the graph and the zero axis. Segments that
   cross zero are split at the crossing so the fill is two triangles rather than
   a self-intersecting polygon. Below one sample per pixel the graph reads
@@ -74,10 +74,10 @@ Both call the same range-peak query for each screen span.
   individual waveform cycles are visible. The graph emits only a fully opaque
   black signed area as a single triangle mesh; it does not stroke a line over
   the fill.
-- **Far peak lines** (more than 4096 samples per pixel). Query roughly four
-  spans per pixel, read each span's positive and negative peaks, and draw a
-  one-pixel-wide vertical line from the zero axis up to the positive peak and
-  another from the zero axis down to the negative peak. Nothing is filled
+- **Far peak lines** (more than 4096 samples per pixel). Query one span per
+  pixel, read its positive and negative peaks, and draw a one-pixel-wide
+  vertical line from the zero axis up to the positive peak and another from the
+  zero axis down to the negative peak. Nothing is filled
   between the lines, so the far view shows peak strokes instead of a solid band.
 
 Both renderers draw a one-pixel zero line across the visible waveform rectangle

@@ -79,7 +79,7 @@ fn far_zoom_vertical_lines_bound_geometry() {
     let indices = mesh_indices(&output);
     assert!(indices > 0, "the waveform should draw peak lines");
     assert!(
-        indices <= 8 * 200 * 12,
-        "far view built {indices} indices; it should scale with pixels"
+        indices <= 200 * 12,
+        "far view built {indices} indices; it should draw one line pair per pixel"
     );
 }

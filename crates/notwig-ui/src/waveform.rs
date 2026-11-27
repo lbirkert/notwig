@@ -13,8 +13,10 @@ const FAR_BASE_BUCKET: u64 = 4;
 /// The far renderer switches from the filled sample graph to positive/negative
 /// peak lines above this many samples per pixel.
 const FAR_SAMPLES_PER_PIXEL: f64 = 4_096.0;
-/// Aim for a peak window of roughly a quarter pixel so far lines keep more detail.
+/// Aim for a peak window of roughly a quarter pixel for panel column peaks.
 const FAR_WINDOW_DIVISOR: f64 = 4.0;
+/// Close rendering queries two spans per screen pixel for a little more detail.
+const CLOSE_SPANS_PER_PIXEL: f32 = 2.0;
 const WAVEFORM: Color32 = Color32::BLACK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,16 +348,7 @@ pub(crate) fn draw_waveform(
             draw_sample_graph(&painter, rect, waveform, start, end, source_start, gain);
         }
         WaveformMode::FarLines => {
-            draw_far_lines(
-                &painter,
-                rect,
-                waveform,
-                start,
-                end,
-                samples_per_pixel,
-                source_start,
-                gain,
-            );
+            draw_far_lines(&painter, rect, waveform, start, end, source_start, gain);
         }
     }
     draw_zero_line(&painter, rect);
@@ -376,7 +369,6 @@ fn draw_far_lines(
     waveform: &AudioWaveform,
     start: f64,
     end: f64,
-    _samples_per_pixel: f64,
     source_start: u64,
     gain: Option<&WaveformGain<'_>>,
 ) {
@@ -384,7 +376,7 @@ fn draw_far_lines(
     if span <= 0.0 {
         return;
     }
-    let columns = (rect.width() * FAR_WINDOW_DIVISOR as f32).ceil().max(2.0) as usize;
+    let columns = rect.width().ceil().max(2.0) as usize;
     let step = rect.width() / columns as f32;
     let center = rect.center().y;
     let half = rect.height() * 0.42;
@@ -400,10 +392,8 @@ fn draw_far_lines(
         };
         let t0 = (x0 - rect.left()) / rect.width();
         let t1 = (x1 - rect.left()) / rect.width();
-        let (mut min, mut max) = waveform.range_peak(
-            start + f64::from(t0) * span,
-            start + f64::from(t1) * span,
-        );
+        let (mut min, mut max) =
+            waveform.range_peak(start + f64::from(t0) * span, start + f64::from(t1) * span);
         if let Some(gain) = gain {
             let frame = start + f64::from(f32::midpoint(t0, t1)) * span;
             let scale = gain.gain_at_frame(source_start, frame);
@@ -469,7 +459,7 @@ fn draw_sample_graph(
     let half = rect.height() * 0.42;
     let samples_per_pixel = span / f64::from(rect.width().max(1.0));
     let mut points = Vec::new();
-    if samples_per_pixel < 1.0 {
+    if samples_per_pixel < f64::from(CLOSE_SPANS_PER_PIXEL) {
         let mut frame = first;
         loop {
             let mut value = waveform.sample(frame);
@@ -484,7 +474,7 @@ fn draw_sample_graph(
             frame += 1;
         }
     } else {
-        let columns = rect.width().ceil().max(1.0) as usize;
+        let columns = (rect.width() * CLOSE_SPANS_PER_PIXEL).ceil().max(1.0) as usize;
         let step = rect.width() / columns as f32;
         points.reserve(columns);
         for column in 0..columns {
@@ -496,10 +486,8 @@ fn draw_sample_graph(
             };
             let t0 = (x0 - rect.left()) / rect.width();
             let t1 = (x1 - rect.left()) / rect.width();
-            let (mut min, mut max) = waveform.range_peak(
-                start + f64::from(t0) * span,
-                start + f64::from(t1) * span,
-            );
+            let (mut min, mut max) =
+                waveform.range_peak(start + f64::from(t0) * span, start + f64::from(t1) * span);
             if let Some(gain) = gain {
                 let frame = start + f64::from(f32::midpoint(t0, t1)) * span;
                 let scale = gain.gain_at_frame(source_start, frame);
