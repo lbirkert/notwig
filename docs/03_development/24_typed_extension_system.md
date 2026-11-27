@@ -134,30 +134,66 @@ The exact generic-bound/orphan strategy for
 macro proof of concept. The target syntax is fixed; the generated adapter
 machinery is allowed to be hidden.
 
-### 3.2 Entry point
+### 3.2 Lifecycle entrypoints
 
-Keep the existing one-entrypoint-per-binary macro. The entrypoint accepts the
-builder/runtime and may declare points and register many implementations:
+`#[notwig_extension]` is replaced by three phase-specific attributes:
+
+- `#[notwig_ext(preload)]` declares extension points and other packages-level
+  contracts. All point declarations happen here, before any implementation can
+  register to them.
+- `#[notwig_ext(load)]` registers implementations, commands, devices,
+  sub-editors, and other runtime contributions.
+- `#[notwig_ext(unload)]` releases extension-owned resources and state.
+
+One binary may define at most one function for each phase. Any phase may be
+omitted, but a package that owns extension points must provide `preload`.
 
 ```rust
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+// Point owner: com.notwig.track
+#[notwig_ext(preload)]
+pub fn preload(extension: &mut PreloadBuilder) {
     extension.register_extension_point(TRACK_PANEL);
-    extension.register_extension::<MyPanel>(TRACK_PANEL);
+}
+
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
+    extension.register_device::<TrackDevice>();
+}
+
+#[notwig_ext(unload)]
+pub fn unload(context: &mut UnloadContext) {
+    context.flush_state();
 }
 ```
 
-No second `#[extension]` macro is needed. `Extension` grows into the builder API
-while keeping its current device/command/sub-editor registration methods as
-adapters during migration.
+```rust
+// Contributor: com.example.midi-tools
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
+    // Point already exists from the preload phase.
+    extension.register_extension::<MidiMenu>(TRACK_PANEL);
+}
+```
+
+The phase builders enforce the separation at compile time:
+
+- `PreloadBuilder` exposes point declaration only;
+- `ExtensionBuilder` exposes implementation and existing contribution
+  registration, but not new point declarations;
+- `UnloadContext` exposes cleanup and host-owned resource release.
+
+This removes the single-entrypoint restriction while keeping one binary per
+extension package. During migration the old `#[notwig_extension]` form may map
+to `#[notwig_ext(load)]` with a deprecation warning, then is removed at the ABI
+bump.
 
 ### 3.3 Registration
 
 ```rust
-// Point owner.
+// Point owner, in #[notwig_ext(preload)].
 extension.register_extension_point(TRACK_PANEL);
 
-// Contributor.
+// Contributor, in #[notwig_ext(load)].
 extension.register_extension::<MyPanel>(TRACK_PANEL);
 ```
 
@@ -380,7 +416,29 @@ pub struct ExtensionCallResult<T> {
 }
 ```
 
-### 4.3 Threading
+### 4.3 Load lifecycle
+
+The runtime executes phases in a fixed order:
+
+1. Discover and instantiate enabled extensions. Filesystem order is ignored.
+2. Call every `preload` in user extension load order. Collect point declarations
+   and interface/version metadata.
+3. Validate the point graph: duplicate ids, namespace ownership, interface ids,
+   and contract majors. A missing point is not reported here yet.
+4. Call every `load` in user extension load order. Collect implementations,
+   commands, devices, sub-editors, and other contributions.
+5. Resolve the complete contribution graph, including replacements, ordering,
+   cardinality, and missing points.
+6. Activate the new registry generation. Existing handles from older generations
+   become stale.
+7. On disable, reload, or shutdown, invalidate handles first, then call `unload`
+   in reverse load order and remove that generation's rows.
+
+A package that fails `preload` cannot own points and is marked failed. A package
+that fails `load` is unavailable; its already-collected rows are discarded. An
+`unload` failure is logged and must not block unloading other packages.
+
+### 4.4 Threading
 
 - Registration and resolution live on the UI thread.
 - The runtime never holds a registry lock while invoking extension code.
@@ -417,9 +475,11 @@ pub struct ExtensionRequest {
 
 Implementation plan for the current code:
 
-- keep one `#[notwig_extension]` entrypoint per binary;
+- generate optional `notwig_ext_preload`, `notwig_ext_load`, and
+  `notwig_ext_unload` exports from the three attributes;
 - add a guest export returning bounded registration descriptors for points,
   implementations, commands, and existing contributions;
+- keep the existing contribution exports during migration;
 - add a guest invoke export that carries `(method_id, payload)`;
 - keep existing device/command/sub-editor exports during migration;
 - add a host-side `ExtensionRuntime` on the UI thread that owns the registry,
@@ -573,6 +633,7 @@ independent WASM instances.
   two-phase resolution, registration ownership, and `set_extensions`.
 - Replacement edges, `replace_extension`, single-provider cardinality,
   `get_extension` / `try_get_extension`, and persistent load order.
+- Add `#[notwig_ext(preload/load/unload)]` macro exports and phase builders.
 - Keep existing device/command/sub-editor exports behind adapters.
 - Add registry/invoke ABI exports and the UI-thread runtime.
 
@@ -581,7 +642,7 @@ independent WASM instances.
 - Map `notwig.command`, `notwig.audio_editor.sub_editor`, and device panels onto
   the new registry.
 - Introduce `NotwigCommands` as the app/UI facade.
-- Keep backward-compatible author entrypoints during the migration.
+- Map `#[notwig_extension]` to `#[notwig_ext(load)]` with a deprecation warning for one ABI window.
 
 ### Milestone 3 — Panels and context menus
 
