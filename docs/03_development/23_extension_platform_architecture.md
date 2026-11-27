@@ -50,9 +50,8 @@ missing or broken.
 The concrete first migration is defined in section 8: dynamic commands and a
 command palette, audio-editor sub-editors, and extension panels. Those three
 surfaces are the acceptance test for the registry, context, command, and panel
-contracts. Phase 1 commands, shared audio-editor curve sub-editors, and
-extension-drawn custom audio sub-editors are implemented; general extension
-panels and clipboard formats remain follow-ups. The author-facing contracts are in
+contracts. Phase 1 commands and extension-rendered audio sub-editors are
+implemented; general extension panels and clipboard formats remain follow-ups. The author-facing contracts are in
 [`Command API`](../02_extensions/06_command_api.md) and
 [`Audio Sub-editor API`](../02_extensions/07_audio_sub_editor_api.md).
 
@@ -623,18 +622,17 @@ Gain uses the reusable `widgets::line_editor` over the clip's canonical
 curvature, segment value moves, marquee selection, grid snapping, and fine
 adjustment. Switching surfaces clears in-progress drags and preserves the clip
 time mapping, playhead, loop range, snap grid, and scrollbar. Extensions add
-shared curve sub-editors and custom extension-drawn sub-editors through
-`notwig.audio_editor.sub_editor`. The example package contributes Clip Pan with
-a custom renderer that draws the panel and commits a host-owned pan curve edit.
+extension-rendered sub-editors through `notwig.audio_editor.sub_editor`. The
+extension registers its editor under the contribution id; the example package
+contributes Clip Pan that draws the shared curve editor over a waveform underlay
+and commits a host-owned pan curve edit.
 
 `notwig.audio_editor.sub_editor` is an augment point. A contribution declares:
 
 ```text
 AudioSubEditorSpec
   id, title, icon (host-defined icon id), category, order
-  kind:
-    Curve(CurveTargetSpec)
-    Custom(CustomSubEditorSpec)  // renderer id + panel surface
+  renderer = contribution id, registered by the extension
   accepted_clip_kinds: audio
   singleton_per_clip: bool
 ```
@@ -653,20 +651,21 @@ ID. Disabling an extension removes its entry but does not silently switch the
 active editor to a different one; the host falls back to Audio Events with a
 notice.
 
-#### Shared curve sub-editors
+#### Reusable curve editor
 
-Gain and Pan are the motivating cases for a shared curve editor. The host
-provides a reusable time/value curve widget in `notwig-ui` with:
+Gain is a host built-in over the clip's canonical `gain_curve`. Extensions can
+use the same curve editor through the `notwig-ui` `extension-ui` feature:
 
 - points, interpolation, add/remove, drag, keyboard nudge, and snapping;
-- a value range and unit from the contribution;
-- a read/write binding to host-owned data;
+- a value range, baseline, and formatter chosen by the extension;
+- a read/write binding through host-owned edit families;
 - a preview and commit path that emits one command batch;
 - selection and viewport shared with the audio editor.
 
-A `CurveTargetSpec` does not draw arbitrary UI. It declares which host-modeled
-value it edits and how to read/write it. The extension can add a new curve
-sub-editor only when the underlying data is host-modeled and validatable.
+The host also supplies `AudioWaveformPreview` columns so an extension can draw
+the same waveform underlay as the built-in editor. The extension still cannot
+store playback-affecting curve state privately; edits return as `CommandEffect`
+and the host validates the revision before applying them.
 
 This exposes a real model gap that the design must not hide:
 
@@ -1267,7 +1266,7 @@ services remain typed.
 | 0. Baseline | Document the contribution model, IDs, modes, version axes, command context, panel surface, and sealed core list. Keep the device ABI stable. | Design reviewed; no code change required. |
 | 1. Registry and commands | Manifest v2 with `requires`, `provides`, `contributes`. Pure discovery/resolution. Add `CommandId`, resolved command descriptors, `CommandContext`, host edit families, palette, and string-keyed shortcuts. Convert built-ins incrementally. | A built-in command and an extension humanize command both run from the palette and a shortcut; context gating and stale-revision rejection are tested; one undo entry per command. |
 | 2. Panels | Generalize the device panel frame into a host-owned panel surface. Add `notwig.panel`, panel tabs/docking, guest and host-rendered panels, focus, shortcut suppression, and lifecycle. Keep device panels on the device wire format. | Headless render, focus, invalid-frame fallback, multiple instances, close/reopen, and disabled-extension behavior are tested. |
-| 3. Audio sub-editors | Replace the `"AUDIO EVENTS"` label with the host selector. Add `notwig.audio_editor.sub_editor`, the built-in Audio Events contribution, and the shared curve editor. Add a Gain sub-editor over existing clip/slice gain. **Status:** host selector, Audio Events, Gain, extension curve sub-editors, and custom extension-drawn sub-editors are implemented; the example package contributes a custom Clip Pan renderer. | Default lane and extension lane switch correctly; shared curve edits apply as one undo batch; custom edits are revision-checked; time mapping, playhead, snap, and focus remain host-owned. |
+| 3. Audio sub-editors | Replace the `"AUDIO EVENTS"` label with the host selector. Add `notwig.audio_editor.sub_editor`, the built-in Audio Events contribution, and the shared curve editor. Add a Gain sub-editor over existing clip/slice gain. **Status:** host selector, Audio Events, Gain, and extension-rendered sub-editors are implemented; the example package contributes a Clip Pan editor registered under its contribution id. | Default lane and extension lane switch correctly; edits apply as one undo batch; extension edits are revision-checked; time mapping, playhead, snap, waveform underlay, and focus remain host-owned. |
 | 4. Canonical sub-editor data and custom editors | Add the canonical fields and engine paths needed for Pan and time-varying Gain, or explicitly scope them out. **Status:** Pan and time-varying gain curves are canonical; custom sub-editors use the panel surface. | Canonical data round-trips and affects rendering; no hidden playback state; custom sub-editor context is bounded and stale-checked. |
 | 5. Clipboard formats | Add format handlers and converters for arranger, audio, MIDI, and devices. Replace the closed `Clipboard` enum with a host snapshot plus built-in handlers. | Cross-domain paste tests, asset-missing tests, undo grouping, OS marker compatibility. |
 | 6. Single-provider services | Introduce service slots for low-risk systems (theme, export encoder, later clipboard replacement) with host fallback and conformance tests. | Replacement failure falls back; no load-order selection; conformance pass. |

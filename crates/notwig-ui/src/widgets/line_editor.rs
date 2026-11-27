@@ -6,9 +6,9 @@ use egui::{Color32, Id, Pos2, Rect, Sense, Stroke, Vec2};
 use notwig_core::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, RangeMus, TimeMus};
 
 use crate::fine_drag::FineDrag;
-use crate::theme;
-use crate::timeline::TimelineGrid;
+use crate::palette;
 use crate::widgets::beats_to_time;
+use crate::widgets::timeline_grid::TimelineGrid;
 
 const POINT_RADIUS: f32 = 4.5;
 const POINT_HIT_RADIUS: f32 = 9.0;
@@ -539,18 +539,18 @@ fn draw_curve(
         );
         painter.line_segment(
             [selection.left_top(), selection.left_bottom()],
-            Stroke::new(1.0_f32, theme::ACCENT),
+            Stroke::new(1.0_f32, palette::ACCENT),
         );
         painter.line_segment(
             [selection.right_top(), selection.right_bottom()],
-            Stroke::new(1.0_f32, theme::ACCENT),
+            Stroke::new(1.0_f32, palette::ACCENT),
         );
     }
     if let Some(baseline) = config.baseline {
         let y = y_for_value(config, rect, baseline);
         painter.line_segment(
             [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-            Stroke::new(1.0_f32, theme::GRID),
+            Stroke::new(1.0_f32, palette::GRID),
         );
     }
 
@@ -576,7 +576,7 @@ fn draw_curve(
             center,
             POINT_RADIUS,
             if selected {
-                theme::ACCENT
+                palette::ACCENT
             } else {
                 Color32::from_rgb(214, 168, 58)
             },
@@ -600,7 +600,7 @@ fn draw_curve(
         painter.rect_stroke(
             marquee,
             egui::CornerRadius::ZERO,
-            Stroke::new(1.0_f32, theme::ACCENT),
+            Stroke::new(1.0_f32, palette::ACCENT),
             egui::StrokeKind::Inside,
         );
     }

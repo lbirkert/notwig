@@ -1,9 +1,9 @@
 # Audio Sub-editor API
 
-Status: implemented for shared curve sub-editors and extension-drawn custom
-sub-editors. Extensions can add an entry to the audio editor's sub-editor
-selector. A contribution either binds a host-owned curve to the shared editor or
-draws its own panel over a bounded audio-editor context.
+Status: implemented for extension-rendered audio sub-editors. Extensions add an
+entry to the audio editor's sub-editor selector, then register an editor under
+the contribution id. The host owns the surrounding editor, clip context,
+validation, revision check, and undo boundary; the extension draws the panel.
 
 The reference implementation is the clip pan editor in
 `crates/notwig-ext/notwig-ext-example`.
@@ -11,7 +11,8 @@ The reference implementation is the clip pan editor in
 ## Manifest
 
 Audio sub-editor contributions require `manifest_version: 2` and the
-`audio_editor` capability. The `kind` field selects one of two behaviors.
+`audio_editor` capability. The contribution id is also the renderer id the
+extension registers at runtime.
 
 ```json
 {
@@ -29,82 +30,23 @@ Audio sub-editor contributions require `manifest_version: 2` and the
       "contract": "notwig.audio_editor.sub_editor@1",
       "title": "Clip Pan",
       "category": "Audio",
-      "order": 10,
-      "kind": {
-        "custom": {
-          "renderer": "com.example.clip-tools.pan_editor"
-        }
-      }
+      "order": 10
     }
   ]
 }
 ```
 
-A shared curve sub-editor uses a host-owned curve instead:
-
-```json
-"kind": {
-  "curve": {
-    "target": "pan",
-    "value_min": -1.0,
-    "value_max": 1.0,
-    "baseline": 0.0,
-    "format": "pan"
-  }
-}
-```
-
-The selector lists built-in `Audio Events` and `Gain` first, then extension
-entries by category, `order`, title, and ID. Disabling or uninstalling the
-extension removes its entry. If it was active, the audio editor falls back to
-Audio Events.
+There is no `kind` field. The selector lists built-in `Audio Events` and `Gain`
+first, then extension entries by category, `order`, title, and ID. Disabling or
+uninstalling the extension removes its entry. If it was active, the audio editor
+falls back to Audio Events.
 
 `order` is an integer; lower values appear first inside a category. `title` is
-limited to 64 bytes. A custom `renderer` id is limited to 128 bytes and must be
-registered by the extension at runtime.
+limited to 64 bytes.
 
-## Curve sub-editors
+## Registering the renderer
 
-A curve contribution declares a host-owned target and how to present it:
-
-| Field | Meaning |
-| --- | --- |
-| `target` | Canonical clip curve: `gain` or `pan`. |
-| `value_min`, `value_max` | Visible value range in the shared curve editor. |
-| `baseline` | Optional horizontal guide, such as zero dB or center pan. |
-| `format` | Hover formatting: `decibels` or `pan`. |
-
-The host owns the global curve editor, time selection, snapping, viewport,
-preview, commit, and undo grouping. The extension only supplies this declaration.
-
-The value range must be finite and increasing. The baseline, when present, must
-lie inside the range.
-
-### Canonical data
-
-`gain` edits `AudioClipData::gain_curve`; `pan` edits
-`AudioClipData::pan_curve`. Both are time-varying `notwig_core::Curve` values:
-
-- Gain is an offset in dB on top of clip and event gain.
-- Pan is `-1..=1`: `-1` is hard left, `0` is center, and `1` is hard right. A
-  missing pan curve leaves the clip unchanged; a flat zero curve is also unity
-  gain because clip pan uses a balance law rather than center attenuation.
-
-Curve points follow the same rules as the Gain sub-editor. They may sit before
-or after the clip range; playback holds the nearest endpoint. Clip copy,
-duplicate, extract, and trim carry the curve and shift its local times.
-
-Edits are previewed through the engine while dragging and committed as one
-undo entry on pointer release. Selection, copy, cut, paste, duplicate, delete,
-select-all, fine adjustment, and segment curvature use the same audio-editor
-actions and clipboard format as the Gain sub-editor.
-
-## Custom sub-editors
-
-A custom contribution names a renderer id registered by the extension. The
-guest draws its own panel with the real egui API inside its private context; the
-host validates the returned `PanelFrame` and composites it into the audio-editor
-content area.
+Implement `AudioSubEditorExtension` and register it under the contribution id:
 
 ```rust
 use notwig_ext_api::{
@@ -130,16 +72,16 @@ impl AudioSubEditorExtension for PanEditor {
 
 #[notwig_extension]
 pub fn extension(extension: &mut Extension) {
-    extension.register_audio_sub_editor::<PanEditor>("com.example.clip-tools.pan_editor");
+    // Must match the contribution id in extension.json.
+    extension.register_audio_sub_editor::<PanEditor>("com.example.clip-tools.pan");
 }
 ```
 
-The renderer id in `register_audio_sub_editor` must match
-`kind.custom.renderer`. One guest instance is retained per clip and
-contribution id so switching clips or sub-editors preserves view state. The
-host destroys it when the extension reloads or the extension host is dropped.
+One guest instance is retained per clip and contribution id so switching clips
+or sub-editors preserves view state. The host destroys it when the extension
+reloads or the extension host is dropped.
 
-### Context
+## Context
 
 `AudioSubEditorContext` is a bounded snapshot, not the project document:
 
@@ -147,15 +89,36 @@ host destroys it when the extension reloads or the extension host is dropped.
 - `AudioSubEditorClip`, a postcard-safe snapshot of the canonical clip data,
   including slices and host-owned gain/pan curves;
 - selected slices and optional clip-local time selection;
-- playhead, loop range, tempo, sample rate, snap state, grid step, viewport, and
-  zoom;
+- playhead, loop range, tempo, sample rate, snap state, grid, bar/beat lengths,
+  viewport, and zoom;
+- `AudioWaveformPreview`, a host-rendered waveform underlay with one min/max
+  column per panel point;
 - panel size, theme, and the same pointer/keyboard input snapshot used by device
   panels.
 
 The guest must not retain the context or any reference derived from it. Cache
 view state on the sub-editor instance.
 
-### Edits and undo
+## Shared curve editor
+
+`notwig_ui` exposes an extension-facing curve editor when the `extension-ui`
+feature is enabled:
+
+```toml
+notwig-ui = { workspace = true, default-features = false, features = ["extension-ui"] }
+```
+
+Use `notwig_ui::extension_ui::show_with_background` to draw the shared point,
+segment, marquee, snapping, and fine-adjustment editor. Draw
+`AudioWaveformPreview` through `notwig_ui::extension_ui::draw_waveform_preview`
+in the background closure. The pan example uses both so it looks and behaves
+like the host Gain editor.
+
+The context already contains the timeline mapping fields needed to construct a
+`TimelineGrid`. The editor instance should retain `LineEditorState`, selection,
+and time-selection state across frames.
+
+## Edits and undo
 
 The guest returns a `CommandEffect`. The host accepts the same host-owned edit
 families as commands, including `AudioSlices`, `AudioCurves`, `ClipFields`, and
@@ -163,17 +126,11 @@ UI requests. `AudioCurves` carries an optional gain change and an optional pan
 change; the outer option means "leave unchanged" and the inner option sets or
 clears the curve.
 
-Return `CommandEffect::None` for frames that do not commit an edit. The host
-applies an `Apply` effect as one undo batch, after checking that the context
+Return `CommandEffect::None` for frames that do not commit an edit. The shared
+curve editor reports `committed` when a gesture ends; return an `Apply` effect
+only then. The host applies it as one undo batch after checking that the context
 revision is still current. A stale effect is rejected with a notification.
 
 Custom sub-editors cannot receive the project document, mutate canonical state
 directly, draw outside their panel, or store playback-affecting data in hidden
 extension state. Use a host edit family, a device, or a host render job.
-
-### Why the extension cannot store the curve
-
-A curve that lives only inside extension state cannot be saved with the project
-or affect playback. The host deliberately exposes only host-modeled curve
-targets. A future extension-defined target needs a canonical data contract,
-engine path, and persistence before it can be contributed.

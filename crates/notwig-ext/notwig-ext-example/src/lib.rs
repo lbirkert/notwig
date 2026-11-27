@@ -7,12 +7,12 @@
 //!
 //! `notwig.ext.example.pan` demonstrates an extension-drawn audio-editor
 //! sub-editor. The host owns the clip data, context snapshot, validation, and
-//! undo boundary; the extension draws its own panel and returns host-owned
-//! edits.
+//! undo boundary; the extension draws the shared curve editor over a waveform
+//! underlay and returns host-owned edits.
 
+use notwig_core::Curve;
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
-use notwig_core::{Curve, CurvePoint};
 use notwig_ext_api::{
     AudioSubEditorContext, AudioSubEditorExtension, CommandContext, CommandEdit, CommandEffect,
     CommandExtension, Extension, notwig_extension,
@@ -22,20 +22,20 @@ use notwig_ext_api::{
 pub const HUMANIZE_COMMAND_ID: &str = "notwig.ext.example.humanize";
 /// Clip pan sub-editor id. This must match `extension.json`.
 pub const PAN_SUB_EDITOR_ID: &str = "notwig.ext.example.pan";
-/// Renderer id registered for the clip pan sub-editor.
-pub const PAN_RENDERER_ID: &str = "notwig.ext.example.pan_editor";
-
 /// Extension-drawn clip pan sub-editor.
-#[derive(Debug, Default)]
 pub struct PanSubEditor {
-    value: f64,
-    committed: Option<f64>,
-    initialized: bool,
+    selected: std::collections::BTreeSet<usize>,
+    time_selection: Option<notwig_core::RangeMus>,
+    state: notwig_ui::extension_ui::LineEditorState,
 }
 
 impl AudioSubEditorExtension for PanSubEditor {
     fn new() -> Self {
-        Self::default()
+        Self {
+            selected: std::collections::BTreeSet::new(),
+            time_selection: None,
+            state: notwig_ui::extension_ui::LineEditorState::default(),
+        }
     }
 
     fn draw(
@@ -43,57 +43,77 @@ impl AudioSubEditorExtension for PanSubEditor {
         ui: &mut notwig_ext_api::egui::Ui,
         context: &AudioSubEditorContext,
     ) -> CommandEffect {
-        if !self.initialized {
-            self.value = initial_pan(&context.clip);
-            self.committed = Some(self.value);
-            self.initialized = true;
+        let mut curve = context.clip.pan_curve.clone().unwrap_or_default();
+        let timeline = notwig_ui::extension_ui::TimelineGrid {
+            start: context.viewport_start - context.clip_range.start,
+            pixels_per_beat: context.pixels_per_beat,
+            bar_length: context.bar_length,
+            beat_length: context.beat_length,
+            step: context.grid,
+            snap_enabled: context.snap_enabled,
+        };
+        let config = notwig_ui::extension_ui::LineEditorConfig {
+            value_min: -1.0,
+            value_max: 1.0,
+            baseline: Some(0.0),
+            min_time: None,
+            max_time: None,
+            format_value: Some(format_pan),
+        };
+        let rect = notwig_ext_api::egui::Rect::from_min_size(
+            notwig_ext_api::egui::Pos2::ZERO,
+            notwig_ext_api::egui::vec2(context.width, context.height),
+        );
+        let response = notwig_ui::extension_ui::show_with_background(
+            ui,
+            rect,
+            notwig_ext_api::egui::Id::new((
+                "notwig.audio-sub-editor",
+                context.editor_id.as_str(),
+                context.clip_id,
+            )),
+            timeline,
+            &config,
+            &mut curve,
+            &mut self.selected,
+            &mut self.time_selection,
+            &mut self.state,
+            &mut |ui, _curve| {
+                notwig_ui::extension_ui::draw_waveform_preview(
+                    ui.painter(),
+                    rect,
+                    &context.waveform,
+                );
+            },
+        );
+        if response.committed {
+            pan_effect(context, &curve)
+        } else {
+            CommandEffect::None
         }
-        let mut changed = false;
-        ui.vertical_centered(|ui| {
-            ui.add_space(12.0);
-            ui.heading("Clip Pan");
-            ui.label("Draws and commits through the shown host edit family.");
-            changed = ui
-                .add(
-                    notwig_ext_api::egui::Slider::new(&mut self.value, -1.0..=1.0)
-                        .text("Pan")
-                        .show_value(true),
-                )
-                .changed();
-        });
-        let released = ui.input(|input| !input.pointer.primary_down());
-        if !changed || !released || self.committed == Some(self.value) {
-            return CommandEffect::None;
-        }
-        self.committed = Some(self.value);
-        pan_effect(context, self.value)
     }
 }
 
-fn pan_effect(context: &AudioSubEditorContext, value: f64) -> CommandEffect {
-    let length = context.clip_range.length();
-    let Ok(curve) = Curve::from_points([
-        CurvePoint::new(TimeMus::zero(), value),
-        CurvePoint::new(length, value),
-    ]) else {
-        return CommandEffect::None;
-    };
+fn pan_effect(context: &AudioSubEditorContext, curve: &Curve) -> CommandEffect {
     CommandEffect::Apply {
         edits: vec![CommandEdit::AudioCurves {
             clip_id: context.clip_id,
             gain_curve: None,
-            pan_curve: Some(Some(curve)),
+            pan_curve: Some(Some(curve.clone())),
         }],
         ui: Vec::new(),
     }
 }
 
-fn initial_pan(clip: &notwig_ext_api::AudioSubEditorClip) -> f64 {
-    clip.pan_curve
-        .as_ref()
-        .and_then(|curve| curve.points().first().map(|point| point.value))
-        .unwrap_or(0.0)
-        .clamp(-1.0, 1.0)
+fn format_pan(value: f64) -> String {
+    let amount = (value.clamp(-1.0, 1.0).abs() * 100.0).round() as i32;
+    if amount == 0 {
+        "C".into()
+    } else if value < 0.0 {
+        format!("L{amount}")
+    } else {
+        format!("R{amount}")
+    }
 }
 
 /// Nudges selected note timing and velocity deterministically.
@@ -146,7 +166,7 @@ impl CommandExtension for HumanizeCommand {
 #[notwig_extension]
 pub fn extension(extension: &mut Extension) {
     extension.register_command::<HumanizeCommand>(HUMANIZE_COMMAND_ID);
-    extension.register_audio_sub_editor::<PanSubEditor>(PAN_RENDERER_ID);
+    extension.register_audio_sub_editor::<PanSubEditor>(PAN_SUB_EDITOR_ID);
 }
 
 fn note_seed(revision: u64, id: &str) -> u32 {
@@ -163,7 +183,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pan_renderer_matches_the_manifest() {
+    fn pan_contribution_matches_the_manifest() {
         let manifest: serde_json::Value =
             serde_json::from_str(include_str!("../extension.json")).expect("valid manifest json");
         let contribution = manifest["contributes"]
@@ -180,11 +200,10 @@ mod tests {
             contribution["contract"],
             notwig_ext_api::AUDIO_SUB_EDITOR_CONTRACT
         );
-        assert_eq!(contribution["kind"]["custom"]["renderer"], PAN_RENDERER_ID);
+        assert!(contribution.get("kind").is_none());
     }
 
-    #[test]
-    fn pan_editor_commits_a_host_curve_edit() {
+    fn pan_context() -> AudioSubEditorContext {
         use notwig_core::sequencer::AudioClipData;
         use notwig_core::{AssetId, ClipId, Db, FadeShape};
         use uuid::Uuid;
@@ -195,14 +214,17 @@ mod tests {
             source_end_sample: 48_000,
             gain_db: Db(0.0),
             gain_curve: None,
-            pan_curve: None,
+            pan_curve: Some(
+                Curve::from_points([notwig_core::CurvePoint::new(TimeMus::zero(), 0.0)])
+                    .expect("curve"),
+            ),
             fade_in_samples: 0,
             fade_out_samples: 0,
             fade_shape: FadeShape::Linear,
             slices: Vec::new(),
             slices_enabled: false,
         };
-        let context = AudioSubEditorContext {
+        AudioSubEditorContext {
             editor_id: PAN_SUB_EDITOR_ID.into(),
             revision: 1,
             clip_id: ClipId::from_uuid(Uuid::from_u128(2)),
@@ -218,20 +240,80 @@ mod tests {
             sample_rate: 48_000,
             snap_enabled: true,
             grid: TimeMus::new(1, 4),
+            bar_length: TimeMus::new(4, 1),
+            beat_length: TimeMus::new(1, 1),
             viewport_start: TimeMus::zero(),
             pixels_per_beat: 80.0,
             width: 400.0,
             height: 200.0,
+            waveform: notwig_ext_api::AudioWaveformPreview {
+                columns: vec![
+                    notwig_ext_api::AudioWaveformColumn {
+                        min: -0.5,
+                        max: 0.5,
+                    };
+                    400
+                ],
+            },
             theme: notwig_ext_api::ThemeSnapshot::default(),
-            input: notwig_ext_api::panel_frame::PanelInput::default(),
-        };
-        let effect = pan_effect(&context, 0.25);
+            input: notwig_ext_api::panel_frame::PanelInput {
+                width: 400.0,
+                height: 200.0,
+                pixels_per_point: 1.0,
+                max_texture_side: 4096,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn pan_editor_commits_a_host_curve_edit() {
+        let context = pan_context();
+        let curve = Curve::from_points([notwig_core::CurvePoint::new(TimeMus::zero(), 0.25)])
+            .expect("curve");
+        let effect = pan_effect(&context, &curve);
         match effect {
             CommandEffect::Apply { edits, .. } => {
                 assert!(matches!(edits[0], CommandEdit::AudioCurves { .. }));
             }
             other => panic!("expected an apply effect, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn pan_editor_draws_the_curve_and_waveform_underlay() {
+        let context = pan_context();
+        let mut extension = Extension::new();
+        extension.register_audio_sub_editor::<PanSubEditor>(PAN_SUB_EDITOR_ID);
+        let handle = extension.create_audio_sub_editor(PAN_SUB_EDITOR_ID);
+        assert!(handle > 0);
+        let encoded = postcard::to_allocvec(&context).expect("encode context");
+        let with_waveform = extension
+            .draw_audio_sub_editor_frame(handle, &encoded)
+            .expect("draw frame");
+        let mut empty_context = context;
+        empty_context.waveform = notwig_ext_api::AudioWaveformPreview::default();
+        let encoded = postcard::to_allocvec(&empty_context).expect("encode context");
+        let without_waveform = extension
+            .draw_audio_sub_editor_frame(handle, &encoded)
+            .expect("draw frame");
+        assert!(
+            !with_waveform.panel.primitives.is_empty(),
+            "the pan editor should draw the curve editor"
+        );
+        let vertices = |frame: &notwig_ext_api::AudioSubEditorFrame| {
+            frame
+                .panel
+                .primitives
+                .iter()
+                .map(|primitive| primitive.mesh.vertices.len())
+                .sum::<usize>()
+        };
+        assert!(
+            vertices(&with_waveform) > vertices(&without_waveform),
+            "the pan editor should add a waveform underlay"
+        );
+        extension.destroy_audio_sub_editor(handle);
     }
 
     #[cfg(test)]

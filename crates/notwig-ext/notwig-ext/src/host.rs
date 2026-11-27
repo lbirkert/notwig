@@ -259,15 +259,12 @@ fn load_candidate(
         .collect();
     let audio_sub_editors = manifest
         .audio_sub_editor_contributions()
-        .filter_map(|contribution| {
-            Some(AudioSubEditorDescriptor {
-                id: contribution.id.clone(),
-                title: contribution.title.clone().unwrap_or_default(),
-                category: contribution.category.clone().unwrap_or_default(),
-                order: contribution.order,
-                kind: contribution.kind.clone()?,
-                extension_id: Some(manifest.id.clone()),
-            })
+        .map(|contribution| AudioSubEditorDescriptor {
+            id: contribution.id.clone(),
+            title: contribution.title.clone().unwrap_or_default(),
+            category: contribution.category.clone().unwrap_or_default(),
+            order: contribution.order,
+            extension_id: Some(manifest.id.clone()),
         })
         .collect();
     Ok(LoadedExtension {

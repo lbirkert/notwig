@@ -76,7 +76,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
 | `devices` | no | Devices registered by the package. |
-| `contributes` | no | Extension-point contributions: `notwig.command` and `notwig.audio_editor.sub_editor`. Audio sub-editors may use a host shared curve or a custom extension-drawn renderer. See the [Command API](06_command_api.md) and [Audio Sub-editor API](07_audio_sub_editor_api.md). |
+| `contributes` | no | Extension-point contributions: `notwig.command` and `notwig.audio_editor.sub_editor`. Audio sub-editors are rendered by the extension under the contribution id. See the [Command API](06_command_api.md) and [Audio Sub-editor API](07_audio_sub_editor_api.md). |
 | `description` | no | Short text shown in the explorer. |
 | `image` | no | Relative icon path in the package. The index copies it to `extensions/<id>.png` for the explorer. |
 

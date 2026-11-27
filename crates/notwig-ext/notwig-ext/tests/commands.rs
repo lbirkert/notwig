@@ -66,16 +66,7 @@ fn write_extension() -> PathBuf {
             "contract": "notwig.audio_editor.sub_editor@1",
             "title": "Clip Pan",
             "category": "Audio",
-            "order": 5,
-            "kind": {
-                "curve": {
-                    "target": "pan",
-                    "value_min": -1.0,
-                    "value_max": 1.0,
-                    "baseline": 0.0,
-                    "format": "pan"
-                }
-            }
+            "order": 5
         }]
     });
     std::fs::write(
@@ -114,8 +105,5 @@ fn host_resolves_and_executes_wasm_commands() {
         editors[0].extension_id.as_deref(),
         Some("com.test.commands")
     );
-    let curve = editors[0].curve().expect("curve sub-editor");
-    assert_eq!(curve.target, notwig_ext_api::CurveTarget::Pan);
-    assert_eq!(curve.baseline, Some(0.0));
     let _ = std::fs::remove_dir_all(root);
 }

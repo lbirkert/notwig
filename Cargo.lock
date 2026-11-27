@@ -2549,6 +2549,8 @@ version = "0.1.0"
 dependencies = [
  "notwig-core",
  "notwig-ext-api",
+ "notwig-ui",
+ "postcard",
  "serde_json",
  "uuid",
 ]

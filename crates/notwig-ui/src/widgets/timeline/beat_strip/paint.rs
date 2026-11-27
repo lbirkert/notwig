@@ -4,7 +4,7 @@ use notwig_core::{RangeMus, TimeMus};
 use crate::theme;
 use crate::timeline::TimelineGrid;
 
-use super::super::grid::{aligned, line_indices};
+use crate::widgets::timeline_grid::{aligned, line_indices};
 
 pub(super) fn draw_loop(painter: &Painter, rect: Rect) {
     painter.rect_filled(rect, CornerRadius::same(2), Color32::from_rgb(66, 69, 77));

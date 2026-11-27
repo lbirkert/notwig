@@ -52,8 +52,7 @@ pub use abi::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, pack_ptr_len, unpack_ptr
 pub use audio_editor::{
     AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorClip, AudioSubEditorContext,
     AudioSubEditorDescriptor, AudioSubEditorExtension, AudioSubEditorFrame, AudioSubEditorHost,
-    AudioSubEditorKind, CurveTarget, CurveTargetSpec, CurveValueFormat, CustomSubEditorSpec,
-    MAX_AUDIO_SUB_EDITOR_RENDERER_BYTES, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
+    AudioWaveformColumn, AudioWaveformPreview, CurveTarget, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
 };
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,

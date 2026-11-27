@@ -4,6 +4,7 @@ use std::sync::Arc;
 use egui::epaint::{Vertex, WHITE_UV};
 use egui::{Color32, Mesh, Painter, Rect, Shape, Stroke, pos2};
 use notwig_core::{AssetId, AudioAssetBuffer, Curve, Db, TempoMap, TimeMus};
+use notwig_ext_api::AudioWaveformColumn;
 
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 
@@ -50,7 +51,7 @@ impl WaveformGain<'_> {
         Db(db as f32).to_gain().0
     }
 
-    fn gain_at_frame(&self, source_start: u64, frame: f64) -> f32 {
+    pub(crate) fn gain_at_frame(&self, source_start: u64, frame: f64) -> f32 {
         let frame = frame.round().max(0.0) as u64;
         self.gain_at(source_start, frame)
     }
@@ -134,6 +135,94 @@ impl AudioWaveform {
             .partition_point(|level| level.bucket as f64 <= target)
             .saturating_sub(1);
         self.far_peaks.get(index).or_else(|| self.far_peaks.first())
+    }
+
+    /// Builds one min/max column per panel point for a source range.
+    pub(crate) fn column_peaks(
+        &self,
+        source_start: u64,
+        source_end: u64,
+        columns: usize,
+    ) -> Vec<AudioWaveformColumn> {
+        let mut result = vec![AudioWaveformColumn::default(); columns];
+        if columns == 0 || source_end <= source_start {
+            return result;
+        }
+        let frames = self.frame_count();
+        let start = source_start.min(frames);
+        let end = source_end.min(frames).max(start);
+        if end <= start {
+            return result;
+        }
+        let samples_per_column = (end - start) as f64 / columns as f64;
+        if samples_per_column >= FAR_BASE_BUCKET as f64 {
+            let Some(level) = self.far_level_for(samples_per_column) else {
+                return result;
+            };
+            let bucket = level.bucket;
+            for (column, slot) in result.iter_mut().enumerate() {
+                let column_start = start as f64 + column as f64 * samples_per_column;
+                let column_end =
+                    (start as f64 + (column + 1) as f64 * samples_per_column).min(end as f64);
+                if column_end <= column_start {
+                    continue;
+                }
+                let first = (column_start.floor() as u64 / bucket) as usize;
+                let last = (((column_end.ceil() as u64).saturating_sub(1)) / bucket) as usize;
+                let mut min = 0.0_f32;
+                let mut max = 0.0_f32;
+                let mut any = false;
+                for index in first..=last {
+                    let (Some(&low), Some(&high)) = (level.min.get(index), level.max.get(index))
+                    else {
+                        continue;
+                    };
+                    if any {
+                        min = min.min(low);
+                        max = max.max(high);
+                    } else {
+                        min = low;
+                        max = high;
+                        any = true;
+                    }
+                }
+                if any {
+                    *slot = AudioWaveformColumn {
+                        min: min.clamp(-1.0, 1.0),
+                        max: max.clamp(-1.0, 1.0),
+                    };
+                }
+            }
+        } else {
+            for (column, slot) in result.iter_mut().enumerate() {
+                let column_start = start + (column as f64 * samples_per_column).floor() as u64;
+                let column_end = (start + ((column + 1) as f64 * samples_per_column).ceil() as u64)
+                    .min(end)
+                    .max(column_start.saturating_add(1))
+                    .min(end);
+                let mut min = 0.0_f32;
+                let mut max = 0.0_f32;
+                let mut any = false;
+                for frame in column_start..column_end {
+                    let value = self.sample(frame);
+                    if any {
+                        min = min.min(value);
+                        max = max.max(value);
+                    } else {
+                        min = value;
+                        max = value;
+                        any = true;
+                    }
+                }
+                if any {
+                    *slot = AudioWaveformColumn {
+                        min: min.clamp(-1.0, 1.0),
+                        max: max.clamp(-1.0, 1.0),
+                    };
+                }
+            }
+        }
+        result
     }
 }
 

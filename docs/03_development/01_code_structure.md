@@ -132,7 +132,7 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 | `note.rs` | Extension note events and their fixed-size ABI wire format |
 | `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
 | `command.rs` | Command contract, bounded context, host edit/UI families, declarative `when` evaluation, and `CommandExtension` |
-| `audio_editor.rs` | Audio sub-editor contracts: shared curve targets, custom renderer specs, bounded context, frame, and host trait |
+| `audio_editor.rs` | Audio sub-editor contracts: bounded context, clip/waveform snapshots, frame, extension renderer, and host trait |
 | `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, and guest draw dispatch |
 | `abi.rs` | ABI version (`6`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
@@ -235,7 +235,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared gain/pan/extension curve adapter, and extension-drawn custom sub-editor host; panel split into range selection, slice paint, slice gestures |
+| `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared built-in Gain curve adapter, and extension-rendered sub-editor host; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |
 | `views/dsp.rs` | DSP load analysis window |
@@ -249,6 +249,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
 | `widgets/timeline/` | Shared beat strip (`beat_strip/`: interaction and paint), clip visuals, grid, snap controls, selection, drop preview, interaction math |
 | `widgets/line_editor.rs` | Reusable point/segment line editor for automation, clip gain, pan, and other modulatable values |
+| `extension_ui.rs` | Extension-facing re-export of the curve editor plus waveform-preview underlay rendering, enabled by the `extension-ui` feature |
 | `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `fine_drag.rs` | Shared coarse/fine drag offsets that accumulate across Shift toggles |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |

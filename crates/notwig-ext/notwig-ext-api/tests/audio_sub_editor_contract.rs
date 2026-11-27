@@ -60,10 +60,13 @@ fn context() -> AudioSubEditorContext {
         sample_rate: 48_000,
         snap_enabled: true,
         grid: TimeMus::new(1, 4),
+        bar_length: TimeMus::new(4, 1),
+        beat_length: TimeMus::new(1, 1),
         viewport_start: TimeMus::zero(),
         pixels_per_beat: 80.0,
         width: 320.0,
         height: 180.0,
+        waveform: notwig_ext_api::AudioWaveformPreview::default(),
         theme: ThemeSnapshot::default(),
         input: PanelInput {
             width: 320.0,

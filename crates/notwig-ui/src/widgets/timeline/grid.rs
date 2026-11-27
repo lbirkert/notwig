@@ -1,7 +1,7 @@
 use egui::{Painter, Rect, Stroke};
 use notwig_core::TimeMus;
 
-use crate::theme;
+use crate::palette;
 use crate::widgets::{SnapSettings, beats_to_time, snap_step_label};
 
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +77,7 @@ impl TimelineGrid {
                 if beat < 0.0 || aligned(beat, bar) || aligned(beat, beat_length) {
                     continue;
                 }
-                self.draw_line(painter, rect, beat, theme::GRID);
+                self.draw_line(painter, rect, beat, palette::GRID);
             }
         }
 
@@ -86,7 +86,7 @@ impl TimelineGrid {
             if beat < 0.0 || aligned(beat, bar) {
                 continue;
             }
-            self.draw_line(painter, rect, beat, theme::GRID_STRONG);
+            self.draw_line(painter, rect, beat, palette::GRID_STRONG);
         }
 
         for index in line_indices(start, end, bar) {

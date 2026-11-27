@@ -46,12 +46,10 @@ impl AudioSubEditorHost for WebExtensionAudioSubEditorHost {
         {
             return None;
         }
-        let renderer = extension
+        extension
             .audio_sub_editors
             .iter()
-            .find(|editor| editor.id == editor_id)
-            .and_then(|editor| editor.custom())
-            .map(|custom| custom.renderer.as_str())?;
+            .find(|editor| editor.id == editor_id)?;
         let key = format!("{}:{}", context.clip_id, editor_id);
         if !self.instances.contains_key(&key) {
             let mut instance =
@@ -66,7 +64,7 @@ impl AudioSubEditorHost for WebExtensionAudioSubEditorHost {
                         error
                     })
                     .ok()?;
-            let handle = instance.create_audio_sub_editor(renderer).ok()?;
+            let handle = instance.create_audio_sub_editor(editor_id).ok()?;
             self.instances
                 .insert(key.clone(), UiInstance { instance, handle });
         }

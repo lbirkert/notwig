@@ -1,18 +1,32 @@
+#[cfg(feature = "app")]
 mod draggable_number;
 mod snap;
 
+#[cfg(any(feature = "app", feature = "extension-ui"))]
 pub(crate) mod area;
+#[cfg(feature = "app")]
 pub(crate) mod brand;
+#[cfg(feature = "app")]
 pub(crate) mod drop_target;
+#[cfg(feature = "app")]
 pub(crate) mod form;
+#[cfg(feature = "app")]
 pub(crate) mod icons;
+#[cfg(any(feature = "app", feature = "extension-ui"))]
 pub(crate) mod line_editor;
+#[cfg(feature = "app")]
 pub(crate) mod theme;
+#[cfg(feature = "app")]
 pub(crate) mod timeline;
+#[cfg(any(feature = "app", feature = "extension-ui"))]
+#[path = "timeline/grid.rs"]
+pub(crate) mod timeline_grid;
 
+#[cfg(feature = "app")]
 pub(crate) use crate::components::{
     DB_MAX, DB_MIN, draw_stereo_meter, format_db, format_param, knob, value_drag, volume_fader,
 };
+#[cfg(feature = "app")]
 pub(crate) use draggable_number::draggable_number;
 pub use snap::{
     SNAP_LEVELS, SnapLevel, SnapSettings, adaptive_step, snap_step, snap_step_label, snap_time,
@@ -140,6 +154,7 @@ pub fn collapse_handle(
     false
 }
 
+#[cfg(feature = "app")]
 #[doc(hidden)]
 pub mod test_api {
     pub use super::brand::test_api as brand;

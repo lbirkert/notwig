@@ -24,11 +24,6 @@
       "title": "Clip Pan",
       "category": "Audio",
       "order": 10,
-      "kind": {
-        "custom": {
-          "renderer": "notwig.ext.example.pan_editor"
-        }
-      },
       "description": "Draw and commit the clip pan curve from an extension panel."
     }
   ],

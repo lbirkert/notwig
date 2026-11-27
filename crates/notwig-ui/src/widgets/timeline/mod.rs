@@ -2,7 +2,6 @@ mod beat_strip;
 mod clip;
 mod clip_chrome;
 mod drop_preview;
-mod grid;
 pub(crate) mod interaction;
 mod playhead;
 mod selection;
@@ -15,11 +14,11 @@ use crate::theme;
 
 use super::beats_to_time;
 
+pub(crate) use crate::widgets::timeline_grid::{TimelineGrid, grid_color};
 pub(crate) use beat_strip::{BeatStrip, BeatStripAction, draw_playhead};
 pub(crate) use clip::*;
 pub(crate) use clip_chrome::{ClipChrome, ClipChromeDrag, ClipChromeEdge, draw_clip_chrome};
 pub(crate) use drop_preview::draw_drop_preview;
-pub(crate) use grid::{TimelineGrid, grid_color};
 pub(crate) use playhead::playhead_for_strip;
 pub(crate) use selection::{draw_time_selection_fill, draw_time_selection_markers};
 pub(crate) use snap_controls::{CONTROLS_WIDTH, show as snap_controls};
@@ -62,8 +61,8 @@ pub(crate) fn horizontal_scrollbar(
 #[doc(hidden)]
 pub mod test_api {
     pub use super::clip::test_api as clip;
-    pub use super::grid::TimelineGrid;
     pub use super::snap_controls::test_api as snap_controls;
+    pub use crate::widgets::timeline_grid::TimelineGrid;
 
     pub fn pointer_delta(start: egui::Pos2, current: egui::Pos2, ppb: f32) -> f64 {
         super::interaction::pointer_delta(start, current, ppb)

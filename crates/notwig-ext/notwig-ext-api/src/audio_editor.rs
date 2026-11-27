@@ -19,8 +19,6 @@ pub const AUDIO_SUB_EDITOR_POINT: &str = "notwig.audio_editor.sub_editor";
 pub const AUDIO_SUB_EDITOR_CONTRACT: &str = "notwig.audio_editor.sub_editor@1";
 /// Maximum length of a sub-editor title.
 pub const MAX_AUDIO_SUB_EDITOR_TITLE_BYTES: usize = 64;
-/// Maximum length of a custom sub-editor renderer id.
-pub const MAX_AUDIO_SUB_EDITOR_RENDERER_BYTES: usize = 128;
 
 /// Canonical audio-clip curve a shared curve sub-editor edits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,105 +41,6 @@ impl CurveTarget {
     }
 }
 
-/// Value formatting and baseline semantics for a shared curve sub-editor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CurveValueFormat {
-    /// Decibel offset, such as `+6.00 dB`.
-    Decibels,
-    /// Stereo pan, such as `L42`, `C`, or `R42`.
-    Pan,
-}
-
-/// Declares which host-owned curve a sub-editor edits.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CurveTargetSpec {
-    /// Canonical clip curve.
-    pub target: CurveTarget,
-    /// Lowest value shown by the shared curve editor.
-    pub value_min: f64,
-    /// Highest value shown by the shared curve editor.
-    pub value_max: f64,
-    /// Optional reference value drawn as a guide.
-    #[serde(default)]
-    pub baseline: Option<f64>,
-    /// Value formatting used by hover labels.
-    pub format: CurveValueFormat,
-}
-
-impl CurveTargetSpec {
-    /// Validates the value range and baseline.
-    pub fn validate(&self) -> Result<(), String> {
-        if !self.value_min.is_finite()
-            || !self.value_max.is_finite()
-            || self.value_min >= self.value_max
-        {
-            return Err("curve value range must be finite and increasing".into());
-        }
-        if let Some(baseline) = self.baseline {
-            if !baseline.is_finite() {
-                return Err("curve baseline must be finite".into());
-            }
-            if baseline < self.value_min || baseline > self.value_max {
-                return Err("curve baseline must lie inside the value range".into());
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Declares an extension-drawn sub-editor panel.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CustomSubEditorSpec {
-    /// Stable renderer id registered by the extension at runtime.
-    pub renderer: String,
-}
-
-impl CustomSubEditorSpec {
-    /// Validates the renderer id.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.renderer.trim().is_empty() {
-            return Err("custom renderer id must not be empty".into());
-        }
-        if self.renderer.len() > MAX_AUDIO_SUB_EDITOR_RENDERER_BYTES {
-            return Err("custom renderer id is too long".into());
-        }
-        Ok(())
-    }
-}
-
-/// Contribution body for one audio-editor sub-editor.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AudioSubEditorKind {
-    /// A shared curve editor over a host-owned clip curve.
-    Curve(CurveTargetSpec),
-    /// An extension-drawn panel over a bounded audio-editor context.
-    Custom(CustomSubEditorSpec),
-}
-
-impl AudioSubEditorKind {
-    /// Returns the curve target when this is a shared curve sub-editor.
-    #[must_use]
-    pub const fn curve(&self) -> Option<&CurveTargetSpec> {
-        match self {
-            Self::Curve(spec) => Some(spec),
-            Self::Custom(_) => None,
-        }
-    }
-
-    /// Returns the custom renderer when this is an extension-drawn sub-editor.
-    #[must_use]
-    pub const fn custom(&self) -> Option<&CustomSubEditorSpec> {
-        match self {
-            Self::Curve(_) => None,
-            Self::Custom(spec) => Some(spec),
-        }
-    }
-}
-
 /// Resolved audio-editor sub-editor supplied by an extension.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioSubEditorDescriptor {
@@ -154,8 +53,6 @@ pub struct AudioSubEditorDescriptor {
     /// Category-local order. Lower values appear first.
     #[serde(default)]
     pub order: i32,
-    /// Sub-editor behavior.
-    pub kind: AudioSubEditorKind,
     /// Owning extension id.
     pub extension_id: Option<String>,
 }
@@ -172,18 +69,22 @@ impl AudioSubEditorDescriptor {
     pub fn title(&self) -> &str {
         &self.title
     }
+}
 
-    /// Returns the curve target specification when this is a curve editor.
-    #[must_use]
-    pub fn curve(&self) -> Option<&CurveTargetSpec> {
-        self.kind.curve()
-    }
+/// One waveform column in an extension sub-editor underlay.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct AudioWaveformColumn {
+    /// Lowest sample value in the column, normalized to `-1..=1`.
+    pub min: f32,
+    /// Highest sample value in the column, normalized to `-1..=1`.
+    pub max: f32,
+}
 
-    /// Returns the custom renderer specification when this is extension-drawn.
-    #[must_use]
-    pub fn custom(&self) -> Option<&CustomSubEditorSpec> {
-        self.kind.custom()
-    }
+/// Host-rendered waveform preview supplied to an extension sub-editor.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AudioWaveformPreview {
+    /// One column per panel point, left to right.
+    pub columns: Vec<AudioWaveformColumn>,
 }
 
 /// Postcard-safe snapshot of an audio clip's editable fields.
@@ -311,6 +212,10 @@ pub struct AudioSubEditorContext {
     pub snap_enabled: bool,
     /// Current snap grid step.
     pub grid: TimeMus,
+    /// Bar length for timeline mapping.
+    pub bar_length: TimeMus,
+    /// Beat length for timeline mapping.
+    pub beat_length: TimeMus,
     /// Clip-editor viewport start.
     pub viewport_start: TimeMus,
     /// Clip-editor horizontal zoom.
@@ -319,6 +224,9 @@ pub struct AudioSubEditorContext {
     pub width: f32,
     /// Panel height in points.
     pub height: f32,
+    /// Host-rendered waveform underlay columns.
+    #[serde(default)]
+    pub waveform: AudioWaveformPreview,
     /// Active host theme.
     pub theme: ThemeSnapshot,
     /// Pointer, keyboard, and focus snapshot for the panel path.

@@ -214,10 +214,10 @@ impl Extension {
 
     /// Registers one extension-drawn audio sub-editor renderer.
     ///
-    /// The renderer id must match a `kind.custom.renderer` field in an
-    /// audio-editor contribution in the manifest. Registering the same id again
-    /// replaces the earlier implementation. A fresh instance is created per
-    /// visible clip and contribution id.
+    /// The id must match the contribution id of an audio-editor sub-editor in
+    /// the manifest. Registering the same id again replaces the earlier
+    /// implementation. A fresh instance is created per visible clip and
+    /// contribution id.
     pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
         self.audio_sub_editors.insert(
             id.into(),

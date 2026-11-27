@@ -25,7 +25,7 @@ DeviceExtension::spec  ──────►  DeviceSpec validation  ───�
 DeviceExtension::process ────►  audio buffers          ───►  engine
 DeviceExtension::draw ──►  PanelFrame + actions    ───►  panels
 CommandExtension       ──►  bounded context/effect  ───►  command palette
-audio sub-editor point ──►  curve or custom renderer ──►  audio editor
+audio sub-editor point ──►  extension renderer ──►  audio editor
 ```
 
 - `notwig-ext-api` is the author-facing SDK. It has no `wasmtime`, `libloading`,
@@ -58,8 +58,8 @@ An extension can:
 - add one or more audio effects or instruments to the device browser;
 - add commands that read the current selection and return validated edits, such
   as humanizing MIDI notes;
-- add audio-editor sub-editors over host-owned curves, or draw a custom panel
-  that commits host-owned edits, such as clip pan;
+- add audio-editor sub-editors that draw their own panel and commit host-owned
+  edits, such as clip pan;
 - read and write interleaved `f32` audio;
 - declare continuous, boolean, enum, and discrete parameters;
 - report processing latency;
@@ -99,5 +99,6 @@ Install native extensions only from trusted sources.
    synth, and gain devices, packaging, and index publishing.
 6. [Command API](06_command_api.md) covers manifest v2 command contributions,
    the bounded context, host edit families, the palette, and keybindings.
-7. [Audio Sub-editor API](07_audio_sub_editor_api.md) covers shared curve
-   sub-editors and custom extension-drawn editors in the audio editor.
+7. [Audio Sub-editor API](07_audio_sub_editor_api.md) covers
+   extension-rendered editors in the audio editor, including the shared curve
+   editor and waveform underlay.

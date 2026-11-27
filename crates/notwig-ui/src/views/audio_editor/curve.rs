@@ -6,7 +6,7 @@
 use egui::{Id, Rect};
 use notwig_core::sequencer::AudioClipData;
 use notwig_core::{ClipEntity, Curve, TempoMap, TimeMus};
-use notwig_ext_api::{CurveTarget, CurveTargetSpec, CurveValueFormat};
+use notwig_ext_api::CurveTarget;
 
 use crate::intent::UiIntent;
 use crate::runtime::RuntimeView;
@@ -21,10 +21,6 @@ use super::state::ClipEditorState;
 pub(super) const MIN_GAIN_DB: f64 = -60.0;
 /// Highest gain offset shown by the gain sub-editor.
 pub(super) const MAX_GAIN_DB: f64 = 24.0;
-/// Lowest pan shown by the pan sub-editor.
-pub(super) const MIN_PAN: f64 = -1.0;
-/// Highest pan shown by the pan sub-editor.
-pub(super) const MAX_PAN: f64 = 1.0;
 
 /// Layout and formatting for one shared curve sub-editor.
 #[derive(Debug, Clone, Copy)]
@@ -55,19 +51,6 @@ pub(super) fn gain_style() -> CurveEditorStyle {
         value_max: MAX_GAIN_DB,
         baseline: Some(0.0),
         format: format_gain,
-    }
-}
-
-/// Returns the style declared by an extension curve contribution.
-pub(super) fn extension_style(spec: &CurveTargetSpec) -> CurveEditorStyle {
-    CurveEditorStyle {
-        value_min: spec.value_min,
-        value_max: spec.value_max,
-        baseline: spec.baseline,
-        format: match spec.format {
-            CurveValueFormat::Decibels => format_gain,
-            CurveValueFormat::Pan => format_pan,
-        },
     }
 }
 
@@ -281,15 +264,4 @@ fn selected_curve_range(
 
 fn format_gain(value: f64) -> String {
     format!("{value:+.2} dB")
-}
-
-fn format_pan(value: f64) -> String {
-    let percent = (value.clamp(MIN_PAN, MAX_PAN) * 100.0).round();
-    if percent.abs() < 0.5 {
-        "C".into()
-    } else if percent < 0.0 {
-        format!("L{:.0}", -percent)
-    } else {
-        format!("R{percent:.0}")
-    }
 }

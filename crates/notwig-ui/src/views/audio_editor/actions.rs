@@ -36,19 +36,14 @@ pub fn handle_clip_editor_actions(
     if ctx.wants_keyboard_input() {
         return;
     }
-    if state.sub_editor.extension_id().is_some_and(|id| {
-        ui.extension_audio_sub_editors
-            .iter()
-            .find(|editor| editor.id == id)
-            .is_some_and(|editor| editor.custom().is_some())
-    }) {
+    if state.sub_editor.extension_id().is_some() {
         return;
     }
     let (copy, cut, paste) = ui.shortcuts.copy_cut_paste_pressed(ctx);
     let duplicate = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Duplicate);
     let delete = ui.shortcuts.was_pressed(ctx, ShortcutCommand::Delete);
     let select_all = ui.shortcuts.was_pressed(ctx, ShortcutCommand::SelectAll);
-    if let Some(target) = active_curve_target(ui, state) {
+    if let Some(target) = active_curve_target(state) {
         handle_curve_actions(
             ui, ctx, state, audio, clip, clipboard, playhead, target, copy, cut, paste, duplicate,
             delete, select_all,
@@ -128,16 +123,10 @@ pub fn handle_clip_editor_actions(
     }
 }
 
-fn active_curve_target(ui: &NotwigUi, state: &ClipEditorState) -> Option<CurveTarget> {
+fn active_curve_target(state: &ClipEditorState) -> Option<CurveTarget> {
     match &state.sub_editor {
         AudioSubEditor::Gain => Some(CurveTarget::Gain),
-        AudioSubEditor::Extension(id) => ui
-            .extension_audio_sub_editors
-            .iter()
-            .find(|editor| editor.id == *id)
-            .and_then(notwig_ext_api::AudioSubEditorDescriptor::curve)
-            .map(|spec| spec.target),
-        AudioSubEditor::AudioEvents => None,
+        AudioSubEditor::Extension(_) | AudioSubEditor::AudioEvents => None,
     }
 }
 

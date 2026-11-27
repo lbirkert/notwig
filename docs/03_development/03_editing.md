@@ -829,9 +829,9 @@ and emits one command on release.
 
 Gain and pan curve points may lie outside the clip range. The line editor keeps
 the curve's time bounds open for curve editing, just as audio events may extend
-beyond the clip container. An extension curve contribution names a host curve
-target (`gain` or `pan`), value range, baseline, and formatting; it never draws
-or stores the curve itself. Arranger extraction carries the curve with the clip
+beyond the clip container. An extension audio sub-editor draws its own curve
+editor and returns host-owned edits; it never stores playback-affecting curve
+state privately. Arranger extraction carries the curve with the clip
 content, shifting its local times when the extracted window starts later, so
 copy, paste, and duplicate preserve gain. Segment curvature is stored on the left point and
 applies only to the segment to its right. Positive curvature eases in (slow start), negative curvature eases

@@ -4,6 +4,8 @@
 mod clipboard;
 #[cfg(feature = "app")]
 mod commands;
+#[cfg(any(feature = "app", feature = "extension-ui"))]
+pub mod extension_ui;
 #[cfg(feature = "app")]
 mod intent;
 #[cfg(feature = "app")]
@@ -14,7 +16,7 @@ mod state;
 mod views;
 #[cfg(feature = "app")]
 mod waveform;
-#[cfg(feature = "app")]
+#[cfg(any(feature = "app", feature = "extension-ui"))]
 mod widgets;
 
 pub mod components;

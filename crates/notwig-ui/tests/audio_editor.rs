@@ -355,13 +355,6 @@ fn removing_an_extension_sub_editor_falls_back_to_audio_events() {
         title: "Clip Pan".into(),
         category: "Audio".into(),
         order: 10,
-        kind: notwig_ext_api::AudioSubEditorKind::Curve(notwig_ext_api::CurveTargetSpec {
-            target: notwig_ext_api::CurveTarget::Pan,
-            value_min: -1.0,
-            value_max: 1.0,
-            baseline: Some(0.0),
-            format: notwig_ext_api::CurveValueFormat::Pan,
-        }),
         extension_id: Some("notwig.test".into()),
     }]);
     set_sub_editor(
@@ -373,86 +366,9 @@ fn removing_an_extension_sub_editor_falls_back_to_audio_events() {
     assert_eq!(state.sub_editor, AudioSubEditor::AudioEvents);
 }
 
-#[test]
-fn extension_curve_sub_editor_edits_the_clip_pan_curve() {
-    let (doc, clip) = panel_doc_with_slices(0, false);
-    let mut runtime = RuntimeView::default();
-    runtime.insert_waveform(
-        id::<Asset>(600),
-        AudioWaveform::from_samples(vec![0.25; 128]),
-    );
-    let mut ui = NotwigUi::default();
-    ui.set_extension_audio_sub_editors(vec![notwig_ext_api::AudioSubEditorDescriptor {
-        id: "notwig.test.pan".into(),
-        title: "Clip Pan".into(),
-        category: "Audio".into(),
-        order: 10,
-        kind: notwig_ext_api::AudioSubEditorKind::Curve(notwig_ext_api::CurveTargetSpec {
-            target: notwig_ext_api::CurveTarget::Pan,
-            value_min: -1.0,
-            value_max: 1.0,
-            baseline: Some(0.0),
-            format: notwig_ext_api::CurveValueFormat::Pan,
-        }),
-        extension_id: Some("notwig.test".into()),
-    }]);
-    if let Some(clip_entity) = doc.arranger.clips.get(&clip) {
-        ui.state
-            .selection
-            .select_clip(clip, clip_entity.track_id, false);
-    }
-    ui.open_clip_editor(clip);
-    set_sub_editor(
-        ui.clip_editor.as_mut().expect("clip editor open"),
-        AudioSubEditor::Extension("notwig.test.pan".into()),
-    );
-    let ctx = egui::Context::default();
-    let _ = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
-    let output = run_panel_with_output(&ctx, &mut ui, &doc, &runtime, Vec::new()).1;
-    let mut texts = Vec::new();
-    for clipped in &output.shapes {
-        collect_text(&clipped.shape, &mut texts);
-    }
-    assert!(
-        texts.iter().any(|text| text.contains("Clip Pan")),
-        "expected the extension sub-editor selector, got {texts:?}"
-    );
-
-    let content = ui.clip_editor_content_rect;
-    let point = egui::pos2(content.left() + 120.0, pan_editor_y(content, 0.0));
-    let _ = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![egui::Event::PointerMoved(point)],
-    );
-    let _ = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![pointer_event(point, true)],
-    );
-    let intents = run_panel(
-        &ctx,
-        &mut ui,
-        &doc,
-        &runtime,
-        vec![pointer_event(point, false)],
-    );
-    let curve = intents
-        .iter()
-        .find_map(|intent| match intent {
-            UiIntent::SetClipPanCurve { curve, .. } => curve.clone(),
-            _ => None,
-        })
-        .expect("the extension pan editor should commit a pan curve");
-    assert_eq!(curve.points().len(), 1);
-}
-
 struct RecordingSubEditorHost {
     last_clip: std::sync::Arc<std::sync::Mutex<Option<ClipId>>>,
+    last_waveform_columns: std::sync::Arc<std::sync::Mutex<usize>>,
     effect: notwig_ext_api::CommandEffect,
 }
 
@@ -463,6 +379,7 @@ impl notwig_ext_api::AudioSubEditorHost for RecordingSubEditorHost {
         context: &notwig_ext_api::AudioSubEditorContext,
     ) -> Option<notwig_ext_api::AudioSubEditorFrame> {
         *self.last_clip.lock().expect("host lock") = Some(context.clip_id);
+        *self.last_waveform_columns.lock().expect("host lock") = context.waveform.columns.len();
         Some(notwig_ext_api::AudioSubEditorFrame {
             panel: notwig_ext_api::PanelFrame::default(),
             effect: self.effect.clone(),
@@ -479,19 +396,18 @@ fn custom_extension_sub_editor_receives_context_and_commits_edits() {
         title: "Custom Pan".into(),
         category: "Audio".into(),
         order: 10,
-        kind: notwig_ext_api::AudioSubEditorKind::Custom(notwig_ext_api::CustomSubEditorSpec {
-            renderer: "notwig.test.custom.renderer".into(),
-        }),
         extension_id: Some("notwig.test".into()),
     }]);
     let curve =
         notwig_core::Curve::from_points([notwig_core::CurvePoint::new(TimeMus::zero(), 0.25)])
             .expect("curve");
     let last_clip = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let last_waveform_columns = std::sync::Arc::new(std::sync::Mutex::new(0));
     set_audio_sub_editor_host(
         &mut ui,
         Some(Box::new(RecordingSubEditorHost {
             last_clip: std::sync::Arc::clone(&last_clip),
+            last_waveform_columns: std::sync::Arc::clone(&last_waveform_columns),
             effect: notwig_ext_api::CommandEffect::Apply {
                 edits: vec![notwig_ext_api::CommandEdit::AudioCurves {
                     clip_id: clip,
@@ -520,6 +436,7 @@ fn custom_extension_sub_editor_receives_context_and_commits_edits() {
     );
     let intents = run_panel(&ctx, &mut ui, &doc, &runtime, Vec::new());
     assert_eq!(*last_clip.lock().expect("host lock"), Some(clip));
+    assert!(*last_waveform_columns.lock().expect("host lock") > 0);
     assert!(intents.iter().any(|intent| matches!(
         intent,
         UiIntent::ApplyExtensionEffect { revision, .. } if *revision == doc.revision
@@ -2027,12 +1944,6 @@ fn gain_editor_y(content: egui::Rect, db: f64) -> f32 {
     let top = content.top() + 38.0;
     let bottom = content.bottom();
     bottom - ((db + 60.0) / 84.0) as f32 * (bottom - top)
-}
-
-fn pan_editor_y(content: egui::Rect, pan: f64) -> f32 {
-    let top = content.top() + 38.0;
-    let bottom = content.bottom();
-    bottom - (f64::midpoint(pan, 1.0)) as f32 * (bottom - top)
 }
 
 fn gain_curve_doc(clip: ClipId) -> (ProjectDoc, ClipId) {

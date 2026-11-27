@@ -8,6 +8,7 @@ repository.workspace = true
 
 [features]
 default = ["app"]
+extension-ui = ["dep:notwig-ext-api"]
 app = [
   "dep:image",
   "dep:notwig-ext-api",

@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::abi::ABI_VERSION;
 use crate::audio_editor::{
-    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorKind,
-    MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
+    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
 };
 use crate::command::{
     COMMAND_CONTRACT, COMMAND_POINT, MAX_COMMAND_DESCRIPTION_BYTES, MAX_COMMAND_WHEN_BYTES,
@@ -102,9 +101,6 @@ pub struct ExtensionContribution {
     /// Selector ordering for audio-editor sub-editors.
     #[serde(default)]
     pub order: i32,
-    /// Audio-editor sub-editor behavior.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<AudioSubEditorKind>,
 }
 
 /// Parsed `extension.json` manifest.
@@ -396,24 +392,6 @@ fn validate_audio_sub_editor_contribution(
             "audio sub-editor {} must declare a category",
             contribution.id
         )));
-    }
-    let Some(kind) = &contribution.kind else {
-        return Err(ManifestError::Invalid(format!(
-            "audio sub-editor {} must declare a kind",
-            contribution.id
-        )));
-    };
-    match kind {
-        AudioSubEditorKind::Curve(curve) => {
-            curve.validate().map_err(|error| {
-                ManifestError::Invalid(format!("audio sub-editor {} {error}", contribution.id))
-            })?;
-        }
-        AudioSubEditorKind::Custom(custom) => {
-            custom.validate().map_err(|error| {
-                ManifestError::Invalid(format!("audio sub-editor {} {error}", contribution.id))
-            })?;
-        }
     }
     Ok(())
 }

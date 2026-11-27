@@ -93,8 +93,8 @@ before `process`, `latency` is queried during prepare, and destroy runs on drop.
 | `notwig_device_process(handle, audio, frames, events, count, position, playing)` | audio block | `AbiStatus`; generated wrapper currently ignores `position` and `playing` |
 | `notwig_device_latency(handle)` | prepare | sample count |
 | `notwig_device_draw(handle, context)` | panel frame | postcard `PanelFrame` |
-| `notwig_audio_sub_editor_create(renderer)` | first custom sub-editor frame | positive handle or negative failure |
-| `notwig_audio_sub_editor_draw(handle, context)` | custom sub-editor frame | postcard `AudioSubEditorFrame` |
+| `notwig_audio_sub_editor_create(editor_id)` | first extension sub-editor frame | positive handle or negative failure |
+| `notwig_audio_sub_editor_draw(handle, context)` | extension sub-editor frame | postcard `AudioSubEditorFrame` |
 | `notwig_audio_sub_editor_destroy(handle)` | sub-editor close / instance drop | removes the handle |
 | `notwig_device_destroy(handle)` | instance drop | removes the handle |
 

@@ -2,7 +2,8 @@ use egui::{Color32, CornerRadius, Id, Rect, Sense, Vec2};
 use notwig_core::sequencer::{AudioClipData, AudioSlice};
 use notwig_core::{ClipPayload, ProjectDoc, TimeMus};
 use notwig_ext_api::{
-    AudioSubEditorClip, AudioSubEditorContext, AudioSubEditorDescriptor, CommandEffect,
+    AudioSubEditorClip, AudioSubEditorContext, AudioSubEditorDescriptor, AudioWaveformColumn,
+    AudioWaveformPreview, CommandEffect,
 };
 
 use crate::intent::UiIntent;
@@ -13,6 +14,7 @@ use crate::theme;
 use crate::timeline::{ClipChrome, ClipChromeDrag, ClipChromeEdge, TimelineGrid};
 use crate::views::device_editor::panel_render::{paint_panel_frame_keyed, panel_input};
 use crate::views::device_editor::theme_snapshot;
+use crate::waveform::WaveformGain;
 
 mod range_selection;
 mod slice_gestures;
@@ -366,26 +368,20 @@ impl NotwigUi {
                     .extension_id()
                     .and_then(|id| extension_editors.iter().find(|editor| editor.id == id))
                 {
-                    if let Some(spec) = editor.curve() {
-                        super::curve::draw_curve_sub_editor(
-                            self,
-                            ui,
-                            &mut state,
-                            &mut audio,
-                            &clip,
-                            runtime,
-                            map,
-                            timeline_grid,
-                            lanes,
-                            spec.target,
-                            super::curve::extension_style(spec),
-                        );
-                    } else if editor.custom().is_some() {
-                        self.extension_audio_sub_editor(
-                            ui, &state, &clip, &audio, doc, runtime, snap, grid, lanes, editor,
-                            &slices,
-                        );
-                    }
+                    self.extension_audio_sub_editor(
+                        ui,
+                        &state,
+                        &clip,
+                        &audio,
+                        doc,
+                        runtime,
+                        snap,
+                        grid,
+                        timeline_grid,
+                        lanes,
+                        editor,
+                        &slices,
+                    );
                 }
 
                 if let Some(preview) = &self.drag_preview
@@ -522,6 +518,7 @@ impl NotwigUi {
         runtime: &RuntimeView,
         snap: crate::widgets::SnapSettings,
         grid: TimeMus,
+        timeline_grid: TimelineGrid,
         lanes: Rect,
         editor: &AudioSubEditorDescriptor,
         slices: &[AudioSlice],
@@ -561,10 +558,20 @@ impl NotwigUi {
             sample_rate: doc.meta.sample_rate.value(),
             snap_enabled: snap.enabled,
             grid,
+            bar_length: doc.meta.bar_length(),
+            beat_length: doc.meta.beat_length(),
             viewport_start: state.viewport.start,
             pixels_per_beat: state.viewport.pixels_per_beat,
             width: lanes.width(),
             height: lanes.height(),
+            waveform: waveform_preview(
+                audio,
+                clip,
+                runtime,
+                &doc.tempo_map(),
+                timeline_grid,
+                lanes,
+            ),
             theme: theme_snapshot(),
             input,
         };
@@ -612,6 +619,129 @@ impl NotwigUi {
         );
         if !open {
             self.close_editor();
+        }
+    }
+}
+
+fn waveform_preview(
+    audio: &AudioClipData,
+    clip: &notwig_core::ClipEntity,
+    runtime: &RuntimeView,
+    map: &notwig_core::TempoMap,
+    timeline: TimelineGrid,
+    lanes: Rect,
+) -> AudioWaveformPreview {
+    let columns = usize::try_from(lanes.width().ceil().max(1.0) as u32).unwrap_or(1);
+    let mut result = vec![AudioWaveformColumn::default(); columns];
+    if audio.uses_slices() {
+        for slice in &audio.slices {
+            let asset_id = slice.asset_id.unwrap_or(audio.asset_id);
+            let Some(waveform) = runtime.waveforms.get(&asset_id) else {
+                continue;
+            };
+            let silent = map.samples_to_mus(slice.silent_prefix_samples);
+            let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
+                curve,
+                map: *map,
+                local_start: slice.start + silent,
+            });
+            fill_waveform_columns(
+                &mut result,
+                waveform,
+                timeline,
+                lanes,
+                clip.range.start + slice.start + silent,
+                map.samples_to_mus(slice.audio_samples()),
+                slice.source_start_sample,
+                slice.source_end_sample,
+                gain,
+            );
+        }
+        return AudioWaveformPreview { columns: result };
+    }
+    let Some(waveform) = runtime.waveforms.get(&audio.asset_id) else {
+        return AudioWaveformPreview { columns: result };
+    };
+    let gain = audio.gain_curve.as_ref().map(|curve| WaveformGain {
+        curve,
+        map: *map,
+        local_start: TimeMus::zero(),
+    });
+    fill_waveform_columns(
+        &mut result,
+        waveform,
+        timeline,
+        lanes,
+        clip.range.start,
+        clip.range.length(),
+        audio.source_start_sample,
+        audio.source_end_sample,
+        gain,
+    );
+    AudioWaveformPreview { columns: result }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fill_waveform_columns(
+    result: &mut [AudioWaveformColumn],
+    waveform: &crate::waveform::AudioWaveform,
+    timeline: TimelineGrid,
+    lanes: Rect,
+    start: TimeMus,
+    duration: TimeMus,
+    source_start: u64,
+    source_end: u64,
+    gain: Option<WaveformGain<'_>>,
+) {
+    if duration <= TimeMus::zero() || source_end <= source_start {
+        return;
+    }
+    let x1 = timeline.x_for_beat(start, lanes.left());
+    let x2 = timeline.x_for_beat(start + duration, lanes.left());
+    if x2 <= x1 {
+        return;
+    }
+    let x1 = x1.max(lanes.left());
+    let x2 = x2.min(lanes.right());
+    if x2 <= x1 {
+        return;
+    }
+    let left_column = ((x1 - lanes.left()).floor() as usize).min(result.len());
+    let right_column = ((x2 - lanes.left()).ceil() as usize).min(result.len());
+    if right_column <= left_column {
+        return;
+    }
+    let fraction = |x: f32| ((x - lanes.left()) / lanes.width().max(1.0)).clamp(0.0, 1.0);
+    let f1 = fraction(x1);
+    let f2 = fraction(x2);
+    let span = f2 - f1;
+    if span <= 0.0 {
+        return;
+    }
+    let sub_start = source_start as f64 + f64::from(f1) * (source_end - source_start) as f64;
+    let sub_end = source_start as f64 + f64::from(f2) * (source_end - source_start) as f64;
+    let peaks = waveform.column_peaks(
+        sub_start.round().max(0.0) as u64,
+        sub_end.round().max(0.0) as u64,
+        right_column - left_column,
+    );
+    let peak_span = (sub_end - sub_start).max(f64::EPSILON);
+    for (index, peak) in peaks.into_iter().enumerate() {
+        let center = sub_start
+            + (index as f64 + 0.5) / f64::from((right_column - left_column) as u32) * peak_span;
+        let (min, max) = match &gain {
+            Some(gain) => (
+                peak.min * gain.gain_at_frame(source_start, center),
+                peak.max * gain.gain_at_frame(source_start, center),
+            ),
+            None => (peak.min, peak.max),
+        };
+        let column = &mut result[left_column + index];
+        if min.abs() > column.min.abs() {
+            column.min = min;
+        }
+        if max.abs() > column.max.abs() {
+            column.max = max;
         }
     }
 }
