@@ -158,7 +158,7 @@ An index entry looks like:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 8,
+  "api_version": 9,
   "capabilities": ["device", "ui.panel"],
   "devices": [
     { "name": "Example Gain", "type_id": "com.example.gain.fx" }
@@ -203,7 +203,7 @@ Extension index settings are stored in browser local storage.
 2. Build every published target in release mode.
 3. Run the SDK, device, host, and UI tests.
 4. Package each target ZIP and verify that it contains one valid
-   `extension.json` with the right target and `api_version: 8`.
+   `extension.json` with the right target and `api_version: 9`.
 5. Install the ZIPs through the extension explorer and insert the device.
 6. Save, reopen, and render a project that uses the device.
 7. Publish the ZIPs, fill or verify the hashes in `docs/extensions.csv`, and

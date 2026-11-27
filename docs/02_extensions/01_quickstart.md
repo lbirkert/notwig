@@ -199,7 +199,7 @@ explicit reload hook must be the final items in `lib.rs`.
   "name": "My Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 8,
+  "api_version": 9,
   "capabilities": ["device", "ui.panel"],
   "image": "icon.png",
   "devices": [

@@ -5,9 +5,11 @@ sub-editor APIs. It registers `notwig.ext.example.humanize`, which nudges the
 timing and velocity of selected MIDI notes, and `notwig.ext.example.pan`, a
 Clip Pan sub-editor for audio clips.
 
-The crate registers one `CommandExtension` and one `AudioSubEditorExtension`
-through `EP_COMMANDS` and `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`. Both descriptors
-come from the implementation traits. The pan editor draws the shared curve
+The crate registers commands, one `AudioSubEditorExtension`, and one
+`BottomPanelExtension` through `EP_COMMANDS`,
+`EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and `EP_NOTWIG_BOTTOM_PANEL`. All
+descriptors come from the implementation traits. The Open Example Bottom Panel
+command opens the contributed panel by id. The pan editor draws the shared curve
 editor over a waveform underlay and commits a host-owned
 `CommandEdit::AudioCurves` pan change. The host owns the context snapshot,
 validation, revision check, and undo boundary. It doubles as the reference for

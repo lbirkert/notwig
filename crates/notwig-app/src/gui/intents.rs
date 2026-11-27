@@ -919,6 +919,9 @@ impl NotwigApp {
     fn apply_command_ui(&mut self, request: CommandUiRequest) {
         match request {
             CommandUiRequest::Notify { message } => self.notify_info(message),
+            CommandUiRequest::OpenBottomPanel { id } => {
+                self.ui.open_extension_bottom_panel(id);
+            }
             CommandUiRequest::FocusEditor { focus, clip_id } => match focus {
                 CommandFocus::Timeline => {
                     self.ui.edit_focus = notwig_ui::EditFocus::Timeline;

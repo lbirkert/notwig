@@ -15,7 +15,7 @@ fn stub_module(describe: &str) -> Vec<u8> {
         r#"(module
   (memory (export "memory") 1)
   (data (i32.const 0) "{describe}")
-  (func (export "notwig_abi_version") (result i32) i32.const 8)
+  (func (export "notwig_abi_version") (result i32) i32.const 9)
   (func (export "notwig_alloc") (param i32) (result i32) i32.const 4096)
   (func (export "notwig_free") (param i32 i32))
   (func (export "notwig_device_describe") (param i32 i32) (result i64)
@@ -44,7 +44,7 @@ fn write_package(root: &Path, bad: &[u8], good: &[u8]) {
         "id": "com.test.fallback",
         "name": "Fallback",
         "version": "0.1.0",
-        "api_version": 8,
+        "api_version": 9,
         "entrypoints": [
             { "entrypoint": "bad.wasm", "target": "wasm" },
             { "entrypoint": "good.wasm", "target": "wasm" }

@@ -21,7 +21,7 @@ load phase:
   "name": "Clip Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 8,
+  "api_version": 9,
   "capabilities": ["audio_editor"]
 }
 ```

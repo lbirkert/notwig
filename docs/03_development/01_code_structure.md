@@ -114,7 +114,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 
 ### `notwig-ext-api` — extension SDK and panel transport
 
-ABI 8 adds the runtime registration manifest. ABI 7 added preload/load/unload
+ABI 9 adds extension bottom panels. ABI 8 added the runtime registration manifest. ABI 7 added preload/load/unload
 phase exports. ABI 6 added extension-drawn audio sub-editor exports on top of
 the device panel path. Extensions run a private `egui::Context` and return validated meshes,
 texture deltas, host actions, and, for audio sub-editors, host-owned edits.
@@ -138,7 +138,7 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 | `extension_point.rs` | Typed `ExtensionPoint<T>` stable-id key |
 | `lifecycle.rs` | Phase builders, preload/load/unload state, and lifecycle entrypoints |
 | `registration.rs` | Runtime point/command/sub-editor registration descriptor types |
-| `abi.rs` | ABI version (`8`), status codes, pointer/length packing, helper re-exports |
+| `abi.rs` | ABI version (`9`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -420,7 +420,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    emit parameter changes through `panel_frame::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship a source `extension.json` with `api_version: 8`, no `entrypoints`, the
+4. Ship a source `extension.json` with `api_version: 9`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
    with `cargo notwig-ext build --entrypoint <target>` on each platform, then run

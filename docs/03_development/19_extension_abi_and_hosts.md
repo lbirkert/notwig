@@ -26,14 +26,15 @@ are registered as stock-like device types in the app.
 
 ## 2. ABI version and target selection
 
-`ABI_VERSION` is `8`. The host requires an exact match in three places: the
+`ABI_VERSION` is `9`. The host requires an exact match in three places: the
 manifest `api_version`, the index entry `api_version`, and the value returned
 by the loaded module's `notwig_abi_version` export. Any change to an export
 signature, wire layout, or documented contract must bump the constant; there is
 no negotiation or backwards-compatible mode. Old packages then fail to load
-instead of being misread. Version 8 added the runtime registration manifest.
-Version 7 added the preload/load/unload phase exports. Version 5 added the
-optional `DeviceSpec::container` metadata described in section 4.
+instead of being misread. Version 9 added extension bottom panels. Version 8
+added the runtime registration manifest. Version 7 added the
+preload/load/unload phase exports. Version 5 added the optional
+`DeviceSpec::container` metadata described in section 4.
 
 Manifest entrypoints are tried in order and the first supported target wins.
 WASM is supported on every host (wasmtime natively, `WebAssembly` in the
@@ -92,7 +93,7 @@ destroy runs on drop.
 
 | Export | Call point | Result |
 | --- | --- | --- |
-| `notwig_abi_version()` | module load / instantiate | must equal `8` |
+| `notwig_abi_version()` | module load / instantiate | must equal `9` |
 | `notwig_ext_preload()` | instantiate, before load | `AbiStatus`; optional point declarations |
 | `notwig_ext_load()` | instantiate, after preload | `AbiStatus`; registrations and main exports |
 | `notwig_ext_registrations()` | after load, once | JSON registration manifest |
@@ -108,6 +109,9 @@ destroy runs on drop.
 | `notwig_audio_sub_editor_create(editor_id)` | first extension sub-editor frame | positive handle or negative failure |
 | `notwig_audio_sub_editor_draw(handle, context)` | extension sub-editor frame | postcard `AudioSubEditorFrame` |
 | `notwig_audio_sub_editor_destroy(handle)` | sub-editor close / instance drop | removes the handle |
+| `notwig_bottom_panel_create(panel_id)` | first extension bottom-panel frame | positive handle or negative failure |
+| `notwig_bottom_panel_draw(handle, context)` | extension bottom-panel frame | postcard `BottomPanelFrame` |
+| `notwig_bottom_panel_destroy(handle)` | panel close / instance drop | removes the handle |
 | `notwig_device_destroy(handle)` | instance drop | removes the handle |
 
 ### Containers

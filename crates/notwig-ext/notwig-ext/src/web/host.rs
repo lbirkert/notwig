@@ -11,9 +11,9 @@ use crate::web::panel::WebExtensionPanelHost;
 use crate::web::sub_editor::WebExtensionAudioSubEditorHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DevicePanelHost, EP_NOTWIG_DEVICES, ExtensionConfig, ExtensionInfo, ExtensionPointDescriptor,
-    ExtensionStatus,
+    AudioSubEditorDescriptor, AudioSubEditorHost, BottomPanelHost, CommandContext,
+    CommandDescriptor, CommandEffect, DevicePanelHost, EP_NOTWIG_DEVICES, ExtensionConfig,
+    ExtensionInfo, ExtensionPointDescriptor, ExtensionStatus,
 };
 
 /// Browser host for WASM extension packages.
@@ -36,6 +36,8 @@ impl WebExtensionHost {
         let mut commands = BTreeMap::new();
         let mut audio_sub_editors = BTreeMap::new();
         let mut by_audio_sub_editor = BTreeMap::new();
+        let mut bottom_panels = BTreeMap::new();
+        let mut by_bottom_panel = BTreeMap::new();
         let mut points = BTreeMap::new();
         points.insert(
             EP_NOTWIG_DEVICES.id().to_owned(),
@@ -148,6 +150,18 @@ impl WebExtensionHost {
                                 points.insert(point.id.clone(), point.clone());
                             }
                         }
+                        for panel in &extension.bottom_panels {
+                            if bottom_panels.contains_key(&panel.id) {
+                                tracing::warn!(
+                                    panel = %panel.id,
+                                    extension = %extension.manifest.id,
+                                    "duplicate browser extension bottom panel id"
+                                );
+                            } else {
+                                bottom_panels.insert(panel.id.clone(), panel.clone());
+                                by_bottom_panel.insert(panel.id.clone(), Arc::clone(&extension));
+                            }
+                        }
                         for editor in &extension.audio_sub_editors {
                             if audio_sub_editors.contains_key(&editor.id) {
                                 tracing::warn!(
@@ -177,6 +191,8 @@ impl WebExtensionHost {
                 by_audio_sub_editor,
                 commands,
                 audio_sub_editors,
+                by_bottom_panel,
+                bottom_panels,
                 points,
                 infos,
             }),
@@ -212,6 +228,20 @@ impl WebExtensionHost {
     #[must_use]
     pub fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
         self.loaded.audio_sub_editors()
+    }
+
+    /// Returns resolved bottom-panel descriptors.
+    #[must_use]
+    pub fn bottom_panels(&self) -> Vec<notwig_ext_api::BottomPanelDescriptor> {
+        self.loaded.bottom_panels()
+    }
+
+    /// Creates a host for extension-drawn bottom panels.
+    #[must_use]
+    pub fn bottom_panel_host(&self) -> Box<dyn BottomPanelHost> {
+        Box::new(crate::web::bottom_panel::WebExtensionBottomPanelHost::new(
+            Arc::clone(&self.loaded),
+        ))
     }
 
     /// Returns extension points declared by loaded packages.
@@ -341,6 +371,7 @@ fn load_package(
         specs,
         commands: resolved.commands,
         audio_sub_editors: resolved.audio_sub_editors,
+        bottom_panels: resolved.bottom_panels,
         points: resolved.points,
         info,
     })

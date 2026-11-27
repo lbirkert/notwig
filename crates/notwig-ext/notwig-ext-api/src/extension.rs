@@ -10,6 +10,9 @@ use crate::abi::{
 use crate::audio_editor::{
     AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorFrame, AudioSubEditorResponse,
 };
+use crate::bottom_panel::{
+    BottomPanelContext, BottomPanelExtension, BottomPanelFrame, BottomPanelResponse,
+};
 use crate::command::{
     CommandContext, CommandDescriptor, CommandEffect, CommandExtension, MAX_COMMAND_EDITS,
 };
@@ -149,6 +152,16 @@ trait CommandInstance: Send {
     fn execute(&mut self, context: &CommandContext) -> CommandEffect;
 }
 
+trait BottomPanelInstance: Send {
+    fn draw(&mut self, ui: &mut egui::Ui, context: &BottomPanelContext) -> BottomPanelResponse;
+}
+
+impl<T: BottomPanelExtension> BottomPanelInstance for T {
+    fn draw(&mut self, ui: &mut egui::Ui, context: &BottomPanelContext) -> BottomPanelResponse {
+        BottomPanelExtension::draw(self, ui, context)
+    }
+}
+
 impl<T: CommandExtension> CommandInstance for T {
     fn execute(&mut self, context: &CommandContext) -> CommandEffect {
         CommandExtension::execute(self, context)
@@ -175,6 +188,11 @@ struct RegisteredAudioSubEditor {
     descriptor: crate::audio_editor::AudioSubEditorDescriptor,
 }
 
+struct RegisteredBottomPanel {
+    create: fn() -> Box<dyn BottomPanelInstance>,
+    descriptor: crate::bottom_panel::BottomPanelDescriptor,
+}
+
 struct DeviceSlot {
     channels: usize,
     instance: Box<dyn DeviceInstance>,
@@ -188,6 +206,12 @@ struct SubEditorSlot {
     last_frame_bytes: Vec<u8>,
 }
 
+struct BottomPanelSlot {
+    instance: Box<dyn BottomPanelInstance>,
+    panel_context: Option<egui::Context>,
+    last_frame_bytes: Vec<u8>,
+}
+
 fn create_instance<D: DeviceExtension>() -> Box<dyn DeviceInstance> {
     Box::new(D::new())
 }
@@ -196,16 +220,22 @@ fn create_sub_editor<T: AudioSubEditorExtension>() -> Box<dyn SubEditorInstance>
     Box::new(T::new())
 }
 
+fn create_bottom_panel<T: BottomPanelExtension>() -> Box<dyn BottomPanelInstance> {
+    Box::new(T::new())
+}
+
 /// Extension runtime shared by the generated ABI exports.
 pub struct Extension {
     extension_points: BTreeSet<String>,
     devices: BTreeMap<String, RegisteredDevice>,
     audio_sub_editors: BTreeMap<String, RegisteredAudioSubEditor>,
+    bottom_panels: BTreeMap<String, RegisteredBottomPanel>,
     commands: BTreeMap<String, RegisteredCommand>,
     last_command_bytes: Mutex<Vec<u8>>,
     last_registration_bytes: Mutex<Vec<u8>>,
     instances: DeviceStore<DeviceSlot>,
     sub_editor_instances: DeviceStore<SubEditorSlot>,
+    bottom_panel_instances: DeviceStore<BottomPanelSlot>,
 }
 
 impl Extension {
@@ -216,11 +246,13 @@ impl Extension {
             extension_points: BTreeSet::new(),
             devices: BTreeMap::new(),
             audio_sub_editors: BTreeMap::new(),
+            bottom_panels: BTreeMap::new(),
             commands: BTreeMap::new(),
             last_command_bytes: Mutex::new(Vec::new()),
             last_registration_bytes: Mutex::new(Vec::new()),
             instances: DeviceStore::new(),
             sub_editor_instances: DeviceStore::new(),
+            bottom_panel_instances: DeviceStore::new(),
         }
     }
 
@@ -273,6 +305,20 @@ impl Extension {
         );
     }
 
+    /// Registers a bottom panel with runtime metadata.
+    pub(crate) fn register_bottom_panel_with_descriptor<T: BottomPanelExtension>(
+        &mut self,
+        descriptor: crate::bottom_panel::BottomPanelDescriptor,
+    ) {
+        self.bottom_panels.insert(
+            descriptor.id.clone(),
+            RegisteredBottomPanel {
+                create: create_bottom_panel::<T>,
+                descriptor,
+            },
+        );
+    }
+
     /// Registers a command implementation with runtime metadata.
     pub(crate) fn register_command_with_descriptor<C: CommandExtension>(
         &mut self,
@@ -314,6 +360,11 @@ impl Extension {
                 .audio_sub_editors
                 .values()
                 .map(|editor| editor.descriptor.clone())
+                .collect(),
+            bottom_panels: self
+                .bottom_panels
+                .values()
+                .map(|panel| panel.descriptor.clone())
                 .collect(),
         }
     }
@@ -541,6 +592,93 @@ impl Extension {
     /// Destroys an audio sub-editor instance.
     pub fn destroy_audio_sub_editor(&self, handle: i32) {
         let _ = self.sub_editor_instances.remove(handle);
+    }
+
+    /// Creates a bottom panel instance, or `-1` when `panel_id` is unknown.
+    pub fn create_bottom_panel(&self, panel_id: &str) -> i32 {
+        let Some(panel) = self.bottom_panels.get(panel_id) else {
+            return -1;
+        };
+        let instance = (panel.create)();
+        self.bottom_panel_instances.create(BottomPanelSlot {
+            instance,
+            panel_context: None,
+            last_frame_bytes: Vec::new(),
+        })
+    }
+
+    /// Destroys a bottom panel instance.
+    pub fn destroy_bottom_panel(&self, handle: i32) {
+        let _ = self.bottom_panel_instances.remove(handle);
+    }
+
+    /// Draws a bottom panel and returns a packed pointer to its frame.
+    #[must_use]
+    pub fn draw_bottom_panel_pointer(&self, handle: i32, context_bytes: &[u8]) -> i64 {
+        let Some((ptr, len)) = self.draw_bottom_panel_bytes(handle, context_bytes) else {
+            return 0;
+        };
+        let Ok(ptr) = u32::try_from(ptr as usize) else {
+            return 0;
+        };
+        let Ok(len) = u32::try_from(len) else {
+            return 0;
+        };
+        i64::try_from(pack_ptr_len(ptr, len)).unwrap_or(0)
+    }
+
+    /// Draws a bottom panel and returns its validated frame.
+    #[must_use]
+    pub fn draw_bottom_panel_frame(
+        &self,
+        handle: i32,
+        context_bytes: &[u8],
+    ) -> Option<BottomPanelFrame> {
+        let context = postcard::from_bytes::<BottomPanelContext>(context_bytes).ok()?;
+        context.input.validate().ok()?;
+        self.bottom_panel_instances
+            .with(handle, move |slot| {
+                let BottomPanelSlot {
+                    instance,
+                    panel_context,
+                    ..
+                } = slot;
+                let panel_context = panel_context.get_or_insert_with(egui::Context::default);
+                let mut response = BottomPanelResponse::none();
+                let panel = crate::panel_frame::run_frame(
+                    panel_context,
+                    context.input.clone(),
+                    &context.theme,
+                    |ui| {
+                        response = instance.draw(ui, &context);
+                    },
+                );
+                let frame = BottomPanelFrame {
+                    panel,
+                    effect: response.effect,
+                };
+                frame.validate().ok()?;
+                Some(frame)
+            })
+            .ok()
+            .flatten()
+    }
+
+    /// Draws a bottom panel and returns a pointer/length pair to its frame.
+    #[must_use]
+    pub fn draw_bottom_panel_bytes(
+        &self,
+        handle: i32,
+        context_bytes: &[u8],
+    ) -> Option<(*const u8, usize)> {
+        let frame = self.draw_bottom_panel_frame(handle, context_bytes)?;
+        let bytes = postcard::to_allocvec(&frame).ok()?;
+        self.bottom_panel_instances
+            .with(handle, move |slot| {
+                slot.last_frame_bytes = bytes;
+                (slot.last_frame_bytes.as_ptr(), slot.last_frame_bytes.len())
+            })
+            .ok()
     }
 
     /// Draws an audio sub-editor and returns a packed pointer to the serialized

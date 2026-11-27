@@ -58,7 +58,7 @@ fn manifest(version: u32, with_contribution: bool) -> String {
             "id": "com.example.test",
             "name": "Test",
             "version": "0.1.0",
-            "api_version": 8,
+            "api_version": 9,
             "capabilities": ["command"],
             "devices": []{contributions}
         }}"#
@@ -147,7 +147,7 @@ fn manifest_accepts_audio_sub_editor_contribution() {
             "id": "com.example.pan",
             "name": "Pan",
             "version": "0.1.0",
-            "api_version": 8,
+            "api_version": 9,
             "capabilities": ["audio_editor"],
             "contributes": [{{
                 "id": "com.example.pan.editor",

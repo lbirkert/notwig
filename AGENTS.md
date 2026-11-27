@@ -92,6 +92,10 @@ and boundaries. Start there when working inside a crate.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.
+- `EP_NOTWIG_BOTTOM_PANEL` is a single extension point. Package and core
+  bottom-panel implementations are distinguished by stable implementation ids;
+  the shell keeps at most one panel open and selects it by id. Commands open one
+  with `CommandUiRequest::OpenBottomPanel`.
 - An extension crate's `lib.rs` is wiring only: module declarations,
   re-exports, imports needed by the lifecycle functions, and the lifecycle
   entrypoints. Implementations, helpers, and tests live in other files. Keep

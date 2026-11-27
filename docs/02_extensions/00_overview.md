@@ -10,7 +10,8 @@ provide:
 - a custom panel drawn with the guest egui API and shared `notwig-ui`
   components;
 - commands with runtime metadata, a bounded `CommandContext`, validated edit
-  families, command palette entries, and default keybindings.
+  families, command palette entries, and default keybindings;
+- bottom panels drawn with the guest egui API and opened by command.
 
 Extensions never receive the host `egui::Context`, host pointers to application
 state, or the project document. The extension runs a private egui context and
@@ -39,9 +40,9 @@ audio sub-editor point ──►  extension renderer ──►  audio editor
   app.
 - `notwig-ui` composites the returned panel frame and applies validated
   parameter actions. Extension panels use its shared knobs, meters, labels,
-  sections, toggles, and dropdowns. Built-in bottom panels are registered
-  through the same `EP_*` points under the fixed, non-uninstallable
-  `notwig.core` / `Notwig Core` owner.
+  sections, toggles, and dropdowns. Extension and built-in bottom panels are
+  registered through the same `EP_NOTWIG_BOTTOM_PANEL` point; built-ins use the
+  fixed, non-uninstallable `notwig.core` / `Notwig Core` owner.
 - Extension-point constants use the `EP_` prefix (`EP` = extension point), such
   as `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
   `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and `EP_NOTWIG_BOTTOM_PANEL`.
@@ -51,7 +52,7 @@ audio sub-editor point ──►  extension renderer ──►  audio editor
   artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
-ABI version is `8`. The manifest layout is versioned separately: device-only
+ABI version is `9`. The manifest layout is versioned separately: device-only
 packages may omit `manifest_version`, while command and audio sub-editor
 contributions require version `2`. The WASM and native ABIs are different
 transport layers around the same Rust API.

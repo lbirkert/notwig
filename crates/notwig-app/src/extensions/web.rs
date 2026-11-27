@@ -264,6 +264,10 @@ impl ExtensionManager {
             .map(WebExtensionHost::audio_sub_editor_host)
     }
 
+    pub(crate) fn bottom_panel_host(&self) -> Option<Box<dyn notwig_ext_api::BottomPanelHost>> {
+        self.host.as_ref().map(WebExtensionHost::bottom_panel_host)
+    }
+
     pub(crate) fn panel_host(&self) -> Option<Box<dyn DevicePanelHost>> {
         self.host.as_ref().map(WebExtensionHost::panel_host)
     }

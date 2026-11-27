@@ -3,9 +3,10 @@
 use std::collections::BTreeMap;
 
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandDescriptor, DeviceRegistrationDescriptor, EP_NOTWIG_DEVICES,
-    ExtensionManifest, ExtensionPointDescriptor, ExtensionRegistrations,
-    MAX_COMMAND_DESCRIPTION_BYTES, REGISTRATION_MANIFEST_VERSION, validate_when,
+    AudioSubEditorDescriptor, BottomPanelDescriptor, CommandDescriptor,
+    DeviceRegistrationDescriptor, EP_NOTWIG_DEVICES, ExtensionManifest, ExtensionPointDescriptor,
+    ExtensionRegistrations, MAX_COMMAND_DESCRIPTION_BYTES, REGISTRATION_MANIFEST_VERSION,
+    validate_when,
 };
 
 use crate::error::ExtensionError;
@@ -15,6 +16,7 @@ pub(crate) struct ResolvedContributions {
     pub(crate) devices: Vec<DeviceRegistrationDescriptor>,
     pub(crate) commands: Vec<CommandDescriptor>,
     pub(crate) audio_sub_editors: Vec<AudioSubEditorDescriptor>,
+    pub(crate) bottom_panels: Vec<BottomPanelDescriptor>,
 }
 
 pub(crate) fn resolve(
@@ -109,6 +111,14 @@ pub(crate) fn resolve(
         devices: devices.into_values().collect(),
         commands: commands.into_values().collect(),
         audio_sub_editors: audio_sub_editors.into_values().collect(),
+        bottom_panels: runtime
+            .bottom_panels
+            .into_iter()
+            .map(|mut panel| {
+                panel.extension_id = Some(manifest.id.clone());
+                panel
+            })
+            .collect(),
     })
 }
 

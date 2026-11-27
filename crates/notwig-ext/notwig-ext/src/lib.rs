@@ -16,6 +16,8 @@
 #![deny(unsafe_code)]
 
 mod archive;
+#[cfg(feature = "native")]
+mod bottom_panel;
 mod contributions;
 mod error;
 
@@ -47,6 +49,8 @@ mod sub_editor;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod web;
 
+#[cfg(feature = "native")]
+pub use bottom_panel::ExtensionBottomPanelHost;
 #[cfg(feature = "native")]
 pub use device::ExtensionDeviceFactory;
 #[cfg(feature = "native")]

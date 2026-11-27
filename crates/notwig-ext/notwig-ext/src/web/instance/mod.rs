@@ -34,6 +34,9 @@ pub(crate) struct WebExtensionInstance {
     sub_editor_create: Option<Function>,
     sub_editor_destroy: Option<Function>,
     sub_editor_draw: Option<Function>,
+    bottom_panel_create: Option<Function>,
+    bottom_panel_destroy: Option<Function>,
+    bottom_panel_draw: Option<Function>,
     command: Option<Function>,
     preload: Option<Function>,
     load: Option<Function>,
@@ -121,6 +124,24 @@ impl WebExtensionInstance {
             sub_editor_draw: Reflect::get(
                 &exports,
                 &JsValue::from_str("notwig_audio_sub_editor_draw"),
+            )
+            .ok()
+            .and_then(|value| value.dyn_into().ok()),
+            bottom_panel_create: Reflect::get(
+                &exports,
+                &JsValue::from_str("notwig_bottom_panel_create"),
+            )
+            .ok()
+            .and_then(|value| value.dyn_into().ok()),
+            bottom_panel_destroy: Reflect::get(
+                &exports,
+                &JsValue::from_str("notwig_bottom_panel_destroy"),
+            )
+            .ok()
+            .and_then(|value| value.dyn_into().ok()),
+            bottom_panel_draw: Reflect::get(
+                &exports,
+                &JsValue::from_str("notwig_bottom_panel_draw"),
             )
             .ok()
             .and_then(|value| value.dyn_into().ok()),

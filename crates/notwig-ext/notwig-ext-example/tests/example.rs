@@ -2,11 +2,14 @@ use notwig_core::Curve;
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorResponse, CommandContext,
-    CommandEdit, CommandEffect, CommandExtension, EP_COMMANDS, EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR,
-    Extension,
+    AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorResponse, BottomPanelContext,
+    CommandContext, CommandEdit, CommandEffect, CommandExtension, EP_COMMANDS,
+    EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR, EP_NOTWIG_BOTTOM_PANEL, Extension,
 };
-use notwig_ext_example::{HUMANIZE_COMMAND_ID, HumanizeCommand, PAN_SUB_EDITOR_ID, PanSubEditor};
+use notwig_ext_example::{
+    EXAMPLE_PANEL_ID, ExampleBottomPanel, HUMANIZE_COMMAND_ID, HumanizeCommand,
+    OPEN_EXAMPLE_PANEL_COMMAND_ID, OpenExamplePanelCommand, PAN_SUB_EDITOR_ID, PanSubEditor,
+};
 
 fn pan_context() -> AudioSubEditorContext {
     use notwig_core::sequencer::AudioClipData;
@@ -102,15 +105,65 @@ fn runtime_registration_describes_contributions() {
 
     let mut extension = Extension::new();
     extension.register_extension::<HumanizeCommand>(EP_COMMANDS);
+    extension.register_extension::<OpenExamplePanelCommand>(EP_COMMANDS);
     extension.register_extension::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
 
     let registrations = extension.registrations();
-    assert_eq!(registrations.commands.len(), 1);
-    assert_eq!(registrations.commands[0].id, HUMANIZE_COMMAND_ID);
-    assert_eq!(registrations.commands[0].title, "Humanize Notes");
+    assert_eq!(registrations.commands.len(), 2);
+    assert!(
+        registrations
+            .commands
+            .iter()
+            .any(|command| command.id == HUMANIZE_COMMAND_ID)
+    );
     assert_eq!(registrations.audio_sub_editors.len(), 1);
     assert_eq!(registrations.audio_sub_editors[0].id, PAN_SUB_EDITOR_ID);
     assert_eq!(registrations.audio_sub_editors[0].order, 10);
+    assert_eq!(registrations.bottom_panels.len(), 1);
+    assert_eq!(registrations.bottom_panels[0].id, EXAMPLE_PANEL_ID);
+}
+
+fn bottom_panel_context() -> BottomPanelContext {
+    BottomPanelContext {
+        panel_id: EXAMPLE_PANEL_ID.into(),
+        revision: 1,
+        input: notwig_ext_api::panel_frame::PanelInput {
+            width: 400.0,
+            height: 200.0,
+            pixels_per_point: 1.0,
+            max_texture_side: 4096,
+            ..Default::default()
+        },
+        theme: notwig_ext_api::ThemeSnapshot::default(),
+    }
+}
+
+#[test]
+fn example_bottom_panel_draws_a_frame() {
+    let mut extension = Extension::new();
+    extension.register_extension::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
+    let handle = extension.create_bottom_panel(EXAMPLE_PANEL_ID);
+    assert!(handle > 0);
+    let encoded = postcard::to_allocvec(&bottom_panel_context()).expect("encode context");
+    let frame = extension
+        .draw_bottom_panel_frame(handle, &encoded)
+        .expect("draw frame");
+    assert_ne!(frame.panel.primitives.len(), 0);
+    extension.destroy_bottom_panel(handle);
+}
+
+#[test]
+fn opening_bottom_panel_command_returns_ui_request() {
+    let effect = OpenExamplePanelCommand.execute(&command_context());
+    let CommandEffect::Apply { ui, .. } = effect else {
+        panic!("expected an apply effect");
+    };
+    assert!(matches!(
+        &ui[0],
+        notwig_ext_api::CommandUiRequest::OpenBottomPanel { id } if id == EXAMPLE_PANEL_ID
+    ));
+    assert_ne!(OPEN_EXAMPLE_PANEL_COMMAND_ID, HUMANIZE_COMMAND_ID);
 }
 
 #[test]

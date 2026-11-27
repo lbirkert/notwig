@@ -40,7 +40,7 @@ no render-neutral command IR. Extension panels should use the shared components
 from `notwig-ui` for knobs, meters, labels, sections, toggles, and dropdowns.
 
 This crate has no `wasmtime` and no I/O. Keep wire-format changes versioned
-through `notwig_ext_api::ABI_VERSION` (currently `8`). Extensions can register `AudioSubEditorExtension` renderers for custom audio-editor sub-editors.
+through `notwig_ext_api::ABI_VERSION` (currently `9`). Extensions can register `AudioSubEditorExtension` renderers for custom audio-editor sub-editors and `BottomPanelExtension` renderers for editor bottom panels.
 
 Device authors implement `DeviceExtension` for their device type and register it
 from the load phase:

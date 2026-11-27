@@ -33,6 +33,12 @@ fn registration_module() -> String {
             order: 12,
             extension_id: None,
         }],
+        bottom_panels: vec![notwig_ext_api::BottomPanelDescriptor {
+            id: "com.test.runtime.panel".into(),
+            title: "Runtime Panel".into(),
+            order: 5,
+            extension_id: None,
+        }],
     };
     let bytes = serde_json::to_vec(&registrations).unwrap();
     let mut escaped = String::with_capacity(bytes.len() * 4);
@@ -53,7 +59,7 @@ fn registration_module() -> String {
   (memory (export "memory") 1)
   (data (i32.const {offset}) "{escaped}")
   (data (i32.const {spec_offset}) "{escaped_spec}")
-  (func (export "notwig_abi_version") (result i32) i32.const 8)
+  (func (export "notwig_abi_version") (result i32) i32.const 9)
   (func (export "notwig_alloc") (param i32) (result i32) i32.const 4096)
   (func (export "notwig_free") (param i32 i32))
   (func (export "notwig_ext_registrations") (result i64) i64.const {packed})
@@ -79,9 +85,9 @@ fn write_extension() -> PathBuf {
         "name": "Runtime Registrations",
         "vendor": "Test",
         "version": "0.1.0",
-        "api_version": 8,
+        "api_version": 9,
         "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
-        "capabilities": ["command", "audio_editor"],
+        "capabilities": ["command", "audio_editor", "bottom_panel"],
         "devices": [],
         "contributes": [
             {
@@ -149,6 +155,11 @@ fn runtime_registrations_are_used_without_manifest_contributions() {
     assert_eq!(editors[0].id, "com.test.runtime.editor");
     assert_eq!(editors[0].order, 12);
     assert_eq!(editors[0].extension_id.as_deref(), Some("com.test.runtime"));
+
+    let panels = host.bottom_panels();
+    assert_eq!(panels.len(), 1);
+    assert_eq!(panels[0].id, "com.test.runtime.panel");
+    assert_eq!(panels[0].extension_id.as_deref(), Some("com.test.runtime"));
 
     let _ = std::fs::remove_dir_all(root);
 }

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use notwig_core::dsp::DeviceSpec;
 use notwig_core::{ParamId, ParamValue};
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect, DeviceDrawContext,
-    ExtensionRegistrations, PanelFrame,
+    AudioSubEditorContext, AudioSubEditorFrame, BottomPanelContext, BottomPanelFrame,
+    CommandContext, CommandEffect, DeviceDrawContext, ExtensionRegistrations, PanelFrame,
 };
 
 use crate::abi::{ExtensionEngines, ExtensionInstance as WasmInstance};
@@ -98,6 +98,31 @@ impl ExtensionInstance {
         match self {
             Self::Wasm(instance) => instance.draw_panel(handle, context),
             Self::Native(instance) => instance.draw_panel(handle, context),
+        }
+    }
+
+    pub(crate) fn create_bottom_panel(&mut self, panel_id: &str) -> Result<i32, ExtensionError> {
+        match self {
+            Self::Wasm(instance) => instance.create_bottom_panel(panel_id),
+            Self::Native(instance) => instance.create_bottom_panel(panel_id),
+        }
+    }
+
+    pub(crate) fn destroy_bottom_panel(&mut self, handle: i32) {
+        match self {
+            Self::Wasm(instance) => instance.destroy_bottom_panel(handle),
+            Self::Native(instance) => instance.destroy_bottom_panel(handle),
+        }
+    }
+
+    pub(crate) fn draw_bottom_panel(
+        &mut self,
+        handle: i32,
+        context: &BottomPanelContext,
+    ) -> Result<BottomPanelFrame, ExtensionError> {
+        match self {
+            Self::Wasm(instance) => instance.draw_bottom_panel(handle, context),
+            Self::Native(instance) => instance.draw_bottom_panel(handle, context),
         }
     }
 

@@ -168,6 +168,14 @@ impl<T: CommandExtension> ExtensionPointFor<T>
     }
 }
 
+impl<T: crate::bottom_panel::BottomPanelExtension> ExtensionPointFor<T>
+    for ExtensionPoint<dyn crate::bottom_panel::BottomPanelInterface>
+{
+    fn register(self, extension: &mut Extension) {
+        extension.register_bottom_panel_with_descriptor::<T>(T::descriptor());
+    }
+}
+
 impl<T: AudioSubEditorExtension> ExtensionPointFor<T>
     for ExtensionPoint<dyn crate::audio_editor::AudioSubEditorInterface>
 {

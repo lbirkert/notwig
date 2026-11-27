@@ -2,9 +2,9 @@
 
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect,
-    DeviceDrawContext, ExtensionRegistrations, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES,
-    MAX_PANEL_FRAME_BYTES, PanelFrame,
+    ABI_VERSION, AudioSubEditorContext, AudioSubEditorFrame, BottomPanelContext, BottomPanelFrame,
+    CommandContext, CommandEffect, DeviceDrawContext, ExtensionRegistrations, MAX_COMMAND_EDITS,
+    MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 use wasmtime::{Engine, Instance, Linker, Memory, Module, Store, StoreLimitsBuilder, TypedFunc};
 
@@ -31,6 +31,9 @@ pub(crate) struct ExtensionInstance {
     sub_editor_create: Option<TypedFunc<(i32, i32), i32>>,
     sub_editor_destroy: Option<TypedFunc<i32, ()>>,
     sub_editor_draw: Option<TypedFunc<(i32, i32, i32), i64>>,
+    bottom_panel_create: Option<TypedFunc<(i32, i32), i32>>,
+    bottom_panel_destroy: Option<TypedFunc<i32, ()>>,
+    bottom_panel_draw: Option<TypedFunc<(i32, i32, i32), i64>>,
     command: Option<TypedFunc<(i32, i32, i32, i32), i64>>,
     preload: Option<TypedFunc<(), i32>>,
     load: Option<TypedFunc<(), i32>>,
@@ -116,6 +119,15 @@ impl ExtensionInstance {
         let sub_editor_draw = instance
             .get_typed_func::<(i32, i32, i32), i64>(&mut store, "notwig_audio_sub_editor_draw")
             .ok();
+        let bottom_panel_create = instance
+            .get_typed_func::<(i32, i32), i32>(&mut store, "notwig_bottom_panel_create")
+            .ok();
+        let bottom_panel_destroy = instance
+            .get_typed_func::<i32, ()>(&mut store, "notwig_bottom_panel_destroy")
+            .ok();
+        let bottom_panel_draw = instance
+            .get_typed_func::<(i32, i32, i32), i64>(&mut store, "notwig_bottom_panel_draw")
+            .ok();
         let command = instance
             .get_typed_func::<(i32, i32, i32, i32), i64>(&mut store, "notwig_command_execute")
             .ok();
@@ -148,6 +160,9 @@ impl ExtensionInstance {
             sub_editor_create,
             sub_editor_destroy,
             sub_editor_draw,
+            bottom_panel_create,
+            bottom_panel_destroy,
+            bottom_panel_draw,
             command,
             preload,
             load,
@@ -406,6 +421,55 @@ impl ExtensionInstance {
         let bytes = self.read_packed_bytes(packed, MAX_PANEL_FRAME_BYTES)?;
         let frame: AudioSubEditorFrame = postcard::from_bytes(&bytes)
             .map_err(|error| ExtensionError::Abi(format!("decode sub-editor frame: {error}")))?;
+        frame.validate().map_err(ExtensionError::Abi)?;
+        Ok(frame)
+    }
+
+    pub(crate) fn create_bottom_panel(&mut self, panel_id: &str) -> Result<i32, ExtensionError> {
+        let Some(create) = self.bottom_panel_create.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_bottom_panel_create".into(),
+            ));
+        };
+        let (ptr, len) = self.write_input(panel_id.as_bytes())?;
+        self.reset_fuel()?;
+        let handle = create.call(&mut self.store, (ptr, len)).map_err(wasm_err)?;
+        self.free_input(ptr, len);
+        if handle < 0 {
+            return Err(ExtensionError::InvalidHandle);
+        }
+        Ok(handle)
+    }
+
+    pub(crate) fn destroy_bottom_panel(&mut self, handle: i32) {
+        if let Some(destroy) = self.bottom_panel_destroy.clone() {
+            let _ = self.reset_fuel();
+            let _ = destroy.call(&mut self.store, handle);
+        }
+    }
+
+    pub(crate) fn draw_bottom_panel(
+        &mut self,
+        handle: i32,
+        context: &BottomPanelContext,
+    ) -> Result<BottomPanelFrame, ExtensionError> {
+        let Some(draw) = self.bottom_panel_draw.clone() else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_bottom_panel_draw".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context).map_err(|error| {
+            ExtensionError::Abi(format!("encode bottom panel context: {error}"))
+        })?;
+        let (ptr, len) = self.write_input(&context)?;
+        self.reset_fuel()?;
+        let packed = draw
+            .call(&mut self.store, (handle, ptr, len))
+            .map_err(wasm_err)?;
+        self.free_input(ptr, len);
+        let bytes = self.read_packed_bytes(packed, MAX_PANEL_FRAME_BYTES)?;
+        let frame: BottomPanelFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode bottom panel frame: {error}")))?;
         frame.validate().map_err(ExtensionError::Abi)?;
         Ok(frame)
     }

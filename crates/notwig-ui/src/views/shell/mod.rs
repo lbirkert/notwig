@@ -36,6 +36,8 @@ pub struct NotwigUi {
     pub registry: DeviceRegistry,
     pub(crate) device_panel_host: Option<Box<dyn notwig_ext_api::DevicePanelHost>>,
     pub(crate) audio_sub_editor_host: Option<Box<dyn notwig_ext_api::AudioSubEditorHost>>,
+    pub(crate) bottom_panel_host: Option<Box<dyn notwig_ext_api::BottomPanelHost>>,
+    pub(crate) extension_bottom_panel: Option<String>,
     pub(crate) extension_panel_textures: BTreeMap<String, BTreeMap<u64, egui::TextureHandle>>,
     pub(crate) last_extension_frames: BTreeMap<String, notwig_ext_api::PanelFrame>,
     pub(crate) extension_panel_keyboard: bool,
@@ -122,6 +124,8 @@ impl Default for NotwigUi {
             registry: notwig_core::dsp::stock_registry(),
             device_panel_host: None,
             audio_sub_editor_host: None,
+            bottom_panel_host: None,
+            extension_bottom_panel: None,
             extension_panel_textures: BTreeMap::new(),
             last_extension_frames: BTreeMap::new(),
             extension_panel_keyboard: false,
@@ -218,6 +222,25 @@ impl NotwigUi {
         self.extension_panel_textures.clear();
     }
 
+    pub fn set_bottom_panel_host(
+        &mut self,
+        host: Option<Box<dyn notwig_ext_api::BottomPanelHost>>,
+    ) {
+        self.bottom_panel_host = host;
+        self.extension_panel_textures.clear();
+    }
+
+    /// Opens one extension bottom panel and closes the active editor panel.
+    pub fn open_extension_bottom_panel(&mut self, panel_id: impl Into<String>) {
+        self.close_editor();
+        self.extension_bottom_panel = Some(panel_id.into());
+    }
+
+    /// Closes the active extension bottom panel.
+    pub fn close_extension_bottom_panel(&mut self) {
+        self.extension_bottom_panel = None;
+    }
+
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -256,7 +279,9 @@ impl NotwigUi {
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
         self.info_panel(ctx, doc, runtime);
-        if let Some(editor) = self.currently_opened
+        if let Some(panel_id) = self.extension_bottom_panel.clone() {
+            self.extension_bottom_panel_panel(ctx, doc, runtime, &panel_id);
+        } else if let Some(editor) = self.currently_opened
             && let Some(panel) = crate::views::panel_registry::core_bottom_panel(editor)
         {
             (panel.render)(self, ctx, doc, runtime);
@@ -363,6 +388,7 @@ impl NotwigUi {
     }
 
     pub fn open_clip_editor(&mut self, clip_id: notwig_core::ClipId) {
+        self.extension_bottom_panel = None;
         self.currently_opened = Some(OpenedEditor::ClipEditor);
         self.clip_editor = Some(ClipEditorState::new(clip_id));
         self.midi_editor = None;
@@ -370,6 +396,7 @@ impl NotwigUi {
     }
 
     pub fn open_midi_editor(&mut self, clip_id: notwig_core::ClipId) {
+        self.extension_bottom_panel = None;
         self.currently_opened = Some(OpenedEditor::MidiEditor);
         self.midi_editor = Some(MidiEditorState::new(clip_id));
         self.clip_editor = None;
@@ -406,6 +433,7 @@ impl NotwigUi {
     }
 
     pub fn open_device_editor(&mut self) {
+        self.extension_bottom_panel = None;
         self.currently_opened = Some(OpenedEditor::DeviceEditor);
         self.clip_editor = None;
         self.midi_editor = None;
@@ -413,6 +441,7 @@ impl NotwigUi {
     }
 
     pub fn close_editor(&mut self) {
+        self.extension_bottom_panel = None;
         self.currently_opened = None;
         self.clip_editor = None;
         self.midi_editor = None;
@@ -599,6 +628,13 @@ pub mod test_api {
         host: Option<Box<dyn notwig_ext_api::AudioSubEditorHost>>,
     ) {
         ui.set_audio_sub_editor_host(host);
+    }
+
+    pub fn set_bottom_panel_host(
+        ui: &mut NotwigUi,
+        host: Option<Box<dyn notwig_ext_api::BottomPanelHost>>,
+    ) {
+        ui.set_bottom_panel_host(host);
     }
 
     pub fn open_command_palette(ui: &mut NotwigUi) {

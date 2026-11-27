@@ -5,8 +5,9 @@ replaces the earlier message-based sketch. The target is a flat, typed,
 registry-backed extension system with macro-generated RPC proxies over the
 existing WASM/native/browser transports. The preload/load/unload builders,
 macros, ABI exports, host-wide preload ordering, runtime point/command/
-sub-editor registration manifests, native/web host resolution, stock/example
-migration, scaffold, and the Notwig Core bottom-panel registry are in place.
+sub-editor/bottom-panel registration manifests, native/web host resolution,
+stock/example migration, scaffold, and the core + package bottom-panel registry
+are in place.
 Typed interface proxies, handle calls, replacement, `Single` cardinality, and
 user load-order resolution remain to be implemented.
 
@@ -55,9 +56,11 @@ Built-in implementations that ship with the application are registered under
 the fixed, non-uninstallable extension owner `notwig.core` / `Notwig Core`.
 They use the same points and registry shape as package extensions; the only
 difference is ownership and installation policy. The device, MIDI, and audio editor
-implementations share `EP_NOTWIG_BOTTOM_PANEL` and are distinguished by
-`BottomPanelTarget`. The shell keeps at most one bottom panel open and resolves
-it through this core registry instead of a hard-coded match.
+implementations share `EP_NOTWIG_BOTTOM_PANEL` and are distinguished by stable
+implementation ids (`notwig.core.device_editor`, etc.). Package extensions
+register arbitrary ids such as `com.example.notes` on the same point. The shell
+keeps at most one bottom panel open and resolves it by id instead of a
+hard-coded match.
 
 Extension crate roots follow the same separation: `lib.rs` contains wiring and
 the lifecycle entrypoints only. Implementations and helpers live in modules,

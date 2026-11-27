@@ -25,6 +25,7 @@
 - [Testing and Distribution](02_extensions/05_testing_and_distribution.md)
 - [Command API](02_extensions/06_command_api.md)
 - [Audio Sub-editor API](02_extensions/07_audio_sub_editor_api.md)
+- [Bottom Panel API](02_extensions/08_bottom_panel_api.md)
 
 # Notwig Development
 

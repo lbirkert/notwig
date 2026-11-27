@@ -13,6 +13,8 @@ impl NotwigApp {
         self.ui.set_device_panel_host(self.extensions.panel_host());
         self.ui
             .set_audio_sub_editor_host(self.extensions.audio_sub_editor_host());
+        self.ui
+            .set_bottom_panel_host(self.extensions.bottom_panel_host());
         self.ui.set_extension_commands(self.extensions.commands());
         self.ui
             .set_extension_audio_sub_editors(self.extensions.audio_sub_editors());

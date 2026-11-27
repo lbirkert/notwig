@@ -271,6 +271,11 @@ pub enum CommandUiRequest {
         /// Clip to open for an audio/MIDI editor.
         clip_id: Option<ClipId>,
     },
+    /// Open one bottom panel by stable id.
+    OpenBottomPanel {
+        /// Registered bottom-panel id.
+        id: String,
+    },
 }
 
 /// Result returned by a command handler.

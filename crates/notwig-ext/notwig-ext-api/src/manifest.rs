@@ -27,6 +27,9 @@ pub enum ExtensionCapability {
     /// Contributes audio-editor sub-editors.
     #[serde(rename = "audio_editor")]
     AudioEditor,
+    /// Contributes editor bottom panels.
+    #[serde(rename = "bottom_panel")]
+    BottomPanel,
 }
 
 /// One device type declared by an extension manifest.

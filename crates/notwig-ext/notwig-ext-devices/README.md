@@ -243,7 +243,7 @@ can also load a manually unpacked package from the user extensions directory:
 Restart Notwig after unpacking the package. The devices appear under
 **Extensions** in the Add Device browser.
 
-The source manifest uses `"api_version": 8` and the `ui.panel` capability. It
+The source manifest uses `"api_version": 9` and the `ui.panel` capability. It
 omits `entrypoints`; the CLI adds the selected target entrypoint to the packaged
 manifest.
 

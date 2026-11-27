@@ -4,10 +4,11 @@
   "name": "Notwig Extension Examples",
   "vendor": "Notwig",
   "version": "0.2.0",
-  "api_version": 8,
+  "api_version": 9,
   "capabilities": [
     "command",
-    "audio_editor"
+    "audio_editor",
+    "bottom_panel"
   ],
   "description": "Examples for the Notwig extension API, including MIDI commands and an audio-editor clip pan sub-editor.",
   "image": "icon.png"

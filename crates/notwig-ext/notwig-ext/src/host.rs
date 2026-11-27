@@ -5,9 +5,10 @@ use std::sync::Arc;
 use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DevicePanelHost, EP_NOTWIG_DEVICES, ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor,
-    ExtensionSettings, ExtensionStatus, target,
+    AudioSubEditorDescriptor, AudioSubEditorHost, BottomPanelDescriptor, BottomPanelHost,
+    CommandContext, CommandDescriptor, CommandEffect, DevicePanelHost, EP_NOTWIG_DEVICES,
+    ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor, ExtensionSettings, ExtensionStatus,
+    target,
 };
 use wasmtime::Module;
 
@@ -48,6 +49,8 @@ impl ExtensionHost {
         let mut commands = BTreeMap::new();
         let mut audio_sub_editors = BTreeMap::new();
         let mut by_audio_sub_editor = BTreeMap::new();
+        let mut bottom_panels = BTreeMap::new();
+        let mut by_bottom_panel = BTreeMap::new();
         let mut points = BTreeMap::new();
         points.insert(
             EP_NOTWIG_DEVICES.id().to_owned(),
@@ -78,6 +81,7 @@ impl ExtensionHost {
                     specs: Vec::new(),
                     commands: Vec::new(),
                     audio_sub_editors: Vec::new(),
+                    bottom_panels: Vec::new(),
                     points: Vec::new(),
                     status: ExtensionStatus::Disabled,
                     error: None,
@@ -151,6 +155,18 @@ impl ExtensionHost {
                         points.insert(point.id.clone(), point.clone());
                     }
                 }
+                for panel in &extension.bottom_panels {
+                    if bottom_panels.contains_key(&panel.id) {
+                        tracing::warn!(
+                            panel = %panel.id,
+                            extension = %extension.manifest.id,
+                            "duplicate extension bottom panel id"
+                        );
+                    } else {
+                        bottom_panels.insert(panel.id.clone(), panel.clone());
+                        by_bottom_panel.insert(panel.id.clone(), Arc::clone(&extension));
+                    }
+                }
                 for editor in &extension.audio_sub_editors {
                     if audio_sub_editors.contains_key(&editor.id) {
                         tracing::warn!(
@@ -172,8 +188,10 @@ impl ExtensionHost {
                 by_type,
                 by_command,
                 by_audio_sub_editor,
+                by_bottom_panel,
                 commands,
                 audio_sub_editors,
+                bottom_panels,
                 points,
                 infos,
             }),
@@ -202,6 +220,20 @@ impl ExtensionHost {
     #[must_use]
     pub fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
         self.loaded.audio_sub_editors()
+    }
+
+    /// Returns resolved bottom-panel descriptors.
+    #[must_use]
+    pub fn bottom_panels(&self) -> Vec<BottomPanelDescriptor> {
+        self.loaded.bottom_panels()
+    }
+
+    /// Creates a host for extension-drawn bottom panels.
+    #[must_use]
+    pub fn bottom_panel_host(&self) -> Box<dyn BottomPanelHost> {
+        Box::new(crate::bottom_panel::ExtensionBottomPanelHost::new(
+            Arc::clone(&self.loaded),
+        ))
     }
 
     /// Returns extension points declared by loaded extensions.
@@ -356,6 +388,7 @@ fn activate_prepared(
                     specs,
                     commands: resolved.commands,
                     audio_sub_editors: resolved.audio_sub_editors,
+                    bottom_panels: resolved.bottom_panels,
                     points: resolved.points,
                     status: ExtensionStatus::Loaded,
                     error: None,
@@ -471,6 +504,7 @@ fn failed(
         specs: Vec::new(),
         commands: Vec::new(),
         audio_sub_editors: Vec::new(),
+        bottom_panels: Vec::new(),
         points: Vec::new(),
         status: ExtensionStatus::Failed,
         error: Some(error.to_string()),

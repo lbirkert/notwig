@@ -6,7 +6,7 @@
 
 use egui::Context;
 use notwig_core::ProjectDoc;
-use notwig_ext_api::{BottomPanelTarget, CORE_EXTENSION_ID, EP_NOTWIG_BOTTOM_PANEL};
+use notwig_ext_api::{CORE_EXTENSION_ID, EP_NOTWIG_BOTTOM_PANEL};
 
 use crate::runtime::RuntimeView;
 use crate::shell::NotwigUi;
@@ -19,7 +19,6 @@ pub(crate) struct CoreBottomPanel {
     pub(crate) owner: &'static str,
     pub(crate) id: &'static str,
     pub(crate) name: &'static str,
-    pub(crate) target: BottomPanelTarget,
     pub(crate) render: BottomPanelRenderer,
 }
 
@@ -29,7 +28,6 @@ pub(crate) const CORE_BOTTOM_PANELS: &[CoreBottomPanel] = &[
         owner: CORE_EXTENSION_ID,
         id: "notwig.core.device_editor_bottom_panel",
         name: "Device Editor",
-        target: BottomPanelTarget::DeviceEditor,
         render: NotwigUi::device_panel,
     },
     CoreBottomPanel {
@@ -37,7 +35,6 @@ pub(crate) const CORE_BOTTOM_PANELS: &[CoreBottomPanel] = &[
         owner: CORE_EXTENSION_ID,
         id: "notwig.core.midi_editor_bottom_panel",
         name: "MIDI Editor",
-        target: BottomPanelTarget::MidiEditor,
         render: NotwigUi::midi_editor_panel,
     },
     CoreBottomPanel {
@@ -45,43 +42,34 @@ pub(crate) const CORE_BOTTOM_PANELS: &[CoreBottomPanel] = &[
         owner: CORE_EXTENSION_ID,
         id: "notwig.core.audio_editor_bottom_panel",
         name: "Audio Editor",
-        target: BottomPanelTarget::AudioEditor,
         render: NotwigUi::clip_editor_panel,
     },
 ];
 
-fn editor_target(editor: OpenedEditor) -> BottomPanelTarget {
+pub(crate) fn core_panel_id(editor: OpenedEditor) -> &'static str {
     match editor {
-        OpenedEditor::DeviceEditor => BottomPanelTarget::DeviceEditor,
-        OpenedEditor::MidiEditor => BottomPanelTarget::MidiEditor,
-        OpenedEditor::ClipEditor => BottomPanelTarget::AudioEditor,
+        OpenedEditor::DeviceEditor => "notwig.core.device_editor_bottom_panel",
+        OpenedEditor::MidiEditor => "notwig.core.midi_editor_bottom_panel",
+        OpenedEditor::ClipEditor => "notwig.core.audio_editor_bottom_panel",
     }
 }
 
 pub(crate) fn core_bottom_panel(editor: OpenedEditor) -> Option<&'static CoreBottomPanel> {
-    let target = editor_target(editor);
-    CORE_BOTTOM_PANELS
-        .iter()
-        .find(|panel| panel.target == target)
+    let id = core_panel_id(editor);
+    CORE_BOTTOM_PANELS.iter().find(|panel| panel.id == id)
 }
 
 pub mod test_api {
     use super::CORE_BOTTOM_PANELS;
-    use notwig_ext_api::BottomPanelTarget;
 
-    /// Returns `(point, owner, implementation id, name, target)` for every
-    /// built-in bottom-panel implementation.
+    /// Returns `(point, owner, implementation id, name)` for every built-in
+    /// bottom-panel implementation.
     #[must_use]
-    pub fn core_bottom_panel_descriptors() -> Vec<(
-        &'static str,
-        &'static str,
-        &'static str,
-        &'static str,
-        BottomPanelTarget,
-    )> {
+    pub fn core_bottom_panel_descriptors()
+    -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
         CORE_BOTTOM_PANELS
             .iter()
-            .map(|panel| (panel.point, panel.owner, panel.id, panel.name, panel.target))
+            .map(|panel| (panel.point, panel.owner, panel.id, panel.name))
             .collect()
     }
 }

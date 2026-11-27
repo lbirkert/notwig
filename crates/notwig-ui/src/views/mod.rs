@@ -1,5 +1,6 @@
 pub(crate) mod arranger;
 pub(crate) mod audio_editor;
+pub(crate) mod bottom_panel;
 pub(crate) mod device_editor;
 pub(crate) mod dsp;
 pub(crate) mod info;

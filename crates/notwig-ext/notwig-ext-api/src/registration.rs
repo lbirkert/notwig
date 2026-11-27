@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::audio_editor::AudioSubEditorDescriptor;
+use crate::bottom_panel::BottomPanelDescriptor;
 use crate::command::CommandDescriptor;
 
 /// Fixed id for built-in, in-code extensions that ship with Notwig.
@@ -47,6 +48,9 @@ pub struct ExtensionRegistrations {
     /// Audio sub-editor implementations registered during load.
     #[serde(default)]
     pub audio_sub_editors: Vec<AudioSubEditorDescriptor>,
+    /// Bottom-panel implementations registered during load.
+    #[serde(default)]
+    pub bottom_panels: Vec<BottomPanelDescriptor>,
 }
 
 const fn manifest_version() -> u32 {
@@ -61,6 +65,7 @@ impl Default for ExtensionRegistrations {
             devices: Vec::new(),
             commands: Vec::new(),
             audio_sub_editors: Vec::new(),
+            bottom_panels: Vec::new(),
         }
     }
 }

@@ -63,6 +63,39 @@ pub(crate) fn expand_load(item: TokenStream) -> TokenStream {
             })
         }
     };
+    let wasm_bottom_panel_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_bottom_panel_create(
+            panel_ptr: i32,
+            panel_len: i32,
+        ) -> i32 {
+            catch_value(-1, || {
+                with_str(panel_ptr, panel_len, |panel| {
+                    extension().create_bottom_panel(panel)
+                })
+                .unwrap_or(-1)
+            })
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_bottom_panel_destroy(handle: i32) {
+            catch_unit(|| extension().destroy_bottom_panel(handle));
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_bottom_panel_draw(
+            handle: i32,
+            ctx_ptr: i32,
+            ctx_len: i32,
+        ) -> i64 {
+            catch_value(0, || {
+                with_bytes(ctx_ptr, ctx_len, |bytes| {
+                    extension().draw_bottom_panel_pointer(handle, bytes)
+                })
+                .unwrap_or(0)
+            })
+        }
+    };
     let native_draw_exports = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn notwig_device_draw(
@@ -163,6 +196,47 @@ pub(crate) fn expand_load(item: TokenStream) -> TokenStream {
                                 })
                         })
                         .unwrap_or_else(NotwigNativeBytes::empty)
+                    })
+                }
+                .unwrap_or_else(NotwigNativeBytes::empty)
+            })
+        }
+    };
+    let native_bottom_panel_exports = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_bottom_panel_create(
+            panel_ptr: *const u8,
+            panel_len: usize,
+        ) -> i32 {
+            catch_value(-1, || {
+                unsafe {
+                    with_str_ptr(panel_ptr, panel_len, |panel| {
+                        extension().create_bottom_panel(panel)
+                    })
+                }
+                .unwrap_or(-1)
+            })
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_bottom_panel_destroy(handle: i32) {
+            catch_unit(|| extension().destroy_bottom_panel(handle));
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn notwig_bottom_panel_draw(
+            handle: i32,
+            ctx_ptr: *const u8,
+            ctx_len: usize,
+        ) -> NotwigNativeBytes {
+            catch_value(NotwigNativeBytes::empty(), || {
+                unsafe {
+                    with_bytes_ptr(ctx_ptr, ctx_len, |bytes| {
+                        extension()
+                            .draw_bottom_panel_bytes(handle, bytes)
+                            .map_or_else(NotwigNativeBytes::empty, |(ptr, len)| {
+                                NotwigNativeBytes { ptr, len }
+                            })
                     })
                 }
                 .unwrap_or_else(NotwigNativeBytes::empty)
@@ -349,6 +423,7 @@ pub(crate) fn expand_load(item: TokenStream) -> TokenStream {
             }
            #wasm_draw_exports
            #wasm_sub_editor_exports
+           #wasm_bottom_panel_exports
            #wasm_command_exports
         }
 
@@ -552,6 +627,7 @@ pub(crate) fn expand_load(item: TokenStream) -> TokenStream {
             }
            #native_draw_exports
            #native_sub_editor_exports
+           #native_bottom_panel_exports
            #native_command_exports
         }
     };

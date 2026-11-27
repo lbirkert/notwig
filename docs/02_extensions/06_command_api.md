@@ -21,7 +21,7 @@ The manifest only needs `manifest_version: 2` and the `command` capability:
   "name": "MIDI Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 8,
+  "api_version": 9,
   "capabilities": ["command"]
 }
 ```

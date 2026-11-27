@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandDescriptor, ExtensionInfo, ExtensionManifest,
-    ExtensionPointDescriptor, ExtensionStatus,
+    AudioSubEditorDescriptor, BottomPanelDescriptor, CommandDescriptor, ExtensionInfo,
+    ExtensionManifest, ExtensionPointDescriptor, ExtensionStatus,
 };
 use wasmtime::Module;
 
@@ -55,6 +55,7 @@ pub(crate) struct LoadedExtension {
     pub(crate) specs: Vec<DeviceSpec>,
     pub(crate) commands: Vec<CommandDescriptor>,
     pub(crate) audio_sub_editors: Vec<AudioSubEditorDescriptor>,
+    pub(crate) bottom_panels: Vec<BottomPanelDescriptor>,
     pub(crate) points: Vec<ExtensionPointDescriptor>,
     pub(crate) status: ExtensionStatus,
     pub(crate) error: Option<String>,
@@ -65,8 +66,10 @@ pub(crate) struct LoadedExtensions {
     pub(crate) by_type: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) by_command: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) by_audio_sub_editor: BTreeMap<String, Arc<LoadedExtension>>,
+    pub(crate) by_bottom_panel: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) commands: BTreeMap<String, CommandDescriptor>,
     pub(crate) audio_sub_editors: BTreeMap<String, AudioSubEditorDescriptor>,
+    pub(crate) bottom_panels: BTreeMap<String, BottomPanelDescriptor>,
     pub(crate) points: BTreeMap<String, ExtensionPointDescriptor>,
     pub(crate) infos: Vec<ExtensionInfo>,
 }
@@ -84,6 +87,10 @@ impl LoadedExtensions {
         self.by_audio_sub_editor.get(editor_id)
     }
 
+    pub(crate) fn find_bottom_panel(&self, panel_id: &str) -> Option<&Arc<LoadedExtension>> {
+        self.by_bottom_panel.get(panel_id)
+    }
+
     pub(crate) fn commands(&self) -> Vec<CommandDescriptor> {
         self.commands.values().cloned().collect()
     }
@@ -98,6 +105,10 @@ impl LoadedExtensions {
                 .then_with(|| a.id.cmp(&b.id))
         });
         editors
+    }
+
+    pub(crate) fn bottom_panels(&self) -> Vec<BottomPanelDescriptor> {
+        self.bottom_panels.values().cloned().collect()
     }
 
     pub(crate) fn points(&self) -> Vec<ExtensionPointDescriptor> {

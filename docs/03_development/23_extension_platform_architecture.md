@@ -1043,7 +1043,7 @@ package is a versioned data protocol.
 | Service API | Host capabilities such as clipboard, selection, command plans | Independent of ABI; capability-gated and conformance-tested. |
 | Package version | Author release | Informational for users; not a compatibility boundary by itself. |
 
-`api_version: 8` in the current manifest covers the device, panel, command, and
+`api_version: 9` in the current manifest covers the device, panel, command, and
 audio sub-editor entrypoints. A platform manifest version is a separate field. This avoids
 breaking every installed device package just to add registry metadata.
 

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use libloading::Library;
 use notwig_core::ParamValue;
 use notwig_ext_api::{
-    ABI_VERSION, AbiStatus, AudioSubEditorContext, AudioSubEditorFrame, CommandContext,
-    CommandEffect, DeviceDrawContext, ExtensionRegistrations, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES,
-    MAX_PANEL_FRAME_BYTES, PanelFrame,
+    ABI_VERSION, AbiStatus, AudioSubEditorContext, AudioSubEditorFrame, BottomPanelContext,
+    BottomPanelFrame, CommandContext, CommandEffect, DeviceDrawContext, ExtensionRegistrations,
+    MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 
 use crate::error::ExtensionError;
@@ -51,6 +51,9 @@ pub(crate) struct NativeLibrary {
     sub_editor_create: Option<SubEditorCreateFn>,
     sub_editor_destroy: Option<SubEditorDestroyFn>,
     sub_editor_draw: Option<SubEditorDrawFn>,
+    bottom_panel_create: Option<SubEditorCreateFn>,
+    bottom_panel_destroy: Option<SubEditorDestroyFn>,
+    bottom_panel_draw: Option<SubEditorDrawFn>,
     command: Option<CommandFn>,
     preload: Option<PhaseFn>,
     load: Option<PhaseFn>,
@@ -109,6 +112,18 @@ impl NativeLibrary {
                     .map(|function| *function),
                 sub_editor_draw: library
                     .get::<SubEditorDrawFn>(b"notwig_audio_sub_editor_draw\0")
+                    .ok()
+                    .map(|function| *function),
+                bottom_panel_create: library
+                    .get::<SubEditorCreateFn>(b"notwig_bottom_panel_create\0")
+                    .ok()
+                    .map(|function| *function),
+                bottom_panel_destroy: library
+                    .get::<SubEditorDestroyFn>(b"notwig_bottom_panel_destroy\0")
+                    .ok()
+                    .map(|function| *function),
+                bottom_panel_draw: library
+                    .get::<SubEditorDrawFn>(b"notwig_bottom_panel_draw\0")
                     .ok()
                     .map(|function| *function),
                 command: library
@@ -282,6 +297,48 @@ impl NativeInstance {
         &mut self,
     ) -> Result<Option<ExtensionRegistrations>, ExtensionError> {
         self.library.registrations()
+    }
+
+    pub(crate) fn create_bottom_panel(&mut self, panel_id: &str) -> Result<i32, ExtensionError> {
+        let Some(create) = self.library.bottom_panel_create else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_bottom_panel_create".into(),
+            ));
+        };
+        let handle = unsafe { create(panel_id.as_ptr(), panel_id.len()) };
+        if handle < 0 {
+            return Err(ExtensionError::InvalidHandle);
+        }
+        Ok(handle)
+    }
+
+    pub(crate) fn destroy_bottom_panel(&mut self, handle: i32) {
+        if let Some(destroy) = self.library.bottom_panel_destroy {
+            unsafe {
+                destroy(handle);
+            }
+        }
+    }
+
+    pub(crate) fn draw_bottom_panel(
+        &mut self,
+        handle: i32,
+        context: &BottomPanelContext,
+    ) -> Result<BottomPanelFrame, ExtensionError> {
+        let Some(draw) = self.library.bottom_panel_draw else {
+            return Err(ExtensionError::MissingExport(
+                "notwig_bottom_panel_draw".into(),
+            ));
+        };
+        let context = postcard::to_allocvec(context).map_err(|error| {
+            ExtensionError::Abi(format!("encode bottom panel context: {error}"))
+        })?;
+        let bytes = unsafe { draw(handle, context.as_ptr(), context.len()) };
+        let bytes = read_bytes(bytes)?;
+        let frame: BottomPanelFrame = postcard::from_bytes(&bytes)
+            .map_err(|error| ExtensionError::Abi(format!("decode bottom panel frame: {error}")))?;
+        frame.validate().map_err(ExtensionError::Abi)?;
+        Ok(frame)
     }
 
     pub(crate) fn execute_command(

@@ -1,3 +1,4 @@
+mod bottom_panel;
 mod compiled;
 mod device;
 mod host;
