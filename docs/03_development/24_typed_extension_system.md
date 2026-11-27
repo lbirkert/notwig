@@ -51,6 +51,7 @@ sites read as point registrations:
 - `EP_COMMANDS` -> `notwig.commands`
 - `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR` -> `notwig.audio_editor.sub_editor`
 - `EP_NOTWIG_BOTTOM_PANEL` -> `notwig.bottom_panel`
+- `EP_NOTWIG_CLIPBOARD` -> `notwig.clipboard`
 
 Built-in implementations that ship with the application are registered under
 the fixed, non-uninstallable extension owner `notwig.core` / `Notwig Core`.
@@ -61,6 +62,11 @@ implementation ids (`notwig.core.device_editor`, etc.). Package extensions
 register arbitrary ids such as `com.example.notes` on the same point. The shell
 keeps at most one bottom panel open and resolves it by id instead of a
 hard-coded match.
+
+The clipboard is a single replaceable provider point. `ClipboardProvider` owns
+the structured `notwig_core::Clipboard` payload and cached platform text. The
+core provider is the default; replacing it does not change editor call sites.
+The shell selects exactly one active provider.
 
 Extension crate roots follow the same separation: `lib.rs` contains wiring and
 the lifecycle entrypoints only. Implementations and helpers live in modules,

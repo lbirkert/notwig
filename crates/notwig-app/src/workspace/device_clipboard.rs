@@ -42,7 +42,7 @@ impl Workspace {
             .collect();
         let count = snapshots.len();
         self.device_clipboard = Some(DeviceClipboard { roots: snapshots });
-        self.clipboard = notwig_ui::Clipboard::Devices;
+        self.set_clipboard(notwig_ui::Clipboard::Devices);
         self.status = Some(if count == 1 {
             "Copied device.".into()
         } else {
@@ -73,7 +73,7 @@ impl Workspace {
             return 0;
         }
         self.device_clipboard = Some(DeviceClipboard { roots: snapshots });
-        self.clipboard = notwig_ui::Clipboard::Devices;
+        self.set_clipboard(notwig_ui::Clipboard::Devices);
         self.status = Some(if count == 1 {
             "Cut device.".into()
         } else {

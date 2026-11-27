@@ -292,7 +292,7 @@ impl Workspace {
         match result {
             Ok(extract) => {
                 let count = extract.fragments.len();
-                self.clipboard = Clipboard::Arranger(extract);
+                self.set_clipboard(Clipboard::Arranger(extract));
                 self.status = Some("Copied selection.".into());
                 self.error = None;
                 count
@@ -336,7 +336,7 @@ impl Workspace {
             self.error = Some(err);
             return 0;
         }
-        self.clipboard = Clipboard::Arranger(extract);
+        self.set_clipboard(Clipboard::Arranger(extract));
         self.status = Some("Cut selection.".into());
         count
     }
@@ -345,7 +345,8 @@ impl Workspace {
         &mut self,
         at: notwig_core::TimeMus,
     ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
-        let extract = match &self.clipboard {
+        let clipboard = self.clipboard.get();
+        let extract = match &clipboard {
             Clipboard::Arranger(extract) => extract.clone(),
             Clipboard::Empty => return Ok(SelectionInfo::default()),
             Clipboard::AudioClip(_) | Clipboard::Curve(_) => {
@@ -364,13 +365,20 @@ impl Workspace {
         Ok(selection)
     }
 
+    /// Returns the active clipboard snapshot.
     #[must_use]
-    pub fn clipboard(&self) -> &Clipboard {
-        &self.clipboard
+    pub fn clipboard(&self) -> Clipboard {
+        self.clipboard.get()
     }
 
+    /// Replaces the clipboard payload through the active provider.
     pub fn set_clipboard(&mut self, clipboard: Clipboard) {
-        self.clipboard = clipboard;
+        self.clipboard.set(clipboard);
+    }
+
+    /// Replaces the active clipboard provider.
+    pub fn set_clipboard_provider(&mut self, provider: Box<dyn notwig_ext_api::ClipboardProvider>) {
+        self.clipboard = provider;
     }
 
     pub fn delete_selection(

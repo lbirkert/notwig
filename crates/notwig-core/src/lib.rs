@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod apply;
+pub mod clipboard;
 pub mod curve;
 pub mod domain;
 pub mod dsp;
@@ -12,6 +13,7 @@ pub mod time;
 pub mod tracks;
 
 pub use apply::{ApplyResult, apply};
+pub use clipboard::{ClipLane, Clipboard};
 pub use curve::{Curve, CurvePoint, MAX_CURVATURE, MIN_CURVATURE, shape_ratio};
 pub use domain::{
     AssetEntry, AssetIndex, AssetKind, AudioAssetBuffer, DeviceChain, DeviceInstance, DeviceKind,

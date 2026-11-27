@@ -126,8 +126,7 @@ pub fn delete_range(map: &TempoMap, slices: &[AudioSlice], range: RangeMus) -> V
     out
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClipLane;
+pub use notwig_core::ClipLane;
 
 pub struct SliceModel<'a> {
     pub(super) slices: &'a [AudioSlice],

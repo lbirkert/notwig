@@ -83,8 +83,8 @@ and boundaries. Start there when working inside a crate.
 - Extension-point constants use the `EP_` prefix. `EP` means **extension
   point**. Built-in ids are path-shaped and typed, for example
   `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
-  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and
-  `EP_NOTWIG_BOTTOM_PANEL`. Do not introduce legacy aliases.
+  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, `EP_NOTWIG_BOTTOM_PANEL`, and
+  `EP_NOTWIG_CLIPBOARD`. Do not introduce legacy aliases.
 - Package extension implementations are registered with
   `extension.register_extension::<T>(EP_...)`. Metadata belongs on the
   implementation trait (`CommandExtension::descriptor`,
@@ -96,6 +96,9 @@ and boundaries. Start there when working inside a crate.
   bottom-panel implementations are distinguished by stable implementation ids;
   the shell keeps at most one panel open and selects it by id. Commands open one
   with `CommandUiRequest::OpenBottomPanel`.
+- `EP_NOTWIG_CLIPBOARD` is a single-provider point. `ClipboardProvider` is the
+  host contract; the core implementation is replaceable without changing
+  editor call sites.
 - An extension crate's `lib.rs` is wiring only: module declarations,
   re-exports, imports needed by the lifecycle functions, and the lifecycle
   entrypoints. Implementations, helpers, and tests live in other files. Keep

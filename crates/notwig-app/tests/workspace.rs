@@ -2545,3 +2545,40 @@ fn device_bypass_does_not_request_an_engine_rebuild() {
     assert_eq!(workspace.engine_build_requests(), before);
     assert!(!workspace.doc.devices[&device].bypass);
 }
+
+#[derive(Default)]
+struct TestClipboardProvider {
+    data: notwig_ui::Clipboard,
+    text: Option<String>,
+}
+
+impl notwig_ext_api::ClipboardProvider for TestClipboardProvider {
+    fn get(&self) -> notwig_ui::Clipboard {
+        self.data.clone()
+    }
+
+    fn set(&mut self, clipboard: notwig_ui::Clipboard) {
+        self.data = clipboard;
+    }
+
+    fn get_text(&self) -> Option<String> {
+        self.text.clone()
+    }
+
+    fn set_text(&mut self, text: Option<String>) {
+        self.text = text;
+    }
+}
+
+#[test]
+fn clipboard_provider_can_be_replaced() {
+    let mut workspace = Workspace::new_empty().unwrap();
+    workspace.set_clipboard_provider(Box::new(TestClipboardProvider::default()));
+    workspace.set_clipboard(notwig_ui::Clipboard::Curve(vec![
+        notwig_core::CurvePoint::new(notwig_core::TimeMus::zero(), 0.5),
+    ]));
+    assert!(matches!(
+        workspace.clipboard(),
+        notwig_ui::Clipboard::Curve(points) if points.len() == 1
+    ));
+}

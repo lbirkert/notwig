@@ -33,6 +33,7 @@
 pub mod abi;
 pub mod audio_editor;
 pub mod bottom_panel;
+pub mod clipboard;
 pub mod command;
 pub mod config;
 pub mod context;
@@ -64,6 +65,7 @@ pub use bottom_panel::{
     BottomPanelHost, BottomPanelInterface, BottomPanelResponse, EP_NOTWIG_BOTTOM_PANEL,
     MAX_BOTTOM_PANEL_TITLE_BYTES,
 };
+pub use clipboard::{ClipboardInterface, ClipboardProvider, EP_NOTWIG_CLIPBOARD};
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
     CommandExtension, CommandFocus, CommandId, CommandInterface, CommandSelection,

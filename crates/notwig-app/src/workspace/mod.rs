@@ -9,14 +9,16 @@ use crate::plugins::{PluginCatalog, plugin_entries};
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, MonitorRegistry};
 use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, Id, Meta, ProjectDoc, SampleRate};
 use notwig_engine::EngineControl;
+use notwig_ext_api::ClipboardProvider;
 use notwig_plugins::{PluginDescriptor, PluginState};
-use notwig_ui::{Clipboard, PluginEntry, WaveformCache};
+use notwig_ui::{PluginEntry, WaveformCache};
 use uuid::Uuid;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::engine_process::EngineClientHandle;
 
 mod assets;
+mod clipboard_provider;
 mod clips;
 mod commands;
 mod device_clipboard;
@@ -67,7 +69,7 @@ pub struct Workspace {
     pub recovery_offered: bool,
     #[cfg(not(target_arch = "wasm32"))]
     pub recovery_candidates: Vec<project_registry::RecoveryCandidate>,
-    clipboard: Clipboard,
+    clipboard: Box<dyn ClipboardProvider>,
     device_clipboard: Option<device_clipboard::DeviceClipboard>,
     history: History,
     engine_build: EngineBuild,
@@ -165,7 +167,7 @@ impl Workspace {
             recovery_offered: false,
             #[cfg(not(target_arch = "wasm32"))]
             recovery_candidates: Vec::new(),
-            clipboard: Clipboard::default(),
+            clipboard: Box::new(clipboard_provider::CoreClipboardProvider::default()),
             device_clipboard: None,
             history: History::default(),
             engine_build: EngineBuild::new(),
