@@ -87,22 +87,22 @@ fn far_zoom_vertical_lines_bound_geometry() {
             ..Default::default()
         },
         |ctx| {
-            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(200.0, 140.0));
             let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
-            let full = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
-            draw_waveform(&painter, full, clip, &waveform, 0, 800_000);
+            let full = Rect::from_min_max(pos2(0.0, 40.0), pos2(200.0, 140.0));
+            draw_waveform(&painter, full, clip, &waveform, 0, 1_000_000);
         },
     );
 
     assert_eq!(
-        far_level_for(&waveform, 1_000.0),
-        256,
+        far_level_for(&waveform, 5_000.0),
+        2_048,
         "far zoom should use a cached peak level smaller than a pixel"
     );
     let indices = mesh_indices(&output);
     assert!(indices > 0, "the waveform should draw peak lines");
     assert!(
-        indices <= 4 * 800 * 12,
+        indices <= 4 * 200 * 12,
         "far view built {indices} indices; it should scale with pixels"
     );
 }

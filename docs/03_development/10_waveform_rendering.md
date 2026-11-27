@@ -67,10 +67,10 @@ finer-grained than one full-pixel peak.
 
 ## 4. Render modes
 
-`waveform_mode(samples_per_pixel)` chooses the renderer. At 256 or fewer samples
+`waveform_mode(samples_per_pixel)` chooses the renderer. At 4096 or fewer samples
 per pixel it uses the close sample graph; above that it uses the far peak lines.
 
-- **Sample graph** (256 or fewer samples per pixel). Walk the cached window-peak
+- **Sample graph** (4096 or fewer samples per pixel). Walk the cached window-peak
   buckets across the visible range and fill the area between the graph and the
   zero axis. Segments that cross zero are split at the crossing so the fill is
   two triangles rather than a self-intersecting polygon. Using a cached peak
@@ -79,13 +79,17 @@ per pixel it uses the close sample graph; above that it uses the far peak lines.
   directly, which is the Bitwig-style close-up detail where individual waveform
   cycles are visible. The graph emits only a fully opaque black signed area as a
   single triangle mesh; it does not stroke a line over the fill.
-- **Far peak lines** (more than 256 samples per pixel). For each cached peak
+- **Far peak lines** (more than 4096 samples per pixel). For each cached peak
   window, read its positive and negative peaks from the min/max pyramid. Draw a
   one-pixel-wide vertical line from the zero axis up to the positive peak and
   another from the zero axis down to the negative peak. Windows target roughly
   half a pixel of source samples, so several lines can fall within one pixel.
   Nothing is filled between the lines, so the far view shows peak strokes
   instead of a solid band.
+
+Both renderers draw a one-pixel zero line across the visible waveform rectangle
+after the waveform geometry, so the baseline stays visible in quiet sections
+and in the gaps between far peak lines.
 
 Both renderers clip against the painter's visible rectangle before building any
 geometry. A long clip that extends far off-screen therefore contributes only the
@@ -112,11 +116,12 @@ share the same zoom and navigation gestures.
   samples directly.
 - Far rendering draws one-pixel vertical lines from zero to the positive and
   negative peaks and no filled area. Close rendering fills the area and adds no
-  stroke.
+  stroke. Both draw a one-pixel zero line across the visible rectangle.
 - Both renderers use the shared opaque black waveform color; the curve fill uses
   the shared `widgets::area` mesh so overlapping segments never accumulate extra
   opacity.
 - `crates/notwig-ui/tests/waveform.rs` covers downmixing, window-peak and far
-  peak level selection, area-only close rendering, and zero-to-peak far lines.
+  peak level selection, area-only close rendering, zero-to-peak far lines, and
+  the always-visible zero line.
   `crates/notwig-ui/tests/timeline.rs` covers the visible source-window mapping
   and minimum clip geometry at low zoom.

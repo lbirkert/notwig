@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use egui::epaint::{Vertex, WHITE_UV};
-use egui::{Color32, Mesh, Painter, Rect, Shape, pos2};
+use egui::{Color32, Mesh, Painter, Rect, Shape, Stroke, pos2};
 use notwig_core::{AssetId, AudioAssetBuffer, Curve, Db, TempoMap, TimeMus};
 
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
@@ -12,7 +12,7 @@ pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
 const PEAK_BASE_BUCKET: u64 = 8;
 /// The far renderer switches from the filled sample graph to positive/negative
 /// peak lines above this many samples per pixel.
-const FAR_SAMPLES_PER_PIXEL: f64 = 256.0;
+const FAR_SAMPLES_PER_PIXEL: f64 = 4_096.0;
 /// Positive/negative peak levels for the far renderer start here.
 const FAR_BASE_BUCKET: u64 = 64;
 /// Aim for a peak window of roughly half a pixel so far lines keep more detail.
@@ -273,6 +273,15 @@ pub(crate) fn draw_waveform(
             );
         }
     }
+    draw_zero_line(&painter, rect);
+}
+
+fn draw_zero_line(painter: &Painter, rect: Rect) {
+    let y = rect.center().y;
+    painter.add(Shape::line(
+        vec![pos2(rect.left(), y), pos2(rect.right(), y)],
+        Stroke::new(1.0_f32, WAVEFORM),
+    ));
 }
 
 #[allow(clippy::too_many_arguments)]

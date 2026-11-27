@@ -68,9 +68,9 @@ fn cached_far_peaks_keep_positive_and_negative_extremes() {
 #[test]
 fn far_lines_take_over_above_the_sample_graph_threshold() {
     assert!(!uses_far_lines(0.5));
-    assert!(!uses_far_lines(256.0));
-    assert!(uses_far_lines(256.1));
-    assert!(uses_far_lines(1_000.0));
+    assert!(!uses_far_lines(4_096.0));
+    assert!(uses_far_lines(4_096.1));
+    assert!(uses_far_lines(10_000.0));
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn close_zoom_sample_graph_still_fills_the_area() {
 }
 
 #[test]
-fn close_zoom_sample_graph_draws_only_the_area() {
+fn close_zoom_sample_graph_draws_area_and_zero_line() {
     let waveform = AudioWaveform::from_samples(vec![0.5; 51_200]);
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
@@ -175,9 +175,14 @@ fn close_zoom_sample_graph_draws_only_the_area() {
         output.shapes.iter().any(|clipped| has_mesh(&clipped.shape)),
         "close rendering should fill the area"
     );
+    assert_eq!(
+        path_count(&output),
+        1,
+        "close rendering should only add the zero line over the area"
+    );
     assert!(
-        !output.shapes.iter().any(|clipped| has_path(&clipped.shape)),
-        "close rendering should only draw the area, without a stroke over it"
+        has_zero_line(&output, 90.0),
+        "close rendering should keep the zero line visible"
     );
 }
 
@@ -196,14 +201,19 @@ fn far_zoom_draws_positive_and_negative_peak_lines() {
             ..Default::default()
         },
         |ctx| {
-            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(200.0, 140.0));
             let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
             draw_waveform(&painter, clip, clip, &waveform, 0, 1_000_000);
         },
     );
+    assert_eq!(
+        path_count(&output),
+        1,
+        "far rendering should add only the zero line as a path"
+    );
     assert!(
-        !output.shapes.iter().any(|clipped| has_path(&clipped.shape)),
-        "far rendering should draw vertical lines, not envelope outlines"
+        has_zero_line(&output, 90.0),
+        "far rendering should keep the zero line visible"
     );
     let mesh = output
         .shapes
@@ -213,9 +223,7 @@ fn far_zoom_draws_positive_and_negative_peak_lines() {
             _ => None,
         })
         .expect("far rendering should produce a line mesh");
-    let center = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0))
-        .center()
-        .y;
+    let center = 90.0;
     let mut touches_zero = false;
     let mut reaches_positive = false;
     let mut reaches_negative = false;
@@ -235,6 +243,29 @@ fn far_zoom_draws_positive_and_negative_peak_lines() {
     assert!(reaches_negative, "far lines should reach the negative peak");
 }
 
+#[test]
+fn zero_line_is_visible_without_signal() {
+    let waveform = AudioWaveform::from_samples(vec![0.0; 51_200]);
+    let ctx = egui::Context::default();
+    let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
+    let output = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |ctx| {
+            let clip = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0));
+            let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), clip);
+            draw_waveform(&painter, clip, clip, &waveform, 0, 51_200);
+        },
+    );
+    assert_eq!(path_count(&output), 1);
+    assert!(
+        has_zero_line(&output, 90.0),
+        "the zero line should be visible even for silent material"
+    );
+}
+
 fn has_mesh(shape: &egui::Shape) -> bool {
     match shape {
         egui::Shape::Mesh(_) => true,
@@ -243,12 +274,32 @@ fn has_mesh(shape: &egui::Shape) -> bool {
     }
 }
 
-fn has_path(shape: &egui::Shape) -> bool {
-    match shape {
-        egui::Shape::Path(_) => true,
-        egui::Shape::Vec(shapes) => shapes.iter().any(has_path),
-        _ => false,
+fn path_count(output: &egui::FullOutput) -> usize {
+    fn count(shape: &egui::Shape) -> usize {
+        match shape {
+            egui::Shape::Path(_) => 1,
+            egui::Shape::Vec(shapes) => shapes.iter().map(count).sum(),
+            _ => 0,
+        }
     }
+    output
+        .shapes
+        .iter()
+        .map(|clipped| count(&clipped.shape))
+        .sum()
+}
+
+fn has_zero_line(output: &egui::FullOutput, y: f32) -> bool {
+    fn visit(shape: &egui::Shape, y: f32) -> bool {
+        match shape {
+            egui::Shape::Path(path) => {
+                path.points.len() >= 2 && path.points.iter().all(|point| (point.y - y).abs() < 0.01)
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().any(|shape| visit(shape, y)),
+            _ => false,
+        }
+    }
+    output.shapes.iter().any(|clipped| visit(&clipped.shape, y))
 }
 
 #[test]
