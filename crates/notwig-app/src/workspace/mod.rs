@@ -9,7 +9,7 @@ use crate::plugins::{PluginCatalog, plugin_entries};
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, MonitorRegistry};
 use notwig_core::{AssetId, AudioAssetBuffer, DeviceId, Id, Meta, ProjectDoc, SampleRate};
 use notwig_engine::EngineControl;
-use notwig_ext_api::ClipboardProvider;
+use notwig_ext_api::{CoreExtensionRegistry, EP_NOTWIG_CLIPBOARD};
 use notwig_plugins::{PluginDescriptor, PluginState};
 use notwig_ui::{PluginEntry, WaveformCache};
 use uuid::Uuid;
@@ -69,7 +69,7 @@ pub struct Workspace {
     pub recovery_offered: bool,
     #[cfg(not(target_arch = "wasm32"))]
     pub recovery_candidates: Vec<project_registry::RecoveryCandidate>,
-    clipboard: Box<dyn ClipboardProvider>,
+    extensions: CoreExtensionRegistry,
     device_clipboard: Option<device_clipboard::DeviceClipboard>,
     history: History,
     engine_build: EngineBuild,
@@ -167,7 +167,17 @@ impl Workspace {
             recovery_offered: false,
             #[cfg(not(target_arch = "wasm32"))]
             recovery_candidates: Vec::new(),
-            clipboard: Box::new(clipboard_provider::CoreClipboardProvider::default()),
+            extensions: {
+                let mut extensions = CoreExtensionRegistry::new();
+                extensions
+                    .register(
+                        EP_NOTWIG_CLIPBOARD,
+                        "notwig.core.clipboard",
+                        std::sync::Arc::new(clipboard_provider::CoreClipboardProvider::default()),
+                    )
+                    .expect("core clipboard registration");
+                extensions
+            },
             device_clipboard: None,
             history: History::default(),
             engine_build: EngineBuild::new(),

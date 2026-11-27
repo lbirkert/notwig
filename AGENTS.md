@@ -99,6 +99,9 @@ and boundaries. Start there when working inside a crate.
 - `EP_NOTWIG_CLIPBOARD` is a single-provider point. `ClipboardProvider` is the
   host contract; the core implementation is replaceable without changing
   editor call sites.
+- Host/core implementations register in `CoreExtensionRegistry`. Use
+  `get_extensions` for many-points and `get_extension` for single-points; the
+  latter deliberately panics on zero or multiple active implementations.
 - An extension crate's `lib.rs` is wiring only: module declarations,
   re-exports, imports needed by the lifecycle functions, and the lifecycle
   entrypoints. Implementations, helpers, and tests live in other files. Keep

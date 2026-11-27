@@ -49,6 +49,7 @@ pub mod manifest;
 pub mod note;
 pub mod panel;
 pub mod registration;
+pub mod registry;
 pub mod status;
 pub mod target;
 
@@ -65,7 +66,7 @@ pub use bottom_panel::{
     BottomPanelHost, BottomPanelInterface, BottomPanelResponse, EP_NOTWIG_BOTTOM_PANEL,
     MAX_BOTTOM_PANEL_TITLE_BYTES,
 };
-pub use clipboard::{ClipboardInterface, ClipboardProvider, EP_NOTWIG_CLIPBOARD};
+pub use clipboard::{ClipboardProvider, EP_NOTWIG_CLIPBOARD};
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
     CommandExtension, CommandFocus, CommandId, CommandInterface, CommandSelection,
@@ -77,7 +78,7 @@ pub use config::{CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig};
 pub use context::{DeviceDrawContext, DeviceMeterSnapshot, ThemeSnapshot};
 pub use cursor::CursorIcon;
 pub use extension::{DeviceExtension, DeviceInterface, EP_NOTWIG_DEVICES, Extension};
-pub use extension_point::ExtensionPoint;
+pub use extension_point::{Cardinality, ExtensionPoint};
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
 pub use lifecycle::{ExtensionBuilder, ExtensionPointFor, PreloadBuilder, UnloadContext};
@@ -97,4 +98,5 @@ pub use registration::{
     CORE_EXTENSION_ID, CORE_EXTENSION_NAME, DeviceRegistrationDescriptor, ExtensionPointDescriptor,
     ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
+pub use registry::{CoreExtensionRegistry, RegistryError};
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

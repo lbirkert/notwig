@@ -68,6 +68,13 @@ the structured `notwig_core::Clipboard` payload and cached platform text. The
 core provider is the default; replacing it does not change editor call sites.
 The shell selects exactly one active provider.
 
+Host-side typed points use `CoreExtensionRegistry`. `get_extensions(EP_...)`
+returns all active implementations for a `Many` point. `get_extension(EP_...)`
+returns the single active implementation for a `Single` point and panics on
+zero or multiple active implementations. `try_get_extension` is the recoverable
+form. `register` adds an implementation; `replace` installs and activates a
+replacement; `set_active` selects among existing implementations.
+
 Extension crate roots follow the same separation: `lib.rs` contains wiring and
 the lifecycle entrypoints only. Implementations and helpers live in modules,
 tests live under `tests/`, and `load`, `unload`, and any explicit reload hook

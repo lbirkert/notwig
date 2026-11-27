@@ -2548,25 +2548,25 @@ fn device_bypass_does_not_request_an_engine_rebuild() {
 
 #[derive(Default)]
 struct TestClipboardProvider {
-    data: notwig_ui::Clipboard,
-    text: Option<String>,
+    data: std::sync::Mutex<notwig_ui::Clipboard>,
+    text: std::sync::Mutex<Option<String>>,
 }
 
 impl notwig_ext_api::ClipboardProvider for TestClipboardProvider {
     fn get(&self) -> notwig_ui::Clipboard {
-        self.data.clone()
+        self.data.lock().unwrap().clone()
     }
 
-    fn set(&mut self, clipboard: notwig_ui::Clipboard) {
-        self.data = clipboard;
+    fn set(&self, clipboard: notwig_ui::Clipboard) {
+        *self.data.lock().unwrap() = clipboard;
     }
 
     fn get_text(&self) -> Option<String> {
-        self.text.clone()
+        self.text.lock().unwrap().clone()
     }
 
-    fn set_text(&mut self, text: Option<String>) {
-        self.text = text;
+    fn set_text(&self, text: Option<String>) {
+        *self.text.lock().unwrap() = text;
     }
 }
 

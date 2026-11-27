@@ -345,7 +345,7 @@ impl Workspace {
         &mut self,
         at: notwig_core::TimeMus,
     ) -> Result<SelectionInfo<TrackId, ClipId>, String> {
-        let clipboard = self.clipboard.get();
+        let clipboard = self.clipboard();
         let extract = match &clipboard {
             Clipboard::Arranger(extract) => extract.clone(),
             Clipboard::Empty => return Ok(SelectionInfo::default()),
@@ -368,17 +368,27 @@ impl Workspace {
     /// Returns the active clipboard snapshot.
     #[must_use]
     pub fn clipboard(&self) -> Clipboard {
-        self.clipboard.get()
+        self.extensions
+            .get_extension(notwig_ext_api::EP_NOTWIG_CLIPBOARD)
+            .get()
     }
 
     /// Replaces the clipboard payload through the active provider.
     pub fn set_clipboard(&mut self, clipboard: Clipboard) {
-        self.clipboard.set(clipboard);
+        self.extensions
+            .get_extension(notwig_ext_api::EP_NOTWIG_CLIPBOARD)
+            .set(clipboard);
     }
 
     /// Replaces the active clipboard provider.
     pub fn set_clipboard_provider(&mut self, provider: Box<dyn notwig_ext_api::ClipboardProvider>) {
-        self.clipboard = provider;
+        self.extensions
+            .replace(
+                notwig_ext_api::EP_NOTWIG_CLIPBOARD,
+                "external.clipboard",
+                std::sync::Arc::from(provider),
+            )
+            .expect("clipboard provider registration");
     }
 
     pub fn delete_selection(

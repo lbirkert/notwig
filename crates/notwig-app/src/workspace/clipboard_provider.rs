@@ -1,27 +1,41 @@
+use std::sync::Mutex;
+
 use notwig_core::Clipboard;
 use notwig_ext_api::ClipboardProvider;
 
 /// Default clipboard provider owned by `notwig.core`.
 #[derive(Debug, Default)]
 pub(crate) struct CoreClipboardProvider {
-    data: Clipboard,
-    text: Option<String>,
+    data: Mutex<Clipboard>,
+    text: Mutex<Option<String>>,
 }
 
 impl ClipboardProvider for CoreClipboardProvider {
     fn get(&self) -> Clipboard {
-        self.data.clone()
+        self.data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
-    fn set(&mut self, clipboard: Clipboard) {
-        self.data = clipboard;
+    fn set(&self, clipboard: Clipboard) {
+        *self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = clipboard;
     }
 
     fn get_text(&self) -> Option<String> {
-        self.text.clone()
+        self.text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
-    fn set_text(&mut self, text: Option<String>) {
-        self.text = text;
+    fn set_text(&self, text: Option<String>) {
+        *self
+            .text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = text;
     }
 }
