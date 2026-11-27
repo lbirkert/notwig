@@ -26,9 +26,10 @@ Related: [`Extension Platform Architecture`](23_extension_platform_architecture.
 6. **Registration ownership belongs to the contributing extension.**
    Extensions cannot delete another extension's rows. Replacement is an explicit
    override edge between stable implementation/extension ids, resolved by the
-   host, never an implicit load-order effect.
-7. **Registration order does not matter.** Declarations and contributions are
-   collected first, then resolved as one graph.
+   host with user-controlled extension load order as the tie-breaker.
+7. **Discovery order does not matter.** Declarations and contributions are
+   collected first, then resolved as one graph. The user-controlled extension
+   load order is explicit input, not filesystem or installation order.
 8. **The context is the author-facing API.** Extensions do not manage
    transports, registries, WASM instances, or locks.
 9. **Real-time audio is separate.** General RPC never enters the audio callback.
@@ -217,8 +218,8 @@ Load-order independence rules:
 - a missing target is resolved after the complete graph is collected;
 - replacement chains are followed transitively;
 - replacement cycles are a resolution error;
-- two different implementations replacing the same target is a conflict unless
-  the point's policy names a deterministic winner;
+- when two implementations replace the same target, the later extension in the
+  user load order wins; the other remains inactive with a diagnostic;
 - the point owner can allow or reject replacement through its point policy.
 
 For a user-facing provider swap, the host can also select an active provider
@@ -229,6 +230,40 @@ runtime.set_active_implementation(CLIPBOARD_BACKEND, implementation_id);
 ```
 
 That selection is UI-thread state and is independent of discovery order.
+
+### 3.5 Extension load order
+
+Duplicate replacements need one deterministic winner. Discovery order is not
+good enough because it can change with filesystem iteration, install time, or
+platform. The host instead owns a persistent, user-editable extension load
+order:
+
+```rust
+pub struct ExtensionLoadOrder(Vec<ExtensionId>);
+
+impl ExtensionRuntime {
+    pub fn set_extension_load_order(&mut self, order: ExtensionLoadOrder);
+    pub fn extension_load_order(&self) -> &[ExtensionId];
+}
+```
+
+Rules:
+
+- the list contains enabled extensions, ordered from earliest to latest;
+- default order is built-ins first, then extensions in stable id order; new
+  installs append;
+- Settings > Extensions lets the user move entries up or down;
+- the order is persisted by extension id, not install directory;
+- changing the order bumps registry generation and recomputes the resolved graph;
+- discovery order never affects the result.
+
+For duplicate replacements, **later in the load order wins**. The losing
+replacement stays registered but inactive and produces a diagnostic. This makes
+provider exchange predictable and user-reversible. Explicit
+`set_active_implementation` still overrides automatic replacement selection.
+
+Load order is also the final tie-breaker for ordered points after `before` /
+`after` constraints and explicit priority.
 
 ### 3.4 Context and handles
 
@@ -322,9 +357,12 @@ Resolution is two-phase:
    ordering constraints are acyclic.
 
 A missing point is reported after resolution, not at first registration. Missing
-replacement targets, duplicate replacements of one target, and `Single` points
-that do not resolve to exactly one active implementation are typed resolution
-errors. Loading order never changes the result.
+replacement targets and replacement cycles are typed resolution errors.
+Conflicting replacements of one target are resolved by the user-controlled
+extension load order: later wins, earlier losers stay inactive with diagnostics.
+`Single` points must still resolve to exactly one active implementation after
+replacement and explicit provider selection. Filesystem/discovery order never
+changes the result.
 
 ### 4.2 Ownership and lifecycle
 
@@ -508,9 +546,10 @@ pub enum OrderingPolicy {
 ```
 
 When ordered, resolution applies explicit `before`/`after`, then priority, then
-stable `(extension_id, implementation_id)` tie-breakers. Replacement edges are
-resolved before ordering; ordering applies only to the resulting active set.
-Cycles in either graph are resolution errors.
+the user-controlled extension load order, then stable
+`(extension_id, implementation_id)` tie-breakers. Replacement edges are resolved
+before ordering; ordering applies only to the resulting active set. Cycles in
+either graph are resolution errors.
 
 ## 9. Integration order
 
@@ -532,8 +571,8 @@ independent WASM instances.
 
 - `ExtensionPoint<T>`, declarations, implementations, owned handles,
   two-phase resolution, registration ownership, and `set_extensions`.
-- Replacement edges, `replace_extension`, single-provider cardinality, and
-  `get_extension` / `try_get_extension`.
+- Replacement edges, `replace_extension`, single-provider cardinality,
+  `get_extension` / `try_get_extension`, and persistent load order.
 - Keep existing device/command/sub-editor exports behind adapters.
 - Add registry/invoke ABI exports and the UI-thread runtime.
 
@@ -559,6 +598,8 @@ independent WASM instances.
 
 - Unload/reload, stale handles, per-implementation failures, timeout budgets, and
   re-entrant invocation tests.
+- Extension load-order UI, persistence, registry recomputation, and replacement
+  conflict diagnostics.
 
 ### Milestone 6 — Deferred features
 
@@ -574,9 +615,11 @@ independent WASM instances.
   handles.
 - Multiple points use the same interface without ambiguity.
 - Multiple implementations register to one point; one extension can own several.
-- Registration order is irrelevant, including under replacement chains.
+- Discovery order is irrelevant, including under replacement chains.
 - Contributors cannot delete another extension's rows; explicit replacement
   edges and host provider selection are deterministic.
+- Reordering extensions changes duplicate-replacement winners predictably, and
+  the order persists across restarts.
 - `get_extension` panics on zero or multiple active implementations;
   `try_get_extension` returns a typed error.
 - A `Single` point with multiple active providers is a resolution error.
