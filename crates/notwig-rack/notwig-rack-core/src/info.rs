@@ -50,6 +50,12 @@ pub struct PluginInfo {
     /// Whether the plugin handles MIDI input. Used by hosts that
     /// only want to enumerate instruments / note effects.
     pub accepts_midi: bool,
+    /// Whether the plugin advertises ARA (Audio Random Access)
+    /// support through its companion format. A `true` value means
+    /// the loaded instance can be bound to an ARA document
+    /// controller; scanning alone may under-report this for formats
+    /// whose ARA flag is only discoverable after instantiation.
+    pub supports_ara: bool,
 }
 
 impl std::fmt::Display for PluginInfo {

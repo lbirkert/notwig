@@ -133,12 +133,24 @@ was not previously closed.
 | LV2 | feature `lv2` | registry (paths ignored) | `reportsLatency` control port | lilv state string | Control ports exposed as parameters. |
 | AU | feature `au` + Apple target | registry (paths ignored) | AU latency property | yes | macOS editor. |
 | AU3 | feature `au3` + Apple target | registry (paths ignored) | delegates to AU v2 | yes | Load reuses the AU v2 loader. |
+| ARA (CLAP/VST3/AU) | feature `ara` | per companion format | host runtime | per plugin | Framework-level only; see [`ARA Hosting`](25_ara_hosting.md). |
 
 `notwig-plugins` has no default format features; the native app enables all six.
 Adapter registration is feature-gated, and AU/AU3 are additionally gated to Apple
 targets. Format enablement in `PluginFormat::enabled` is compiled-feature based.
 
-## 7. Real-time constraints and gaps
+## 7. ARA
+
+`notwig-rack-ara` adds the format-agnostic ARA 2.3 host runtime, in-memory audio
+and archive providers, and a checked document graph. CLAP, VST3, and AU expose
+their companion discovery/binding entry points behind the `ara` feature; AU3
+forwards to AU. `PluginInfo::supports_ara` carries scan-time capability.
+`notwig-plugins` forwards the feature and exposes `supports_ara` on descriptors
+and capabilities; the app, engine, and UI do not yet map clips to ARA sources or
+host ARA editors. See
+[`ARA Hosting`](25_ara_hosting.md) for lifecycle, providers, and ordering rules.
+
+## 8. Real-time constraints and gaps
 
 - CLAP and LV2 reuse event/pointer scratch buffers; VST3 still allocates its
   per-block event-list storage, and hosted plugins may allocate internally. The
@@ -157,7 +169,7 @@ targets. Format enablement in `PluginFormat::enabled` is compiled-feature based.
 - The engine process uses no subprocess probe. A plugin that hard-crashes during
   DSP load or process takes down `engine-host`; the UI survives and can restart it.
 
-## 8. Integration fixture and manual matrix
+## 9. Integration fixture and manual matrix
 
 `crates/notwig-plugins/tests/fixtures/truce_test_plugin` is a local truce
 plugin with three parameters (gain, bypass, mode) and an editor. It is built

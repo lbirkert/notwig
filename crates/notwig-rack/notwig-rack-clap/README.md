@@ -11,12 +11,17 @@ Host transport from `ProcessContext::transport` is passed through as a
 standard host-extension surface, which plugins such as nih-plug require during
 construction.
 
+With the optional `ara` feature, the scanner marks plugins whose CLAP feature
+list advertises `ara:supported` / `ara:required`, and `ClapPlugin` implements
+`notwig_rack_ara::AraPlugin` through the `org.ara-audio.ara.pluginextension/2`
+extension (plus the draft-compatible id).
+
 ## Usage
 
 ```toml
 [dependencies]
 notwig-rack-core = { path = "../notwig-rack-core" }
-notwig-rack-clap = { path = "." }
+notwig-rack-clap = { path = ".", features = ["ara"] }
 ```
 
 ```rust

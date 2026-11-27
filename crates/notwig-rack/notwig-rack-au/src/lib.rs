@@ -25,6 +25,8 @@
 
 #![cfg(target_vendor = "apple")]
 
+#[cfg(feature = "ara")]
+mod ara;
 mod editor;
 mod params;
 mod plugin;

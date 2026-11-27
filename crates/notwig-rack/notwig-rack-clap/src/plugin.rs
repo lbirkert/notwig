@@ -47,6 +47,9 @@ pub struct ClapPlugin {
     /// Cached `clap.gui` extension. NULL when the plugin has no
     /// custom editor.
     pub(crate) gui_ext: *const clap_plugin_gui,
+    /// Cached ARA companion extension. NULL when the plugin has no ARA.
+    #[cfg(feature = "ara")]
+    pub(crate) ara_ext: *const crate::ara::ClapAraPluginExtension,
     /// Whether the editor has been `create`d but not yet
     /// `destroy`ed — `clap.gui` separates the two lifecycles.
     pub(crate) gui_open: bool,
@@ -121,9 +124,30 @@ impl ClapPlugin {
         let params_ext = unsafe { lookup_extension::<clap_plugin_params>(plugin, CLAP_EXT_PARAMS) };
         let state_ext = unsafe { lookup_extension::<clap_plugin_state>(plugin, CLAP_EXT_STATE) };
         let gui_ext = unsafe { lookup_extension::<clap_plugin_gui>(plugin, CLAP_EXT_GUI) };
+        #[cfg(feature = "ara")]
+        let ara_ext = unsafe {
+            let current = lookup_extension::<crate::ara::ClapAraPluginExtension>(
+                plugin,
+                crate::ara::CLAP_EXT_ARA_PLUGINEXTENSION,
+            );
+            if current.is_null() {
+                lookup_extension::<crate::ara::ClapAraPluginExtension>(
+                    plugin,
+                    crate::ara::CLAP_EXT_ARA_PLUGINEXTENSION_COMPAT,
+                )
+            } else {
+                current
+            }
+        };
         let mut info = info.clone();
         if !gui_ext.is_null() && unsafe { gui_supports_current_platform(plugin, gui_ext) } {
             info.has_editor = true;
+        }
+        #[cfg(feature = "ara")]
+        {
+            info.supports_ara = !ara_ext.is_null()
+                && unsafe { (*ara_ext).get_factory }
+                    .is_some_and(|get_factory| unsafe { !get_factory(plugin).is_null() });
         }
         Ok(Self {
             info,
@@ -137,6 +161,8 @@ impl ClapPlugin {
             params_ext,
             state_ext,
             gui_ext,
+            #[cfg(feature = "ara")]
+            ara_ext,
             gui_open: false,
             steady_time: 0,
             pending_param_changes: Vec::new(),
@@ -511,4 +537,34 @@ unsafe extern "C" fn istream_read(
         cursor.position += take;
     }
     i64::try_from(take).unwrap_or(i64::MAX)
+}
+
+#[cfg(feature = "ara")]
+impl notwig_rack_ara::AraPlugin for ClapPlugin {
+    fn ara_factory(&self) -> Option<notwig_rack_ara::AraFactory> {
+        if self.ara_ext.is_null() {
+            return None;
+        }
+        let get_factory = unsafe { (*self.ara_ext).get_factory }?;
+        let raw = unsafe { get_factory(self.plugin) };
+        unsafe { notwig_rack_ara::AraFactory::from_raw(raw).ok() }
+    }
+
+    unsafe fn bind_ara(
+        &mut self,
+        controller: notwig_rack_ara::ARADocumentControllerRef,
+        known: notwig_rack_ara::AraRoles,
+        assigned: notwig_rack_ara::AraRoles,
+    ) -> std::result::Result<notwig_rack_ara::AraPluginExtension, notwig_rack_ara::AraError> {
+        if self.ara_ext.is_null() {
+            return Err(notwig_rack_ara::AraError::Unsupported(
+                "CLAP plugin has no ARA extension",
+            ));
+        }
+        let bind = unsafe { (*self.ara_ext).bind_to_document_controller }.ok_or(
+            notwig_rack_ara::AraError::Unsupported("CLAP ARA extension has no binding callback"),
+        )?;
+        let instance = unsafe { bind(self.plugin, controller, known.bits(), assigned.bits()) };
+        unsafe { notwig_rack_ara::AraPluginExtension::from_raw(instance) }
+    }
 }

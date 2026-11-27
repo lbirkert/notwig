@@ -119,6 +119,7 @@ unsafe fn scan_family(component_type: u32, out: &mut Vec<PluginInfo>) {
             format: FORMAT,
             has_editor: false,
             accepts_midi,
+            supports_ara: false,
         });
     }
 }

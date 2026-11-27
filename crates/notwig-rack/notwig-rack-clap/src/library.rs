@@ -171,6 +171,7 @@ unsafe fn descriptor_to_info(bundle_path: &Path, desc: &clap_plugin_descriptor) 
     let version_str = unsafe { cstr_to_string(desc.version) };
     let version = parse_version(&version_str);
     let (category, accepts_midi) = unsafe { categorize(desc.features) };
+    let supports_ara = unsafe { features_support_ara(desc.features) };
     PluginInfo {
         name,
         vendor,
@@ -181,6 +182,7 @@ unsafe fn descriptor_to_info(bundle_path: &Path, desc: &clap_plugin_descriptor) 
         format: FORMAT,
         has_editor: false, // honest default — set during load via the GUI ext.
         accepts_midi,
+        supports_ara,
     }
 }
 
@@ -215,6 +217,25 @@ unsafe fn categorize(features: *const *const c_char) -> (PluginCategory, bool) {
         idx += 1;
     }
     (category, accepts_midi)
+}
+
+/// Returns `true` when the CLAP feature list advertises ARA support.
+unsafe fn features_support_ara(features: *const *const c_char) -> bool {
+    if features.is_null() {
+        return false;
+    }
+    let mut index = 0usize;
+    loop {
+        let feature = unsafe { *features.add(index) };
+        if feature.is_null() {
+            return false;
+        }
+        let bytes = unsafe { CStr::from_ptr(feature) }.to_bytes();
+        if bytes == b"ara:supported" || bytes == b"ara:required" {
+            return true;
+        }
+        index += 1;
+    }
 }
 
 /// CLAP versions are `"major.minor.patch"`. We pack the first
@@ -337,5 +358,28 @@ mod tests {
         assert!(!p.exists() || p.starts_with("/tmp/MyPlugin.clap"));
         #[cfg(not(target_os = "macos"))]
         assert_eq!(p, Path::new("/tmp/MyPlugin.clap"));
+    }
+}
+
+#[cfg(test)]
+mod ara_tests {
+    use super::features_support_ara;
+    use std::ffi::c_char;
+
+    #[test]
+    fn detects_ara_features() {
+        static SUPPORTED: &[u8] = b"ara:supported\0";
+        static REQUIRED: &[u8] = b"ara:required\0";
+        static OTHER: &[u8] = b"instrument\0";
+        let features = [
+            OTHER.as_ptr().cast::<c_char>(),
+            SUPPORTED.as_ptr().cast::<c_char>(),
+            std::ptr::null(),
+        ];
+        assert!(unsafe { features_support_ara(features.as_ptr()) });
+        let required = [REQUIRED.as_ptr().cast::<c_char>(), std::ptr::null()];
+        assert!(unsafe { features_support_ara(required.as_ptr()) });
+        let plain = [OTHER.as_ptr().cast::<c_char>(), std::ptr::null()];
+        assert!(!unsafe { features_support_ara(plain.as_ptr()) });
     }
 }

@@ -17,6 +17,7 @@ fn descriptor() -> PluginDescriptor {
         is_instrument: true,
         binary_size: 1,
         modified_utc: 0,
+        supports_ara: false,
     }
 }
 

@@ -62,6 +62,13 @@ pub use notwig_rack_vst2 as vst2;
 #[cfg(feature = "lv2")]
 pub use notwig_rack_lv2 as lv2;
 
+/// ARA (Audio Random Access) host support. Enable with the `ara` feature.
+///
+/// This re-exports `notwig-rack-ara`. The individual format wrappers expose
+/// their companion bindings through the `ara` feature on each crate.
+#[cfg(feature = "ara")]
+pub use notwig_rack_ara as ara;
+
 /// Audio Unit v2 host (Apple platforms). Enable with the `au` feature.
 #[cfg(all(feature = "au", target_vendor = "apple"))]
 pub use notwig_rack_au as au;

@@ -149,7 +149,7 @@ mod mac {
 
 /// Per-platform VST3 bundle layout. Linux uses
 /// `Contents/<arch>-linux/<stem>.so`; Windows uses
-/// `Contents/<arch>-win/<stem>.vst3`. macOS goes through CFBundle
+/// `Contents/<arch>-win/<stem>.vst3`. macOS goes through `CFBundle`
 /// instead (see [`mac::MacBundle`]) so its binary lookup lives
 /// there.
 #[cfg(not(target_os = "macos"))]
@@ -181,9 +181,9 @@ fn bundle_binary_path(bundle: &Path) -> PathBuf {
 }
 
 /// RAII wrapper around the loaded module. On macOS this is a real
-/// `CFBundle` so the plugin's `bundleEntry` sees the CFPlugin /
-/// CFBundleGetIdentifier context it expects (raw dlopen crashes
-/// some bundles — Surge XT Effects calls into CFPlugin's
+/// `CFBundle` so the plugin's `bundleEntry` sees the `CFPlugin` /
+/// `CFBundleGetIdentifier` context it expects (raw dlopen crashes
+/// some bundles — Surge XT Effects calls into `CFPlugin`'s
 /// `AddInstanceForFactory` during init). On Linux / Windows the
 /// underlying file is a plain dynamic library; `libloading` is
 /// enough.

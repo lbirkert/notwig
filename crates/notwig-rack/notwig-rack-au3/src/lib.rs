@@ -176,6 +176,7 @@ unsafe fn component_to_info(
         format: FORMAT,
         has_editor: false,
         accepts_midi,
+        supports_ara: false,
     }
 }
 

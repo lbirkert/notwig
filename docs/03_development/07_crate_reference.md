@@ -23,7 +23,8 @@ This page is a quick map of the workspace crates. Each crate also has a
 
 `notwig-rack` is a separate Cargo workspace under `crates/notwig-rack/`. It
 vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
-`notwig-plugins`. It is excluded from the main workspace and its lint policy.
+`notwig-plugins`, plus `notwig-rack-ara`, the framework-level ARA host runtime.
+It is excluded from the main workspace and its lint policy.
 
 ## Where to make a change
 
@@ -37,6 +38,7 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
 | Extension scaffolding and package ZIPs | `notwig-ext/cargo-notwig-ext` |
 | Playback, scheduling, transport, routing, latency compensation | `notwig-engine` |
 | VST3/VST2/CLAP/LV2/AU/AU3 discovery and hosting | `notwig-plugins` |
+| ARA host runtime, document graph, audio/archive providers | `notwig-rack-ara` |
 | View, widget, gesture, editor UI | `notwig-ui` |
 | Intent handling, workspace policy, audio device, dialogs | `notwig-app` |
 | Browser startup, OPFS `Projects` folder storage, WebAudio gate | `notwig-app::web`, `notwig-web` |
@@ -89,6 +91,8 @@ vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
   protocol, lifecycle, and restart policy.
 - [Plugin Hosting](16_plugin_hosting.md) — adapter contract, probing, state, and
   editor lifecycle.
+- [ARA Hosting](25_ara_hosting.md) — ARA lifecycle, companion binding, providers,
+  threading, persistence, and current gaps.
 - [UI Contracts and Coordinates](17_ui_contracts_and_coordinates.md) — intents,
   view state, focus, and time/space conversions.
 - [Application Lifecycle](18_app_lifecycle.md) — startup order, workspace

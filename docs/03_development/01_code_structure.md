@@ -34,7 +34,8 @@ and test layer before editing.
     notwig-app/
     notwig-web/              wasm-bindgen browser entry point
     notwig-rack/             vendored VST3/VST2/CLAP/LV2/AU/AU3 host crates
-                             (separate Cargo workspace, excluded from lints)
+                             plus notwig-rack-ara and a pinned ara2-bridge-host
+                             fork (separate Cargo workspace, excluded from lints)
 ```
 
 Every crate has a `README.md` describing its purpose and boundaries. The

@@ -14,12 +14,18 @@ Cocoa view behind the format-agnostic `notwig-rack-core` traits.
 Host transport from `ProcessContext::transport` is exposed through the AU host
 callbacks (`kAudioUnitProperty_HostCallbacks`).
 
+With the optional `ara` feature, the loader queries the private `'AraF'`
+factory and `'AraE'` role-aware binding properties (both validated with the
+`'Ara!'` magic token), and `AuPlugin` implements `notwig_rack_ara::AraPlugin`.
+AU v3 instances loaded through `notwig-rack-au3` use the same `AuPlugin` and
+therefore the same ARA support.
+
 ## Usage
 
 ```toml
 [target.'cfg(target_vendor = "apple")'.dependencies]
 notwig-rack-core = { path = "../notwig-rack-core" }
-notwig-rack-au = { path = "." }
+notwig-rack-au = { path = ".", features = ["ara"] }
 ```
 
 ```rust

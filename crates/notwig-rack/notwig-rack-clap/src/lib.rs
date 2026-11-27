@@ -19,6 +19,8 @@
 //! and on `Drop` calls the plugin's `destroy` followed by the
 //! entry's `deinit`.
 
+#[cfg(feature = "ara")]
+mod ara;
 mod editor;
 mod events;
 mod host;

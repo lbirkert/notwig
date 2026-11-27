@@ -13,6 +13,7 @@ name = "notwig_rack"
 path = "src/lib.rs"
 
 [dependencies]
+notwig-rack-ara = { path = "../notwig-rack-ara", optional = true }
 notwig-rack-clap = { path = "../notwig-rack-clap", optional = true }
 notwig-rack-core = { path = "../notwig-rack-core" }
 notwig-rack-lv2 = { path = "../notwig-rack-lv2", optional = true }
@@ -31,6 +32,13 @@ vst2 = ["dep:notwig-rack-vst2"]
 lv2 = ["dep:notwig-rack-lv2"]
 au = ["dep:notwig-rack-au"]
 au3 = ["dep:notwig-rack-au3"]
+ara = [
+  "dep:notwig-rack-ara",
+  "notwig-rack-clap?/ara",
+  "notwig-rack-vst3?/ara",
+  "notwig-rack-au?/ara",
+  "notwig-rack-au3?/ara",
+]
 
 [lints.clippy.pedantic]
 level = "warn"

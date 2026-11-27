@@ -120,6 +120,7 @@ fn native_editor_reports_backend_unavailable() {
         is_instrument: false,
         binary_size: 0,
         modified_utc: 0,
+        supports_ara: false,
     };
     match NativePluginWindow::open(&descriptor, 48_000, None) {
         Err(PluginError::BackendUnavailable(PluginFormat::Vst3)) => {}

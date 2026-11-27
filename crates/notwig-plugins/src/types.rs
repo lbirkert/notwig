@@ -62,6 +62,9 @@ pub struct PluginDescriptor {
     pub is_instrument: bool,
     pub binary_size: u64,
     pub modified_utc: i64,
+    /// Whether the scanner found ARA capability for this plugin.
+    #[serde(default)]
+    pub supports_ara: bool,
 }
 
 impl PluginDescriptor {
@@ -85,6 +88,9 @@ pub struct PluginCapabilities {
     /// `reports_latency` is true.
     #[serde(default)]
     pub latency_samples: u32,
+    /// Whether the plugin advertises ARA support through its companion format.
+    #[serde(default)]
+    pub supports_ara: bool,
 }
 
 impl Default for PluginCapabilities {
@@ -98,6 +104,7 @@ impl Default for PluginCapabilities {
             supports_state: true,
             reports_latency: false,
             latency_samples: 0,
+            supports_ara: false,
         }
     }
 }

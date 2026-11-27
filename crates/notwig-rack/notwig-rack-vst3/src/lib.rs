@@ -23,6 +23,8 @@
 //! Activate calls `setBusArrangements`, `setupProcessing`,
 //! `setActive(true)`, `setProcessing(true)`. Deactivate reverses.
 
+#[cfg(feature = "ara")]
+mod ara;
 mod editor;
 mod events;
 mod module;

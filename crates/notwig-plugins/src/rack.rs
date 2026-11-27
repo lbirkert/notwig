@@ -190,6 +190,7 @@ impl PluginInstance for RackPluginInstance {
             supports_state: true,
             reports_latency: true,
             latency_samples: self.plugin.latency_samples(),
+            supports_ara: self.plugin.info().supports_ara,
         }
     }
 

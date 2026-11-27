@@ -9,7 +9,9 @@ Filters the registry walk to v3-flagged components and forwards loading to
 (`AudioComponentInstantiate` with a completion block) instantiation paths. Once
 the instance handle is in hand the audio + MIDI + editor surface is identical to
 AUv2 — including host transport, which flows through the same
-`kAudioUnitProperty_HostCallbacks` procs `notwig-rack-au` registers.
+`kAudioUnitProperty_HostCallbacks` procs `notwig-rack-au` registers. The `ara`
+feature forwards to `notwig-rack-au/ara`, so AU v3 instances expose the same
+`notwig_rack_ara::AraPlugin` implementation.
 
 ## Usage
 

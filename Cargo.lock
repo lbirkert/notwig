@@ -189,6 +189,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "ara2-bridge-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13a3d7ec3432e0cf170c50c5e7cb30d67ee3cf2145f04b18de74bb919060b64a"
+dependencies = [
+ "ara2-bridge-sys",
+ "base64 0.22.1",
+ "bitflags 2.13.2",
+ "crossbeam-queue",
+ "parking_lot",
+ "quick-xml",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ara2-bridge-host"
+version = "0.3.0"
+dependencies = [
+ "ara2-bridge-core",
+ "ara2-bridge-sys",
+ "bitflags 2.13.2",
+]
+
+[[package]]
+name = "ara2-bridge-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cf9d3c135a26222784f66636c6e6e21ae02ca16a482f5305e5e2719ded32f11"
+
+[[package]]
 name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -286,6 +316,12 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -2604,6 +2640,7 @@ dependencies = [
 name = "notwig-rack"
 version = "1.1.5"
 dependencies = [
+ "notwig-rack-ara",
  "notwig-rack-au",
  "notwig-rack-au3",
  "notwig-rack-clap",
@@ -2614,10 +2651,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "notwig-rack-ara"
+version = "1.1.5"
+dependencies = [
+ "ara2-bridge-core",
+ "ara2-bridge-host",
+ "ara2-bridge-sys",
+ "bitflags 2.13.2",
+ "tracing",
+]
+
+[[package]]
 name = "notwig-rack-au"
 version = "1.1.5"
 dependencies = [
  "block2 0.6.2",
+ "notwig-rack-ara",
  "notwig-rack-core",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -2647,6 +2696,7 @@ version = "1.1.5"
 dependencies = [
  "clap-sys",
  "libloading",
+ "notwig-rack-ara",
  "notwig-rack-core",
  "thiserror 2.0.21",
  "tracing",
@@ -2695,6 +2745,7 @@ dependencies = [
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "libloading",
+ "notwig-rack-ara",
  "notwig-rack-core",
  "thiserror 2.0.21",
  "tracing",
@@ -4669,7 +4720,7 @@ version = "3.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ac5cecf619ca81f66a96482db09687c9f7465af65f4300a8c30cca05bd5a59d"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "flate2",
  "log",
  "percent-encoding",
@@ -4686,7 +4737,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "622dce33c252115466d83f63e9744a18f12b4406aae51a01c15ad8fcf1185eb3"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "http",
  "httparse",
  "log",

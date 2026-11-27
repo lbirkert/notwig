@@ -160,11 +160,26 @@ impl Vst3Plugin {
         let param_count = param_count_raw as usize;
 
         let mut info = info.clone();
-        // The editor exists if `createView("editor")` returns a
-        // non-null view. We probe by creating + releasing it once
-        // at load time. (Some plugins are slow to create the view;
-        // a heavier-weight host would defer this to first open.)
-        info.has_editor = unsafe { create_editor_view(&controller) }.is_some();
+        // ARA requires binding before the companion creates any view. Probing
+        // the editor here would violate that ordering, so ARA-capable VST3
+        // processors are reported as having an editor without creating one.
+        #[cfg(feature = "ara")]
+        let ara_supported = crate::ara::factory(&component).is_some();
+        #[cfg(not(feature = "ara"))]
+        let ara_supported = info.supports_ara;
+        if ara_supported {
+            info.has_editor = true;
+        } else {
+            // The editor exists if `createView("editor")` returns a
+            // non-null view. We probe by creating + releasing it once
+            // at load time. (Some plugins are slow to create the view;
+            // a heavier-weight host would defer this to first open.)
+            info.has_editor = unsafe { create_editor_view(&controller) }.is_some();
+        }
+        #[cfg(feature = "ara")]
+        {
+            info.supports_ara = ara_supported;
+        }
 
         Ok(Self {
             info,
@@ -404,5 +419,22 @@ impl PluginCore for Vst3Plugin {
             return None;
         }
         Some(self)
+    }
+}
+
+#[cfg(feature = "ara")]
+impl notwig_rack_ara::AraPlugin for Vst3Plugin {
+    fn ara_factory(&self) -> Option<notwig_rack_ara::AraFactory> {
+        let raw = crate::ara::factory(&self.component)?;
+        unsafe { notwig_rack_ara::AraFactory::from_raw(raw).ok() }
+    }
+
+    unsafe fn bind_ara(
+        &mut self,
+        controller: notwig_rack_ara::ARADocumentControllerRef,
+        known: notwig_rack_ara::AraRoles,
+        assigned: notwig_rack_ara::AraRoles,
+    ) -> std::result::Result<notwig_rack_ara::AraPluginExtension, notwig_rack_ara::AraError> {
+        crate::ara::bind(&self.component, controller, known, assigned)
     }
 }

@@ -4,6 +4,7 @@ use notwig_rack_core::error::Result;
 use notwig_rack_core::info::{PluginCategory, PluginInfo};
 use notwig_rack_core::scanner::PluginScanner;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use vst3::Steinberg::{IPluginFactoryTrait, PClassInfo, PClassInfo_, TUID, kResultOk};
@@ -103,25 +104,35 @@ fn scan_bundle_into(bundle: &Path, out: &mut Vec<PluginInfo>) -> Result<()> {
     let factory = module.factory()?;
     let count = unsafe { factory.countClasses() };
     let mut info = empty_pclass_info();
+    let mut audio_classes = Vec::new();
+    let mut ara_classes = BTreeSet::new();
     for idx in 0..count {
         if unsafe { factory.getClassInfo(idx, &raw mut info) } != kResultOk {
             continue;
         }
         let category = char8_array_to_string(&info.category);
-        if category != "Audio Module Class" {
-            continue;
-        }
         let name = char8_array_to_string(&info.name);
+        match category.as_str() {
+            "Audio Module Class" => audio_classes.push((name, tuid_to_hex(&info.cid))),
+            "ARA Main Factory Class" => {
+                ara_classes.insert(name);
+            }
+            _ => {}
+        }
+    }
+    for (name, unique_id) in audio_classes {
+        let supports_ara = ara_classes.contains(&name);
         out.push(PluginInfo {
             name,
             vendor: String::new(),
             version: 0,
             category: PluginCategory::Effect,
             path: bundle.to_path_buf(),
-            unique_id: tuid_to_hex(&info.cid),
+            unique_id,
             format: FORMAT,
             has_editor: false,
             accepts_midi: false,
+            supports_ara,
         });
     }
     Ok(())

@@ -12,6 +12,9 @@ repository = "https://github.com/lbirkert/notwig"
 name = "notwig_rack_au3"
 path = "src/lib.rs"
 
+[features]
+ara = ["notwig-rack-au/ara"]
+
 [dependencies]
 notwig-rack-core = { path = "../notwig-rack-core" }
 thiserror = "2.0"

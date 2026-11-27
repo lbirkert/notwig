@@ -11,6 +11,8 @@ into. It has no FFI and no platform-specific dependencies.
 time signature, song position, bar start, play/record/loop state). The
 `PluginCore::latency_samples` method reports processing latency for delay
 compensation; it defaults to zero for formats that cannot query it.
+`PluginInfo::supports_ara` reports whether a scanner found ARA capability; ARA
+binding and the document runtime live in `notwig-rack-ara`.
 
 ## Companion crates
 

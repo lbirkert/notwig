@@ -12,11 +12,15 @@ repository = "https://github.com/lbirkert/notwig"
 name = "notwig_rack_au"
 path = "src/lib.rs"
 
+[features]
+ara = ["dep:notwig-rack-ara"]
+
 [dependencies]
 notwig-rack-core = { path = "../notwig-rack-core" }
 thiserror = "2.0"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
+notwig-rack-ara = { path = "../notwig-rack-ara", optional = true }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
 objc2-audio-toolbox = { version = "0.3", features = [

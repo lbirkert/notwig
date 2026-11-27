@@ -61,6 +61,7 @@ impl Vst2Plugin {
             format: FORMAT,
             has_editor: false,
             accepts_midi: false,
+            supports_ara: false,
         };
         Self::load_from(&info)
     }
@@ -218,6 +219,7 @@ impl Vst2Plugin {
                 format: FORMAT,
                 has_editor: self.info.has_editor,
                 accepts_midi: self.info.accepts_midi,
+                supports_ara: false,
             });
         }
 

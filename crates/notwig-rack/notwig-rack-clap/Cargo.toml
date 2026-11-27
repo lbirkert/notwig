@@ -12,9 +12,13 @@ repository = "https://github.com/lbirkert/notwig"
 name = "notwig_rack_clap"
 path = "src/lib.rs"
 
+[features]
+ara = ["dep:notwig-rack-ara"]
+
 [dependencies]
 clap-sys = "0.5"
 libloading = "0.8"
+notwig-rack-ara = { path = "../notwig-rack-ara", optional = true }
 notwig-rack-core = { path = "../notwig-rack-core" }
 thiserror = "2.0"
 tracing = "0.1"

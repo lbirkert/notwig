@@ -14,6 +14,7 @@ clap = ["notwig-rack/clap"]
 lv2 = ["notwig-rack/lv2"]
 vst3 = ["notwig-rack/vst3"]
 vst2 = ["notwig-rack/vst2"]
+ara = ["notwig-rack/ara"]
 
 [dependencies]
 notwig-core.workspace = true

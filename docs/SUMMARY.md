@@ -54,3 +54,4 @@
 - [Logging and Diagnostics](03_development/22_logging.md)
 - [Extension Platform Architecture](03_development/23_extension_platform_architecture.md)
 - [Typed Extension System](03_development/24_typed_extension_system.md)
+- [ARA Hosting](03_development/25_ara_hosting.md)

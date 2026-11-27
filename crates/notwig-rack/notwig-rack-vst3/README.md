@@ -10,12 +10,17 @@ reporting (`IAudioProcessor::getLatencySamples`), and the VST3 `IPlugView` GUI.
 Host transport from `ProcessContext::transport` is translated into Steinberg's
 `Vst::ProcessContext`.
 
+With the optional `ara` feature, scan marks audio classes that have a matching
+`ARA Main Factory Class`, and `Vst3Plugin` implements `notwig_rack_ara::AraPlugin`.
+The ARA 1 `ARAVST3::IPlugInEntryPoint` and ARA 2 `IPlugInEntryPoint2` COM
+interfaces are declared in pure Rust, so no Steinberg C++ SDK is required.
+
 ## Usage
 
 ```toml
 [dependencies]
 notwig-rack-core = { path = "../notwig-rack-core" }
-notwig-rack-vst3 = { path = "." }
+notwig-rack-vst3 = { path = ".", features = ["ara"] }
 ```
 
 ```rust

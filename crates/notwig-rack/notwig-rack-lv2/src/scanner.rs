@@ -187,6 +187,7 @@ unsafe fn plugin_to_info(
         format: FORMAT,
         has_editor,
         accepts_midi,
+        supports_ara: false,
     }
 }
 

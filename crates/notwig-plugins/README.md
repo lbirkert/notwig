@@ -23,8 +23,11 @@ crate.
 - `PluginDescriptor`, its format-prefixed type IDs, `PluginInstance`,
   `PluginState`, capabilities, formats, and `PluginError`.
 - Native plugin editor window lifecycle.
-- Instantiation, parameter descriptions, state save/restore, and latency
-  reporting through the format-agnostic API. When a probe is installed,
+- Instantiation, parameter descriptions, state save/restore, latency
+  reporting, and an ARA capability flag (`PluginDescriptor::supports_ara`,
+  `PluginCapabilities::supports_ara`) through the format-agnostic API. The
+  `ara` feature forwards to `notwig-rack/ara`; full ARA document hosting lives
+  in `notwig-rack-ara` and is not yet wired into the app or engine. When a probe is installed,
   metadata is loaded in a child process first; a crash there only fails the
   plugin instead of the application. The vendored `notwig-rack` wrappers
   query VST3 `getLatencySamples`, VST2 `AEffect::initial_delay`, and AU
@@ -50,6 +53,7 @@ crate.
 | `lv2` | LV2 adapter (needs system `lilv-0`) |
 | `au` | Audio Unit v2 adapter (macOS) |
 | `au3` | Audio Unit v3 adapter (macOS) |
+| `ara` | Forward to `notwig-rack/ara` (ARA capability/binding support) |
 
 Features are opt-in at the crate level. `notwig-app` enables AU, CLAP, and VST
 by default on native builds; LV2 is opt-in because it needs the system `lilv`

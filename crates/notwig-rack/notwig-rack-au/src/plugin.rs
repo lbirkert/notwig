@@ -208,6 +208,10 @@ impl AuPlugin {
         let has_editor = unsafe { has_cocoa_ui(instance) };
         let mut updated = info.clone();
         updated.has_editor = has_editor;
+        #[cfg(feature = "ara")]
+        {
+            updated.supports_ara = unsafe { crate::ara::factory(instance).is_some() };
+        }
         Ok(Self {
             info: updated,
             layouts: vec![BusLayout::stereo()],
@@ -608,5 +612,22 @@ impl PluginCore for AuPlugin {
         } else {
             None
         }
+    }
+}
+
+#[cfg(feature = "ara")]
+impl notwig_rack_ara::AraPlugin for AuPlugin {
+    fn ara_factory(&self) -> Option<notwig_rack_ara::AraFactory> {
+        let raw = unsafe { crate::ara::factory(self.instance) }?;
+        unsafe { notwig_rack_ara::AraFactory::from_raw(raw).ok() }
+    }
+
+    unsafe fn bind_ara(
+        &mut self,
+        controller: notwig_rack_ara::ARADocumentControllerRef,
+        known: notwig_rack_ara::AraRoles,
+        assigned: notwig_rack_ara::AraRoles,
+    ) -> std::result::Result<notwig_rack_ara::AraPluginExtension, notwig_rack_ara::AraError> {
+        unsafe { crate::ara::bind(self.instance, controller, known, assigned) }
     }
 }

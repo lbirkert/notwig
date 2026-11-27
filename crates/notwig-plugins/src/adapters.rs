@@ -28,6 +28,7 @@ fn descriptor_from_info(
         is_instrument: matches!(info.category, notwig_rack::core::PluginCategory::Instrument),
         binary_size,
         modified_utc,
+        supports_ara: info.supports_ara,
     }
 }
 
@@ -46,6 +47,7 @@ pub(crate) fn info_from_descriptor(descriptor: &PluginDescriptor) -> notwig_rack
         format: descriptor.format.prefix(),
         has_editor: true,
         accepts_midi: descriptor.is_instrument,
+        supports_ara: descriptor.supports_ara,
     }
 }
 
