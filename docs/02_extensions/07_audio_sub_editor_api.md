@@ -49,6 +49,16 @@ struct PanEditor;
 impl AudioSubEditorExtension for PanEditor {
     fn new() -> Self { Self }
 
+    fn descriptor() -> AudioSubEditorDescriptor {
+        AudioSubEditorDescriptor {
+            id: "com.example.clip-tools.pan".into(),
+            title: "Clip Pan".into(),
+            category: "Audio".into(),
+            order: 10,
+            extension_id: None,
+        }
+    }
+
     fn draw(
         &mut self,
         ui: &mut notwig_ext_api::egui::Ui,
@@ -62,16 +72,7 @@ impl AudioSubEditorExtension for PanEditor {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_audio_sub_editor::<PanEditor>(
-        AUDIO_SUB_EDITOR_EXTENSION_POINT,
-        AudioSubEditorDescriptor {
-            id: "com.example.clip-tools.pan".into(),
-            title: "Clip Pan".into(),
-            category: "Audio".into(),
-            order: 10,
-            extension_id: None,
-        },
-    );
+    extension.register_extension::<PanEditor>(AUDIO_SUB_EDITOR_EXTENSION_POINT);
 }
 ```
 

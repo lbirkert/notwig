@@ -40,6 +40,10 @@ impl AudioSubEditorExtension for PanSubEditor {
         }
     }
 
+    fn descriptor() -> AudioSubEditorDescriptor {
+        pan_descriptor()
+    }
+
     fn draw(
         &mut self,
         ui: &mut notwig_ext_api::egui::Ui,
@@ -137,6 +141,10 @@ impl CommandExtension for HumanizeCommand {
         Self
     }
 
+    fn descriptor() -> CommandDescriptor {
+        humanize_descriptor()
+    }
+
     fn execute(&mut self, context: &CommandContext) -> CommandEffect {
         let Some(clip_id) = context.active_clip else {
             return CommandEffect::Error {
@@ -217,11 +225,8 @@ pub fn pan_descriptor() -> AudioSubEditorDescriptor {
 /// Registers the example extension commands.
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_command::<HumanizeCommand>(COMMANDS_POINT, humanize_descriptor());
-    extension.register_extension_audio_sub_editor::<PanSubEditor>(
-        AUDIO_SUB_EDITOR_EXTENSION_POINT,
-        pan_descriptor(),
-    );
+    extension.register_extension::<HumanizeCommand>(COMMANDS_POINT);
+    extension.register_extension::<PanSubEditor>(AUDIO_SUB_EDITOR_EXTENSION_POINT);
 }
 
 /// Releases example extension resources.
@@ -250,8 +255,8 @@ mod tests {
         assert_eq!(manifest.contributes.len(), 0);
 
         let mut extension = Extension::new();
-        extension.register_command_with_descriptor::<HumanizeCommand>(humanize_descriptor());
-        extension.register_audio_sub_editor_with_descriptor::<PanSubEditor>(pan_descriptor());
+        extension.register_extension::<HumanizeCommand>(COMMANDS_POINT);
+        extension.register_extension::<PanSubEditor>(AUDIO_SUB_EDITOR_EXTENSION_POINT);
 
         let registrations = extension.registrations();
         assert_eq!(registrations.commands.len(), 1);
@@ -399,7 +404,7 @@ mod tests {
     fn pan_editor_draws_the_curve_and_waveform_underlay() {
         let context = pan_context();
         let mut extension = Extension::new();
-        extension.register_audio_sub_editor::<PanSubEditor>(PAN_SUB_EDITOR_ID);
+        extension.register_extension::<PanSubEditor>(AUDIO_SUB_EDITOR_EXTENSION_POINT);
         let handle = extension.create_audio_sub_editor(PAN_SUB_EDITOR_ID);
         assert!(handle > 0);
         let encoded = postcard::to_allocvec(&context).expect("encode context");

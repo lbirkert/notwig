@@ -72,7 +72,7 @@ pub use extension::{DEVICE_POINT, DeviceExtension, DeviceInterface, Extension};
 pub use extension_point::ExtensionPoint;
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
-pub use lifecycle::{ExtensionBuilder, PreloadBuilder, UnloadContext};
+pub use lifecycle::{ExtensionBuilder, ExtensionPointFor, PreloadBuilder, UnloadContext};
 pub use manifest::{
     CURRENT_MANIFEST_VERSION, ExtensionCapability, ExtensionContribution, ExtensionDeviceDecl,
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,

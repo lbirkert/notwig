@@ -369,6 +369,9 @@ pub trait AudioSubEditorExtension: Send + Sized + 'static {
     /// contribution id while the extension host is loaded.
     fn new() -> Self;
 
+    /// Returns the sub-editor metadata used by the editor selector.
+    fn descriptor() -> AudioSubEditorDescriptor;
+
     /// Draws the sub-editor panel and returns requested host edits and
     /// clipboard updates.
     fn draw(

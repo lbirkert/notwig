@@ -297,6 +297,9 @@ pub trait CommandExtension: Send + Sized + 'static {
     /// Creates a command instance.
     fn new() -> Self;
 
+    /// Returns the command metadata used in the palette and shortcut editor.
+    fn descriptor() -> CommandDescriptor;
+
     /// Executes the command against a bounded context.
     ///
     /// The handler must be deterministic for the supplied context unless it

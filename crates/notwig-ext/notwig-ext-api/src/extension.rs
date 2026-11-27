@@ -236,13 +236,12 @@ impl Extension {
         self.extension_points.iter().map(String::as_str)
     }
 
-    /// Registers one device implementation on the built-in device point.
-    ///
-    /// The device is keyed by [`DeviceExtension::spec`]'s `type_id`; registering
-    /// the same type id again replaces the earlier implementation. Prefer
-    /// [`ExtensionBuilder::register_extension`] with [`DEVICE_POINT`].
-    pub fn register_device<D: DeviceExtension>(&mut self) {
-        self.register_device_at::<D>(DEVICE_POINT.id());
+    /// Registers `T` on a typed extension point.
+    pub fn register_extension<T: ?Sized>(
+        &mut self,
+        point: impl crate::lifecycle::ExtensionPointFor<T>,
+    ) {
+        point.register(self);
     }
 
     pub(crate) fn register_device_at<D: DeviceExtension>(&mut self, point: &str) {
@@ -259,27 +258,8 @@ impl Extension {
         );
     }
 
-    /// Registers one extension-drawn audio sub-editor renderer.
-    ///
-    /// The id must match the contribution id of an audio-editor sub-editor in
-    /// the manifest. Registering the same id again replaces the earlier
-    /// implementation. A fresh instance is created per visible clip and
-    /// contribution id.
-    pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
-        let id = id.into();
-        self.register_audio_sub_editor_with_descriptor::<T>(
-            crate::audio_editor::AudioSubEditorDescriptor {
-                id: id.clone(),
-                title: id.clone(),
-                category: String::new(),
-                order: 0,
-                extension_id: None,
-            },
-        );
-    }
-
     /// Registers an audio sub-editor renderer with runtime metadata.
-    pub fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
+    pub(crate) fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
         &mut self,
         descriptor: crate::audio_editor::AudioSubEditorDescriptor,
     ) {
@@ -292,27 +272,8 @@ impl Extension {
         );
     }
 
-    /// Registers a command implementation under `id`.
-    ///
-    /// The id must match a command contribution in the extension manifest.
-    /// Registering the same id again replaces the earlier implementation. A
-    /// fresh instance is created for each execution so commands do not share
-    /// state with audio processors or panels.
-    pub fn register_command<C: CommandExtension>(&mut self, id: impl Into<String>) {
-        let id = id.into();
-        self.register_command_with_descriptor::<C>(CommandDescriptor {
-            id: id.clone(),
-            title: id,
-            category: String::new(),
-            description: String::new(),
-            when: None,
-            default_bindings: Vec::new(),
-            extension_id: None,
-        });
-    }
-
     /// Registers a command implementation with runtime metadata.
-    pub fn register_command_with_descriptor<C: CommandExtension>(
+    pub(crate) fn register_command_with_descriptor<C: CommandExtension>(
         &mut self,
         descriptor: CommandDescriptor,
     ) {

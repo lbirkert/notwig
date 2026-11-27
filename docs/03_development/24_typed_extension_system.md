@@ -164,7 +164,7 @@ pub fn preload(extension: &mut PreloadBuilder) {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_device::<TrackDevice>();
+    extension.register_extension::<TrackDevice>(DEVICE_POINT);
 }
 
 #[notwig_ext(unload)]

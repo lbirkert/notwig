@@ -62,6 +62,18 @@ impl CommandExtension for HumanizeCommand {
         Self
     }
 
+    fn descriptor() -> CommandDescriptor {
+        CommandDescriptor {
+            id: HUMANIZE_COMMAND_ID.into(),
+            title: "Humanize Notes".into(),
+            category: "MIDI".into(),
+            description: "Nudge the timing and velocity of selected notes.".into(),
+            when: Some("focus == midi_editor && selection.notes > 0".into()),
+            default_bindings: vec!["Ctrl+Alt+H".into()],
+            extension_id: None,
+        }
+    }
+
     fn execute(&mut self, context: &CommandContext) -> CommandEffect {
         let Some(clip_id) = context.active_clip else {
             return CommandEffect::Error {
@@ -92,18 +104,7 @@ impl CommandExtension for HumanizeCommand {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_command::<HumanizeCommand>(
-        COMMANDS_POINT,
-        CommandDescriptor {
-            id: HUMANIZE_COMMAND_ID.into(),
-            title: "Humanize Notes".into(),
-            category: "MIDI".into(),
-            description: "Nudge the timing and velocity of selected notes.".into(),
-            when: Some("focus == midi_editor && selection.notes > 0".into()),
-            default_bindings: vec!["Ctrl+Alt+H".into()],
-            extension_id: None,
-        },
-    );
+    extension.register_extension::<HumanizeCommand>(COMMANDS_POINT);
 }
 ```
 
