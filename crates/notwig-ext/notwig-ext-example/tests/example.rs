@@ -104,10 +104,10 @@ fn runtime_registration_describes_contributions() {
     assert_eq!(manifest.contributes.len(), 0);
 
     let mut extension = Extension::new();
-    extension.register_extension::<HumanizeCommand>(EP_COMMANDS);
-    extension.register_extension::<OpenExamplePanelCommand>(EP_COMMANDS);
-    extension.register_extension::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
-    extension.register_extension::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
+    extension.register_extension_factory::<HumanizeCommand>(EP_COMMANDS);
+    extension.register_extension_factory::<OpenExamplePanelCommand>(EP_COMMANDS);
+    extension.register_extension_factory::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension_factory::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
 
     let registrations = extension.registrations();
     assert_eq!(registrations.commands.len(), 2);
@@ -142,7 +142,7 @@ fn bottom_panel_context() -> BottomPanelContext {
 #[test]
 fn example_bottom_panel_draws_a_frame() {
     let mut extension = Extension::new();
-    extension.register_extension::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
+    extension.register_extension_factory::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
     let handle = extension.create_bottom_panel(EXAMPLE_PANEL_ID);
     assert!(handle > 0);
     let encoded = postcard::to_allocvec(&bottom_panel_context()).expect("encode context");
@@ -200,7 +200,7 @@ fn pan_editor_selection_uses_shared_copy_and_paste() {
 fn pan_editor_draws_the_curve_and_waveform_underlay() {
     let context = pan_context();
     let mut extension = Extension::new();
-    extension.register_extension::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension_factory::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
     let handle = extension.create_audio_sub_editor(PAN_SUB_EDITOR_ID);
     assert!(handle > 0);
     let encoded = postcard::to_allocvec(&context).expect("encode context");

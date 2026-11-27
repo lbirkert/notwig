@@ -21,7 +21,7 @@
 //!
 //! #[notwig_ext(load)]
 //! pub fn load(extension: &mut ExtensionBuilder) {
-//!     extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
+//!     extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
 //! }
 //! ```
 //!
@@ -88,7 +88,9 @@ pub use manifest::{
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
-pub use notwig_ext_macros::{notwig_ext, notwig_ext_trait, notwig_extension};
+pub use notwig_ext_macros::{
+    notwig_ext, notwig_ext_trait, notwig_ext_trait_impl, notwig_extension,
+};
 pub use panel::{DevicePanelHost, PanelAction};
 pub use panel_frame::{
     MAX_PANEL_FRAME_BYTES, PanelEvent, PanelFrame, PanelImage, PanelInput, PanelMesh,
@@ -101,6 +103,9 @@ pub use registration::{
     ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
 pub use registry::{CoreExtensionRegistry, ExtensionContext, RegistryError};
-pub use rpc::{ExtensionError, RemoteTarget, RpcTransport, SharedRpcTransport};
+pub use rpc::{
+    ExtensionError, ExtensionInstance, RegisteredInterface, RemoteTarget, RpcTransport,
+    SharedRpcTransport,
+};
 pub use serde;
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

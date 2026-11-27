@@ -131,12 +131,23 @@ impl ExtensionBuilder {
         self.extension
     }
 
-    /// Registers `T` on `point`.
+    /// Registers a typed interface instance on `point`.
     ///
-    /// The point type selects the registration kind. Device, command, and audio
-    /// sub-editor implementations all use this one method.
-    pub fn register_extension<T: ?Sized>(&mut self, point: impl ExtensionPointFor<T>) {
-        self.extension.register_extension(point);
+    /// The instance stays inside the guest runtime; only its descriptors cross
+    /// the ABI.
+    pub fn register_extension<I: ?Sized, T>(&mut self, point: ExtensionPoint<I>, instance: T)
+    where
+        T: crate::rpc::ExtensionInstance<I>,
+    {
+        instance.register_instance(&mut self.extension, point.id());
+    }
+
+    /// Registers an implementation factory on `point`.
+    ///
+    /// This is used by device, command, sub-editor, and bottom-panel
+    /// contributions whose host creates separate instances.
+    pub fn register_extension_factory<T: ?Sized>(&mut self, point: impl ExtensionPointFor<T>) {
+        self.extension.register_extension_factory(point);
     }
 }
 

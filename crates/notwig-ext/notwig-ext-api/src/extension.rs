@@ -22,6 +22,7 @@ use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 use crate::registration::{
     DeviceRegistrationDescriptor, ExtensionPointDescriptor, ExtensionRegistrations,
 };
+use crate::rpc::RegisteredInterface;
 
 /// Marker interface for the built-in `notwig.devices` extension point.
 pub trait DeviceInterface {}
@@ -227,6 +228,7 @@ fn create_bottom_panel<T: BottomPanelExtension>() -> Box<dyn BottomPanelInstance
 /// Extension runtime shared by the generated ABI exports.
 pub struct Extension {
     extension_points: BTreeSet<String>,
+    typed_interfaces: BTreeMap<String, BTreeMap<String, RegisteredInterface>>,
     devices: BTreeMap<String, RegisteredDevice>,
     audio_sub_editors: BTreeMap<String, RegisteredAudioSubEditor>,
     bottom_panels: BTreeMap<String, RegisteredBottomPanel>,
@@ -244,6 +246,7 @@ impl Extension {
     pub const fn new() -> Self {
         Self {
             extension_points: BTreeSet::new(),
+            typed_interfaces: BTreeMap::new(),
             devices: BTreeMap::new(),
             audio_sub_editors: BTreeMap::new(),
             bottom_panels: BTreeMap::new(),
@@ -254,6 +257,27 @@ impl Extension {
             sub_editor_instances: DeviceStore::new(),
             bottom_panel_instances: DeviceStore::new(),
         }
+    }
+
+    /// Registers one typed interface instance in the guest runtime.
+    #[doc(hidden)]
+    pub fn register_typed_interface(&mut self, point_id: &str, interface: RegisteredInterface) {
+        self.typed_interfaces
+            .entry(point_id.to_owned())
+            .or_default()
+            .insert(interface.implementation_id.clone(), interface);
+    }
+
+    /// Returns a registered typed interface by point and implementation id.
+    #[must_use]
+    pub fn typed_interface(
+        &self,
+        point_id: &str,
+        implementation_id: &str,
+    ) -> Option<&RegisteredInterface> {
+        self.typed_interfaces
+            .get(point_id)
+            .and_then(|interfaces| interfaces.get(implementation_id))
     }
 
     /// Declares one extension point.
@@ -269,8 +293,8 @@ impl Extension {
         self.extension_points.iter().map(String::as_str)
     }
 
-    /// Registers `T` on a typed extension point.
-    pub fn register_extension<T: ?Sized>(
+    /// Registers an implementation factory on a typed extension point.
+    pub fn register_extension_factory<T: ?Sized>(
         &mut self,
         point: impl crate::lifecycle::ExtensionPointFor<T>,
     ) {

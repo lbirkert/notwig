@@ -363,3 +363,53 @@ fn result_type(output: &ReturnType, trait_ident: &syn::Ident) -> syn::Result<Typ
     let _ = trait_ident;
     Ok(value)
 }
+
+pub(crate) fn expand_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let trait_path = syn::parse_macro_input!(attr as syn::Path);
+    let item: syn::ItemImpl = syn::parse_macro_input!(item as syn::ItemImpl);
+    if item.trait_.is_none() {
+        return syn::Error::new_spanned(&item, "notwig_ext_trait_impl requires a trait impl")
+            .to_compile_error()
+            .into();
+    }
+    let self_ty = item.self_ty.clone();
+    let trait_ident = trait_path
+        .segments
+        .last()
+        .map(|segment| segment.ident.clone())
+        .expect("trait path has at least one segment");
+    let handle_ident = format_ident!("{}Handle", trait_ident);
+    let dispatcher_ident = format_ident!("{}Dispatcher", trait_ident);
+    quote! {
+        #item
+
+        impl ::notwig_ext_api::ExtensionInstance<dyn #trait_path> for #self_ty {
+            fn register_instance(
+                self,
+                extension: &mut ::notwig_ext_api::Extension,
+                point_id: &'static str,
+            ) {
+                let dispatch: ::notwig_ext_api::rpc::InterfaceDispatch = Box::new(
+                    move |context, method, payload| {
+                        <Self as #dispatcher_ident>::dispatch_extension(
+                            &self,
+                            context,
+                            method,
+                            payload,
+                        )
+                    },
+                );
+                extension.register_typed_interface(
+                    point_id,
+                    ::notwig_ext_api::RegisteredInterface {
+                        interface_id: #handle_ident::INTERFACE_ID,
+                        interface_version: #handle_ident::INTERFACE_VERSION,
+                        implementation_id: ::std::any::type_name::<Self>().to_owned(),
+                        dispatch,
+                    },
+                );
+            }
+        }
+    }
+    .into()
+}

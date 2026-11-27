@@ -72,7 +72,7 @@ impl AudioSubEditorExtension for PanEditor {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<PanEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension_factory::<PanEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
 }
 ```
 

@@ -152,11 +152,23 @@ Generated items:
 - `PanelHandle` with the same method surface;
 - `PanelRequest`, `PanelResponse`;
 - `PanelDispatcher` for the implementation side;
+- `ExtensionInstance<dyn Panel>` via `#[notwig_ext_trait_impl(Panel)]`;
 - interface descriptor, method ids, schema ids, and version metadata.
 
-The developer still writes a normal Rust implementation:
+Registration takes the actual instance:
 
 ```rust
+extension.register_extension(TRACK_PANEL, MyTrackPanel::new());
+```
+
+The guest owns the instance; only postcard payloads and stable ids cross the
+WASM/native boundary.
+
+The developer still writes a normal Rust implementation and annotates it so the
+guest can register the instance:
+
+```rust
+#[notwig_ext_trait_impl(Panel)]
 impl Panel for MyTrackPanel {
     fn draw(
         &self,
@@ -188,7 +200,7 @@ Macro restrictions for the first milestone:
 - synchronous UI/metadata calls only.
 
 The exact generic-bound/orphan strategy for
-`register_extension::<MyPanel>(TRACK_PANEL)` must be proven first with a small
+`register_extension_factory::<MyPanel>(TRACK_PANEL)` must be proven first with a small
 macro proof of concept. The target syntax is fixed; the generated adapter
 machinery is allowed to be hidden.
 
@@ -216,7 +228,7 @@ pub fn preload(extension: &mut PreloadBuilder) {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<TrackDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension_factory::<TrackDevice>(EP_NOTWIG_DEVICES);
 }
 
 #[notwig_ext(unload)]
@@ -230,7 +242,7 @@ pub fn unload(_context: &mut UnloadContext) {
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
     // Point already exists from the preload phase.
-    extension.register_extension::<MidiMenu>(TRACK_PANEL);
+    extension.register_extension_factory::<MidiMenu>(TRACK_PANEL);
 }
 ```
 
@@ -253,7 +265,7 @@ extension package. The old `#[notwig_extension]` form is kept as an alias for
 extension.register_extension_point(TRACK_PANEL);
 
 // Contributor, in #[notwig_ext(load)].
-extension.register_extension::<MyPanel>(TRACK_PANEL);
+extension.register_extension_factory::<MyPanel>(TRACK_PANEL);
 ```
 
 Ownership is implicit in the extension being initialized. The runtime records:

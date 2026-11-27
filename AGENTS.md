@@ -85,14 +85,18 @@ and boundaries. Start there when working inside a crate.
   `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
   `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, `EP_NOTWIG_BOTTOM_PANEL`, and
   `EP_NOTWIG_CLIPBOARD`. Do not introduce legacy aliases.
-- Package extension implementations are registered with
-  `extension.register_extension::<T>(EP_...)`. Metadata belongs on the
+- Typed-interface instances are registered with
+  `extension.register_extension(EP_..., instance)`. The instance stays inside
+  the guest runtime. Contributions whose host creates separate instances use
+  `extension.register_extension_factory::<T>(EP_...)`. Metadata belongs on the
   implementation trait (`CommandExtension::descriptor`,
   `AudioSubEditorExtension::descriptor`), not in registration overloads.
 - Callable interfaces use `#[notwig_ext_trait(id = "...", version = N)]`.
   Methods take `&self` plus `&ExtensionContext<'_>`, avoid generics/lifetimes,
   and return `Result<T, ExtensionError>` with owned postcard-serializable
   values. The context is the only supported path for calling other points.
+  Concrete impl blocks use `#[notwig_ext_trait_impl(TraitName)]` so the guest
+  can register the actual instance without crossing the ABI.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.

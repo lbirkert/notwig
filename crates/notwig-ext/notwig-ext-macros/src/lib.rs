@@ -21,7 +21,7 @@ use expand::{Phase, expand_load, expand_phase};
 /// ```ignore
 /// #[notwig_extension]
 /// pub fn extension(extension: &mut notwig_ext_api::ExtensionBuilder) {
-///     extension.register_extension::<MyDevice>(notwig_ext_api::EP_NOTWIG_DEVICES);
+///     extension.register_extension_factory::<MyDevice>(notwig_ext_api::EP_NOTWIG_DEVICES);
 /// }
 /// ```
 ///
@@ -112,4 +112,15 @@ pub fn notwig_ext(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn notwig_ext_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
     trait_macro::expand(attr, item)
+}
+
+/// Generates guest-side instance registration for an annotated trait impl.
+///
+/// ```ignore
+/// #[notwig_ext_trait_impl(Echo)]
+/// impl Echo for Echoer { /* ... */ }
+/// ```
+#[proc_macro_attribute]
+pub fn notwig_ext_trait_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    trait_macro::expand_impl(attr, item)
 }

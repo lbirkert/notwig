@@ -48,7 +48,7 @@ impl BottomPanelExtension for NotesPanel {
 ```rust
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<NotesPanel>(EP_NOTWIG_BOTTOM_PANEL);
+    extension.register_extension_factory::<NotesPanel>(EP_NOTWIG_BOTTOM_PANEL);
 }
 ```
 

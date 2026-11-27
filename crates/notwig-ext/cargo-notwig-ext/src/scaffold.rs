@@ -323,7 +323,7 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, ExtensionBuilder, UnloadContext, notwig_
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 
 #[notwig_ext(unload)]

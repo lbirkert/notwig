@@ -91,7 +91,7 @@ impl GainDevice {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<GainDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension_factory::<GainDevice>(EP_NOTWIG_DEVICES);
 }
 
 impl DeviceExtension for GainDevice {

@@ -94,7 +94,7 @@ fn context() -> AudioSubEditorContext {
 #[test]
 fn registered_audio_sub_editor_draws_a_frame_with_edits() {
     let mut extension = Extension::new();
-    extension.register_extension::<TestEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension_factory::<TestEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
     let handle = extension.create_audio_sub_editor("com.test.renderer");
     assert!(handle > 0);
     let ctx = context();

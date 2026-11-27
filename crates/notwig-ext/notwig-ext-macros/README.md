@@ -10,7 +10,7 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, ExtensionBuilder, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 
@@ -57,6 +57,19 @@ handler calls other extension points. Arguments and return values are postcard
 encoded. The generated handle takes an [`RpcTransport`] and `RemoteTarget`; the
 generated `EchoDispatcher` forwards the context and is implemented for every
 `Echo + Send + Sync` implementation.
+
+Annotate the concrete implementation so the instance can be registered without
+moving it across the ABI:
+
+```rust
+#[notwig_ext_trait_impl(Echo)]
+impl Echo for MyEcho { /* ... */ }
+
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
+    extension.register_extension(ECHO_POINT, MyEcho::new());
+}
+```
 
 The load entrypoint runs once, lazily, when the host first calls an ABI export
 or explicitly calls `notwig_ext_load`. On `wasm32-unknown-unknown` the macro

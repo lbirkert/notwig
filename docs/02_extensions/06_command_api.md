@@ -104,7 +104,7 @@ impl CommandExtension for HumanizeCommand {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<HumanizeCommand>(EP_COMMANDS);
+    extension.register_extension_factory::<HumanizeCommand>(EP_COMMANDS);
 }
 ```
 
