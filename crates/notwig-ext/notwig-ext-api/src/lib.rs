@@ -59,10 +59,7 @@ pub use audio_editor::{
     AudioWaveformColumn, AudioWaveformPreview, CurveTarget, EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR,
     MAX_AUDIO_SUB_EDITOR_CLIPBOARD_POINTS, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
 };
-pub use bottom_panel::{
-    BottomPanelInterface, EP_NOTWIG_AUDIO_EDITOR_BOTTOM_PANEL,
-    EP_NOTWIG_DEVICE_EDITOR_BOTTOM_PANEL, EP_NOTWIG_MIDI_EDITOR_BOTTOM_PANEL,
-};
+pub use bottom_panel::{BottomPanelInterface, BottomPanelTarget, EP_NOTWIG_BOTTOM_PANEL};
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
     CommandExtension, CommandFocus, CommandId, CommandInterface, CommandSelection,

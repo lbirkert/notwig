@@ -246,7 +246,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
-| `views/panel_registry.rs` | `Notwig Core` bottom-panel registrations keyed by `EP_*` editor points; the shell resolves panels through this registry instead of a hard-coded match |
+| `views/panel_registry.rs` | `Notwig Core` bottom-panel registrations on `EP_NOTWIG_BOTTOM_PANEL`; the shell resolves the single active editor panel through this registry |
 | `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared built-in Gain curve adapter, and extension-rendered sub-editor host; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |

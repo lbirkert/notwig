@@ -49,16 +49,15 @@ sites read as point registrations:
 - `EP_NOTWIG_DEVICES` -> `notwig.devices`
 - `EP_COMMANDS` -> `notwig.commands`
 - `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR` -> `notwig.audio_editor.sub_editor`
-- `EP_NOTWIG_DEVICE_EDITOR_BOTTOM_PANEL` -> `notwig.device_editor.bottom_panel`
-- `EP_NOTWIG_MIDI_EDITOR_BOTTOM_PANEL` -> `notwig.midi_editor.bottom_panel`
-- `EP_NOTWIG_AUDIO_EDITOR_BOTTOM_PANEL` -> `notwig.audio_editor.bottom_panel`
+- `EP_NOTWIG_BOTTOM_PANEL` -> `notwig.bottom_panel`
 
 Built-in implementations that ship with the application are registered under
 the fixed, non-uninstallable extension owner `notwig.core` / `Notwig Core`.
 They use the same points and registry shape as package extensions; the only
-difference is ownership and installation policy. The device, MIDI, and audio
-editor bottom panels are currently hosted by this core registry instead of a
-hard-coded shell match.
+difference is ownership and installation policy. The device, MIDI, and audio editor
+implementations share `EP_NOTWIG_BOTTOM_PANEL` and are distinguished by
+`BottomPanelTarget`. The shell keeps at most one bottom panel open and resolves
+it through this core registry instead of a hard-coded match.
 
 Extension crate roots follow the same separation: `lib.rs` contains wiring and
 the lifecycle entrypoints only. Implementations and helpers live in modules,

@@ -44,7 +44,7 @@ audio sub-editor point ──►  extension renderer ──►  audio editor
   `notwig.core` / `Notwig Core` owner.
 - Extension-point constants use the `EP_` prefix (`EP` = extension point), such
   as `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
-  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and the three editor bottom-panel points.
+  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and `EP_NOTWIG_BOTTOM_PANEL`.
 - `cargo notwig-ext` scaffolds extensions and builds target-specific ZIPs. It
   reads a source `extension.json` without `entrypoints`, adds the selected
   entrypoint, filters `includes` by target, removes `includes`, and bundles the

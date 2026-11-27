@@ -84,7 +84,7 @@ and boundaries. Start there when working inside a crate.
   point**. Built-in ids are path-shaped and typed, for example
   `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
   `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and
-  `EP_NOTWIG_DEVICE_EDITOR_BOTTOM_PANEL`. Do not introduce legacy aliases.
+  `EP_NOTWIG_BOTTOM_PANEL`. Do not introduce legacy aliases.
 - Package extension implementations are registered with
   `extension.register_extension::<T>(EP_...)`. Metadata belongs on the
   implementation trait (`CommandExtension::descriptor`,
