@@ -61,8 +61,9 @@ Below the smallest cached bucket (8 samples) the graph reads decoded samples
 directly, which is cheap because only a few samples map to a pixel.
 
 `AudioWaveform::far_level_for(samples_per_pixel)` picks the largest min/max
-bucket for the far renderer with the same rule. Each pixel column then reads at
-most two buckets.
+bucket no larger than half the samples covered by one screen pixel. Several
+cached peak windows can therefore map to one pixel, keeping the far lines
+finer-grained than one full-pixel peak.
 
 ## 4. Render modes
 
@@ -78,12 +79,13 @@ per pixel it uses the close sample graph; above that it uses the far peak lines.
   directly, which is the Bitwig-style close-up detail where individual waveform
   cycles are visible. The graph emits only a fully opaque black signed area as a
   single triangle mesh; it does not stroke a line over the fill.
-- **Far peak lines** (more than 256 samples per pixel). For each visible pixel
-  column, read the positive and negative peaks from the min/max pyramid. Draw a
+- **Far peak lines** (more than 256 samples per pixel). For each cached peak
+  window, read its positive and negative peaks from the min/max pyramid. Draw a
   one-pixel-wide vertical line from the zero axis up to the positive peak and
-  another from the zero axis down to the negative peak. Nothing is filled between
-  the lines, so the far view shows per-column peak strokes instead of a solid
-  band.
+  another from the zero axis down to the negative peak. Windows target roughly
+  half a pixel of source samples, so several lines can fall within one pixel.
+  Nothing is filled between the lines, so the far view shows peak strokes
+  instead of a solid band.
 
 Both renderers clip against the painter's visible rectangle before building any
 geometry. A long clip that extends far off-screen therefore contributes only the

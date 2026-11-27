@@ -15,6 +15,8 @@ const PEAK_BASE_BUCKET: u64 = 8;
 const FAR_SAMPLES_PER_PIXEL: f64 = 256.0;
 /// Positive/negative peak levels for the far renderer start here.
 const FAR_BASE_BUCKET: u64 = 64;
+/// Aim for a peak window of roughly half a pixel so far lines keep more detail.
+const FAR_WINDOW_DIVISOR: f64 = 2.0;
 const WAVEFORM: Color32 = Color32::BLACK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,40 +128,12 @@ impl AudioWaveform {
     }
 
     fn far_level_for(&self, samples_per_pixel: f64) -> Option<&FarPeakLevel> {
-        if samples_per_pixel < FAR_BASE_BUCKET as f64 {
-            return None;
-        }
+        let target = (samples_per_pixel / FAR_WINDOW_DIVISOR).max(FAR_BASE_BUCKET as f64);
         let index = self
             .far_peaks
-            .partition_point(|level| level.bucket as f64 <= samples_per_pixel)
+            .partition_point(|level| level.bucket as f64 <= target)
             .saturating_sub(1);
         self.far_peaks.get(index).or_else(|| self.far_peaks.first())
-    }
-
-    fn min_max_at(&self, start: f64, end: f64, level: &FarPeakLevel) -> (f32, f32) {
-        let frames = self.audio.frame_count();
-        if frames == 0 || end <= start {
-            let sample = self.sample(start.max(0.0) as u64);
-            return (sample, sample);
-        }
-        let last = frames - 1;
-        let first_frame = (start.floor().max(0.0) as u64).min(last);
-        let end_frame = (end.ceil().max(0.0) as u64).clamp(first_frame.saturating_add(1), frames);
-        let first_bucket = (first_frame / level.bucket) as usize;
-        let last_bucket = ((end_frame - 1) / level.bucket) as usize;
-        let mut min = f32::INFINITY;
-        let mut max = f32::NEG_INFINITY;
-        for bucket in first_bucket..=last_bucket {
-            if let (Some(low), Some(high)) = (level.min.get(bucket), level.max.get(bucket)) {
-                min = min.min(*low);
-                max = max.max(*high);
-            }
-        }
-        if min.is_finite() && max.is_finite() {
-            (min, max)
-        } else {
-            (0.0, 0.0)
-        }
     }
 }
 
@@ -315,35 +289,36 @@ fn draw_far_lines(
     let Some(level) = waveform.far_level_for(samples_per_pixel) else {
         return;
     };
+    let frames = waveform.frame_count();
     let span = end - start;
-    let columns = rect.width().ceil().max(2.0) as usize;
-    let step = rect.width() / columns as f32;
+    let first = (start.floor().max(0.0) as u64).min(frames - 1);
+    let last = (end.ceil().max(0.0) as u64).min(frames - 1).max(first);
+    if last <= first {
+        return;
+    }
+    let bucket = level.bucket;
+    let first_bucket = (first / bucket) as usize;
+    let last_bucket = (last / bucket) as usize;
+    let columns = last_bucket.saturating_sub(first_bucket).saturating_add(1);
     let center = rect.center().y;
     let half = rect.height() * 0.42;
     let mut mesh = Mesh::default();
     mesh.reserve_vertices(columns * 8);
     mesh.reserve_triangles(columns * 4);
-    for column in 0..columns {
-        let x0 = rect.left() + column as f32 * step;
-        let x1 = if column + 1 == columns {
-            rect.right()
-        } else {
-            x0 + step
+    for index in first_bucket..=last_bucket {
+        let (Some(&min), Some(&max)) = (level.min.get(index), level.max.get(index)) else {
+            continue;
         };
-        let t0 = (x0 - rect.left()) / rect.width();
-        let t1 = (x1 - rect.left()) / rect.width();
-        let (mut min, mut max) = waveform.min_max_at(
-            start + f64::from(t0) * span,
-            start + f64::from(t1) * span,
-            level,
-        );
+        let bucket_start = index as u64 * bucket;
+        let bucket_end = bucket_start.saturating_add(bucket).min(frames);
+        let center_frame = (bucket_start as f64 + bucket_end as f64 - 1.0) * 0.5;
+        let x = rect.left() + ((center_frame - start) / span) as f32 * rect.width();
+        let (mut min, mut max) = (min, max);
         if let Some(gain) = gain {
-            let frame = start + f64::from(f32::midpoint(t0, t1)) * span;
-            let scale = gain.gain_at_frame(source_start, frame);
+            let scale = gain.gain_at_frame(source_start, center_frame);
             min *= scale;
             max *= scale;
         }
-        let x = f32::midpoint(x0, x1);
         let positive = center - max.max(0.0).clamp(-1.0, 1.0) * half;
         let negative = center - min.min(0.0).clamp(-1.0, 1.0) * half;
         push_vertical_line(&mut mesh, x, center, positive, WAVEFORM);
