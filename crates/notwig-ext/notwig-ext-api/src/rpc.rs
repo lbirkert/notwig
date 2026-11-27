@@ -60,6 +60,7 @@ pub trait RpcTransport: Send + Sync {
     fn invoke(
         &self,
         target: &RemoteTarget,
+        context: &crate::ExtensionContext<'_>,
         interface_id: &'static str,
         interface_version: u32,
         method: &'static str,

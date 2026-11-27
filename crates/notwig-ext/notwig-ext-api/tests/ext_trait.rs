@@ -1,28 +1,34 @@
 use std::sync::Arc;
 
 use notwig_ext_api::{
-    ExtensionError, RemoteTarget, RpcTransport, SharedRpcTransport, notwig_ext_trait,
+    CoreExtensionRegistry, ExtensionContext, ExtensionError, RemoteTarget, RpcTransport,
+    SharedRpcTransport, notwig_ext_trait,
 };
 
 #[notwig_ext_trait(id = "test.echo", version = 1)]
 pub trait Echo {
-    fn echo(&self, value: String) -> Result<String, ExtensionError>;
-    fn fail(&self, message: String) -> Result<(), ExtensionError>;
-    fn ping(&self) -> Result<u32, ExtensionError>;
+    fn echo(&self, context: &ExtensionContext<'_>, value: String)
+    -> Result<String, ExtensionError>;
+    fn fail(&self, context: &ExtensionContext<'_>, message: String) -> Result<(), ExtensionError>;
+    fn ping(&self, context: &ExtensionContext<'_>) -> Result<u32, ExtensionError>;
 }
 
 struct Echoer;
 
 impl Echo for Echoer {
-    fn echo(&self, value: String) -> Result<String, ExtensionError> {
+    fn echo(
+        &self,
+        _context: &ExtensionContext<'_>,
+        value: String,
+    ) -> Result<String, ExtensionError> {
         Ok(format!("echo:{value}"))
     }
 
-    fn fail(&self, message: String) -> Result<(), ExtensionError> {
+    fn fail(&self, _context: &ExtensionContext<'_>, message: String) -> Result<(), ExtensionError> {
         Err(ExtensionError::new(message))
     }
 
-    fn ping(&self) -> Result<u32, ExtensionError> {
+    fn ping(&self, _context: &ExtensionContext<'_>) -> Result<u32, ExtensionError> {
         Ok(42)
     }
 }
@@ -35,6 +41,7 @@ impl RpcTransport for TestTransport {
     fn invoke(
         &self,
         target: &RemoteTarget,
+        context: &ExtensionContext<'_>,
         interface_id: &'static str,
         interface_version: u32,
         method: &'static str,
@@ -44,7 +51,7 @@ impl RpcTransport for TestTransport {
         assert_eq!(interface_id, EchoHandle::INTERFACE_ID);
         assert_eq!(interface_version, EchoHandle::INTERFACE_VERSION);
         assert!(EchoHandle::METHOD_IDS.contains(&method));
-        self.dispatcher.dispatch_extension(method, payload)
+        self.dispatcher.dispatch_extension(context, method, payload)
     }
 }
 
@@ -54,10 +61,12 @@ fn generated_handle_round_trips_method_calls() {
         dispatcher: Arc::new(Echoer),
     });
     let handle = EchoHandle::new(transport, RemoteTarget::new("test.echoer", 7));
-    assert_eq!(handle.echo("hi".into()).unwrap(), "echo:hi");
+    let registry = CoreExtensionRegistry::new();
+    let context = ExtensionContext::new(&registry);
+    assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");
     assert_eq!(
-        handle.fail("nope".into()).unwrap_err(),
+        handle.fail(&context, "nope".into()).unwrap_err(),
         ExtensionError::new("nope")
     );
-    assert_eq!(handle.ping().unwrap(), 42);
+    assert_eq!(handle.ping(&context).unwrap(), 42);
 }

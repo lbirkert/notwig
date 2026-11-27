@@ -100,7 +100,7 @@ pub use registration::{
     CORE_EXTENSION_ID, CORE_EXTENSION_NAME, DeviceRegistrationDescriptor, ExtensionPointDescriptor,
     ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
-pub use registry::{CoreExtensionRegistry, RegistryError};
+pub use registry::{CoreExtensionRegistry, ExtensionContext, RegistryError};
 pub use rpc::{ExtensionError, RemoteTarget, RpcTransport, SharedRpcTransport};
 pub use serde;
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

@@ -96,7 +96,11 @@ contribute to multiple points.
 ```rust
 #[notwig_ext_trait(id = "com.notwig.api.panel", version = 1)]
 pub trait Panel {
-    fn draw(&self, input: PanelInput) -> Result<PanelFrame, ExtensionError>;
+    fn draw(
+        &self,
+        context: &ExtensionContext<'_>,
+        input: PanelInput,
+    ) -> Result<PanelFrame, ExtensionError>;
 }
 
 pub const TRACK_PANEL: ExtensionPoint<dyn Panel> =
@@ -154,20 +158,28 @@ The developer still writes a normal Rust implementation:
 
 ```rust
 impl Panel for MyTrackPanel {
-    fn draw(&self, input: PanelInput) -> Result<PanelFrame, ExtensionError> {
-        // Build a child panel frame.
+    fn draw(
+        &self,
+        context: &ExtensionContext<'_>,
+        input: PanelInput,
+    ) -> Result<PanelFrame, ExtensionError> {
+        // Build a child panel frame; resolve other points from context.
     }
 }
 ```
 
+Methods receive `&ExtensionContext<'_>` so implementations can resolve other
+points through `get_extensions`, `get_extension`, and `try_get_extension`.
+
 The generated handle is a concrete proxy, not a Rust trait object:
 
 ```rust
-let frame = panel_handle.draw(input)?;
+let frame = panel_handle.draw(&context, input)?;
 ```
 
 Macro restrictions for the first milestone:
 
+- `&self` plus a required `&ExtensionContext<'_>` argument;
 - owned, serializable arguments and return values;
 - explicit `Result<_, ExtensionError>` errors;
 - no borrowed values, references, or lifetimes across the boundary;

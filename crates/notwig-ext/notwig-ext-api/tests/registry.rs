@@ -54,6 +54,13 @@ fn single_point_selects_exactly_one_active_implementation() {
 }
 
 #[test]
+fn single_instance_registration_uses_point_id() {
+    let mut registry = CoreExtensionRegistry::new();
+    registry.register_extension(SINGLE, Arc::new(A)).unwrap();
+    assert_eq!(registry.get_extension(SINGLE).value(), "a");
+}
+
+#[test]
 fn clipboard_point_is_single_cardinality() {
     assert_eq!(EP_NOTWIG_CLIPBOARD.cardinality(), Cardinality::Single);
 }

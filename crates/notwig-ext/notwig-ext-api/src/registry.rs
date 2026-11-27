@@ -195,3 +195,62 @@ impl CoreExtensionRegistry {
             .ok_or(RegistryError::Interface { point })
     }
 }
+/// Context passed to typed extension interface methods.
+///
+/// It is a borrowed view of the active host registry and can resolve other
+/// extension points without retaining registry locks.
+pub struct ExtensionContext<'a> {
+    registry: &'a CoreExtensionRegistry,
+}
+
+impl<'a> ExtensionContext<'a> {
+    /// Creates a context over one registry snapshot.
+    #[must_use]
+    pub fn new(registry: &'a CoreExtensionRegistry) -> Self {
+        Self { registry }
+    }
+
+    /// Returns all active implementations for a point.
+    #[must_use]
+    pub fn get_extensions<T: ?Sized + 'static>(&self, point: ExtensionPoint<T>) -> Vec<Arc<T>> {
+        self.registry.get_extensions(point)
+    }
+
+    /// Returns the single active implementation for a point.
+    ///
+    /// # Panics
+    ///
+    /// Panics when zero or more than one implementation is active.
+    #[must_use]
+    pub fn get_extension<T: ?Sized + 'static>(&self, point: ExtensionPoint<T>) -> Arc<T> {
+        self.registry.get_extension(point)
+    }
+
+    /// Returns the single active implementation for a point.
+    pub fn try_get_extension<T: ?Sized + 'static>(
+        &self,
+        point: ExtensionPoint<T>,
+    ) -> Result<Arc<T>, RegistryError> {
+        self.registry.try_get_extension(point)
+    }
+}
+
+impl CoreExtensionRegistry {
+    /// Registers one instance on a single-cardinality point.
+    ///
+    /// The implementation id is the point id. Use [`Self::register`] for
+    /// many-cardinality points or explicit implementation ids.
+    pub fn register_extension<T: ?Sized + 'static>(
+        &mut self,
+        point: ExtensionPoint<T>,
+        instance: Arc<T>,
+    ) -> Result<(), RegistryError> {
+        if point.cardinality() != Cardinality::Single {
+            return Err(RegistryError::Cardinality {
+                point: point.id(),
+                count: 1,
+            });
+        }
+        self.replace(point, point.id(), instance)
+    }
+}

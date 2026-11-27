@@ -56,6 +56,8 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let Method {
                     ident,
                     receiver,
+                    context_pat,
+                    context_ty,
                     args,
                     ret,
                 } = parsed;
@@ -85,7 +87,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                     quote!(#request_ident::#ident { #(#fields),* })
                 };
                 handle_methods.push(quote! {
-                    fn #ident(#receiver #(, #arg_decls)*) -> ::core::result::Result<#ret, ::notwig_ext_api::ExtensionError> {
+                    fn #ident(#receiver, #context_pat: #context_ty #(, #arg_decls)*) -> ::core::result::Result<#ret, ::notwig_ext_api::ExtensionError> {
                         let request = #request_init;
                         let payload = ::notwig_ext_api::postcard::to_allocvec(&request)
                             .map_err(|error| ::notwig_ext_api::ExtensionError::new(
@@ -93,6 +95,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                             ))?;
                         let response = self.transport.invoke(
                             &self.target,
+                            #context_pat,
                             #id_lit,
                             #version,
                             #method_name,
@@ -117,7 +120,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                             ))?;
                         match request {
                             #response_pattern => {
-                                let result = #trait_ident::#ident(self #(, #args_bindings)*);
+                                let result = #trait_ident::#ident(self, context #(, #args_bindings)*);
                                 ::notwig_ext_api::postcard::to_allocvec(&#response_ident::#ident(result))
                                     .map_err(|error| ::notwig_ext_api::ExtensionError::new(
                                         format!("encode {} response: {error}", #method_name)
@@ -184,6 +187,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             /// Dispatches one postcard-encoded method call.
             fn dispatch_extension(
                 &self,
+                context: &::notwig_ext_api::ExtensionContext<'_>,
                 method: &str,
                 payload: &[u8],
             ) -> ::core::result::Result<Vec<u8>, ::notwig_ext_api::ExtensionError>;
@@ -192,6 +196,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         impl<T: #trait_ident + Send + Sync + 'static> #dispatcher_ident for T {
             fn dispatch_extension(
                 &self,
+                context: &::notwig_ext_api::ExtensionContext<'_>,
                 method: &str,
                 payload: &[u8],
             ) -> ::core::result::Result<Vec<u8>, ::notwig_ext_api::ExtensionError> {
@@ -210,6 +215,8 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
 struct Method {
     ident: syn::Ident,
     receiver: syn::Receiver,
+    context_pat: syn::Ident,
+    context_ty: Type,
     args: Vec<(syn::Ident, Type)>,
     ret: Type,
 }
@@ -247,6 +254,26 @@ fn parse_method(method: &TraitItemFn, trait_ident: &syn::Ident) -> syn::Result<M
             "only &self receivers are supported",
         ));
     }
+    let Some(FnArg::Typed(context)) = inputs.next() else {
+        return Err(syn::Error::new_spanned(
+            sig,
+            "trait methods must take &ExtensionContext<'_> after &self",
+        ));
+    };
+    if !is_extension_context(context.ty.as_ref()) {
+        return Err(syn::Error::new_spanned(
+            context.ty.as_ref(),
+            "the second argument must be &ExtensionContext<'_>",
+        ));
+    }
+    let Pat::Ident(context_pat) = context.pat.as_ref() else {
+        return Err(syn::Error::new_spanned(
+            context.pat.as_ref(),
+            "context argument must be a simple identifier",
+        ));
+    };
+    let context_pat = context_pat.ident.clone();
+    let context_ty = context.ty.as_ref().clone();
     let mut args = Vec::new();
     for input in inputs {
         let FnArg::Typed(PatType { pat, ty, .. }) = input else {
@@ -264,9 +291,24 @@ fn parse_method(method: &TraitItemFn, trait_ident: &syn::Ident) -> syn::Result<M
     Ok(Method {
         ident: sig.ident.clone(),
         receiver: receiver.clone(),
+        context_pat,
+        context_ty,
         args,
         ret,
     })
+}
+
+fn is_extension_context(ty: &Type) -> bool {
+    let Type::Reference(reference) = ty else {
+        return false;
+    };
+    let Type::Path(path) = reference.elem.as_ref() else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "ExtensionContext")
 }
 
 fn result_type(output: &ReturnType, trait_ident: &syn::Ident) -> syn::Result<Type> {
