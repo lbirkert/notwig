@@ -15,8 +15,8 @@ const PEAK_BASE_BUCKET: u64 = 8;
 const FAR_SAMPLES_PER_PIXEL: f64 = 4_096.0;
 /// Positive/negative peak levels for the far renderer start here.
 const FAR_BASE_BUCKET: u64 = 64;
-/// Aim for a peak window of roughly half a pixel so far lines keep more detail.
-const FAR_WINDOW_DIVISOR: f64 = 2.0;
+/// Aim for a peak window of roughly a quarter pixel so far lines keep more detail.
+const FAR_WINDOW_DIVISOR: f64 = 4.0;
 const WAVEFORM: Color32 = Color32::BLACK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

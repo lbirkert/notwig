@@ -22,7 +22,7 @@ fn cached_window_peaks_cover_all_zoom_levels() {
         "far zoom should use the whole-asset peak level"
     );
     assert_eq!(far_level_for(&waveform, 64.0), 64);
-    assert_eq!(far_level_for(&waveform, 1_000.0), 256);
+    assert_eq!(far_level_for(&waveform, 1_000.0), 128);
     assert_eq!(
         far_level_for(&waveform, 1_000_000.0),
         65_536,
@@ -96,13 +96,13 @@ fn far_zoom_vertical_lines_bound_geometry() {
 
     assert_eq!(
         far_level_for(&waveform, 5_000.0),
-        2_048,
+        1_024,
         "far zoom should use a cached peak level smaller than a pixel"
     );
     let indices = mesh_indices(&output);
     assert!(indices > 0, "the waveform should draw peak lines");
     assert!(
-        indices <= 4 * 200 * 12,
+        indices <= 8 * 200 * 12,
         "far view built {indices} indices; it should scale with pixels"
     );
 }

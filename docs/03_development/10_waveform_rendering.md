@@ -61,9 +61,9 @@ Below the smallest cached bucket (8 samples) the graph reads decoded samples
 directly, which is cheap because only a few samples map to a pixel.
 
 `AudioWaveform::far_level_for(samples_per_pixel)` picks the largest min/max
-bucket no larger than half the samples covered by one screen pixel. Several
-cached peak windows can therefore map to one pixel, keeping the far lines
-finer-grained than one full-pixel peak.
+bucket no larger than a quarter of the samples covered by one screen pixel.
+Several cached peak windows can therefore map to one pixel, keeping the far
+lines finer-grained than one full-pixel peak.
 
 ## 4. Render modes
 
@@ -83,7 +83,7 @@ per pixel it uses the close sample graph; above that it uses the far peak lines.
   window, read its positive and negative peaks from the min/max pyramid. Draw a
   one-pixel-wide vertical line from the zero axis up to the positive peak and
   another from the zero axis down to the negative peak. Windows target roughly
-  half a pixel of source samples, so several lines can fall within one pixel.
+  a quarter pixel of source samples, so several lines can fall within one pixel.
   Nothing is filled between the lines, so the far view shows peak strokes
   instead of a solid band.
 
