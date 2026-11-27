@@ -156,8 +156,8 @@ onto the source window, intersects it with the visible clip, clamps to the
 asset's frame count, and builds only visible geometry. At 256 or fewer samples
 per pixel the sample graph reads cached window peaks (or decoded samples at the
 closest zoom) and fills the area without an extra stroke. Above that, far
-rendering reads min/max and draws one-pixel positive and negative peak lines
-instead of an area. Sliced waveforms start after `silent_prefix_samples`;
+rendering reads min/max and draws one-pixel vertical lines from zero to the
+positive and negative peaks instead of an area. Sliced waveforms start after `silent_prefix_samples`;
 over-trimmed events never stretch the source.
 
 

@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use egui::{Color32, Painter, Rect, Shape, Stroke, pos2};
+use egui::epaint::{Vertex, WHITE_UV};
+use egui::{Color32, Mesh, Painter, Rect, Shape, pos2};
 use notwig_core::{AssetId, AudioAssetBuffer, Curve, Db, TempoMap, TimeMus};
 
 pub type WaveformCache = BTreeMap<AssetId, AudioWaveform>;
@@ -319,8 +320,9 @@ fn draw_far_lines(
     let step = rect.width() / columns as f32;
     let center = rect.center().y;
     let half = rect.height() * 0.42;
-    let mut positive = Vec::with_capacity(columns);
-    let mut negative = Vec::with_capacity(columns);
+    let mut mesh = Mesh::default();
+    mesh.reserve_vertices(columns * 8);
+    mesh.reserve_triangles(columns * 4);
     for column in 0..columns {
         let x0 = rect.left() + column as f32 * step;
         let x1 = if column + 1 == columns {
@@ -342,13 +344,38 @@ fn draw_far_lines(
             max *= scale;
         }
         let x = f32::midpoint(x0, x1);
-        positive.push(pos2(x, center - max.max(0.0).clamp(-1.0, 1.0) * half));
-        negative.push(pos2(x, center - min.min(0.0).clamp(-1.0, 1.0) * half));
+        let positive = center - max.max(0.0).clamp(-1.0, 1.0) * half;
+        let negative = center - min.min(0.0).clamp(-1.0, 1.0) * half;
+        push_vertical_line(&mut mesh, x, center, positive, WAVEFORM);
+        push_vertical_line(&mut mesh, x, center, negative, WAVEFORM);
     }
-    if positive.len() >= 2 {
-        painter.add(Shape::line(positive, Stroke::new(1.0_f32, WAVEFORM)));
-        painter.add(Shape::line(negative, Stroke::new(1.0_f32, WAVEFORM)));
+    if !mesh.is_empty() {
+        painter.add(Shape::mesh(mesh));
     }
+}
+
+fn push_vertical_line(mesh: &mut Mesh, x: f32, from: f32, to: f32, color: Color32) {
+    let (top, bottom) = if from <= to { (from, to) } else { (to, from) };
+    if bottom - top < 0.5 {
+        return;
+    }
+    let left = x - 0.5;
+    let right = x + 0.5;
+    let base = mesh.vertices.len() as u32;
+    for pos in [
+        pos2(left, top),
+        pos2(right, top),
+        pos2(right, bottom),
+        pos2(left, bottom),
+    ] {
+        mesh.vertices.push(Vertex {
+            pos,
+            uv: WHITE_UV,
+            color,
+        });
+    }
+    mesh.add_triangle(base, base + 1, base + 2);
+    mesh.add_triangle(base, base + 2, base + 3);
 }
 
 #[allow(clippy::too_many_arguments)]

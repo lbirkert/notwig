@@ -202,18 +202,37 @@ fn far_zoom_draws_positive_and_negative_peak_lines() {
         },
     );
     assert!(
-        !output.shapes.iter().any(|clipped| has_mesh(&clipped.shape)),
-        "far rendering should not fill an area"
+        !output.shapes.iter().any(|clipped| has_path(&clipped.shape)),
+        "far rendering should draw vertical lines, not envelope outlines"
     );
-    assert_eq!(
-        output
-            .shapes
-            .iter()
-            .map(|clipped| path_count(&clipped.shape))
-            .sum::<usize>(),
-        2,
-        "far rendering should draw one positive and one negative peak line"
-    );
+    let mesh = output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Mesh(mesh) => Some(mesh),
+            _ => None,
+        })
+        .expect("far rendering should produce a line mesh");
+    let center = Rect::from_min_max(pos2(0.0, 40.0), pos2(800.0, 140.0))
+        .center()
+        .y;
+    let mut touches_zero = false;
+    let mut reaches_positive = false;
+    let mut reaches_negative = false;
+    for vertex in &mesh.vertices {
+        if (vertex.pos.y - center).abs() < 0.01 {
+            touches_zero = true;
+        }
+        if vertex.pos.y < center - 1.0 {
+            reaches_positive = true;
+        }
+        if vertex.pos.y > center + 1.0 {
+            reaches_negative = true;
+        }
+    }
+    assert!(touches_zero, "far lines should start at the zero line");
+    assert!(reaches_positive, "far lines should reach the positive peak");
+    assert!(reaches_negative, "far lines should reach the negative peak");
 }
 
 fn has_mesh(shape: &egui::Shape) -> bool {
@@ -229,14 +248,6 @@ fn has_path(shape: &egui::Shape) -> bool {
         egui::Shape::Path(_) => true,
         egui::Shape::Vec(shapes) => shapes.iter().any(has_path),
         _ => false,
-    }
-}
-
-fn path_count(shape: &egui::Shape) -> usize {
-    match shape {
-        egui::Shape::Path(_) => 1,
-        egui::Shape::Vec(shapes) => shapes.iter().map(path_count).sum(),
-        _ => 0,
     }
 }
 

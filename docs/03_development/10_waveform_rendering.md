@@ -80,9 +80,10 @@ per pixel it uses the close sample graph; above that it uses the far peak lines.
   single triangle mesh; it does not stroke a line over the fill.
 - **Far peak lines** (more than 256 samples per pixel). For each visible pixel
   column, read the positive and negative peaks from the min/max pyramid. Draw a
-  one-pixel-wide line above the zero axis at the positive peak and another below
-  the zero axis at the negative peak. Nothing is filled between the lines, so the
-  far view shows the envelope contours instead of a solid band.
+  one-pixel-wide vertical line from the zero axis up to the positive peak and
+  another from the zero axis down to the negative peak. Nothing is filled between
+  the lines, so the far view shows per-column peak strokes instead of a solid
+  band.
 
 Both renderers clip against the painter's visible rectangle before building any
 geometry. A long clip that extends far off-screen therefore contributes only the
@@ -107,12 +108,13 @@ share the same zoom and navigation gestures.
 - The sample graph reads cached window-peak levels instead of scanning decoded
   samples per column. Below the smallest peak bucket the graph reads decoded
   samples directly.
-- Far rendering draws two one-pixel positive/negative peak lines and no filled
-  area. Close rendering fills the area and adds no stroke.
+- Far rendering draws one-pixel vertical lines from zero to the positive and
+  negative peaks and no filled area. Close rendering fills the area and adds no
+  stroke.
 - Both renderers use the shared opaque black waveform color; the curve fill uses
   the shared `widgets::area` mesh so overlapping segments never accumulate extra
   opacity.
 - `crates/notwig-ui/tests/waveform.rs` covers downmixing, window-peak and far
-  peak level selection, area-only close rendering, and two-line far rendering.
+  peak level selection, area-only close rendering, and zero-to-peak far lines.
   `crates/notwig-ui/tests/timeline.rs` covers the visible source-window mapping
   and minimum clip geometry at low zoom.

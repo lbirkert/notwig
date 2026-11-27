@@ -45,21 +45,6 @@ fn mesh_indices(output: &egui::FullOutput) -> usize {
         .sum()
 }
 
-fn path_point_count(output: &egui::FullOutput) -> usize {
-    fn count(shape: &egui::Shape) -> usize {
-        match shape {
-            egui::Shape::Path(path) => path.points.len(),
-            egui::Shape::Vec(shapes) => shapes.iter().map(count).sum(),
-            _ => 0,
-        }
-    }
-    output
-        .shapes
-        .iter()
-        .map(|clipped| count(&clipped.shape))
-        .sum()
-}
-
 #[test]
 fn dense_sample_graph_bounds_geometry() {
     let waveform = AudioWaveform::from_samples(vec![0.5; 1_000_000]);
@@ -92,7 +77,7 @@ fn dense_sample_graph_bounds_geometry() {
 }
 
 #[test]
-fn far_zoom_line_envelope_bounds_geometry() {
+fn far_zoom_vertical_lines_bound_geometry() {
     let waveform = AudioWaveform::from_samples(dense_samples(1_000_000));
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 200.0));
@@ -114,15 +99,10 @@ fn far_zoom_line_envelope_bounds_geometry() {
         512,
         "far zoom should use a coarse cached peak level"
     );
-    assert_eq!(
-        mesh_indices(&output),
-        0,
-        "far rendering should not fill an area"
-    );
-    let points = path_point_count(&output);
-    assert!(points > 0, "the waveform should draw peak lines");
+    let indices = mesh_indices(&output);
+    assert!(indices > 0, "the waveform should draw peak lines");
     assert!(
-        points <= 2 * 801,
-        "far view built {points} line points; it should scale with pixels"
+        indices <= 800 * 12,
+        "far view built {indices} indices; it should scale with pixels"
     );
 }
