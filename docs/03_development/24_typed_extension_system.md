@@ -23,8 +23,10 @@ Related: [`Extension Platform Architecture`](23_extension_platform_architecture.
    enough.
 5. **No Rust references or trait objects cross a package boundary.** Generated
    typed proxies serialize requests and deserialize replies.
-6. **Registration ownership belongs to the contributing extension.** An
-   extension cannot clear or replace another extension's registrations.
+6. **Registration ownership belongs to the contributing extension.**
+   Extensions cannot delete another extension's rows. Replacement is an explicit
+   override edge between stable implementation/extension ids, resolved by the
+   host, never an implicit load-order effect.
 7. **Registration order does not matter.** Declarations and contributions are
    collected first, then resolved as one graph.
 8. **The context is the author-facing API.** Extensions do not manage
@@ -174,10 +176,59 @@ extension.set_extensions::<dyn Panel>(
     TRACK_PANEL,
     [MyPanel::registration(), AnotherPanel::registration()],
 );
+
+extension.clear_own_extensions(TRACK_PANEL);
 ```
 
-`clear_own_extensions(TRACK_PANEL)` is permitted; clearing another extension's
-contributions is not.
+### 3.4 Replacing an implementation
+
+Some points want a single active provider, for example a clipboard backend. An
+extension may offer a replacement without deleting the previous owner's row:
+
+```rust
+pub enum RegistrationMode {
+    /// Add another implementation.
+    Augment,
+    /// Hide the named implementation while still preserving its ownership row.
+    Replace { target: ImplementationId },
+}
+
+pub struct RegistrationOptions {
+    pub mode: RegistrationMode,
+    pub priority: i32,
+    pub before: Vec<ExtensionId>,
+    pub after: Vec<ExtensionId>,
+}
+
+extension.replace_extension::<MyClipboard>(
+    CLIPBOARD_BACKEND,
+    target_implementation_id,
+);
+```
+
+The registry stores a directed replacement edge. Resolution removes the target
+from the active set while keeping all ownership rows intact. This gives the
+desired hot-swap behavior without letting one extension mutate another's
+registrations.
+
+Load-order independence rules:
+
+- replacement targets are stable `ImplementationId`s, not load indices;
+- a missing target is resolved after the complete graph is collected;
+- replacement chains are followed transitively;
+- replacement cycles are a resolution error;
+- two different implementations replacing the same target is a conflict unless
+  the point's policy names a deterministic winner;
+- the point owner can allow or reject replacement through its point policy.
+
+For a user-facing provider swap, the host can also select an active provider
+directly:
+
+```rust
+runtime.set_active_implementation(CLIPBOARD_BACKEND, implementation_id);
+```
+
+That selection is UI-thread state and is independent of discovery order.
 
 ### 3.4 Context and handles
 
@@ -188,6 +239,16 @@ impl ExtensionContext {
         point: ExtensionPoint<T>,
     ) -> Vec<ExtensionHandle<T>>;
 
+    pub fn get_extension<T: ?Sized>(
+        &self,
+        point: ExtensionPoint<T>,
+    ) -> ExtensionHandle<T>;
+
+    pub fn try_get_extension<T: ?Sized>(
+        &self,
+        point: ExtensionPoint<T>,
+    ) -> Result<ExtensionHandle<T>, ExtensionError>;
+
     pub fn get<T: ?Sized>(
         &self,
         extension: ExtensionId,
@@ -195,9 +256,28 @@ impl ExtensionContext {
 }
 ```
 
-`get_extensions` returns an ordered snapshot of owned handles. No registry
-reference or lock survives the query. `get` is explicit service lookup and does
-not infer a point from the trait.
+`get_extensions` returns an ordered snapshot of active handles. No registry
+reference or lock survives the query.
+
+`get_extension` is the single-provider convenience. It **panics** when the point
+has zero active implementations or more than one. `try_get_extension` returns a
+typed error instead and is preferred inside host UI and in recoverable paths.
+`get` is explicit service lookup and does not infer a point from the trait.
+
+`get_extension` is most useful when the point declares a single-provider
+cardinality policy:
+
+```rust
+pub enum Cardinality {
+    Many,
+    Single,
+}
+```
+
+The runtime validates `Single` points at resolution: a point may have many
+registered rows and replacements, but it must resolve to exactly one active
+implementation. Adding a second active provider without a replacement edge is a
+resolution error.
 
 ```rust
 pub struct ExtensionHandle<T: ?Sized> {
@@ -238,9 +318,13 @@ Resolution is two-phase:
 1. collect point declarations and implementation contributions from every
    loaded extension;
 2. validate the graph: point exists, interface matches, contract major matches,
-   ids are unique, owners are enabled, and ordering constraints are acyclic.
+   ids are unique, owners are enabled, replacement edges are acyclic, and
+   ordering constraints are acyclic.
 
-A missing point is reported after resolution, not at first registration.
+A missing point is reported after resolution, not at first registration. Missing
+replacement targets, duplicate replacements of one target, and `Single` points
+that do not resolve to exactly one active implementation are typed resolution
+errors. Loading order never changes the result.
 
 ### 4.2 Ownership and lifecycle
 
@@ -392,9 +476,24 @@ and deferred to a later registration mode.
 ### 7.4 Services versus points
 
 - `context.get::<dyn Synthesizer>(id)` is an explicit single-provider lookup.
+- `context.get_extension(SINGLE_POINT)` requires exactly one active provider.
 - `context.get_extensions(POINT)` discovers unknown contributors.
 
 Not every extension capability should become a point.
+
+### 7.5 Clipboard provider exchange
+
+`CLIPBOARD_BACKEND` is a `Single` point. The stock clipboard registers the
+default provider. A clipboard extension registers an alternative and either:
+
+- adds an explicit replacement edge to the stock implementation; or
+- is selected by the user/host through
+  `runtime.set_active_implementation(CLIPBOARD_BACKEND, id)`.
+
+Both paths are load-order independent. The stock provider still owns its row and
+can be reactivated later. Consumers call
+`context.get_extension(CLIPBOARD_BACKEND)` and therefore cannot accidentally read
+two active clipboard backends.
 
 ## 8. Ordering
 
@@ -409,8 +508,9 @@ pub enum OrderingPolicy {
 ```
 
 When ordered, resolution applies explicit `before`/`after`, then priority, then
-stable `(extension_id, implementation_id)` tie-breakers. Cycles are a resolution
-error.
+stable `(extension_id, implementation_id)` tie-breakers. Replacement edges are
+resolved before ordering; ordering applies only to the resulting active set.
+Cycles in either graph are resolution errors.
 
 ## 9. Integration order
 
@@ -432,6 +532,8 @@ independent WASM instances.
 
 - `ExtensionPoint<T>`, declarations, implementations, owned handles,
   two-phase resolution, registration ownership, and `set_extensions`.
+- Replacement edges, `replace_extension`, single-provider cardinality, and
+  `get_extension` / `try_get_extension`.
 - Keep existing device/command/sub-editor exports behind adapters.
 - Add registry/invoke ABI exports and the UI-thread runtime.
 
@@ -472,8 +574,12 @@ independent WASM instances.
   handles.
 - Multiple points use the same interface without ambiguity.
 - Multiple implementations register to one point; one extension can own several.
-- Registration order is irrelevant.
-- Contributors cannot remove another extension's registrations.
+- Registration order is irrelevant, including under replacement chains.
+- Contributors cannot delete another extension's rows; explicit replacement
+  edges and host provider selection are deterministic.
+- `get_extension` panics on zero or multiple active implementations;
+  `try_get_extension` returns a typed error.
+- A `Single` point with multiple active providers is a resolution error.
 - Generated proxies reject non-serializable and borrowed signatures at compile
   time.
 - Unknown points, interface/version mismatches, duplicate ids, stale handles, and
