@@ -13,7 +13,8 @@ host uses the same wire types to validate and composite extension panels.
 
 - Guest panel frames (`PanelFrame`, `PanelInput`, meshes, texture deltas) and
   their limits/validation.
-- the `#[notwig_ext(preload/load/unload)]` ABI generator, re-exported from
+- the `#[notwig_ext(preload/load/unload)]` ABI generator and
+  `#[notwig_ext_trait]` typed-interface generator, re-exported from
   `notwig-ext-macros`;
 - `PreloadBuilder`, `ExtensionBuilder`, and `UnloadContext` for the three
   extension lifecycle phases;

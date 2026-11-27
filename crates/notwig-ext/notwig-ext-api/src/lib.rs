@@ -50,6 +50,7 @@ pub mod note;
 pub mod panel;
 pub mod registration;
 pub mod registry;
+pub mod rpc;
 pub mod status;
 pub mod target;
 
@@ -87,16 +88,19 @@ pub use manifest::{
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
-pub use notwig_ext_macros::{notwig_ext, notwig_extension};
+pub use notwig_ext_macros::{notwig_ext, notwig_ext_trait, notwig_extension};
 pub use panel::{DevicePanelHost, PanelAction};
 pub use panel_frame::{
     MAX_PANEL_FRAME_BYTES, PanelEvent, PanelFrame, PanelImage, PanelInput, PanelMesh,
     PanelModifiers, PanelPointerButton, PanelPrimitive, PanelTextureDelta, PanelTextureOptions,
     PanelVertex,
 };
+pub use postcard;
 pub use registration::{
     CORE_EXTENSION_ID, CORE_EXTENSION_NAME, DeviceRegistrationDescriptor, ExtensionPointDescriptor,
     ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
 pub use registry::{CoreExtensionRegistry, RegistryError};
+pub use rpc::{ExtensionError, RemoteTarget, RpcTransport, SharedRpcTransport};
+pub use serde;
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

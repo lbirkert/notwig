@@ -94,7 +94,7 @@ number of implementations. One extension can implement multiple interfaces and
 contribute to multiple points.
 
 ```rust
-#[extension_api(id = "com.notwig.api.panel", version = 1)]
+#[notwig_ext_trait(id = "com.notwig.api.panel", version = 1)]
 pub trait Panel {
     fn draw(&self, input: PanelInput) -> Result<PanelFrame, ExtensionError>;
 }
@@ -133,11 +133,11 @@ It contains no runtime, implementations, instance handles, or heap state.
 
 ### 3.1 Interface macro
 
-`#[extension_api]` declares a callable interface and generates the transport
+`#[notwig_ext_trait]` declares a callable interface and generates the transport
 plumbing:
 
 ```rust
-#[extension_api(id = "com.notwig.api.panel", version = 1)]
+#[notwig_ext_trait(id = "com.notwig.api.panel", version = 1)]
 pub trait Panel {
     fn draw(&self, input: PanelInput) -> Result<PanelFrame, ExtensionError>;
 }
@@ -544,7 +544,7 @@ and undo grouping to extensions and host UI.
 Panels remain bounded child frames:
 
 ```rust
-#[extension_api(id = "com.notwig.api.panel", version = 1)]
+#[notwig_ext_trait(id = "com.notwig.api.panel", version = 1)]
 pub trait Panel {
     fn draw(&self, input: PanelInput) -> Result<PanelFrame, ExtensionError>;
     fn handle_interaction(
@@ -579,7 +579,7 @@ Initial rendering replaces full frames. Incremental updates are deferred.
 ### 7.1 Context menu
 
 ```rust
-#[extension_api(id = "com.notwig.api.menu", version = 1)]
+#[notwig_ext_trait(id = "com.notwig.api.menu", version = 1)]
 pub trait ContextMenuContributor {
     fn draw(
         &self,
@@ -665,7 +665,7 @@ independent WASM instances.
 
 ### Milestone 0 — Proof of concept
 
-- Add `#[extension_api]` for one trait:
+- Add `#[notwig_ext_trait]` for one trait:
   `Test::execute(String) -> Result<String, ExtensionError>`.
 - Generate handle/request/response/dispatcher.
 - Define `TEST_POINT: ExtensionPoint<dyn Test>`.

@@ -9,6 +9,7 @@
 use proc_macro::TokenStream;
 
 mod expand;
+mod trait_macro;
 
 use expand::{Phase, expand_load, expand_phase};
 
@@ -94,4 +95,21 @@ pub fn notwig_ext(attr: TokenStream, item: TokenStream) -> TokenStream {
         .to_compile_error()
         .into(),
     }
+}
+
+/// Generates an RPC handle, wire request/response types, and a dispatcher for a trait.
+///
+/// ```ignore
+/// #[notwig_ext_trait(id = "com.example.echo", version = 1)]
+/// pub trait Echo {
+///     fn echo(&self, value: String) -> Result<String, notwig_ext_api::ExtensionError>;
+/// }
+/// ```
+///
+/// Methods must take `&self`, have no generics, and return
+/// `Result<T, ExtensionError>`. Arguments and return values must be
+/// postcard-serializable.
+#[proc_macro_attribute]
+pub fn notwig_ext_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
+    trait_macro::expand(attr, item)
 }

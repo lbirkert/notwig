@@ -35,6 +35,23 @@ Preload declarations are collected before any load-phase registration. Unload
 runs when the host drops the extension instance. The legacy
 `#[notwig_extension]` attribute is kept as an alias for `#[notwig_ext(load)]`.
 
+## Typed interfaces
+
+`#[notwig_ext_trait(id = "...", version = N)]` generates a typed RPC handle,
+request/response enums, and a dispatcher for an extension interface:
+
+```rust
+#[notwig_ext_trait(id = "com.example.echo", version = 1)]
+pub trait Echo {
+    fn echo(&self, value: String) -> Result<String, notwig_ext_api::ExtensionError>;
+}
+```
+
+Methods must take `&self`, have no generics/lifetimes, and return
+`Result<T, ExtensionError>`. Arguments and return values are postcard encoded.
+The generated handle takes an [`RpcTransport`] and `RemoteTarget`; the generated
+`EchoDispatcher` is implemented for every `Echo + Send + Sync` implementation.
+
 The load entrypoint runs once, lazily, when the host first calls an ABI export
 or explicitly calls `notwig_ext_load`. On `wasm32-unknown-unknown` the macro
 generates `notwig_abi_version`, `notwig_ext_load`,
