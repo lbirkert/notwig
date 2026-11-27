@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-
 use notwig_core::edit::{self, Plan, Selection};
 use notwig_core::sequencer::{AudioClipData, AudioSlice};
-use notwig_core::{Curve, CurvePoint, RangeMus, SliceId, TempoMap, TimeMus};
+use notwig_core::{RangeMus, SliceId, TempoMap, TimeMus};
 use notwig_ext_api::CurveTarget;
 
 use crate::Clipboard;
@@ -16,6 +14,7 @@ use super::model::{
 };
 use super::state::{AudioSubEditor, ClipEditorState};
 use crate::views::arranger::edit::paste_target;
+use crate::widgets::curve_selection::{CurveEditActions, apply_curve_edit_actions};
 
 pub fn handle_clip_editor_actions(
     ui: &mut NotwigUi,
@@ -150,86 +149,34 @@ fn handle_curve_actions(
     let mut curve = super::curve::target_curve(audio, target)
         .cloned()
         .unwrap_or_default();
-    let mut changed = false;
-    if select_all {
-        state.curve_selection = (0..curve.len()).collect();
-        state.bar_selection = None;
-    }
-    let selected = selected_curve_points(&curve, &state.curve_selection);
-    if (copy || cut) && !selected.is_empty() {
+    let paste_at = state.bar_selection.map_or(playhead, |range| range.start) - clip.range.start;
+    let actions = CurveEditActions {
+        copy,
+        cut,
+        paste,
+        duplicate,
+        delete,
+        select_all,
+        paste_at,
+    };
+    let clipboard_points = match clipboard {
+        Clipboard::Curve(points) => points.as_slice(),
+        _ => &[],
+    };
+    let result = apply_curve_edit_actions(
+        &mut curve,
+        &mut state.curve_selection,
+        &mut state.bar_selection,
+        &actions,
+        clipboard_points,
+    );
+    if let Some(points) = result.copied {
         ctx.copy_text("notwig-clipboard".into());
-        ui.emit(UiIntent::SetClipboard(Clipboard::Curve(selected.clone())));
-        if cut {
-            curve = remove_curve_points(&curve, &state.curve_selection);
-            state.curve_selection.clear();
-            state.bar_selection = None;
-            changed = true;
-        }
-    }
-    if delete && !state.curve_selection.is_empty() {
-        curve = remove_curve_points(&curve, &state.curve_selection);
-        state.curve_selection.clear();
-        state.bar_selection = None;
-        changed = true;
-    }
-    if duplicate && !selected.is_empty() {
-        let start = selected
-            .iter()
-            .map(|point| point.time)
-            .min()
-            .unwrap_or_else(TimeMus::zero);
-        let end = selected
-            .iter()
-            .map(|point| point.time)
-            .max()
-            .unwrap_or_else(TimeMus::zero);
-        let mut offset = state
-            .bar_selection
-            .map_or(end - start, notwig_core::RangeMus::length);
-        if offset <= TimeMus::zero() {
-            offset = TimeMus::new(1, 1);
-        }
-        let copies: Vec<CurvePoint> = selected
-            .iter()
-            .map(|point| {
-                let mut copy = *point;
-                copy.time = copy.time + offset;
-                copy
-            })
-            .collect();
-        if let Some(selection) = append_curve_points(&mut curve, copies) {
-            state.curve_selection = selection;
-            state.bar_selection = state
-                .bar_selection
-                .and_then(|range| RangeMus::new(range.start + offset, range.end + offset).ok());
-            changed = true;
-        }
+        ui.emit(UiIntent::SetClipboard(Clipboard::Curve(points)));
     }
     if paste {
         match clipboard {
-            Clipboard::Curve(points) if !points.is_empty() => {
-                let at =
-                    state.bar_selection.map_or(playhead, |range| range.start) - clip.range.start;
-                let origin = points
-                    .iter()
-                    .map(|point| point.time)
-                    .min()
-                    .unwrap_or_else(TimeMus::zero);
-                let offset = at - origin;
-                let copies: Vec<CurvePoint> = points
-                    .iter()
-                    .map(|point| {
-                        let mut copy = *point;
-                        copy.time = copy.time + offset;
-                        copy
-                    })
-                    .collect();
-                if let Some(selection) = append_curve_points(&mut curve, copies) {
-                    state.curve_selection = selection;
-                    state.bar_selection = None;
-                    changed = true;
-                }
-            }
+            Clipboard::Curve(points) if !points.is_empty() => {}
             Clipboard::Curve(_) | Clipboard::Empty => {
                 ui.emit(UiIntent::ClipboardError("Clipboard is empty.".into()));
             }
@@ -244,52 +191,11 @@ fn handle_curve_actions(
             )),
         }
     }
-    if changed {
+    if result.changed {
         let stored = (!curve.is_empty()).then_some(curve);
         super::curve::target_curve_mut(audio, target).clone_from(&stored);
         super::curve::emit_curve_intent(ui, target, state.clip_id, stored, false);
     }
-}
-
-fn selected_curve_points(curve: &Curve, selection: &BTreeSet<usize>) -> Vec<CurvePoint> {
-    selection
-        .iter()
-        .filter_map(|index| curve.points().get(*index))
-        .copied()
-        .collect()
-}
-
-fn remove_curve_points(curve: &Curve, selection: &BTreeSet<usize>) -> Curve {
-    Curve::from_points(
-        curve
-            .points()
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !selection.contains(index))
-            .map(|(_, point)| *point),
-    )
-    .unwrap_or_else(|_| curve.clone())
-}
-
-fn append_curve_points(curve: &mut Curve, copies: Vec<CurvePoint>) -> Option<BTreeSet<usize>> {
-    let mut tagged: Vec<(bool, CurvePoint)> = curve
-        .points()
-        .iter()
-        .copied()
-        .map(|point| (false, point))
-        .collect();
-    for point in copies {
-        tagged.push((true, point));
-    }
-    tagged.sort_by_key(|(_, point)| point.time);
-    let selection = tagged
-        .iter()
-        .enumerate()
-        .filter(|(_, (added, _))| *added)
-        .map(|(index, _)| index)
-        .collect();
-    *curve = Curve::from_points(tagged.into_iter().map(|(_, point)| point)).ok()?;
-    Some(selection)
 }
 
 fn publish_clipboard(

@@ -3,6 +3,9 @@
 use egui::{Color32, Painter, Rect, Stroke, pos2};
 use notwig_ext_api::AudioWaveformPreview;
 
+pub use crate::widgets::curve_selection::{
+    CurveEditActions, CurveEditResult, apply_curve_edit_actions,
+};
 pub use crate::widgets::line_editor::{
     LineEditorConfig, LineEditorResponse, LineEditorState, show, show_with_background,
 };

@@ -6,6 +6,8 @@ mod snap;
 pub(crate) mod area;
 #[cfg(feature = "app")]
 pub(crate) mod brand;
+#[cfg(any(feature = "app", feature = "extension-ui"))]
+pub(crate) mod curve_selection;
 #[cfg(feature = "app")]
 pub(crate) mod drop_target;
 #[cfg(feature = "app")]

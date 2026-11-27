@@ -6,7 +6,7 @@
 //! bounded audio-editor context.
 
 use notwig_core::sequencer::{AudioClipData, AudioSlice};
-use notwig_core::{ClipId, RangeMus, TimeMus, TrackId};
+use notwig_core::{ClipId, CurvePoint, RangeMus, TimeMus, TrackId};
 use serde::{Deserialize, Serialize};
 
 use crate::command::{CommandEffect, MAX_COMMAND_EDITS};
@@ -19,6 +19,8 @@ pub const AUDIO_SUB_EDITOR_POINT: &str = "notwig.audio_editor.sub_editor";
 pub const AUDIO_SUB_EDITOR_CONTRACT: &str = "notwig.audio_editor.sub_editor@1";
 /// Maximum length of a sub-editor title.
 pub const MAX_AUDIO_SUB_EDITOR_TITLE_BYTES: usize = 64;
+/// Maximum number of points carried by one sub-editor clipboard update.
+pub const MAX_AUDIO_SUB_EDITOR_CLIPBOARD_POINTS: usize = 4096;
 
 /// Canonical audio-clip curve a shared curve sub-editor edits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +176,39 @@ impl AudioSubEditorClip {
     }
 }
 
+/// Resolved selection gestures supplied to an extension-drawn sub-editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioSubEditorSelectionActions {
+    /// Copy the current selection.
+    pub copy: bool,
+    /// Cut the current selection.
+    pub cut: bool,
+    /// Paste the shared curve clipboard.
+    pub paste: bool,
+    /// Duplicate the current selection.
+    pub duplicate: bool,
+    /// Delete the current selection.
+    pub delete: bool,
+    /// Select every point.
+    pub select_all: bool,
+    /// Clip-local paste position.
+    pub paste_at: TimeMus,
+}
+
+impl Default for AudioSubEditorSelectionActions {
+    fn default() -> Self {
+        Self {
+            copy: false,
+            cut: false,
+            paste: false,
+            duplicate: false,
+            delete: false,
+            select_all: false,
+            paste_at: TimeMus::zero(),
+        }
+    }
+}
+
 /// Bounded audio-editor state supplied to an extension-drawn sub-editor.
 ///
 /// The guest receives this serialized before each draw and must not retain it.
@@ -227,6 +262,12 @@ pub struct AudioSubEditorContext {
     /// Host-rendered waveform underlay columns.
     #[serde(default)]
     pub waveform: AudioWaveformPreview,
+    /// Resolved selection gestures for this frame.
+    #[serde(default)]
+    pub actions: AudioSubEditorSelectionActions,
+    /// Shared curve clipboard points.
+    #[serde(default)]
+    pub clipboard: Vec<CurvePoint>,
     /// Active host theme.
     pub theme: ThemeSnapshot,
     /// Pointer, keyboard, and focus snapshot for the panel path.
@@ -241,6 +282,45 @@ pub struct AudioSubEditorFrame {
     pub panel: PanelFrame,
     /// Host-owned edits requested by this frame.
     pub effect: CommandEffect,
+    /// Points to publish to the shared curve clipboard.
+    #[serde(default)]
+    pub clipboard: Option<Vec<CurvePoint>>,
+}
+
+/// Result returned by one extension sub-editor draw.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioSubEditorResponse {
+    /// Host-owned edits requested by this frame.
+    pub effect: CommandEffect,
+    /// Points to publish to the shared curve clipboard.
+    #[serde(default)]
+    pub clipboard: Option<Vec<CurvePoint>>,
+}
+
+impl Default for AudioSubEditorResponse {
+    fn default() -> Self {
+        Self {
+            effect: CommandEffect::None,
+            clipboard: None,
+        }
+    }
+}
+
+impl AudioSubEditorResponse {
+    /// Returns a response with no edits.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
+}
+
+impl From<CommandEffect> for AudioSubEditorResponse {
+    fn from(effect: CommandEffect) -> Self {
+        Self {
+            effect,
+            clipboard: None,
+        }
+    }
 }
 
 impl AudioSubEditorFrame {
@@ -259,6 +339,13 @@ impl AudioSubEditorFrame {
                 return Err("sub-editor error message is too long".into());
             }
         }
+        if self
+            .clipboard
+            .as_ref()
+            .is_some_and(|points| points.len() > MAX_AUDIO_SUB_EDITOR_CLIPBOARD_POINTS)
+        {
+            return Err("sub-editor clipboard has too many points".into());
+        }
         Ok(())
     }
 }
@@ -269,13 +356,19 @@ impl AudioSubEditorFrame {
 /// validation, and undo. Implementations draw only inside their panel and
 /// return host-owned edits. Return [`CommandEffect::None`] on frames that do
 /// not commit an edit; the host applies an `Apply` effect as one undo batch.
+/// Clipboard changes travel in [`AudioSubEditorResponse::clipboard`].
 pub trait AudioSubEditorExtension: Send + Sized + 'static {
     /// Creates a sub-editor instance. One instance is retained per clip and
     /// contribution id while the extension host is loaded.
     fn new() -> Self;
 
-    /// Draws the sub-editor panel and returns requested host edits.
-    fn draw(&mut self, ui: &mut egui::Ui, context: &AudioSubEditorContext) -> CommandEffect;
+    /// Draws the sub-editor panel and returns requested host edits and
+    /// clipboard updates.
+    fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        context: &AudioSubEditorContext,
+    ) -> AudioSubEditorResponse;
 }
 
 /// Host-side sink for extension-drawn audio sub-editors.

@@ -249,7 +249,7 @@ describes the extension subsystem and crate boundaries.
 | `widgets/snap.rs` | Shared `SnapSettings`/`SnapLevel` values, adaptive step selection, and snap math |
 | `widgets/timeline/` | Shared beat strip (`beat_strip/`: interaction and paint), clip visuals, grid, snap controls, selection, drop preview, interaction math |
 | `widgets/line_editor.rs` | Reusable point/segment line editor for automation, clip gain, pan, and other modulatable values |
-| `extension_ui.rs` | Extension-facing re-export of the curve editor plus waveform-preview underlay rendering, enabled by the `extension-ui` feature |
+| `extension_ui.rs` | Extension-facing re-export of the curve editor, shared curve selection operations, and waveform-preview underlay rendering, enabled by the `extension-ui` feature |
 | `widgets/area.rs` | Shared single-mesh filled-area rendering for curves and waveforms |
 | `fine_drag.rs` | Shared coarse/fine drag offsets that accumulate across Shift toggles |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |

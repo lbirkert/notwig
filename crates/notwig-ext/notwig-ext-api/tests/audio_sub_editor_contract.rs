@@ -1,8 +1,8 @@
 use notwig_core::sequencer::AudioClipData;
 use notwig_core::{AssetId, ClipId, Curve, CurvePoint, Db, FadeShape, RangeMus, TimeMus, TrackId};
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorExtension, CommandEdit, CommandEffect, Extension,
-    PanelInput, ThemeSnapshot,
+    AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorResponse, CommandEdit,
+    CommandEffect, Extension, PanelInput, ThemeSnapshot,
 };
 use uuid::Uuid;
 
@@ -17,17 +17,17 @@ impl AudioSubEditorExtension for TestEditor {
         &mut self,
         ui: &mut notwig_ext_api::egui::Ui,
         context: &AudioSubEditorContext,
-    ) -> CommandEffect {
+    ) -> AudioSubEditorResponse {
         ui.label("Test editor");
         let curve = Curve::from_points([CurvePoint::new(TimeMus::zero(), 0.25)]).ok();
-        CommandEffect::Apply {
+        AudioSubEditorResponse::from(CommandEffect::Apply {
             edits: vec![CommandEdit::AudioCurves {
                 clip_id: context.clip_id,
                 gain_curve: None,
                 pan_curve: Some(curve),
             }],
             ui: Vec::new(),
-        }
+        })
     }
 }
 
@@ -67,6 +67,8 @@ fn context() -> AudioSubEditorContext {
         width: 320.0,
         height: 180.0,
         waveform: notwig_ext_api::AudioWaveformPreview::default(),
+        actions: notwig_ext_api::AudioSubEditorSelectionActions::default(),
+        clipboard: Vec::new(),
         theme: ThemeSnapshot::default(),
         input: PanelInput {
             width: 320.0,

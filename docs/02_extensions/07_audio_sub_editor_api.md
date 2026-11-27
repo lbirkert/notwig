@@ -93,6 +93,8 @@ reloads or the extension host is dropped.
   viewport, and zoom;
 - `AudioWaveformPreview`, a host-rendered waveform underlay with one min/max
   column per panel point;
+- resolved selection gestures (`copy`, `cut`, `paste`, `duplicate`, `delete`,
+  `select_all`, and clip-local `paste_at`) and the shared curve clipboard;
 - panel size, theme, and the same pointer/keyboard input snapshot used by device
   panels.
 
@@ -118,11 +120,18 @@ The context already contains the timeline mapping fields needed to construct a
 `TimelineGrid`. The editor instance should retain `LineEditorState`, selection,
 and time-selection state across frames.
 
+Selection operations are shared with the built-in clip editors. Call
+`notwig_ui::extension_ui::apply_curve_edit_actions` with `context.actions` and
+`context.clipboard` before drawing. It implements the same select-all, copy,
+cut, paste, duplicate, and delete semantics as the Gain editor. Publish copied
+or cut points through `AudioSubEditorResponse::clipboard`; the host updates the
+shared curve clipboard so pan and Gain can paste between each other.
+
 ## Edits and undo
 
-The guest returns a `CommandEffect`. The host accepts the same host-owned edit
-families as commands, including `AudioSlices`, `AudioCurves`, `ClipFields`, and
-UI requests. `AudioCurves` carries an optional gain change and an optional pan
+The guest returns an `AudioSubEditorResponse` containing a `CommandEffect` and
+optional clipboard points. The host accepts the same host-owned edit families as
+commands, including `AudioSlices`, `AudioCurves`, `ClipFields`, and UI requests. `AudioCurves` carries an optional gain change and an optional pan
 change; the outer option means "leave unchanged" and the inner option sets or
 clears the curve.
 

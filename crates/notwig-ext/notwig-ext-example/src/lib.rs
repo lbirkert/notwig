@@ -14,8 +14,8 @@ use notwig_core::Curve;
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorExtension, CommandContext, CommandEdit, CommandEffect,
-    CommandExtension, Extension, notwig_extension,
+    AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorResponse, CommandContext,
+    CommandEdit, CommandEffect, CommandExtension, Extension, notwig_extension,
 };
 
 /// Humanize command id. This must match `extension.json`.
@@ -42,8 +42,15 @@ impl AudioSubEditorExtension for PanSubEditor {
         &mut self,
         ui: &mut notwig_ext_api::egui::Ui,
         context: &AudioSubEditorContext,
-    ) -> CommandEffect {
+    ) -> AudioSubEditorResponse {
         let mut curve = context.clip.pan_curve.clone().unwrap_or_default();
+        let edit = notwig_ui::extension_ui::apply_curve_edit_actions(
+            &mut curve,
+            &mut self.selected,
+            &mut self.time_selection,
+            &context.actions,
+            &context.clipboard,
+        );
         let timeline = notwig_ui::extension_ui::TimelineGrid {
             start: context.viewport_start - context.clip_range.start,
             pixels_per_beat: context.pixels_per_beat,
@@ -86,10 +93,14 @@ impl AudioSubEditorExtension for PanSubEditor {
                 );
             },
         );
-        if response.committed {
+        let effect = if edit.changed || response.committed {
             pan_effect(context, &curve)
         } else {
             CommandEffect::None
+        };
+        AudioSubEditorResponse {
+            effect,
+            clipboard: edit.copied,
         }
     }
 }
@@ -255,6 +266,8 @@ mod tests {
                     400
                 ],
             },
+            actions: notwig_ext_api::AudioSubEditorSelectionActions::default(),
+            clipboard: Vec::new(),
             theme: notwig_ext_api::ThemeSnapshot::default(),
             input: notwig_ext_api::panel_frame::PanelInput {
                 width: 400.0,
@@ -278,6 +291,60 @@ mod tests {
             }
             other => panic!("expected an apply effect, got {other:?}"),
         }
+    }
+
+    fn draw_pan_editor(
+        editor: &mut PanSubEditor,
+        context: &AudioSubEditorContext,
+    ) -> AudioSubEditorResponse {
+        let ctx = notwig_ext_api::egui::Context::default();
+        let raw = notwig_ext_api::egui::RawInput {
+            screen_rect: Some(notwig_ext_api::egui::Rect::from_min_size(
+                notwig_ext_api::egui::Pos2::ZERO,
+                notwig_ext_api::egui::vec2(context.width, context.height),
+            )),
+            ..Default::default()
+        };
+        let mut response = AudioSubEditorResponse::none();
+        let _ = ctx.run(raw, |ctx| {
+            notwig_ext_api::egui::CentralPanel::default().show(ctx, |ui| {
+                response = editor.draw(ui, context);
+            });
+        });
+        response
+    }
+
+    #[test]
+    fn pan_editor_selection_uses_shared_copy_and_paste() {
+        let mut editor = PanSubEditor::new();
+        editor.selected.insert(0);
+        let mut context = pan_context();
+        context.actions = notwig_ext_api::AudioSubEditorSelectionActions {
+            copy: true,
+            ..Default::default()
+        };
+        let copied = draw_pan_editor(&mut editor, &context).clipboard;
+        assert_eq!(copied.as_ref().map(Vec::len), Some(1));
+
+        let mut paste_context = context.clone();
+        paste_context.actions = notwig_ext_api::AudioSubEditorSelectionActions {
+            paste: true,
+            paste_at: TimeMus::new(2, 1),
+            ..Default::default()
+        };
+        paste_context.clipboard = copied.expect("copied points");
+        let response = draw_pan_editor(&mut editor, &paste_context);
+        let CommandEffect::Apply { edits, .. } = response.effect else {
+            panic!("expected a pan curve edit");
+        };
+        let CommandEdit::AudioCurves {
+            pan_curve: Some(Some(curve)),
+            ..
+        } = &edits[0]
+        else {
+            panic!("expected a pan curve edit");
+        };
+        assert_eq!(curve.points().len(), 2);
     }
 
     #[test]

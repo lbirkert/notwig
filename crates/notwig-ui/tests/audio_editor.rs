@@ -383,6 +383,7 @@ impl notwig_ext_api::AudioSubEditorHost for RecordingSubEditorHost {
         Some(notwig_ext_api::AudioSubEditorFrame {
             panel: notwig_ext_api::PanelFrame::default(),
             effect: self.effect.clone(),
+            clipboard: None,
         })
     }
 }

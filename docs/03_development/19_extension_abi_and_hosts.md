@@ -157,12 +157,14 @@ guest texture ids are remapped into a per-panel namespace. The last valid frame
 is reused after a transient draw error. `wants_keyboard` suppresses host
 shortcuts on the following frame.
 
-Custom audio sub-editors use the same `PanelFrame` payload wrapped in an
-`AudioSubEditorFrame` with a `CommandEffect`. The host validates both the panel
-and the edit budget. The context is an `AudioSubEditorContext` snapshot keyed by
-clip and contribution id; the guest never receives the project document. The
-host checks the captured document revision before applying an edit, and applies
-an `Apply` effect as one undo batch.
+Extension audio sub-editors use the same `PanelFrame` payload wrapped in an
+`AudioSubEditorFrame` with a `CommandEffect` and optional clipboard points. The
+host validates the panel, edit budget, and clipboard size. The context is an
+`AudioSubEditorContext` snapshot keyed by clip and contribution id; it also
+carries resolved selection gestures and the shared curve clipboard. The guest
+never receives the project document. The host checks the captured document
+revision before applying an edit, applies an `Apply` effect as one undo batch,
+and publishes returned clipboard points through the normal curve clipboard.
 
 ## 8. Known gaps and documentation drift
 

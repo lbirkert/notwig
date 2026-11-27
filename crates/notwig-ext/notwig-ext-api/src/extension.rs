@@ -7,7 +7,9 @@ use notwig_core::dsp::DeviceSpec;
 use crate::abi::{
     AbiStatus, DeviceStore, pack_ptr_len, packed_pointer, with_audio_frames, with_audio_frames_ptr,
 };
-use crate::audio_editor::{AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorFrame};
+use crate::audio_editor::{
+    AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorFrame, AudioSubEditorResponse,
+};
 use crate::command::{CommandContext, CommandEffect, CommandExtension, MAX_COMMAND_EDITS};
 use crate::context::{DeviceDrawContext, DeviceMeterSnapshot};
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
@@ -113,11 +115,19 @@ impl<T: DeviceExtension> DeviceInstance for T {
 }
 
 trait SubEditorInstance: Send {
-    fn draw(&mut self, ui: &mut egui::Ui, context: &AudioSubEditorContext) -> CommandEffect;
+    fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        context: &AudioSubEditorContext,
+    ) -> AudioSubEditorResponse;
 }
 
 impl<T: AudioSubEditorExtension> SubEditorInstance for T {
-    fn draw(&mut self, ui: &mut egui::Ui, context: &AudioSubEditorContext) -> CommandEffect {
+    fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        context: &AudioSubEditorContext,
+    ) -> AudioSubEditorResponse {
         AudioSubEditorExtension::draw(self, ui, context)
     }
 }
@@ -472,16 +482,20 @@ impl Extension {
                     ..
                 } = slot;
                 let panel_context = panel_context.get_or_insert_with(egui::Context::default);
-                let mut effect = CommandEffect::None;
+                let mut response = AudioSubEditorResponse::none();
                 let panel = crate::panel_frame::run_frame(
                     panel_context,
                     context.input.clone(),
                     &context.theme,
                     |ui| {
-                        effect = instance.draw(ui, &context);
+                        response = instance.draw(ui, &context);
                     },
                 );
-                let frame = AudioSubEditorFrame { panel, effect };
+                let frame = AudioSubEditorFrame {
+                    panel,
+                    effect: response.effect,
+                    clipboard: response.clipboard,
+                };
                 frame.validate().ok()?;
                 Some(frame)
             })

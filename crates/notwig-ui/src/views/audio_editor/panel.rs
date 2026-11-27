@@ -533,6 +533,37 @@ impl NotwigUi {
         }
         let focused = response.has_focus();
         let input = panel_input(ui, lanes, lanes.size(), focused);
+        let actions = if focused
+            && self.edit_focus == crate::state::EditFocus::ClipEditor
+            && self.shortcut_editor.capture.is_none()
+        {
+            let ctx = ui.ctx();
+            let (copy, cut, paste) = self.shortcuts.copy_cut_paste_pressed(ctx);
+            notwig_ext_api::AudioSubEditorSelectionActions {
+                copy,
+                cut,
+                paste,
+                duplicate: self
+                    .shortcuts
+                    .was_pressed(ctx, crate::commands::ShortcutCommand::Duplicate),
+                delete: self
+                    .shortcuts
+                    .was_pressed(ctx, crate::commands::ShortcutCommand::Delete),
+                select_all: self
+                    .shortcuts
+                    .was_pressed(ctx, crate::commands::ShortcutCommand::SelectAll),
+                paste_at: state
+                    .bar_selection
+                    .map_or(runtime.playhead, |range| range.start)
+                    - clip.range.start,
+            }
+        } else {
+            notwig_ext_api::AudioSubEditorSelectionActions::default()
+        };
+        let clipboard = match &runtime.clipboard {
+            crate::Clipboard::Curve(points) => points.clone(),
+            _ => Vec::new(),
+        };
         let context = AudioSubEditorContext {
             editor_id: editor.id.clone(),
             revision: doc.revision,
@@ -572,6 +603,8 @@ impl NotwigUi {
                 timeline_grid,
                 lanes,
             ),
+            actions,
+            clipboard,
             theme: theme_snapshot(),
             input,
         };
@@ -585,8 +618,12 @@ impl NotwigUi {
             return;
         };
         paint_panel_frame_keyed(self, ui, &key, &frame.panel, lanes);
-        if frame.panel.wants_keyboard && focused {
+        if focused {
             self.extension_panel_keyboard = true;
+        }
+        if let Some(points) = frame.clipboard {
+            ui.ctx().copy_text("notwig-clipboard".into());
+            self.emit(UiIntent::SetClipboard(crate::Clipboard::Curve(points)));
         }
         if !matches!(frame.effect, CommandEffect::None) {
             self.emit(UiIntent::ApplyExtensionEffect {
