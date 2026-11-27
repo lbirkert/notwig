@@ -4,10 +4,10 @@ An extension device implements `DeviceExtension` and registers itself from the
 macro entrypoint:
 
 ```rust
-use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
+use notwig_ext_api::{DeviceExtension, ExtensionBuilder, notwig_ext};
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_device::<MyDevice>();
 }
 ```

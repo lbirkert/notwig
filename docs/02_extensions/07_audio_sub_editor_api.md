@@ -21,7 +21,7 @@ extension registers at runtime.
   "name": "Clip Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 6,
+  "api_version": 7,
   "capabilities": ["audio_editor"],
   "contributes": [
     {
@@ -51,7 +51,7 @@ Implement `AudioSubEditorExtension` and register it under the contribution id:
 ```rust
 use notwig_ext_api::{
     AudioSubEditorContext, AudioSubEditorExtension, CommandEdit, CommandEffect, Extension,
-    notwig_extension,
+    notwig_ext,
 };
 
 struct PanEditor;
@@ -70,8 +70,8 @@ impl AudioSubEditorExtension for PanEditor {
     }
 }
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     // Must match the contribution id in extension.json.
     extension.register_audio_sub_editor::<PanEditor>("com.example.clip-tools.pan");
 }

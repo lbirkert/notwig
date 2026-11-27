@@ -1,8 +1,12 @@
 # Typed extension system
 
-Status: proposed architecture. This page replaces the earlier message-based
-sketch. The target is a flat, typed, registry-backed extension system with
-macro-generated RPC proxies over the existing WASM/native/browser transports.
+Status: phase foundation implemented; typed registry still proposed. This page
+replaces the earlier message-based sketch. The target is a flat, typed,
+registry-backed extension system with macro-generated RPC proxies over the
+existing WASM/native/browser transports. The preload/load/unload builders,
+macros, ABI exports, host calls, stock/example migration, and scaffold are in
+place. Host-wide point collection, typed interfaces, handles, replacement, and
+load-order resolution remain to be implemented.
 
 Related: [`Extension Platform Architecture`](23_extension_platform_architecture.md),
 [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md), and
@@ -145,8 +149,9 @@ machinery is allowed to be hidden.
   sub-editors, and other runtime contributions.
 - `#[notwig_ext(unload)]` releases extension-owned resources and state.
 
-One binary may define at most one function for each phase. Any phase may be
-omitted, but a package that owns extension points must provide `preload`.
+One binary may define at most one function for each phase. `load` is required
+because it generates the main contribution ABI. `preload` and `unload` are
+optional, but a package that owns extension points must provide `preload`.
 
 ```rust
 // Point owner: com.notwig.track
@@ -161,8 +166,8 @@ pub fn load(extension: &mut ExtensionBuilder) {
 }
 
 #[notwig_ext(unload)]
-pub fn unload(context: &mut UnloadContext) {
-    context.flush_state();
+pub fn unload(_context: &mut UnloadContext) {
+    // Release extension-owned resources; the host owns instance teardown.
 }
 ```
 
@@ -180,12 +185,12 @@ The phase builders enforce the separation at compile time:
 - `PreloadBuilder` exposes point declaration only;
 - `ExtensionBuilder` exposes implementation and existing contribution
   registration, but not new point declarations;
-- `UnloadContext` exposes cleanup and host-owned resource release.
+- `UnloadContext` marks the unload phase boundary; the host owns instance
+  teardown after the callback returns.
 
 This removes the single-entrypoint restriction while keeping one binary per
-extension package. During migration the old `#[notwig_extension]` form may map
-to `#[notwig_ext(load)]` with a deprecation warning, then is removed at the ABI
-bump.
+extension package. The old `#[notwig_extension]` form is kept as an alias for
+`#[notwig_ext(load)]` during migration and can be removed in a later ABI bump.
 
 ### 3.3 Registration
 

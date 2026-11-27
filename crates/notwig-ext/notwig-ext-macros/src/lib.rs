@@ -10,17 +10,20 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{ItemFn, parse_macro_input};
 
-/// Generates the Notwig extension ABI around an entrypoint function.
+/// Generates the Notwig extension ABI around a load-phase entrypoint.
+///
+/// This is the legacy single-entrypoint attribute. New extensions should use
+/// [`macro@notwig_ext`] with explicit phases.
 ///
 /// ```ignore
 /// #[notwig_extension]
-/// pub fn extension(extension: &mut notwig_ext_api::Extension) {
+/// pub fn extension(extension: &mut notwig_ext_api::ExtensionBuilder) {
 ///     extension.register_device::<MyDevice>();
 /// }
 /// ```
 ///
 /// The entrypoint runs once, lazily, when the host first calls an ABI export.
-/// Each extension must contain exactly one `#[notwig_extension]` entrypoint.
+/// Each extension must contain exactly one load-phase entrypoint.
 ///
 /// The macro emits a WASM ABI when compiled for `wasm32-unknown-unknown` and a
 /// native shared-library ABI for every other target. Native exports pass
@@ -30,19 +33,18 @@ use syn::{ItemFn, parse_macro_input};
 /// # Entrypoint signature
 ///
 /// The annotated function must be a non-`async` function taking exactly one
-/// `&mut notwig_ext_api::Extension` argument. The macro takes no options. A
-/// duplicate annotation in one crate produces conflicting `notwig_*` exports at
-/// link time, so exactly one entrypoint may exist per compiled extension.
+/// `&mut notwig_ext_api::ExtensionBuilder` argument. A duplicate annotation in
+/// one crate produces conflicting `notwig_*` exports at link time.
 ///
 /// # Generated exports
 ///
-/// Both ABIs export `notwig_abi_version`, `notwig_device_describe`,
-/// `notwig_device_create`, `notwig_device_destroy`, `notwig_device_prepare`,
-/// `notwig_device_set_param`, `notwig_device_process`, `notwig_device_latency`,
-/// `notwig_device_draw`, `notwig_audio_sub_editor_create`,
-/// `notwig_audio_sub_editor_destroy`, and `notwig_audio_sub_editor_draw`. The
-/// WASM build additionally exports `notwig_alloc` and `notwig_free` for the
-/// host scratch heap.
+/// Both ABIs export `notwig_abi_version`, `notwig_ext_load`,
+/// `notwig_device_describe`, `notwig_device_create`, `notwig_device_destroy`,
+/// `notwig_device_prepare`, `notwig_device_set_param`, `notwig_device_process`,
+/// `notwig_device_latency`, `notwig_device_draw`,
+/// `notwig_audio_sub_editor_create`, `notwig_audio_sub_editor_destroy`, and
+/// `notwig_audio_sub_editor_draw`. The WASM build additionally exports
+/// `notwig_alloc` and `notwig_free` for the host scratch heap.
 ///
 /// # ABI and panics
 ///
@@ -58,23 +60,52 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
         return syn::Error::new(
             proc_macro2::Span::call_site(),
-            "notwig_extension takes no options",
+            "notwig_extension takes no options; use notwig_ext(load) for the phased form",
         )
         .to_compile_error()
         .into();
     }
+    expand_load(item)
+}
+
+/// Marks one extension lifecycle phase.
+///
+/// Supported forms are `#[notwig_ext(preload)]`, `#[notwig_ext(load)]`, and
+/// `#[notwig_ext(unload)]`. One binary may define at most one function per
+/// phase. Preload declares extension points, load registers implementations and
+/// contributions, and unload releases extension-owned resources.
+///
+/// `load` generates the main extension ABI and is required for packages that
+/// expose devices, commands, or sub-editors. The other phases are optional.
+#[proc_macro_attribute]
+pub fn notwig_ext(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let phase = attr.to_string();
+    match phase.trim() {
+        "load" => expand_load(item),
+        "preload" => expand_phase(item, Phase::Preload),
+        "unload" => expand_phase(item, Phase::Unload),
+        _ => syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "notwig_ext expects preload, load, or unload",
+        )
+        .to_compile_error()
+        .into(),
+    }
+}
+
+fn expand_load(item: TokenStream) -> TokenStream {
     let function = parse_macro_input!(item as ItemFn);
     if function.sig.asyncness.is_some() {
         return syn::Error::new_spanned(
             function.sig.fn_token,
-            "notwig_extension entrypoint must not be async",
+            "notwig_ext(load) entrypoint must not be async",
         )
         .to_compile_error()
         .into();
     }
     let entrypoint = &function.sig.ident;
-    let wasm_module = format_ident!("__notwig_extension_wasm_{}", entrypoint);
-    let native_module = format_ident!("__notwig_extension_native_{}", entrypoint);
+    let wasm_module = format_ident!("__notwig_ext_load_wasm_{}", entrypoint);
+    let native_module = format_ident!("__notwig_ext_load_native_{}", entrypoint);
     let wasm_draw_exports = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn notwig_device_draw(
@@ -257,22 +288,26 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
         mod #wasm_module {
             #![allow(unsafe_code)]
 
-            use std::sync::OnceLock;
-
             use notwig_ext_api::abi::{alloc, free, read_param_id, with_bytes, with_str};
-            use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension, NOTE_EVENT_BYTES};
+            use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension, ExtensionBuilder, NOTE_EVENT_BYTES};
 
-            static EXTENSION: OnceLock<Extension> = OnceLock::new();
+            fn load_extension(extension: &mut ExtensionBuilder) {
+                super::#entrypoint(extension);
+            }
 
             fn extension() -> &'static Extension {
-                EXTENSION.get_or_init(|| {
-                    let mut extension = Extension::new();
-                    super::#entrypoint(&mut extension);
-                    extension
-                })
+                notwig_ext_api::lifecycle::ensure_loaded(load_extension)
             }
 
             #panic_guards
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn notwig_ext_load() -> i32 {
+                catch_status(|| match notwig_ext_api::lifecycle::run_load(load_extension) {
+                    Ok(()) => AbiStatus::Ok.as_i32(),
+                    Err(status) => status.as_i32(),
+                })
+            }
 
             #[unsafe(no_mangle)]
             pub extern "C" fn notwig_abi_version() -> i32 {
@@ -409,24 +444,28 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
         mod #native_module {
             #![allow(unsafe_code)]
 
-            use std::sync::OnceLock;
-
             use notwig_ext_api::abi::{
                 read_param_id_ptr, with_bytes_ptr, with_str_ptr,
             };
-            use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension, NOTE_EVENT_BYTES};
+            use notwig_ext_api::{ABI_VERSION, AbiStatus, Extension, ExtensionBuilder, NOTE_EVENT_BYTES};
 
-            static EXTENSION: OnceLock<Extension> = OnceLock::new();
+            fn load_extension(extension: &mut ExtensionBuilder) {
+                super::#entrypoint(extension);
+            }
 
             fn extension() -> &'static Extension {
-                EXTENSION.get_or_init(|| {
-                    let mut extension = Extension::new();
-                    super::#entrypoint(&mut extension);
-                    extension
-                })
+                notwig_ext_api::lifecycle::ensure_loaded(load_extension)
             }
 
             #panic_guards
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn notwig_ext_load() -> i32 {
+                catch_status(|| match notwig_ext_api::lifecycle::run_load(load_extension) {
+                    Ok(()) => AbiStatus::Ok.as_i32(),
+                    Err(status) => status.as_i32(),
+                })
+            }
 
             /// Two-word pointer/length result shared with the native host.
             #[repr(C)]
@@ -592,4 +631,65 @@ pub fn notwig_extension(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
     expanded.into()
+}
+
+#[derive(Clone, Copy)]
+enum Phase {
+    Preload,
+    Unload,
+}
+
+fn expand_phase(item: TokenStream, phase: Phase) -> TokenStream {
+    let function = parse_macro_input!(item as ItemFn);
+    let phase_name = match phase {
+        Phase::Preload => "preload",
+        Phase::Unload => "unload",
+    };
+    if function.sig.asyncness.is_some() {
+        return syn::Error::new_spanned(
+            function.sig.fn_token,
+            format!("notwig_ext({phase_name}) entrypoint must not be async"),
+        )
+        .to_compile_error()
+        .into();
+    }
+    let entrypoint = &function.sig.ident;
+    let module = format_ident!("__notwig_ext_{}_guest_{}", phase_name, entrypoint);
+    let export = format_ident!("notwig_ext_{}", phase_name);
+    let body = match phase {
+        Phase::Preload => quote! {
+            match notwig_ext_api::lifecycle::run_preload(|extension| {
+                super::#entrypoint(extension);
+            }) {
+                Ok(()) => AbiStatus::Ok.as_i32(),
+                Err(status) => status.as_i32(),
+            }
+        },
+        Phase::Unload => quote! {
+            notwig_ext_api::lifecycle::run_unload(|context| {
+                super::#entrypoint(context);
+            });
+            AbiStatus::Ok.as_i32()
+        },
+    };
+    quote! {
+        #function
+
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        mod #module {
+            use notwig_ext_api::AbiStatus;
+
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #export() -> i32 {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    #body
+                })) {
+                    Ok(status) => status,
+                    Err(_) => AbiStatus::Error.as_i32(),
+                }
+            }
+        }
+    }
+    .into()
 }

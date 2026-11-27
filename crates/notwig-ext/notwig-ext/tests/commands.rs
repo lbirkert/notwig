@@ -22,7 +22,7 @@ fn module_wat() -> String {
         r#"(module
   (memory (export "memory") 1)
   (data (i32.const 1024) "{data}")
-  (func (export "notwig_abi_version") (result i32) i32.const 6)
+  (func (export "notwig_abi_version") (result i32) i32.const 7)
   (func (export "notwig_alloc") (param i32) (result i32) i32.const 2048)
   (func (export "notwig_free") (param i32 i32))
   (func (export "notwig_device_describe") (param i32 i32) (result i64) i64.const 0)
@@ -49,7 +49,7 @@ fn write_extension() -> PathBuf {
         "name": "Test Commands",
         "vendor": "Test",
         "version": "0.1.0",
-        "api_version": 6,
+        "api_version": 7,
         "entrypoints": [{ "entrypoint": "extension.wasm", "target": "wasm" }],
         "capabilities": ["command", "audio_editor"],
         "devices": [],

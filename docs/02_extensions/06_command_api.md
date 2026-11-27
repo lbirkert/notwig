@@ -21,7 +21,7 @@ still accepted for device-only packages.
   "name": "MIDI Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 6,
+  "api_version": 7,
   "capabilities": ["command"],
   "contributes": [
     {
@@ -60,8 +60,8 @@ Register a command from the same macro entrypoint used by devices:
 
 ```rust
 use notwig_ext_api::{
-    CommandContext, CommandEdit, CommandEffect, CommandExtension, Extension,
-    notwig_extension,
+    CommandContext, CommandEdit, CommandEffect, CommandExtension, ExtensionBuilder,
+    notwig_ext,
 };
 
 pub const HUMANIZE_COMMAND_ID: &str = "com.example.midi-tools.humanize";
@@ -101,8 +101,8 @@ impl CommandExtension for HumanizeCommand {
     }
 }
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_command::<HumanizeCommand>(HUMANIZE_COMMAND_ID);
 }
 ```

@@ -60,7 +60,7 @@ use notwig_core::dsp::{
     DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit,
 };
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, Extension, egui, panel_frame, notwig_extension};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame, notwig_ext};
 use notwig_ui::{knob, section};
 use uuid::Uuid;
 
@@ -89,8 +89,8 @@ impl GainDevice {
     }
 }
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_device::<GainDevice>();
 }
 
@@ -175,9 +175,14 @@ impl DeviceExtension for GainDevice {
 }
 ```
 
-`#[notwig_extension]` generates the ABI exports around the entrypoint: WASM
+`#[notwig_ext(load)]` generates the ABI exports around the entrypoint: WASM
 exports when compiling for `wasm32-unknown-unknown` and a native shared-library
 ABI on desktop targets. The device implements only the Rust surface.
+
+An extension may also define optional `#[notwig_ext(preload)]` and
+`#[notwig_ext(unload)]` functions. Preload declares extension points before any
+load-phase registration; unload releases extension-owned resources. The `load`
+phase is required and remains the place for devices, commands, and sub-editors.
 
 ## 3. Add the manifest
 
@@ -189,7 +194,7 @@ ABI on desktop targets. The device implements only the Rust surface.
   "name": "My Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 6,
+  "api_version": 7,
   "capabilities": ["device", "ui.panel"],
   "image": "icon.png",
   "devices": [

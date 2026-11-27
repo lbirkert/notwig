@@ -114,7 +114,7 @@ that needs them; most cross-layer types live in `notwig-core`.
 
 ### `notwig-ext-api` — extension SDK and panel transport
 
-ABI 6 adds extension-drawn audio sub-editor exports on top of the device panel
+ABI 7 adds preload/load/unload phase exports. ABI 6 added extension-drawn audio sub-editor exports on top of the device panel
 path. Extensions run a private `egui::Context` and return validated meshes,
 texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 
@@ -134,7 +134,7 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 | `command.rs` | Command contract, bounded context, host edit/UI families, declarative `when` evaluation, and `CommandExtension` |
 | `audio_editor.rs` | Audio sub-editor contracts: bounded context, clip/waveform snapshots, frame, extension renderer, and host trait |
 | `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, and guest draw dispatch |
-| `abi.rs` | ABI version (`6`), status codes, pointer/length packing, helper re-exports |
+| `abi.rs` | ABI version (`7`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -143,7 +143,7 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | `#[notwig_extension]` attribute macro; generates WASM exports or the native shared-library ABI around the entrypoint, including command execution |
+| `lib.rs` | `#[notwig_ext(preload/load/unload)]` attribute macro; generates phase exports plus WASM/native device, panel, command, and sub-editor ABI around the load entrypoint |
 
 ### `notwig-ext` — extension host
 
@@ -178,7 +178,7 @@ describes the extension subsystem and crate boundaries.
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | Humanize MIDI command and `#[notwig_extension]` registration |
+| `lib.rs` | Humanize MIDI command, preload point declaration, and `#[notwig_ext(load)]` registration |
 
 ### `notwig-ext-devices` — example extension devices
 
@@ -197,7 +197,7 @@ describes the extension subsystem and crate boundaries.
 | `gain.rs` | Small guest-egui gain example using shared `notwig-ui` controls |
 | `dynamics.rs` | Shared 50-frame peak/gain history and egui history-graph painter |
 | `ui.rs` | Shared knob caption helper |
-| `lib.rs` | `#[notwig_extension]` entrypoint registering all devices |
+| `lib.rs` | `#[notwig_ext(load)]` entrypoint registering all devices |
 
 ### `notwig-engine` — real-time execution
 
@@ -402,13 +402,13 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
 2. Implement `DeviceExtension`: return a `DeviceSpec` from `spec`, draw with
    `draw`, keep DSP in `process` over interleaved `f32` audio, and handle
    `note_event` if the device declares a note input. Register the type with
-   `#[notwig_extension]`.
+   `#[notwig_ext(load)]`.
 3. In `draw`, use the shared `notwig-ui` components (`knob`, meters,
    sections, dropdowns), keep IDs stable with `ui.make_persistent_id(...)`, and
    emit parameter changes through `panel_frame::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship a source `extension.json` with `api_version: 6`, no `entrypoints`, the
+4. Ship a source `extension.json` with `api_version: 7`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
    with `cargo notwig-ext build --entrypoint <target>` on each platform, then run

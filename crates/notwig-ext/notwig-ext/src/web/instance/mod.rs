@@ -35,11 +35,15 @@ pub(crate) struct WebExtensionInstance {
     sub_editor_destroy: Option<Function>,
     sub_editor_draw: Option<Function>,
     command: Option<Function>,
+    preload: Option<Function>,
+    load: Option<Function>,
+    unload: Option<Function>,
     host_global: String,
 }
 
 impl Drop for WebExtensionInstance {
     fn drop(&mut self) {
+        self.run_unload();
         let global = js_sys::global();
         let _ = Reflect::delete_property(&global, &JsValue::from_str(&self.host_global));
     }
@@ -70,7 +74,7 @@ impl WebExtensionInstance {
             )));
         }
 
-        Ok(Self {
+        let mut runtime = Self {
             _instance: instance,
             alloc: abi::export_function(&exports, "notwig_alloc")?,
             free: abi::export_function(&exports, "notwig_free")?,
@@ -103,8 +107,19 @@ impl WebExtensionInstance {
             command: Reflect::get(&exports, &JsValue::from_str("notwig_command_execute"))
                 .ok()
                 .and_then(|value| value.dyn_into().ok()),
+            preload: Reflect::get(&exports, &JsValue::from_str("notwig_ext_preload"))
+                .ok()
+                .and_then(|value| value.dyn_into().ok()),
+            load: Reflect::get(&exports, &JsValue::from_str("notwig_ext_load"))
+                .ok()
+                .and_then(|value| value.dyn_into().ok()),
+            unload: Reflect::get(&exports, &JsValue::from_str("notwig_ext_unload"))
+                .ok()
+                .and_then(|value| value.dyn_into().ok()),
             memory,
             host_global: glue.global_name,
-        })
+        };
+        runtime.run_phases()?;
+        Ok(runtime)
     }
 }

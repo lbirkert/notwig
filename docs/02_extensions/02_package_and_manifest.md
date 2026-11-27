@@ -43,7 +43,7 @@ builds a ZIP:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 6,
+  "api_version": 7,
   "capabilities": ["device", "ui.panel"],
   "devices": [
     {
@@ -71,7 +71,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
 | `version` | yes | Package version string. |
-| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `6`. |
+| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `7`. |
 | `entrypoints` | installed only | Ordered target builds; the CLI adds it. The first supported entry wins. |
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |

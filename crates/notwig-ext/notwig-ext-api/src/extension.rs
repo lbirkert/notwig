@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use notwig_core::ParamId;
@@ -12,6 +12,7 @@ use crate::audio_editor::{
 };
 use crate::command::{CommandContext, CommandEffect, CommandExtension, MAX_COMMAND_EDITS};
 use crate::context::{DeviceDrawContext, DeviceMeterSnapshot};
+use crate::extension_point::ExtensionPoint;
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 
 /// A device implemented by a WASM extension.
@@ -182,6 +183,7 @@ fn create_sub_editor<T: AudioSubEditorExtension>() -> Box<dyn SubEditorInstance>
 
 /// Extension runtime shared by the generated ABI exports.
 pub struct Extension {
+    extension_points: BTreeSet<String>,
     devices: BTreeMap<String, RegisteredDevice>,
     audio_sub_editors: BTreeMap<String, RegisteredAudioSubEditor>,
     commands: BTreeMap<String, RegisteredCommand>,
@@ -195,6 +197,7 @@ impl Extension {
     #[must_use]
     pub const fn new() -> Self {
         Self {
+            extension_points: BTreeSet::new(),
             devices: BTreeMap::new(),
             audio_sub_editors: BTreeMap::new(),
             commands: BTreeMap::new(),
@@ -204,11 +207,24 @@ impl Extension {
         }
     }
 
+    /// Declares one extension point.
+    ///
+    /// Point declarations belong to the preload phase, before contributors can
+    /// register implementations.
+    pub fn register_extension_point<T: ?Sized>(&mut self, point: ExtensionPoint<T>) {
+        self.extension_points.insert(point.id().to_owned());
+    }
+
+    /// Returns the declared extension point ids in stable order.
+    pub fn extension_points(&self) -> impl Iterator<Item = &str> {
+        self.extension_points.iter().map(String::as_str)
+    }
+
     /// Registers one device implementation.
     ///
     /// The device is keyed by [`DeviceExtension::spec`]'s `type_id`; registering
     /// the same type id again replaces the earlier implementation. This is
-    /// normally called once from the `#[notwig_extension]` entrypoint.
+    /// normally called once from the `#[notwig_ext(load)]` entrypoint.
     pub fn register_device<D: DeviceExtension>(&mut self) {
         let spec = D::spec();
         let type_id = spec.type_id.clone();
@@ -587,6 +603,107 @@ fn deliver_events(slot: &mut DeviceSlot, events: &[u8]) {
 }
 
 impl Default for Extension {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builder passed to `#[notwig_ext(preload)]`.
+///
+/// Only declarations that must exist before load-phase registration are
+/// exposed here.
+pub struct PreloadBuilder {
+    extension: Extension,
+}
+
+impl PreloadBuilder {
+    /// Creates an empty preload builder.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            extension: Extension::new(),
+        }
+    }
+
+    /// Declares one extension point.
+    pub fn register_extension_point<T: ?Sized>(&mut self, point: ExtensionPoint<T>) {
+        self.extension.register_extension_point(point);
+    }
+
+    pub(crate) fn into_extension(self) -> Extension {
+        self.extension
+    }
+}
+
+impl Default for PreloadBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builder passed to `#[notwig_ext(load)]`.
+///
+/// This exposes implementation and contribution registration, but not new
+/// point declarations.
+pub struct ExtensionBuilder {
+    extension: Extension,
+}
+
+impl ExtensionBuilder {
+    /// Creates an empty load builder.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            extension: Extension::new(),
+        }
+    }
+
+    pub(crate) fn from_extension(extension: Extension) -> Self {
+        Self { extension }
+    }
+
+    pub(crate) fn into_extension(self) -> Extension {
+        self.extension
+    }
+
+    /// Registers one device implementation.
+    pub fn register_device<D: DeviceExtension>(&mut self) {
+        self.extension.register_device::<D>();
+    }
+
+    /// Registers one extension-drawn audio sub-editor renderer.
+    pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
+        self.extension.register_audio_sub_editor::<T>(id);
+    }
+
+    /// Registers a command implementation under `id`.
+    pub fn register_command<C: CommandExtension>(&mut self, id: impl Into<String>) {
+        self.extension.register_command::<C>(id);
+    }
+}
+
+impl Default for ExtensionBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Context passed to `#[notwig_ext(unload)]`.
+///
+/// The host owns instance teardown; this context only marks the phase boundary.
+pub struct UnloadContext {
+    _private: (),
+}
+
+impl UnloadContext {
+    /// Creates an unload context.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+impl Default for UnloadContext {
     fn default() -> Self {
         Self::new()
     }

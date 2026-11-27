@@ -4,7 +4,7 @@
   "name": "Notwig Extension Examples",
   "vendor": "Notwig",
   "version": "0.2.0",
-  "api_version": 6,
+  "api_version": 7,
   "capabilities": ["command", "audio_editor"],
   "contributes": [
     {

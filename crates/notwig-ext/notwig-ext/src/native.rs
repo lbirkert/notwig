@@ -34,6 +34,7 @@ type SubEditorCreateFn = unsafe extern "C" fn(*const u8, usize) -> i32;
 type SubEditorDestroyFn = unsafe extern "C" fn(i32);
 type SubEditorDrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
 type CommandFn = unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> NativeBytes;
+type PhaseFn = unsafe extern "C" fn() -> i32;
 
 /// A loaded native extension shared library.
 pub(crate) struct NativeLibrary {
@@ -50,6 +51,9 @@ pub(crate) struct NativeLibrary {
     sub_editor_destroy: Option<SubEditorDestroyFn>,
     sub_editor_draw: Option<SubEditorDrawFn>,
     command: Option<CommandFn>,
+    preload: Option<PhaseFn>,
+    load: Option<PhaseFn>,
+    unload: Option<PhaseFn>,
 }
 
 impl NativeLibrary {
@@ -68,7 +72,7 @@ impl NativeLibrary {
                     "extension ABI {found} does not match host {ABI_VERSION}"
                 )));
             }
-            Ok(Arc::new(Self {
+            let loaded = Arc::new(Self {
                 describe: *library
                     .get(b"notwig_device_describe\0")
                     .map_err(|error| missing_export("notwig_device_describe", error))?,
@@ -109,8 +113,42 @@ impl NativeLibrary {
                     .get::<CommandFn>(b"notwig_command_execute\0")
                     .ok()
                     .map(|command| *command),
+                preload: library
+                    .get::<PhaseFn>(b"notwig_ext_preload\0")
+                    .ok()
+                    .map(|function| *function),
+                load: library
+                    .get::<PhaseFn>(b"notwig_ext_load\0")
+                    .ok()
+                    .map(|function| *function),
+                unload: library
+                    .get::<PhaseFn>(b"notwig_ext_unload\0")
+                    .ok()
+                    .map(|function| *function),
                 _library: library,
-            }))
+            });
+            loaded.run_phases()?;
+            Ok(loaded)
+        }
+    }
+
+    fn run_phases(&self) -> Result<(), ExtensionError> {
+        if let Some(preload) = self.preload {
+            check_status(unsafe { preload() })?;
+        }
+        if let Some(load) = self.load {
+            check_status(unsafe { load() })?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for NativeLibrary {
+    fn drop(&mut self) {
+        if let Some(unload) = self.unload {
+            unsafe {
+                let _ = unload();
+            }
         }
     }
 }

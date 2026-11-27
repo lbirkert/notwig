@@ -13,8 +13,12 @@ host uses the same wire types to validate and composite extension panels.
 
 - Guest panel frames (`PanelFrame`, `PanelInput`, meshes, texture deltas) and
   their limits/validation.
-- the `#[notwig_extension]` ABI generator, re-exported from
+- the `#[notwig_ext(preload/load/unload)]` ABI generator, re-exported from
   `notwig-ext-macros`;
+- `PreloadBuilder`, `ExtensionBuilder`, and `UnloadContext` for the three
+  extension lifecycle phases;
+- `ExtensionPoint<T>` typed extension-point keys and preload declaration
+  storage;
 - `DeviceExtension` and `Extension` for registering device implementations and
   delivering note events before each processed block;
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
@@ -32,16 +36,16 @@ no render-neutral command IR. Extension panels should use the shared components
 from `notwig-ui` for knobs, meters, labels, sections, toggles, and dropdowns.
 
 This crate has no `wasmtime` and no I/O. Keep wire-format changes versioned
-through `notwig_ext_api::ABI_VERSION` (currently `6`). Extensions can register `AudioSubEditorExtension` renderers for custom audio-editor sub-editors.
+through `notwig_ext_api::ABI_VERSION` (currently `7`). Extensions can register `AudioSubEditorExtension` renderers for custom audio-editor sub-editors.
 
 Device authors implement `DeviceExtension` for their device type and register it
-from the entrypoint:
+from the load phase:
 
 ```rust
-use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
+use notwig_ext_api::{DeviceExtension, ExtensionBuilder, notwig_ext};
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_device::<MyDevice>();
 }
 ```

@@ -10,7 +10,7 @@ This page is a quick map of the workspace crates. Each crate also has a
 | `notwig-core` | Domain document, IDs, time, tracks, clips, command protocol, editing algebra, device contracts, plan compilation, stock devices | No workspace crates |
 | `notwig-project` | Project bundles, manifests, autosave/recovery, audio probe/decode/resample/export | `notwig-core` |
 | `notwig-ext-api` | Extension SDK, guest panel wire types/runner, note events, manifests, ABI helpers | `notwig-core`, `notwig-ext-macros` |
-| `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Proc-macro support only |
+| `notwig-ext-macros` | `#[notwig_ext(preload/load/unload)]` proc macro that generates WASM and native exports | Proc-macro support only |
 | `notwig-ext` | Extension discovery, wasmtime host, WASM DSP, panel host | `notwig-core`, `notwig-ext-api` |
 | `notwig-ext-devices` | Limiter, gate, synth, and gain example devices using shared UI components | `notwig-core`, `notwig-ui`, `notwig-ext-api` |
 | `notwig-ext-example` | Command API example package with the humanize MIDI command | `notwig-core`, `notwig-ext-api` |

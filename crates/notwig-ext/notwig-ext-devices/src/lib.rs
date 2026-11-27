@@ -5,7 +5,7 @@
 //! doubles as a worked example of the extension ABI, device specs, panels,
 //! containers, and real-time processing rules.
 
-use notwig_ext_api::{Extension, notwig_extension};
+use notwig_ext_api::{ExtensionBuilder, notwig_ext};
 
 mod chorus;
 mod clipper;
@@ -69,8 +69,8 @@ pub use synth::{
 };
 
 /// Registers every stock device implemented by this crate.
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_device::<CompressorDevice>();
     extension.register_device::<ClipperDevice>();
     extension.register_device::<DelayDevice>();

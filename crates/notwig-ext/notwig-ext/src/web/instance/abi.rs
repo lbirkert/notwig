@@ -13,6 +13,22 @@ use super::status::{check_status, param_wire};
 use crate::error::ExtensionError;
 
 impl WebExtensionInstance {
+    pub(crate) fn run_phases(&mut self) -> Result<(), ExtensionError> {
+        if let Some(preload) = self.preload.clone() {
+            check_status(call_i32(&preload, &[])?)?;
+        }
+        if let Some(load) = self.load.clone() {
+            check_status(call_i32(&load, &[])?)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn run_unload(&mut self) {
+        if let Some(unload) = self.unload.clone() {
+            let _ = unload.call0(&JsValue::UNDEFINED);
+        }
+    }
+
     pub(crate) fn describe(
         &mut self,
         type_id: &str,

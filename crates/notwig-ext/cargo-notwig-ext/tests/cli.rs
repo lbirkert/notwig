@@ -23,7 +23,7 @@ fn source_manifest() -> ExtensionManifest {
           "name": "Test Extension",
           "vendor": "Test",
           "version": "0.1.0",
-          "api_version": 6,
+          "api_version": 7,
           "capabilities": ["device", "ui.panel"],
           "devices": [{"name": "Test", "type_id": "com.test.extension.device"}],
           "image": "icon.png",
@@ -136,7 +136,7 @@ fn new_scaffolds_a_buildable_extension() {
     assert!(path.join("src/lib.rs").is_file());
     assert!(path.join("icon.png").is_file());
     let library = fs::read_to_string(path.join("src/lib.rs")).unwrap();
-    assert!(library.contains("#[notwig_extension]"));
+    assert!(library.contains("#[notwig_ext(load)]"));
     assert!(library.contains("com.test.my-gain"));
 
     let manifest: Value =

@@ -61,7 +61,7 @@ host pointer. Only the serialized frame and input snapshot cross the boundary.
 ## Capability and ABI
 
 - Manifest capability: `ui.panel`.
-- Macro: `#[notwig_extension]` takes no options and generates the panel draw
+- Macro: `#[notwig_ext(load)]` takes no options and generates the panel draw
   export.
 - Exports:
   - `notwig_device_draw(handle, context_ptr, context_len) -> pointer/len`
@@ -89,7 +89,7 @@ and mesh data; JSON would inflate both.
 ```rust
 use notwig_core::dsp::DeviceSpec;
 use notwig_ext_api::{
-    notwig_extension, DeviceExtension, DeviceMeterSnapshot, egui, panel_frame,
+    notwig_ext, DeviceExtension, DeviceMeterSnapshot, egui, panel_frame,
 };
 use notwig_ui::{knob, section};
 
@@ -120,7 +120,7 @@ impl DeviceExtension for MyDevice {
     fn process(&mut self, _samples: &mut [f32]) {}
 }
 
-#[notwig_extension]
+#[notwig_ext(load)]
 pub fn extension(extension: &mut notwig_ext_api::Extension) {
     extension.register_device::<MyDevice>();
 }

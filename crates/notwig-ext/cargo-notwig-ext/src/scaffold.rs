@@ -199,7 +199,7 @@ const LIB_TEMPLATE: &str = r#"use egui::{Align2, FontId, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
 use notwig_ext_api::{
-    DeviceExtension, DeviceMeterSnapshot, Extension, egui, panel_frame, notwig_extension,
+    DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame, notwig_ext,
 };
 use notwig_ui::{knob, palette, section};
 use uuid::Uuid;
@@ -309,8 +309,8 @@ impl DeviceExtension for MyDevice {
     }
 }
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_device::<MyDevice>();
 }
 "#;

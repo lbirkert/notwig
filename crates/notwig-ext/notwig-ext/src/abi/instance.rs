@@ -31,6 +31,9 @@ pub(crate) struct ExtensionInstance {
     sub_editor_destroy: Option<TypedFunc<i32, ()>>,
     sub_editor_draw: Option<TypedFunc<(i32, i32, i32), i64>>,
     command: Option<TypedFunc<(i32, i32, i32, i32), i64>>,
+    preload: Option<TypedFunc<(), i32>>,
+    load: Option<TypedFunc<(), i32>>,
+    unload: Option<TypedFunc<(), i32>>,
 }
 
 impl ExtensionInstance {
@@ -93,8 +96,17 @@ impl ExtensionInstance {
         let command = instance
             .get_typed_func::<(i32, i32, i32, i32), i64>(&mut store, "notwig_command_execute")
             .ok();
+        let preload = instance
+            .get_typed_func::<(), i32>(&mut store, "notwig_ext_preload")
+            .ok();
+        let load = instance
+            .get_typed_func::<(), i32>(&mut store, "notwig_ext_load")
+            .ok();
+        let unload = instance
+            .get_typed_func::<(), i32>(&mut store, "notwig_ext_unload")
+            .ok();
 
-        Ok(Self {
+        let mut runtime = Self {
             store,
             memory,
             alloc,
@@ -111,7 +123,33 @@ impl ExtensionInstance {
             sub_editor_destroy,
             sub_editor_draw,
             command,
-        })
+            preload,
+            load,
+            unload,
+        };
+        runtime.run_phases()?;
+        Ok(runtime)
+    }
+
+    fn run_phases(&mut self) -> Result<(), ExtensionError> {
+        if let Some(preload) = self.preload.clone() {
+            self.reset_fuel()?;
+            let status = preload.call(&mut self.store, ()).map_err(wasm_err)?;
+            check_status(status)?;
+        }
+        if let Some(load) = self.load.clone() {
+            self.reset_fuel()?;
+            let status = load.call(&mut self.store, ()).map_err(wasm_err)?;
+            check_status(status)?;
+        }
+        Ok(())
+    }
+
+    fn run_unload(&mut self) {
+        if let Some(unload) = self.unload.clone() {
+            let _ = self.reset_fuel();
+            let _ = unload.call(&mut self.store, ());
+        }
     }
 
     fn reset_fuel(&mut self) -> Result<(), ExtensionError> {
@@ -349,6 +387,12 @@ impl ExtensionInstance {
             .validate()
             .map_err(|error| ExtensionError::Abi(format!("invalid egui frame: {error}")))?;
         Ok(frame)
+    }
+}
+
+impl Drop for ExtensionInstance {
+    fn drop(&mut self) {
+        self.run_unload();
     }
 }
 

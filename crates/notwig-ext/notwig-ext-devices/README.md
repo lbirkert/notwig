@@ -136,7 +136,7 @@ A small gain device that demonstrates the guest panel path:
 
 - draws a shared `notwig-ui` knob and labels;
 - reports parameter changes through `panel_frame::set_param_value`;
-- is registered with the same `#[notwig_extension]` entrypoint as the others.
+- is registered with the same `#[notwig_ext(load)]` entrypoint as the others.
 
 All devices draw dynamically each frame with `DeviceExtension::draw` and
 request repaint so they animate while visible. Meter and history data come from
@@ -148,10 +148,10 @@ The devices are implemented with the SDK trait and registered from the macro
 entrypoint:
 
 ```rust
-use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
+use notwig_ext_api::{DeviceExtension, ExtensionBuilder, notwig_ext};
 
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_device::<LimiterDevice>();
     extension.register_device::<CompressorDevice>();
     extension.register_device::<ClipperDevice>();
@@ -176,7 +176,7 @@ come from `notwig-ext-api`.
 
 | Module | Responsibility |
 | --- | --- |
-| `lib.rs` | `#[notwig_extension]` entrypoint registering every stock device |
+| `lib.rs` | `#[notwig_ext(load)]` entrypoint registering every stock device |
 | `synth/mod.rs` | Synth device state and `DeviceExtension` delegation |
 | `synth/params.rs` | Synth parameter ids, ranges, defaults, normalization |
 | `synth/spec.rs` | Synth device spec |
@@ -243,14 +243,14 @@ can also load a manually unpacked package from the user extensions directory:
 Restart Notwig after unpacking the package. The devices appear under
 **Extensions** in the Add Device browser.
 
-The source manifest uses `"api_version": 6` and the `ui.panel` capability. It
+The source manifest uses `"api_version": 7` and the `ui.panel` capability. It
 omits `entrypoints`; the CLI adds the selected target entrypoint to the packaged
 manifest.
 
 ## Notes
 
 - Heap, device-store, pointer/audio helpers, and the ABI exports are generated
-  by the SDK and `#[notwig_extension]`. This crate contains only the device
+  by the SDK and `#[notwig_ext(load)]`. This crate contains only the device
   implementations and their spec/panel code.
 - WASM uses the SDK's fixed bump heap so pointers stay stable for the lifetime
   of the module instance. Native builds pass process pointers directly.

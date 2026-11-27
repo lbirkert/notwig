@@ -15,7 +15,8 @@ use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
 use notwig_ext_api::{
     AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorResponse, CommandContext,
-    CommandEdit, CommandEffect, CommandExtension, Extension, notwig_extension,
+    CommandEdit, CommandEffect, CommandExtension, ExtensionBuilder, ExtensionPoint, PreloadBuilder,
+    UnloadContext, notwig_ext,
 };
 
 /// Humanize command id. This must match `extension.json`.
@@ -173,12 +174,29 @@ impl CommandExtension for HumanizeCommand {
     }
 }
 
+/// Example point used to exercise the preload phase.
+pub trait ExamplePoint {}
+
+/// Stable id for the example preload point.
+pub const EXAMPLE_POINT: ExtensionPoint<dyn ExamplePoint> =
+    ExtensionPoint::new("com.notwig.ext.example.point");
+
+/// Declares example contracts before load-phase registration.
+#[notwig_ext(preload)]
+pub fn preload(extension: &mut PreloadBuilder) {
+    extension.register_extension_point(EXAMPLE_POINT);
+}
+
 /// Registers the example extension commands.
-#[notwig_extension]
-pub fn extension(extension: &mut Extension) {
+#[notwig_ext(load)]
+pub fn load(extension: &mut ExtensionBuilder) {
     extension.register_command::<HumanizeCommand>(HUMANIZE_COMMAND_ID);
     extension.register_audio_sub_editor::<PanSubEditor>(PAN_SUB_EDITOR_ID);
 }
+
+/// Releases example extension resources.
+#[notwig_ext(unload)]
+pub fn unload(_context: &mut UnloadContext) {}
 
 fn note_seed(revision: u64, id: &str) -> u32 {
     let mut hash = 2_166_136_261_u32;
@@ -192,6 +210,7 @@ fn note_seed(revision: u64, id: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notwig_ext_api::Extension;
 
     #[test]
     fn pan_contribution_matches_the_manifest() {

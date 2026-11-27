@@ -2,15 +2,14 @@
 //!
 //! An extension implements [`DeviceExtension`] for each device type,
 //! [`CommandExtension`] for commands, and [`AudioSubEditorExtension`] for
-//! extension-drawn audio sub-editors. It registers implementations on an
-//! [`Extension`] runtime and exposes one entrypoint annotated with
-//! [`notwig_extension`]. The macro generates the WASM or native ABI exports
-//! that the host uses to describe, create, prepare, process, draw, execute, and
-//! render contributions. Panels use the re-exported [`egui`] API and return a
-//! validated [`panel_frame::PanelFrame`].
+//! extension-drawn audio sub-editors. It registers implementations during a
+//! [`ExtensionBuilder`] load phase, optionally declares extension points in a
+//! [`PreloadBuilder`] phase, and releases resources in an [`UnloadContext`]
+//! phase. Each phase is annotated with `#[notwig_ext(preload)]`,
+//! `#[notwig_ext(load)]`, or `#[notwig_ext(unload)]`.
 //!
 //! ```text
-//! use notwig_ext_api::{DeviceExtension, Extension, notwig_extension};
+//! use notwig_ext_api::{DeviceExtension, ExtensionBuilder, notwig_ext};
 //!
 //! struct MyDevice;
 //! impl DeviceExtension for MyDevice {
@@ -20,8 +19,8 @@
 //!     fn process(&mut self, samples: &mut [f32]) { /* in-place DSP */ }
 //! }
 //!
-//! #[notwig_extension]
-//! pub fn extension(extension: &mut Extension) {
+//! #[notwig_ext(load)]
+//! pub fn load(extension: &mut ExtensionBuilder) {
 //!     extension.register_device::<MyDevice>();
 //! }
 //! ```
@@ -40,8 +39,10 @@ pub mod cursor;
 pub mod panel_frame;
 pub use egui;
 pub mod extension;
+pub mod extension_point;
 pub mod geometry;
 pub mod index;
+pub mod lifecycle;
 pub mod manifest;
 pub mod note;
 pub mod panel;
@@ -65,7 +66,8 @@ pub use command::{
 pub use config::{CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig};
 pub use context::{DeviceDrawContext, DeviceMeterSnapshot, ThemeSnapshot};
 pub use cursor::CursorIcon;
-pub use extension::{DeviceExtension, Extension};
+pub use extension::{DeviceExtension, Extension, ExtensionBuilder, PreloadBuilder, UnloadContext};
+pub use extension_point::ExtensionPoint;
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
 pub use manifest::{
@@ -73,7 +75,7 @@ pub use manifest::{
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
 };
 pub use note::{NOTE_EVENT_BYTES, NoteEvent, NoteKind, decode_note_event, encode_note_event};
-pub use notwig_ext_macros::notwig_extension;
+pub use notwig_ext_macros::{notwig_ext, notwig_extension};
 pub use panel::{DevicePanelHost, PanelAction};
 pub use panel_frame::{
     MAX_PANEL_FRAME_BYTES, PanelEvent, PanelFrame, PanelImage, PanelInput, PanelMesh,

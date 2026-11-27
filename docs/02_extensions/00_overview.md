@@ -46,7 +46,7 @@ audio sub-editor point ──►  extension renderer ──►  audio editor
   artifact, manifest, icon, and extra files.
 
 The extension ABI is versioned separately from the package manifest. The current
-ABI version is `6`. The manifest layout is versioned separately: device-only
+ABI version is `7`. The manifest layout is versioned separately: device-only
 packages may omit `manifest_version`, while command and audio sub-editor
 contributions require version `2`. The WASM and native ABIs are different
 transport layers around the same Rust API.

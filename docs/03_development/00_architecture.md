@@ -232,7 +232,7 @@ storage keys, gesture gate, and deployment assumptions.
 | `notwig-core` | Domain types, IDs, time, tracks, sequencer, command protocol, edit algebra, DSP contracts/plans/stock devices | I/O, UI, real-time execution, ID allocation |
 | `notwig-project` | Bundle read/write, autosave/recovery, audio probe/import/decode/resample/export | UI, real-time processing |
 | `notwig-ext-api` | Extension SDK, guest panel wire types/runner, note-event wire types, manifests, targets, ABI helpers | `wasmtime`, `libloading`, I/O, canonical state |
-| `notwig-ext-macros` | `#[notwig_extension]` proc macro that generates WASM and native exports | Runtime host behavior |
+| `notwig-ext-macros` | `#[notwig_ext(preload/load/unload)]` proc macro that generates WASM and native exports | Runtime host behavior |
 | `notwig-ext` | Extension discovery, target selection, native wasmtime/WASM and shared-library hosts, device DSP, panel host | UI layout, canonical state, audio-callback compilation |
 | `notwig-ext-devices` | Example and stock extension devices built against the SDK and shared `notwig-ui` components | Host behavior or app UI code |
 | `cargo-notwig-ext` | Scaffolding and target-specific extension ZIP packaging | UI or runtime host behavior |

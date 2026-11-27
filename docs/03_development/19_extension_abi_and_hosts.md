@@ -14,7 +14,7 @@ An installed extension is a directory with `extension.json`, one or more
 entrypoint files, and an optional icon. The manifest declares ordered
 `entrypoints`, each naming a relative file and a target. `notwig-ext-api` is
 the author SDK and holds the shared wire types; `notwig-ext-macros` generates
-the exported functions around the `#[notwig_extension]` entrypoint.
+the exported functions around the `#[notwig_ext(load)]` entrypoint and the optional preload/unload phase exports.
 
 `notwig-ext` discovers packages and rejects unsupported API versions, duplicate
 device type IDs, unsafe paths, and oversized entrypoints. For each declared
@@ -24,7 +24,7 @@ packages are registered as stock-like device types in the app.
 
 ## 2. ABI version and target selection
 
-`ABI_VERSION` is `6`. The host requires an exact match in three places: the
+`ABI_VERSION` is `7`. The host requires an exact match in three places: the
 manifest `api_version`, the index entry `api_version`, and the value returned
 by the loaded module's `notwig_abi_version` export. Any change to an export
 signature, wire layout, or documented contract must bump the constant; there is
@@ -76,15 +76,21 @@ builds return a two-word `{ptr, len}` struct. `AbiStatus` is `Ok = 0`,
 
 ## 4. Device lifecycle and export sequence
 
-`spec()` runs once when the guest registry initializes; describe runs once per
-declared device at host load. One instance serves each engine device and a
-separate one serves each visible panel keyed by `device_id`. Prepare runs
-before processing and on format changes, note events arrive in block order
-before `process`, `latency` is queried during prepare, and destroy runs on drop.
+The host calls optional `notwig_ext_preload`, then `notwig_ext_load`, before
+describing devices or invoking any contribution export. Unload runs when the
+instance is dropped. `spec()` runs once when the guest registry initializes;
+describe runs once per declared device at host load. One instance serves each
+engine device and a separate one serves each visible panel keyed by
+`device_id`. Prepare runs before processing and on format changes, note events
+arrive in block order before `process`, `latency` is queried during prepare, and
+destroy runs on drop.
 
 | Export | Call point | Result |
 | --- | --- | --- |
-| `notwig_abi_version()` | module load / instantiate | must equal `5` |
+| `notwig_abi_version()` | module load / instantiate | must equal `7` |
+| `notwig_ext_preload()` | instantiate, before load | `AbiStatus`; optional point declarations |
+| `notwig_ext_load()` | instantiate, after preload | `AbiStatus`; registrations and main exports |
+| `notwig_ext_unload()` | instance drop | `AbiStatus`; optional cleanup |
 | `notwig_alloc` / `notwig_free` | WASM only, before/after host inputs | bump-heap pointer |
 | `notwig_device_describe(type)` | package load, per manifest device | serialized `DeviceSpec` |
 | `notwig_device_create(type)` | engine build or first panel draw | positive handle or negative failure |

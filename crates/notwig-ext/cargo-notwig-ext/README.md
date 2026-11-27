@@ -31,7 +31,7 @@ files to an existing directory. Both generate:
 
 - `Cargo.toml` with workspace-free `cdylib`/`rlib` settings and path deps on
   `notwig-core`, `notwig-ui`, and `notwig-ext-api`;
-- `src/lib.rs` with a working `#[notwig_extension]` gain device;
+- `src/lib.rs` with a working `#[notwig_ext(load)]` gain device;
 - `extension.json` without `entrypoints` or `includes`;
 - a default `icon.png`.
 
