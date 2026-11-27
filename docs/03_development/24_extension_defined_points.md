@@ -26,14 +26,13 @@ Related: [`Extension Platform Architecture`](23_extension_platform_architecture.
 
 ## 2. Compile-time point API
 
-`notwig-ext-api` owns three public concepts:
+`notwig-ext-api` makes the point type the interface description and keeps the
+registered implementation as the method type argument:
 
 ```rust
 pub trait ExtensionPointInterface: 'static {
     /// Stable interface id, for example `notwig.command@1`.
     const INTERFACE_ID: &'static str;
-    type Request: serde::Serialize + serde::de::DeserializeOwned;
-    type Response: serde::Serialize + serde::de::DeserializeOwned;
 }
 
 pub struct ExtensionPoint<I: ExtensionPointInterface> {
@@ -47,67 +46,68 @@ impl<I: ExtensionPointInterface> ExtensionPoint<I> {
 
     #[must_use]
     pub const fn id(&self) -> &'static str { self.id }
-
-    /// Compile error unless `T: RegisterTo<I>`.
-    pub fn register<T: RegisterTo<I>>(
-        &self,
-        extension: &mut Extension,
-        contribution_id: &str,
-    ) {
-        T::register(extension, self.id, contribution_id);
-    }
 }
 
-pub trait RegisterTo<I: ExtensionPointInterface>: Sized + 'static {
+/// Implemented by an interface marker for each contribution type it accepts.
+pub trait Accepts<T: ?Sized>: ExtensionPointInterface {
     fn register(extension: &mut Extension, point_id: &str, contribution_id: &str);
 }
-```
 
-The registration API is a trait bound rather than runtime type inspection:
-
-```rust
-pub trait PointExtension<I: ExtensionPointInterface>: Sized + 'static {
-    fn new() -> Self;
-    fn invoke(&mut self, request: &I::Request) -> I::Response;
+/// Erases the specific interface marker while preserving the contribution type.
+pub trait PointRegistration<T: ?Sized> {
+    fn register(self, extension: &mut Extension, contribution_id: &str);
 }
 
-impl<I, T> RegisterTo<I> for T
+impl<I, T> PointRegistration<T> for ExtensionPoint<I>
 where
-    I: ExtensionPointInterface,
-    T: PointExtension<I>,
+    I: Accepts<T>,
 {
-    fn register(extension: &mut Extension, point_id: &str, contribution_id: &str) {
-        extension.register_point_extension::<I, T>(point_id, contribution_id);
+    fn register(self, extension: &mut Extension, contribution_id: &str) {
+        I::register(extension, self.id, contribution_id);
+    }
+}
+
+impl Extension {
+    /// Compile error unless the point accepts `T`.
+    pub fn register_extension<T>(
+        &mut self,
+        point: impl PointRegistration<T>,
+        contribution_id: &str,
+    ) {
+        point.register(self, contribution_id);
     }
 }
 ```
 
-A contribution that does not implement the point interface fails to compile at
-`.register::<T>()`. No dynamic cast or runtime downcast is involved.
+The call site is the requested form:
 
-## 3. Command-compatible point interface
+```rust
+extension.register_extension::<NudgePan>(PAN_EDITOR_COMMANDS, "com.foo.nudge-pan");
+```
 
-Command-like points reuse the existing command contract instead of inventing a
-second execution model:
+`ExtensionPoint<T>` here uses `T` as the *interface marker*. The implementation
+type is the `register_extension::<T>` argument. That separation is necessary:
+one point can accept many different contributor types, so a point cannot be
+parameterized by a single implementation type. The bound is still fully
+compile-time checked through `Accepts<T>`.
+
+A command-compatible interface marker:
 
 ```rust
 pub struct CommandPoint;
 
 impl ExtensionPointInterface for CommandPoint {
     const INTERFACE_ID: &'static str = "notwig.command@1";
-    type Request = CommandContext;
-    type Response = CommandEffect;
 }
 
-impl<C: CommandExtension> PointExtension<CommandPoint> for C {
-    fn new() -> Self { C::new() }
-    fn invoke(&mut self, context: &CommandContext) -> CommandEffect {
-        self.execute(context)
+impl<C: CommandExtension> Accepts<C> for CommandPoint {
+    fn register(extension: &mut Extension, point_id: &str, contribution_id: &str) {
+        extension.register_point_command::<C>(point_id, contribution_id);
     }
 }
 ```
 
-An extension that owns an editor declares a point in its own crate:
+An extension declares a point in its own crate:
 
 ```rust
 // notwig-ext-example crate
@@ -115,10 +115,10 @@ pub const PAN_EDITOR_COMMANDS: ExtensionPoint<CommandPoint> =
     ExtensionPoint::new("notwig.ext.example.pan_editor.commands");
 ```
 
-Another extension contributes a command:
+Another package contributes:
 
 ```rust
-use notwig_ext_api::{Extension, notwig_extension};
+use notwig_ext_api::{CommandContext, CommandEffect, CommandExtension, Extension, notwig_extension};
 use notwig_ext_example::PAN_EDITOR_COMMANDS;
 
 struct NudgePan;
@@ -130,40 +130,91 @@ impl CommandExtension for NudgePan {
 
 #[notwig_extension]
 pub fn extension(extension: &mut Extension) {
-    extension
-        .register_extension::<NudgePan>(PAN_EDITOR_COMMANDS, "com.foo.nudge-pan");
+    extension.register_extension::<NudgePan>(
+        PAN_EDITOR_COMMANDS,
+        "com.foo.nudge-pan",
+    );
 }
 ```
 
-This is the intended ergonomics: define a typed point once, then register with
-ordinary Rust types.
+A type that does not implement `CommandExtension` fails at the
+`register_extension::<T>` call. No runtime downcast is involved.
 
-## 4. Custom interfaces
+## 4. Custom interfaces and cross-extension calls
 
-A custom point interface is a marker type with serialized request/response
-types:
+Yes, extensions can call each other. They cannot call each other's Rust trait
+methods directly because packages run in separate WASM memories or native
+library instances. Instead, a custom point interface is a typed, bounded RPC
+contract:
 
 ```rust
-pub struct PanEditorCommandInterface;
+pub struct PanEditorDrawInterface;
 
-impl ExtensionPointInterface for PanEditorCommandInterface {
-    const INTERFACE_ID: &'static str = "notwig.ext.example.pan_editor.command@1";
-    type Request = PanEditorCommandRequest;
-    type Response = PanEditorCommandResponse;
+impl ExtensionPointInterface for PanEditorDrawInterface {
+    const INTERFACE_ID: &'static str = "notwig.ext.example.pan_editor.draw@1";
+}
+
+impl<T: PanEditorDrawExtension> Accepts<T> for PanEditorDrawInterface {
+    fn register(extension: &mut Extension, point_id: &str, contribution_id: &str) {
+        extension.register_point_rpc::<Self, T>(point_id, contribution_id);
+    }
+}
+
+pub trait PanEditorDrawExtension: Sized + 'static {
+    fn draw(&mut self, request: &PanEditorDrawRequest) -> PanEditorDrawResponse;
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PanEditorDrawRequest {
+    pub width: f32,
+    pub height: f32,
+    pub theme: notwig_ext_api::ThemeSnapshot,
+    pub input: notwig_ext_api::PanelInput,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PanEditorDrawResponse {
+    pub frame: notwig_ext_api::PanelFrame,
+    pub commands: Vec<notwig_ext_api::PointCommandDescriptor>,
 }
 ```
 
-Requiring serializable request/response payloads is deliberate:
+The host stores a type-erased adapter that deserializes the request, calls the
+contributor implementation in its own runtime, and serializes the response. The
+calling extension invokes it through a host-mediated `call_point` operation:
 
-- the define/invoke path can cross WASM, native-library, and browser transports;
-- the host can bound and validate payload sizes;
-- a point owner in one guest can invoke a contributor in another guest without
-  sharing pointers, `egui::Ui`, or Rust trait objects across an ABI;
-- the interface remains type-checked inside each package at `.register::<T>()`.
+```text
+owner guest --request bytes--> host point router --> contributor guest
+owner guest <--response bytes-- host point router <-- contributor guest
+```
 
-For host-owned behavior such as commands, the built-in `CommandPoint`
-short-circuits this serialization to the existing `CommandContext` /
-`CommandEffect` execution path.
+This works for commands, analysis, metadata queries, and other bounded custom
+APIs. Interface registration remains compile-time typed locally; the host checks
+the interface id and contract version at load time and enforces byte limits at
+call time.
+
+For host-owned behavior such as commands, `CommandPoint` maps the same request
+and response to the existing `CommandContext` / `CommandEffect` path.
+
+### Drawing across extensions
+
+Passing `egui::Ui`, `android::Context`, or a host pointer to another package is
+not possible or safe. Drawing therefore has two supported forms:
+
+1. **Data-first contributions.** A point contributes commands or descriptors;
+   the owner draws them itself and returns host-owned effects. This is the
+   preferred context-menu path.
+2. **Child panel surfaces.** A drawing interface returns a validated
+   `PanelFrame` for a requested rectangle and input snapshot. The owner requests
+   a child surface; the host invokes the contributor and composites the returned
+   frame at the owner's rectangle. The owner never gets another package's
+   textures or `Ui`. This supports extension-rendered context menus and custom
+   widgets while preserving the existing panel validation, focus, and input
+   routing.
+
+Direct synchronous draw calls that pass a live `Ui` or host references remain
+out of scope. A `PanelFrame` request/response is the transport-neutral
+equivalent.
 
 ## 5. Runtime metadata and resolution
 
@@ -271,7 +322,7 @@ capability checks, command dispatch, revision checks, and undo.
 
 ## 8. Safety and lifecycle
 
-- Compile time: `RegisterTo<I>` proves the implementation type matches the
+- Compile time: `Accepts<T>` proves the implementation type matches the
   interface expected by the point const.
 - Load time: interface id, contract version, owner, namespace, and uniqueness
   are verified from runtime metadata.
@@ -286,11 +337,11 @@ capability checks, command dispatch, revision checks, and undo.
 
 ## 9. Migration plan
 
-1. Add `ExtensionPoint`, `ExtensionPointInterface`, `PointExtension`, and
-   `RegisterTo` to `notwig-ext-api`; add compile-time tests proving invalid
-   registrations fail and command registrations succeed.
-2. Add point/registration metadata exports and host resolution. Keep
-   `notwig.*` built-in point behavior unchanged.
+1. Add `ExtensionPoint`, `ExtensionPointInterface`, `Accepts`, and
+   `PointRegistration` to `notwig-ext-api`; add compile-time tests proving
+   invalid registrations fail and command registrations succeed.
+2. Add point/registration metadata exports, host resolution, and the
+   `call_point` host import. Keep `notwig.*` built-in point behavior unchanged.
 3. Add `CommandPoint` and command registration to extension-defined points.
 4. Add point-command descriptors and invocation requests to audio sub-editor
    contexts/responses.
