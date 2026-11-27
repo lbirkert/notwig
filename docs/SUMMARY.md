@@ -52,4 +52,4 @@
 - [Routing and Delay Compensation](03_development/21_routing_and_pdc.md)
 - [Logging and Diagnostics](03_development/22_logging.md)
 - [Extension Platform Architecture](03_development/23_extension_platform_architecture.md)
-- [Extension-defined Points](03_development/24_extension_defined_points.md)
+- [Extension Messages](03_development/24_extension_messages.md)
