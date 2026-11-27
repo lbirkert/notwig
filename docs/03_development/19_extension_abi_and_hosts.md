@@ -14,23 +14,26 @@ An installed extension is a directory with `extension.json`, one or more
 entrypoint files, and an optional icon. The manifest declares ordered
 `entrypoints`, each naming a relative file and a target. `notwig-ext-api` is
 the author SDK and holds the shared wire types; `notwig-ext-macros` generates
-the exported functions around the `#[notwig_ext(load)]` entrypoint and the optional preload/unload phase exports.
+the exported functions around the `#[notwig_ext(load)]` entrypoint and the optional preload/unload phase exports. Loaded extensions also return a runtime registration manifest with declared points, command descriptors, and audio sub-editor descriptors.
 
 `notwig-ext` discovers packages and rejects unsupported API versions, duplicate
 device type IDs, unsafe paths, and oversized entrypoints. For each declared
 device it calls `notwig_device_describe` and requires the returned
-`DeviceSpec::type_id` to match the manifest. Device specs from all loaded
-packages are registered as stock-like device types in the app.
+`DeviceSpec::type_id` to match the manifest. Runtime command and sub-editor
+descriptors take precedence over manifest `contributes` entries; manifest
+entries remain a compatibility fallback. Device specs from all loaded packages
+are registered as stock-like device types in the app.
 
 ## 2. ABI version and target selection
 
-`ABI_VERSION` is `7`. The host requires an exact match in three places: the
+`ABI_VERSION` is `8`. The host requires an exact match in three places: the
 manifest `api_version`, the index entry `api_version`, and the value returned
 by the loaded module's `notwig_abi_version` export. Any change to an export
 signature, wire layout, or documented contract must bump the constant; there is
 no negotiation or backwards-compatible mode. Old packages then fail to load
-instead of being misread. Version 5 added the optional `DeviceSpec::container`
-metadata described in section 4.
+instead of being misread. Version 8 added the runtime registration manifest.
+Version 7 added the preload/load/unload phase exports. Version 5 added the
+optional `DeviceSpec::container` metadata described in section 4.
 
 Manifest entrypoints are tried in order and the first supported target wins.
 WASM is supported on every host (wasmtime natively, `WebAssembly` in the
@@ -76,9 +79,11 @@ builds return a two-word `{ptr, len}` struct. `AbiStatus` is `Ok = 0`,
 
 ## 4. Device lifecycle and export sequence
 
-The host calls optional `notwig_ext_preload`, then `notwig_ext_load`, before
-describing devices or invoking any contribution export. Unload runs when the
-instance is dropped. `spec()` runs once when the guest registry initializes;
+The host preloads every enabled extension before calling any load phase.
+Within an instance it calls optional `notwig_ext_preload`, then
+`notwig_ext_load`, before describing devices or invoking a contribution export.
+After load it calls `notwig_ext_registrations` once to collect points and
+runtime command/sub-editor metadata. Unload runs when the instance is dropped. `spec()` runs once when the guest registry initializes;
 describe runs once per declared device at host load. One instance serves each
 engine device and a separate one serves each visible panel keyed by
 `device_id`. Prepare runs before processing and on format changes, note events
@@ -87,9 +92,10 @@ destroy runs on drop.
 
 | Export | Call point | Result |
 | --- | --- | --- |
-| `notwig_abi_version()` | module load / instantiate | must equal `7` |
+| `notwig_abi_version()` | module load / instantiate | must equal `8` |
 | `notwig_ext_preload()` | instantiate, before load | `AbiStatus`; optional point declarations |
 | `notwig_ext_load()` | instantiate, after preload | `AbiStatus`; registrations and main exports |
+| `notwig_ext_registrations()` | after load, once | JSON registration manifest |
 | `notwig_ext_unload()` | instance drop | `AbiStatus`; optional cleanup |
 | `notwig_alloc` / `notwig_free` | WASM only, before/after host inputs | bump-heap pointer |
 | `notwig_device_describe(type)` | package load, per manifest device | serialized `DeviceSpec` |
@@ -166,7 +172,7 @@ shortcuts on the following frame.
 Extension audio sub-editors use the same `PanelFrame` payload wrapped in an
 `AudioSubEditorFrame` with a `CommandEffect` and optional clipboard points. The
 host validates the panel, edit budget, and clipboard size. The context is an
-`AudioSubEditorContext` snapshot keyed by clip and contribution id; it also
+`AudioSubEditorContext` snapshot keyed by clip and registration id; it also
 carries resolved selection gestures and the shared curve clipboard. The guest
 never receives the project document. The host checks the captured document
 revision before applying an edit, applies an `Apply` effect as one undo batch,

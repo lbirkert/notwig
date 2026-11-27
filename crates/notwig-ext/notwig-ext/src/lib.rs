@@ -16,6 +16,7 @@
 #![deny(unsafe_code)]
 
 mod archive;
+mod contributions;
 mod error;
 
 pub use archive::{

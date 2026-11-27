@@ -1,18 +1,18 @@
 # Audio Sub-editor API
 
 Status: implemented for extension-rendered audio sub-editors. Extensions add an
-entry to the audio editor's sub-editor selector, then register an editor under
-the contribution id. The host owns the surrounding editor, clip context,
+entry to the audio editor's sub-editor selector, then register an editor with
+runtime metadata. The host owns the surrounding editor, clip context,
 validation, revision check, and undo boundary; the extension draws the panel.
 
 The reference implementation is the clip pan editor in
 `crates/notwig-ext/notwig-ext-example`.
 
-## Manifest
+## Runtime metadata
 
-Audio sub-editor contributions require `manifest_version: 2` and the
-`audio_editor` capability. The contribution id is also the renderer id the
-extension registers at runtime.
+Audio sub-editors require `manifest_version: 2` and the `audio_editor`
+capability. The descriptor is returned by `notwig_ext_registrations` after the
+load phase:
 
 ```json
 {
@@ -21,18 +21,8 @@ extension registers at runtime.
   "name": "Clip Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 7,
-  "capabilities": ["audio_editor"],
-  "contributes": [
-    {
-      "id": "com.example.clip-tools.pan",
-      "point": "notwig.audio_editor.sub_editor",
-      "contract": "notwig.audio_editor.sub_editor@1",
-      "title": "Clip Pan",
-      "category": "Audio",
-      "order": 10
-    }
-  ]
+  "api_version": 8,
+  "capabilities": ["audio_editor"]
 }
 ```
 
@@ -46,12 +36,12 @@ limited to 64 bytes.
 
 ## Registering the renderer
 
-Implement `AudioSubEditorExtension` and register it under the contribution id:
+Implement `AudioSubEditorExtension` and register it with runtime metadata:
 
 ```rust
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorExtension, CommandEdit, CommandEffect, Extension,
-    notwig_ext,
+    AudioSubEditorContext, AudioSubEditorDescriptor, AudioSubEditorExtension, CommandEdit,
+    CommandEffect, ExtensionBuilder, notwig_ext,
 };
 
 struct PanEditor;
@@ -63,21 +53,28 @@ impl AudioSubEditorExtension for PanEditor {
         &mut self,
         ui: &mut notwig_ext_api::egui::Ui,
         context: &AudioSubEditorContext,
-    ) -> CommandEffect {
+    ) -> notwig_ext_api::AudioSubEditorResponse {
         let _ = ui;
         let _ = context;
-        CommandEffect::None
+        notwig_ext_api::AudioSubEditorResponse::none()
     }
 }
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    // Must match the contribution id in extension.json.
-    extension.register_audio_sub_editor::<PanEditor>("com.example.clip-tools.pan");
+    extension.register_audio_sub_editor_with_descriptor::<PanEditor>(
+        AudioSubEditorDescriptor {
+            id: "com.example.clip-tools.pan".into(),
+            title: "Clip Pan".into(),
+            category: "Audio".into(),
+            order: 10,
+            extension_id: None,
+        },
+    );
 }
 ```
 
-One guest instance is retained per clip and contribution id so switching clips
+One guest instance is retained per clip and registration id so switching clips
 or sub-editors preserves view state. The host destroys it when the extension
 reloads or the extension host is dropped.
 

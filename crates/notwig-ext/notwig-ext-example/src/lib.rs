@@ -14,14 +14,14 @@ use notwig_core::Curve;
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorResponse, CommandContext,
-    CommandEdit, CommandEffect, CommandExtension, ExtensionBuilder, ExtensionPoint, PreloadBuilder,
-    UnloadContext, notwig_ext,
+    AudioSubEditorContext, AudioSubEditorDescriptor, AudioSubEditorExtension,
+    AudioSubEditorResponse, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
+    CommandExtension, ExtensionBuilder, ExtensionPoint, PreloadBuilder, UnloadContext, notwig_ext,
 };
 
-/// Humanize command id. This must match `extension.json`.
+/// Humanize command id.
 pub const HUMANIZE_COMMAND_ID: &str = "notwig.ext.example.humanize";
-/// Clip pan sub-editor id. This must match `extension.json`.
+/// Clip pan sub-editor id.
 pub const PAN_SUB_EDITOR_ID: &str = "notwig.ext.example.pan";
 /// Extension-drawn clip pan sub-editor.
 pub struct PanSubEditor {
@@ -187,11 +187,37 @@ pub fn preload(extension: &mut PreloadBuilder) {
     extension.register_extension_point(EXAMPLE_POINT);
 }
 
+/// Returns the humanize command metadata.
+#[must_use]
+pub fn humanize_descriptor() -> CommandDescriptor {
+    CommandDescriptor {
+        id: HUMANIZE_COMMAND_ID.into(),
+        title: "Humanize Notes".into(),
+        category: "MIDI".into(),
+        description: "Nudge the timing and velocity of selected MIDI notes.".into(),
+        when: Some("focus == midi_editor && selection.notes > 0".into()),
+        default_bindings: vec!["Ctrl+Alt+H".into()],
+        extension_id: None,
+    }
+}
+
+/// Returns the clip-pan sub-editor metadata.
+#[must_use]
+pub fn pan_descriptor() -> AudioSubEditorDescriptor {
+    AudioSubEditorDescriptor {
+        id: PAN_SUB_EDITOR_ID.into(),
+        title: "Clip Pan".into(),
+        category: "Audio".into(),
+        order: 10,
+        extension_id: None,
+    }
+}
+
 /// Registers the example extension commands.
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_command::<HumanizeCommand>(HUMANIZE_COMMAND_ID);
-    extension.register_audio_sub_editor::<PanSubEditor>(PAN_SUB_EDITOR_ID);
+    extension.register_command_with_descriptor::<HumanizeCommand>(humanize_descriptor());
+    extension.register_audio_sub_editor_with_descriptor::<PanSubEditor>(pan_descriptor());
 }
 
 /// Releases example extension resources.
@@ -213,24 +239,23 @@ mod tests {
     use notwig_ext_api::Extension;
 
     #[test]
-    fn pan_contribution_matches_the_manifest() {
-        let manifest: serde_json::Value =
-            serde_json::from_str(include_str!("../extension.json")).expect("valid manifest json");
-        let contribution = manifest["contributes"]
-            .as_array()
-            .expect("contributions")
-            .iter()
-            .find(|entry| entry["id"] == PAN_SUB_EDITOR_ID)
-            .expect("pan contribution");
-        assert_eq!(
-            contribution["point"],
-            notwig_ext_api::AUDIO_SUB_EDITOR_POINT
-        );
-        assert_eq!(
-            contribution["contract"],
-            notwig_ext_api::AUDIO_SUB_EDITOR_CONTRACT
-        );
-        assert!(contribution.get("kind").is_none());
+    fn runtime_registration_describes_contributions() {
+        let manifest: notwig_ext_api::ExtensionManifest =
+            serde_json::from_str(include_str!("../extension.json")).expect("valid manifest");
+        assert_eq!(manifest.id, "notwig.ext.example");
+        assert!(manifest.contributes.is_empty());
+
+        let mut extension = Extension::new();
+        extension.register_command_with_descriptor::<HumanizeCommand>(humanize_descriptor());
+        extension.register_audio_sub_editor_with_descriptor::<PanSubEditor>(pan_descriptor());
+
+        let registrations = extension.registrations();
+        assert_eq!(registrations.commands.len(), 1);
+        assert_eq!(registrations.commands[0].id, HUMANIZE_COMMAND_ID);
+        assert_eq!(registrations.commands[0].title, "Humanize Notes");
+        assert_eq!(registrations.audio_sub_editors.len(), 1);
+        assert_eq!(registrations.audio_sub_editors[0].id, PAN_SUB_EDITOR_ID);
+        assert_eq!(registrations.audio_sub_editors[0].order, 10);
     }
 
     fn pan_context() -> AudioSubEditorContext {

@@ -148,7 +148,8 @@ tables below summarize test groups. One row can cover several test functions.
 | Graph compilation order | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Unknown plugin resolution | ✅ Implemented | ⭐⭐⭐ | |
 | Extension ABI and WASM devices | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext/tests/abi.rs` covers describe, panel output, DSP, and latency with inline WAT modules; `limiter_extension.rs` covers the built WASM and native targets. |
-| Extension command contract | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/command_contract.rs` covers manifest v2, `when` parsing, registration, and execution; `crates/notwig-ext/notwig-ext/tests/commands.rs` covers host resolution and WASM execution. |
+| Extension lifecycle and registration | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/lifecycle.rs` covers preload/load/unload state and point declarations; `crates/notwig-ext/notwig-ext/tests/registrations.rs` covers runtime point/command/sub-editor manifests, runtime precedence over manifest fallback, and host resolution. |
+| Extension command contract | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/command_contract.rs` covers manifest v2, `when` parsing, registration, and execution; `crates/notwig-ext/notwig-ext/tests/commands.rs` covers manifest fallback and WASM execution. |
 | Command palette and string bindings | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ui/tests/shortcuts.rs` covers F1 palette opening, registry precedence, extension defaults, round-trips, and headless rendering of unavailable extension commands. |
 | Extension command effects and undo | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-app/tests/workspace.rs` applies a note edit effect as one undo entry. |
 | Extension panel frame validation | ✅ Implemented | ⭐⭐⭐⭐ | `crates/notwig-ext/notwig-ext-api/tests/panel_wire.rs` covers mesh, texture, clip, and action limits. |

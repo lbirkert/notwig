@@ -6,7 +6,10 @@
 use std::sync::{Mutex, OnceLock};
 
 use crate::abi::AbiStatus;
-use crate::extension::{Extension, ExtensionBuilder, PreloadBuilder};
+use crate::audio_editor::AudioSubEditorExtension;
+use crate::command::CommandExtension;
+use crate::extension::{DeviceExtension, Extension};
+use crate::extension_point::ExtensionPoint;
 
 static PRELOADED: Mutex<Option<Extension>> = Mutex::new(None);
 static LOADED: OnceLock<Extension> = OnceLock::new();
@@ -65,7 +68,126 @@ pub fn ensure_loaded(f: impl FnOnce(&mut ExtensionBuilder)) -> &'static Extensio
 
 /// Runs the unload phase.
 #[doc(hidden)]
-pub fn run_unload(f: impl FnOnce(&mut crate::extension::UnloadContext)) {
-    let mut context = crate::extension::UnloadContext::new();
+pub fn run_unload(f: impl FnOnce(&mut UnloadContext)) {
+    let mut context = UnloadContext::new();
     f(&mut context);
+}
+
+/// Builder passed to `#[notwig_ext(preload)]`.
+///
+/// Only declarations that must exist before load-phase registration are
+/// exposed here.
+pub struct PreloadBuilder {
+    extension: Extension,
+}
+
+impl PreloadBuilder {
+    /// Creates an empty preload builder.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            extension: Extension::new(),
+        }
+    }
+
+    /// Declares one extension point.
+    pub fn register_extension_point<T: ?Sized>(&mut self, point: ExtensionPoint<T>) {
+        self.extension.register_extension_point(point);
+    }
+
+    pub(crate) fn into_extension(self) -> Extension {
+        self.extension
+    }
+}
+
+impl Default for PreloadBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builder passed to `#[notwig_ext(load)]`.
+///
+/// This exposes implementation and contribution registration, but not new
+/// point declarations.
+pub struct ExtensionBuilder {
+    extension: Extension,
+}
+
+impl ExtensionBuilder {
+    /// Creates an empty load builder.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            extension: Extension::new(),
+        }
+    }
+
+    pub(crate) fn from_extension(extension: Extension) -> Self {
+        Self { extension }
+    }
+
+    pub(crate) fn into_extension(self) -> Extension {
+        self.extension
+    }
+
+    /// Registers one device implementation.
+    pub fn register_device<D: DeviceExtension>(&mut self) {
+        self.extension.register_device::<D>();
+    }
+
+    /// Registers one extension-drawn audio sub-editor renderer.
+    pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
+        self.extension.register_audio_sub_editor::<T>(id);
+    }
+
+    /// Registers an audio sub-editor renderer with runtime metadata.
+    pub fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
+        &mut self,
+        descriptor: crate::audio_editor::AudioSubEditorDescriptor,
+    ) {
+        self.extension
+            .register_audio_sub_editor_with_descriptor::<T>(descriptor);
+    }
+
+    /// Registers a command implementation under `id`.
+    pub fn register_command<C: CommandExtension>(&mut self, id: impl Into<String>) {
+        self.extension.register_command::<C>(id);
+    }
+
+    /// Registers a command implementation with runtime metadata.
+    pub fn register_command_with_descriptor<C: CommandExtension>(
+        &mut self,
+        descriptor: crate::command::CommandDescriptor,
+    ) {
+        self.extension
+            .register_command_with_descriptor::<C>(descriptor);
+    }
+}
+
+impl Default for ExtensionBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Context passed to `#[notwig_ext(unload)]`.
+///
+/// The host owns instance teardown; this context only marks the phase boundary.
+pub struct UnloadContext {
+    _private: (),
+}
+
+impl UnloadContext {
+    /// Creates an unload context.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+impl Default for UnloadContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }

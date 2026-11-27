@@ -4,7 +4,7 @@ use notwig_core::dsp::DeviceSpec;
 use notwig_core::{ParamId, ParamValue};
 use notwig_ext_api::{
     AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect, DeviceDrawContext,
-    PanelFrame,
+    ExtensionRegistrations, PanelFrame,
 };
 
 use crate::abi::{ExtensionEngines, ExtensionInstance as WasmInstance};
@@ -98,6 +98,15 @@ impl ExtensionInstance {
         match self {
             Self::Wasm(instance) => instance.draw_panel(handle, context),
             Self::Native(instance) => instance.draw_panel(handle, context),
+        }
+    }
+
+    pub(crate) fn registrations(
+        &mut self,
+    ) -> Result<Option<ExtensionRegistrations>, ExtensionError> {
+        match self {
+            Self::Wasm(instance) => instance.registrations(),
+            Self::Native(instance) => instance.registrations(),
         }
     }
 

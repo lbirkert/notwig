@@ -43,7 +43,7 @@ builds a ZIP:
   "name": "Example Gain",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 7,
+  "api_version": 8,
   "capabilities": ["device", "ui.panel"],
   "devices": [
     {
@@ -71,12 +71,12 @@ binary it finds in Cargo's target directory, or only the targets you list.
 | `name` | yes | Display name in the extension explorer. |
 | `vendor` | no | Author or vendor shown in the explorer. |
 | `version` | yes | Package version string. |
-| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `7`. |
+| `api_version` | yes | Must match `notwig_ext_api::ABI_VERSION`, currently `8`. |
 | `entrypoints` | installed only | Ordered target builds; the CLI adds it. The first supported entry wins. |
 | `includes` | source only | Extra files to bundle, optionally gated by target. The CLI removes it. |
 | `capabilities` | no | Host services the package needs. |
 | `devices` | no | Devices registered by the package. |
-| `contributes` | no | Extension-point contributions: `notwig.command` and `notwig.audio_editor.sub_editor`. Audio sub-editors are rendered by the extension under the contribution id. See the [Command API](06_command_api.md) and [Audio Sub-editor API](07_audio_sub_editor_api.md). |
+| `contributes` | no | Compatibility fallback for extension-point contributions. New packages register `notwig.command` and `notwig.audio_editor.sub_editor` metadata at runtime. See the [Command API](06_command_api.md) and [Audio Sub-editor API](07_audio_sub_editor_api.md). |
 | `description` | no | Short text shown in the explorer. |
 | `image` | no | Relative icon path in the package. The index copies it to `extensions/<id>.png` for the explorer. |
 

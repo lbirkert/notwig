@@ -4,6 +4,7 @@ use std::sync::Arc;
 use notwig_core::dsp::DeviceSpec;
 use notwig_ext_api::{
     AudioSubEditorDescriptor, CommandDescriptor, ExtensionInfo, ExtensionManifest,
+    ExtensionPointDescriptor,
 };
 
 pub(crate) struct WebLoadedExtension {
@@ -12,6 +13,7 @@ pub(crate) struct WebLoadedExtension {
     pub(crate) specs: Vec<DeviceSpec>,
     pub(crate) commands: Vec<CommandDescriptor>,
     pub(crate) audio_sub_editors: Vec<AudioSubEditorDescriptor>,
+    pub(crate) points: Vec<ExtensionPointDescriptor>,
     pub(crate) info: ExtensionInfo,
 }
 
@@ -21,6 +23,7 @@ pub(crate) struct WebLoadedExtensions {
     pub(crate) by_audio_sub_editor: BTreeMap<String, Arc<WebLoadedExtension>>,
     pub(crate) commands: BTreeMap<String, CommandDescriptor>,
     pub(crate) audio_sub_editors: BTreeMap<String, AudioSubEditorDescriptor>,
+    pub(crate) points: BTreeMap<String, ExtensionPointDescriptor>,
     pub(crate) infos: Vec<ExtensionInfo>,
 }
 
@@ -54,6 +57,10 @@ impl WebLoadedExtensions {
                 .then_with(|| a.id.cmp(&b.id))
         });
         editors
+    }
+
+    pub(crate) fn points(&self) -> Vec<ExtensionPointDescriptor> {
+        self.points.values().cloned().collect()
     }
 
     pub(crate) fn specs(&self) -> Vec<DeviceSpec> {

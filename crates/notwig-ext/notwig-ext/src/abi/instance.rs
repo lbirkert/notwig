@@ -3,7 +3,8 @@
 use notwig_core::ParamValue;
 use notwig_ext_api::{
     ABI_VERSION, AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect,
-    DeviceDrawContext, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
+    DeviceDrawContext, ExtensionRegistrations, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES,
+    MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 use wasmtime::{Engine, Instance, Linker, Memory, Module, Store, StoreLimitsBuilder, TypedFunc};
 
@@ -34,10 +35,32 @@ pub(crate) struct ExtensionInstance {
     preload: Option<TypedFunc<(), i32>>,
     load: Option<TypedFunc<(), i32>>,
     unload: Option<TypedFunc<(), i32>>,
+    registrations: Option<TypedFunc<(), i64>>,
 }
 
 impl ExtensionInstance {
     pub(crate) fn instantiate(
+        engine: &Engine,
+        module: &Module,
+        extension_id: &str,
+    ) -> Result<Self, ExtensionError> {
+        let mut instance = Self::create(engine, module, extension_id)?;
+        instance.preload_phase()?;
+        instance.load_phase()?;
+        Ok(instance)
+    }
+
+    pub(crate) fn instantiate_preload(
+        engine: &Engine,
+        module: &Module,
+        extension_id: &str,
+    ) -> Result<Self, ExtensionError> {
+        let mut instance = Self::create(engine, module, extension_id)?;
+        instance.preload_phase()?;
+        Ok(instance)
+    }
+
+    fn create(
         engine: &Engine,
         module: &Module,
         extension_id: &str,
@@ -105,8 +128,11 @@ impl ExtensionInstance {
         let unload = instance
             .get_typed_func::<(), i32>(&mut store, "notwig_ext_unload")
             .ok();
+        let registrations = instance
+            .get_typed_func::<(), i64>(&mut store, "notwig_ext_registrations")
+            .ok();
 
-        let mut runtime = Self {
+        let runtime = Self {
             store,
             memory,
             alloc,
@@ -126,17 +152,21 @@ impl ExtensionInstance {
             preload,
             load,
             unload,
+            registrations,
         };
-        runtime.run_phases()?;
         Ok(runtime)
     }
 
-    fn run_phases(&mut self) -> Result<(), ExtensionError> {
+    pub(crate) fn preload_phase(&mut self) -> Result<(), ExtensionError> {
         if let Some(preload) = self.preload.clone() {
             self.reset_fuel()?;
             let status = preload.call(&mut self.store, ()).map_err(wasm_err)?;
             check_status(status)?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn load_phase(&mut self) -> Result<(), ExtensionError> {
         if let Some(load) = self.load.clone() {
             self.reset_fuel()?;
             let status = load.call(&mut self.store, ()).map_err(wasm_err)?;
@@ -150,6 +180,20 @@ impl ExtensionInstance {
             let _ = self.reset_fuel();
             let _ = unload.call(&mut self.store, ());
         }
+    }
+
+    pub(crate) fn registrations(
+        &mut self,
+    ) -> Result<Option<ExtensionRegistrations>, ExtensionError> {
+        let Some(registrations) = self.registrations.clone() else {
+            return Ok(None);
+        };
+        self.reset_fuel()?;
+        let packed = registrations.call(&mut self.store, ()).map_err(wasm_err)?;
+        let bytes = self.read_packed_json(packed)?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| ExtensionError::Abi(format!("parse registrations: {error}")))
     }
 
     fn reset_fuel(&mut self) -> Result<(), ExtensionError> {

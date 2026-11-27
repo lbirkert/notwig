@@ -7,8 +7,8 @@ use libloading::Library;
 use notwig_core::ParamValue;
 use notwig_ext_api::{
     ABI_VERSION, AbiStatus, AudioSubEditorContext, AudioSubEditorFrame, CommandContext,
-    CommandEffect, DeviceDrawContext, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES,
-    PanelFrame,
+    CommandEffect, DeviceDrawContext, ExtensionRegistrations, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES,
+    MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 
 use crate::error::ExtensionError;
@@ -35,6 +35,7 @@ type SubEditorDestroyFn = unsafe extern "C" fn(i32);
 type SubEditorDrawFn = unsafe extern "C" fn(i32, *const u8, usize) -> NativeBytes;
 type CommandFn = unsafe extern "C" fn(*const u8, usize, *const u8, usize) -> NativeBytes;
 type PhaseFn = unsafe extern "C" fn() -> i32;
+type RegistrationsFn = unsafe extern "C" fn() -> NativeBytes;
 
 /// A loaded native extension shared library.
 pub(crate) struct NativeLibrary {
@@ -54,6 +55,7 @@ pub(crate) struct NativeLibrary {
     preload: Option<PhaseFn>,
     load: Option<PhaseFn>,
     unload: Option<PhaseFn>,
+    registrations: Option<RegistrationsFn>,
 }
 
 impl NativeLibrary {
@@ -125,21 +127,38 @@ impl NativeLibrary {
                     .get::<PhaseFn>(b"notwig_ext_unload\0")
                     .ok()
                     .map(|function| *function),
+                registrations: library
+                    .get::<RegistrationsFn>(b"notwig_ext_registrations\0")
+                    .ok()
+                    .map(|function| *function),
                 _library: library,
             });
-            loaded.run_phases()?;
             Ok(loaded)
         }
     }
 
-    fn run_phases(&self) -> Result<(), ExtensionError> {
+    pub(crate) fn preload(&self) -> Result<(), ExtensionError> {
         if let Some(preload) = self.preload {
             check_status(unsafe { preload() })?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn load_phase(&self) -> Result<(), ExtensionError> {
         if let Some(load) = self.load {
             check_status(unsafe { load() })?;
         }
         Ok(())
+    }
+
+    pub(crate) fn registrations(&self) -> Result<Option<ExtensionRegistrations>, ExtensionError> {
+        let Some(registrations) = self.registrations else {
+            return Ok(None);
+        };
+        let bytes = read_bytes_with_limit(unsafe { registrations() }, MAX_OUTPUT_BYTES)?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| ExtensionError::Abi(format!("parse registrations: {error}")))
     }
 }
 
@@ -257,6 +276,12 @@ impl NativeInstance {
     pub(crate) fn latency(&mut self, handle: i32) -> u32 {
         let samples = unsafe { (self.library.latency)(handle) };
         u32::try_from(samples).unwrap_or(0)
+    }
+
+    pub(crate) fn registrations(
+        &mut self,
+    ) -> Result<Option<ExtensionRegistrations>, ExtensionError> {
+        self.library.registrations()
     }
 
     pub(crate) fn execute_command(

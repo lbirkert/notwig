@@ -24,7 +24,7 @@ and never depends on `notwig-ui`.
 | Module | Responsibility |
 | --- | --- |
 | `abi.rs` | Native WASM host facade: engine setup and re-exports |
-| `abi/instance.rs` | WASM instantiation, lifecycle exports, and per-call fuel reset |
+| `abi/instance.rs` | WASM instantiation, preload/load/unload exports, registration manifest, and per-call fuel reset |
 | `abi/memory.rs` | Guest linear-memory reads/writes and packed result decoding |
 | `abi/host.rs` | `notwig.host.log/notify` imports with bounded text copies |
 | `abi/status.rs` | `AbiStatus` decoding and parameter wire conversion |

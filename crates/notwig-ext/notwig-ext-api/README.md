@@ -19,6 +19,8 @@ host uses the same wire types to validate and composite extension panels.
   extension lifecycle phases;
 - `ExtensionPoint<T>` typed extension-point keys and preload declaration
   storage;
+- runtime registration descriptors and the bounded post-load registration
+  manifest;
 - `DeviceExtension` and `Extension` for registering device implementations and
   delivering note events before each processed block;
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
@@ -36,7 +38,7 @@ no render-neutral command IR. Extension panels should use the shared components
 from `notwig-ui` for knobs, meters, labels, sections, toggles, and dropdowns.
 
 This crate has no `wasmtime` and no I/O. Keep wire-format changes versioned
-through `notwig_ext_api::ABI_VERSION` (currently `7`). Extensions can register `AudioSubEditorExtension` renderers for custom audio-editor sub-editors.
+through `notwig_ext_api::ABI_VERSION` (currently `8`). Extensions can register `AudioSubEditorExtension` renderers for custom audio-editor sub-editors.
 
 Device authors implement `DeviceExtension` for their device type and register it
 from the load phase:

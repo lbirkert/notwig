@@ -1,7 +1,7 @@
 # Command API
 
 Status: implemented for the Phase 1 command platform. Extensions can contribute
-commands with manifest metadata, a bounded context, host-owned edit families,
+commands with runtime metadata, a bounded context, host-owned edit families,
 command palette integration, and default keybindings. The reference package is
 `crates/notwig-ext/notwig-ext-example`.
 
@@ -9,10 +9,10 @@ Commands supplement devices and audio sub-editors; they do not give an
 extension access to `ProjectDoc`, the audio callback, or host UI. The host validates the result,
 applies it through `notwig_core::apply`, and records one undo entry.
 
-## Manifest
+## Runtime metadata
 
-Command contributions require `manifest_version: 2`. A version 1 manifest is
-still accepted for device-only packages.
+Commands are declared by the guest at load time, not by the package manifest.
+The manifest only needs `manifest_version: 2` and the `command` capability:
 
 ```json
 {
@@ -21,27 +21,16 @@ still accepted for device-only packages.
   "name": "MIDI Tools",
   "vendor": "Example",
   "version": "0.1.0",
-  "api_version": 7,
-  "capabilities": ["command"],
-  "contributes": [
-    {
-      "id": "com.example.midi-tools.humanize",
-      "point": "notwig.command",
-      "contract": "notwig.command@1",
-      "title": "Humanize Notes",
-      "category": "MIDI",
-      "description": "Nudge the timing and velocity of selected notes.",
-      "when": "focus == midi_editor && selection.notes > 0",
-      "default_bindings": ["Ctrl+Alt+H"]
-    }
-  ]
+  "api_version": 8,
+  "capabilities": ["command"]
 }
 ```
 
-The command ID must be stable and namespaced by the extension. The host lists it
-in the command palette and the shortcut editor. Default bindings are only
-suggestions; the host never lets an extension default steal a binding already
-used by a built-in command.
+The host reads the command descriptor from `notwig_ext_registrations` after the
+load phase. The command ID must be stable and namespaced by the extension. The
+host lists it in the command palette and shortcut editor. Default bindings are
+only suggestions; the host never lets an extension default steal a binding
+already used by a built-in command.
 
 The `when` expression is declarative, not executable code. Supported fields are:
 
@@ -60,8 +49,8 @@ Register a command from the same macro entrypoint used by devices:
 
 ```rust
 use notwig_ext_api::{
-    CommandContext, CommandEdit, CommandEffect, CommandExtension, ExtensionBuilder,
-    notwig_ext,
+    CommandContext, CommandDescriptor, CommandEdit, CommandEffect, CommandExtension,
+    ExtensionBuilder, notwig_ext,
 };
 
 pub const HUMANIZE_COMMAND_ID: &str = "com.example.midi-tools.humanize";
@@ -103,7 +92,15 @@ impl CommandExtension for HumanizeCommand {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_command::<HumanizeCommand>(HUMANIZE_COMMAND_ID);
+    extension.register_command_with_descriptor::<HumanizeCommand>(CommandDescriptor {
+        id: HUMANIZE_COMMAND_ID.into(),
+        title: "Humanize Notes".into(),
+        category: "MIDI".into(),
+        description: "Nudge the timing and velocity of selected notes.".into(),
+        when: Some("focus == midi_editor && selection.notes > 0".into()),
+        default_bindings: vec!["Ctrl+Alt+H".into()],
+        extension_id: None,
+    });
 }
 ```
 

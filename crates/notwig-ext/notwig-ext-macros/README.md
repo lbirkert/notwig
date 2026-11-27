@@ -37,8 +37,9 @@ runs when the host drops the extension instance. The legacy
 
 The load entrypoint runs once, lazily, when the host first calls an ABI export
 or explicitly calls `notwig_ext_load`. On `wasm32-unknown-unknown` the macro
-generates `notwig_abi_version`, `notwig_ext_load`, `notwig_alloc`,
-`notwig_free`, and the `notwig_device_*` family. On native targets it generates
+generates `notwig_abi_version`, `notwig_ext_load`,
+`notwig_ext_registrations`, `notwig_alloc`, `notwig_free`, and the
+`notwig_device_*` family. On native targets it generates
 the same version, phase, and device symbol names with pointer-sized arguments
 and direct host pointers. All generated functions forward to
 `notwig_ext_api::Extension`; extensions normally only implement

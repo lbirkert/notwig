@@ -4,7 +4,7 @@ use js_sys::{BigInt, Function, Object, Reflect};
 use notwig_core::ParamValue;
 use notwig_ext_api::{
     AudioSubEditorContext, AudioSubEditorFrame, CommandContext, CommandEffect, DeviceDrawContext,
-    MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
+    ExtensionRegistrations, MAX_COMMAND_EDITS, MAX_OUTPUT_BYTES, MAX_PANEL_FRAME_BYTES, PanelFrame,
 };
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -13,10 +13,14 @@ use super::status::{check_status, param_wire};
 use crate::error::ExtensionError;
 
 impl WebExtensionInstance {
-    pub(crate) fn run_phases(&mut self) -> Result<(), ExtensionError> {
+    pub(crate) fn preload_phase(&mut self) -> Result<(), ExtensionError> {
         if let Some(preload) = self.preload.clone() {
             check_status(call_i32(&preload, &[])?)?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn load_phase(&mut self) -> Result<(), ExtensionError> {
         if let Some(load) = self.load.clone() {
             check_status(call_i32(&load, &[])?)?;
         }
@@ -27,6 +31,19 @@ impl WebExtensionInstance {
         if let Some(unload) = self.unload.clone() {
             let _ = unload.call0(&JsValue::UNDEFINED);
         }
+    }
+
+    pub(crate) fn registrations(
+        &mut self,
+    ) -> Result<Option<ExtensionRegistrations>, ExtensionError> {
+        let Some(registrations) = self.registrations.clone() else {
+            return Ok(None);
+        };
+        let packed = call_u64(&registrations, &[])?;
+        let bytes = self.read_packed_json(packed)?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| ExtensionError::Abi(format!("parse registrations: {error}")))
     }
 
     pub(crate) fn describe(

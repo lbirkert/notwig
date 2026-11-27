@@ -12,7 +12,7 @@ fn manifest(id: &str, name: &str) -> Vec<u8> {
         "name": name,
         "vendor": "Test",
         "version": "0.1.0",
-        "api_version": 7,
+        "api_version": 8,
         "entrypoints": [{ "entrypoint": "test.wasm", "target": "wasm" }]
     }))
     .unwrap()

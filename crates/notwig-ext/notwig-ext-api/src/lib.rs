@@ -46,6 +46,7 @@ pub mod lifecycle;
 pub mod manifest;
 pub mod note;
 pub mod panel;
+pub mod registration;
 pub mod status;
 pub mod target;
 
@@ -60,16 +61,17 @@ pub use audio_editor::{
 pub use command::{
     COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
     CommandExtension, CommandFocus, CommandId, CommandSelection, CommandTimeSelection,
-    CommandUiRequest, MAX_COMMAND_CONTEXT_NOTES, MAX_COMMAND_CONTEXT_SLICES, MAX_COMMAND_EDITS,
-    WhenError, evaluate_when, validate_when,
+    CommandUiRequest, MAX_COMMAND_CONTEXT_NOTES, MAX_COMMAND_CONTEXT_SLICES,
+    MAX_COMMAND_DESCRIPTION_BYTES, MAX_COMMAND_EDITS, WhenError, evaluate_when, validate_when,
 };
 pub use config::{CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig};
 pub use context::{DeviceDrawContext, DeviceMeterSnapshot, ThemeSnapshot};
 pub use cursor::CursorIcon;
-pub use extension::{DeviceExtension, Extension, ExtensionBuilder, PreloadBuilder, UnloadContext};
+pub use extension::{DeviceExtension, Extension};
 pub use extension_point::ExtensionPoint;
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
+pub use lifecycle::{ExtensionBuilder, PreloadBuilder, UnloadContext};
 pub use manifest::{
     CURRENT_MANIFEST_VERSION, ExtensionCapability, ExtensionContribution, ExtensionDeviceDecl,
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
@@ -81,5 +83,8 @@ pub use panel_frame::{
     MAX_PANEL_FRAME_BYTES, PanelEvent, PanelFrame, PanelImage, PanelInput, PanelMesh,
     PanelModifiers, PanelPointerButton, PanelPrimitive, PanelTextureDelta, PanelTextureOptions,
     PanelVertex,
+};
+pub use registration::{
+    ExtensionPointDescriptor, ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

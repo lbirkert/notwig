@@ -10,10 +10,13 @@ use crate::abi::{
 use crate::audio_editor::{
     AudioSubEditorContext, AudioSubEditorExtension, AudioSubEditorFrame, AudioSubEditorResponse,
 };
-use crate::command::{CommandContext, CommandEffect, CommandExtension, MAX_COMMAND_EDITS};
+use crate::command::{
+    CommandContext, CommandDescriptor, CommandEffect, CommandExtension, MAX_COMMAND_EDITS,
+};
 use crate::context::{DeviceDrawContext, DeviceMeterSnapshot};
 use crate::extension_point::ExtensionPoint;
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
+use crate::registration::{ExtensionPointDescriptor, ExtensionRegistrations};
 
 /// A device implemented by a WASM extension.
 ///
@@ -145,6 +148,7 @@ impl<T: CommandExtension> CommandInstance for T {
 
 struct RegisteredCommand {
     create: fn() -> Box<dyn CommandInstance>,
+    descriptor: CommandDescriptor,
 }
 
 fn create_command<C: CommandExtension>() -> Box<dyn CommandInstance> {
@@ -158,6 +162,7 @@ struct RegisteredDevice {
 
 struct RegisteredAudioSubEditor {
     create: fn() -> Box<dyn SubEditorInstance>,
+    descriptor: crate::audio_editor::AudioSubEditorDescriptor,
 }
 
 struct DeviceSlot {
@@ -188,6 +193,7 @@ pub struct Extension {
     audio_sub_editors: BTreeMap<String, RegisteredAudioSubEditor>,
     commands: BTreeMap<String, RegisteredCommand>,
     last_command_bytes: Mutex<Vec<u8>>,
+    last_registration_bytes: Mutex<Vec<u8>>,
     instances: DeviceStore<DeviceSlot>,
     sub_editor_instances: DeviceStore<SubEditorSlot>,
 }
@@ -202,6 +208,7 @@ impl Extension {
             audio_sub_editors: BTreeMap::new(),
             commands: BTreeMap::new(),
             last_command_bytes: Mutex::new(Vec::new()),
+            last_registration_bytes: Mutex::new(Vec::new()),
             instances: DeviceStore::new(),
             sub_editor_instances: DeviceStore::new(),
         }
@@ -245,10 +252,28 @@ impl Extension {
     /// implementation. A fresh instance is created per visible clip and
     /// contribution id.
     pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
+        let id = id.into();
+        self.register_audio_sub_editor_with_descriptor::<T>(
+            crate::audio_editor::AudioSubEditorDescriptor {
+                id: id.clone(),
+                title: id.clone(),
+                category: String::new(),
+                order: 0,
+                extension_id: None,
+            },
+        );
+    }
+
+    /// Registers an audio sub-editor renderer with runtime metadata.
+    pub fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
+        &mut self,
+        descriptor: crate::audio_editor::AudioSubEditorDescriptor,
+    ) {
         self.audio_sub_editors.insert(
-            id.into(),
+            descriptor.id.clone(),
             RegisteredAudioSubEditor {
                 create: create_sub_editor::<T>,
+                descriptor,
             },
         );
     }
@@ -260,12 +285,81 @@ impl Extension {
     /// fresh instance is created for each execution so commands do not share
     /// state with audio processors or panels.
     pub fn register_command<C: CommandExtension>(&mut self, id: impl Into<String>) {
+        let id = id.into();
+        self.register_command_with_descriptor::<C>(CommandDescriptor {
+            id: id.clone(),
+            title: id,
+            category: String::new(),
+            description: String::new(),
+            when: None,
+            default_bindings: Vec::new(),
+            extension_id: None,
+        });
+    }
+
+    /// Registers a command implementation with runtime metadata.
+    pub fn register_command_with_descriptor<C: CommandExtension>(
+        &mut self,
+        descriptor: CommandDescriptor,
+    ) {
         self.commands.insert(
-            id.into(),
+            descriptor.id.clone(),
             RegisteredCommand {
                 create: create_command::<C>,
+                descriptor,
             },
         );
+    }
+
+    /// Returns the bounded runtime registration manifest.
+    #[must_use]
+    pub fn registrations(&self) -> ExtensionRegistrations {
+        ExtensionRegistrations {
+            version: crate::registration::REGISTRATION_MANIFEST_VERSION,
+            points: self
+                .extension_points
+                .iter()
+                .map(|id| ExtensionPointDescriptor { id: id.clone() })
+                .collect(),
+            commands: self
+                .commands
+                .values()
+                .map(|command| command.descriptor.clone())
+                .collect(),
+            audio_sub_editors: self
+                .audio_sub_editors
+                .values()
+                .map(|editor| editor.descriptor.clone())
+                .collect(),
+        }
+    }
+
+    /// Serializes the registration manifest into the runtime result buffer.
+    ///
+    /// Returns `None` when serialization fails.
+    #[must_use]
+    pub fn registrations_result(&self) -> Option<(usize, usize)> {
+        let bytes = serde_json::to_vec(&self.registrations()).ok()?;
+        if bytes.len() > crate::abi::MAX_OUTPUT_BYTES {
+            return None;
+        }
+        let mut buffer = self.last_registration_bytes.lock().ok()?;
+        *buffer = bytes;
+        Some((buffer.as_ptr() as usize, buffer.len()))
+    }
+
+    /// Returns a packed pointer to the serialized registration manifest.
+    #[must_use]
+    pub fn registrations_pointer(&self) -> i64 {
+        self.registrations_result().map_or(0, |(ptr, len)| {
+            let Ok(ptr) = u32::try_from(ptr) else {
+                return 0;
+            };
+            let Ok(len) = u32::try_from(len) else {
+                return 0;
+            };
+            i64::try_from(pack_ptr_len(ptr, len)).unwrap_or(0)
+        })
     }
 
     /// Executes a command with a postcard-encoded context.
@@ -603,107 +697,6 @@ fn deliver_events(slot: &mut DeviceSlot, events: &[u8]) {
 }
 
 impl Default for Extension {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Builder passed to `#[notwig_ext(preload)]`.
-///
-/// Only declarations that must exist before load-phase registration are
-/// exposed here.
-pub struct PreloadBuilder {
-    extension: Extension,
-}
-
-impl PreloadBuilder {
-    /// Creates an empty preload builder.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            extension: Extension::new(),
-        }
-    }
-
-    /// Declares one extension point.
-    pub fn register_extension_point<T: ?Sized>(&mut self, point: ExtensionPoint<T>) {
-        self.extension.register_extension_point(point);
-    }
-
-    pub(crate) fn into_extension(self) -> Extension {
-        self.extension
-    }
-}
-
-impl Default for PreloadBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Builder passed to `#[notwig_ext(load)]`.
-///
-/// This exposes implementation and contribution registration, but not new
-/// point declarations.
-pub struct ExtensionBuilder {
-    extension: Extension,
-}
-
-impl ExtensionBuilder {
-    /// Creates an empty load builder.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            extension: Extension::new(),
-        }
-    }
-
-    pub(crate) fn from_extension(extension: Extension) -> Self {
-        Self { extension }
-    }
-
-    pub(crate) fn into_extension(self) -> Extension {
-        self.extension
-    }
-
-    /// Registers one device implementation.
-    pub fn register_device<D: DeviceExtension>(&mut self) {
-        self.extension.register_device::<D>();
-    }
-
-    /// Registers one extension-drawn audio sub-editor renderer.
-    pub fn register_audio_sub_editor<T: AudioSubEditorExtension>(&mut self, id: impl Into<String>) {
-        self.extension.register_audio_sub_editor::<T>(id);
-    }
-
-    /// Registers a command implementation under `id`.
-    pub fn register_command<C: CommandExtension>(&mut self, id: impl Into<String>) {
-        self.extension.register_command::<C>(id);
-    }
-}
-
-impl Default for ExtensionBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Context passed to `#[notwig_ext(unload)]`.
-///
-/// The host owns instance teardown; this context only marks the phase boundary.
-pub struct UnloadContext {
-    _private: (),
-}
-
-impl UnloadContext {
-    /// Creates an unload context.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { _private: () }
-    }
-}
-
-impl Default for UnloadContext {
     fn default() -> Self {
         Self::new()
     }

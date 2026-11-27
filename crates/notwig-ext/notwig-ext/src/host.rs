@@ -1,17 +1,19 @@
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::collections::{BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
     AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DevicePanelHost, ExtensionInfo, ExtensionManifest, ExtensionSettings, ExtensionStatus, target,
+    DevicePanelHost, ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor, ExtensionSettings,
+    ExtensionStatus, target,
 };
 use wasmtime::Module;
 
 use crate::abi::ExtensionEngines;
 use crate::compiled::{ExtensionRuntime, LoadedExtension, LoadedExtensions};
+use crate::contributions;
 use crate::device::ExtensionDeviceFactory;
 use crate::discovery::{self, DiscoveryFailure};
 use crate::error::ExtensionError;
@@ -46,18 +48,23 @@ impl ExtensionHost {
         let mut commands = BTreeMap::new();
         let mut audio_sub_editors = BTreeMap::new();
         let mut by_audio_sub_editor = BTreeMap::new();
+        let mut points = BTreeMap::new();
         let mut infos = Vec::new();
 
         for failure in report.failures {
             infos.push(failure_info(failure, settings));
         }
 
+        let mut pending = Vec::new();
         for discovered in report.extensions {
             let id = discovered.manifest.id.clone();
-            let extension = if notwig_ext_api::config::is_enabled(settings, &id) {
-                load_enabled(&engines, discovered)
+            if notwig_ext_api::config::is_enabled(settings, &id) {
+                match prepare_enabled(&engines, discovered) {
+                    Ok(prepared) => pending.push(Some(PendingExtension::Prepared(prepared))),
+                    Err(failed) => pending.push(Some(PendingExtension::Loaded(*failed))),
+                }
             } else {
-                LoadedExtension {
+                pending.push(Some(PendingExtension::Loaded(LoadedExtension {
                     dir: discovered.dir,
                     manifest: discovered.manifest,
                     enabled: false,
@@ -65,10 +72,42 @@ impl ExtensionHost {
                     specs: Vec::new(),
                     commands: Vec::new(),
                     audio_sub_editors: Vec::new(),
+                    points: Vec::new(),
                     status: ExtensionStatus::Disabled,
                     error: None,
-                }
+                })));
+            }
+        }
+
+        // Preload every enabled extension before any load-phase registration
+        // runs. A candidate that fails preload can fall back to the next target.
+        for slot in &mut pending {
+            let Some(item) = slot.take() else {
+                continue;
             };
+            *slot = Some(match item {
+                PendingExtension::Loaded(loaded) => PendingExtension::Loaded(loaded),
+                PendingExtension::Prepared(prepared) => {
+                    match preload_prepared(&engines, prepared) {
+                        Ok(prepared) => PendingExtension::Prepared(prepared),
+                        Err(failed) => PendingExtension::Loaded(*failed),
+                    }
+                }
+            });
+        }
+
+        let mut extensions = Vec::with_capacity(pending.len());
+        for slot in pending {
+            let Some(item) = slot else {
+                continue;
+            };
+            extensions.push(match item {
+                PendingExtension::Loaded(loaded) => loaded,
+                PendingExtension::Prepared(prepared) => activate_prepared(&engines, prepared),
+            });
+        }
+
+        for extension in extensions {
             let extension = Arc::new(extension);
             infos.push(info_from(&extension, settings));
             if extension.status == ExtensionStatus::Loaded {
@@ -95,6 +134,17 @@ impl ExtensionHost {
                         by_command.insert(command.id.clone(), Arc::clone(&extension));
                     }
                 }
+                for point in &extension.points {
+                    if points.contains_key(&point.id) {
+                        tracing::warn!(
+                            point = %point.id,
+                            extension = %extension.manifest.id,
+                            "duplicate extension point id"
+                        );
+                    } else {
+                        points.insert(point.id.clone(), point.clone());
+                    }
+                }
                 for editor in &extension.audio_sub_editors {
                     if audio_sub_editors.contains_key(&editor.id) {
                         tracing::warn!(
@@ -118,6 +168,7 @@ impl ExtensionHost {
                 by_audio_sub_editor,
                 commands,
                 audio_sub_editors,
+                points,
                 infos,
             }),
         })
@@ -145,6 +196,12 @@ impl ExtensionHost {
     #[must_use]
     pub fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
         self.loaded.audio_sub_editors()
+    }
+
+    /// Returns extension points declared by loaded extensions.
+    #[must_use]
+    pub fn extension_points(&self) -> Vec<ExtensionPointDescriptor> {
+        self.loaded.points()
     }
 
     /// Executes a contributed command against a bounded context.
@@ -191,20 +248,40 @@ impl ExtensionHost {
     }
 }
 
-fn load_enabled(
+struct PreparedExtension {
+    dir: PathBuf,
+    manifest: ExtensionManifest,
+    runtime: ExtensionRuntime,
+    remaining: VecDeque<(String, PathBuf)>,
+}
+
+enum PendingExtension {
+    Loaded(LoadedExtension),
+    Prepared(PreparedExtension),
+}
+
+fn prepare_enabled(
     engines: &Arc<ExtensionEngines>,
     discovered: discovery::DiscoveredExtension,
-) -> LoadedExtension {
+) -> Result<PreparedExtension, Box<LoadedExtension>> {
     let discovery::DiscoveredExtension {
         manifest,
         dir,
         candidates,
         ..
     } = discovered;
+    let mut candidates: VecDeque<_> = candidates.into();
     let mut last_error = "no supported entrypoint".to_owned();
-    for (target, entry_path) in candidates {
-        match load_candidate(engines, &manifest, &dir, &entry_path, &target) {
-            Ok(loaded) => return loaded,
+    while let Some((target, entry_path)) = candidates.pop_front() {
+        match load_runtime(engines, &entry_path, &target) {
+            Ok(runtime) => {
+                return Ok(PreparedExtension {
+                    dir,
+                    manifest,
+                    runtime,
+                    remaining: candidates,
+                });
+            }
             Err(error) => {
                 tracing::warn!(
                     extension = %manifest.id,
@@ -212,22 +289,96 @@ fn load_enabled(
                     error = %error,
                     "extension entrypoint failed to load; trying the next target"
                 );
-                last_error = error;
+                last_error = error.to_string();
             }
         }
     }
-    failed(manifest, dir, last_error)
+    Err(Box::new(failed(manifest, dir, last_error)))
 }
 
-fn load_candidate(
+fn preload_prepared(
     engines: &Arc<ExtensionEngines>,
+    mut prepared: PreparedExtension,
+) -> Result<PreparedExtension, Box<LoadedExtension>> {
+    loop {
+        match prepared.runtime.preload(engines, &prepared.manifest.id) {
+            Ok(()) => return Ok(prepared),
+            Err(error) => {
+                tracing::warn!(
+                    extension = %prepared.manifest.id,
+                    error = %error,
+                    "extension preload failed; trying the next target"
+                );
+                if !advance_runtime(engines, &mut prepared) {
+                    return Err(Box::new(failed(
+                        prepared.manifest,
+                        prepared.dir,
+                        error.to_string(),
+                    )));
+                }
+            }
+        }
+    }
+}
+
+fn activate_prepared(
+    engines: &Arc<ExtensionEngines>,
+    mut prepared: PreparedExtension,
+) -> LoadedExtension {
+    let mut preloaded = true;
+    loop {
+        if !preloaded {
+            if let Err(error) = prepared.runtime.preload(engines, &prepared.manifest.id) {
+                tracing::warn!(
+                    extension = %prepared.manifest.id,
+                    error = %error,
+                    "fallback extension preload failed; trying the next target"
+                );
+                if !advance_runtime(engines, &mut prepared) {
+                    return failed(prepared.manifest, prepared.dir, error.to_string());
+                }
+                continue;
+            }
+        }
+        match activate_candidate(engines, &prepared.runtime, &prepared.manifest) {
+            Ok((specs, resolved)) => {
+                return LoadedExtension {
+                    dir: prepared.dir,
+                    manifest: prepared.manifest,
+                    enabled: true,
+                    runtime: Some(prepared.runtime),
+                    specs,
+                    commands: resolved.commands,
+                    audio_sub_editors: resolved.audio_sub_editors,
+                    points: resolved.points,
+                    status: ExtensionStatus::Loaded,
+                    error: None,
+                };
+            }
+            Err(error) => {
+                tracing::warn!(
+                    extension = %prepared.manifest.id,
+                    error = %error,
+                    "extension activation failed; trying the next target"
+                );
+                if !advance_runtime(engines, &mut prepared) {
+                    return failed(prepared.manifest, prepared.dir, error);
+                }
+                preloaded = false;
+            }
+        }
+    }
+}
+
+fn activate_candidate(
+    engines: &Arc<ExtensionEngines>,
+    runtime: &ExtensionRuntime,
     manifest: &ExtensionManifest,
-    dir: &Path,
-    entry_path: &Path,
-    target: &str,
-) -> Result<LoadedExtension, String> {
-    let runtime = load_runtime(engines, entry_path, target).map_err(|error| error.to_string())?;
-    let mut instance = ExtensionInstance::instantiate(&runtime, engines, &manifest.id)
+) -> Result<(Vec<DeviceSpec>, contributions::ResolvedContributions), String> {
+    runtime
+        .load(engines, &manifest.id)
+        .map_err(|error| error.to_string())?;
+    let mut instance = ExtensionInstance::instantiate(runtime, engines, &manifest.id)
         .map_err(|error| error.to_string())?;
     let mut specs = Vec::new();
     for declaration in &manifest.devices {
@@ -245,39 +396,37 @@ fn load_candidate(
         }
         specs.push(spec);
     }
-    let commands = manifest
-        .command_contributions()
-        .map(|contribution| CommandDescriptor {
-            id: contribution.id.clone(),
-            title: contribution.title.clone().unwrap_or_default(),
-            category: contribution.category.clone().unwrap_or_default(),
-            description: contribution.description.clone().unwrap_or_default(),
-            when: contribution.when.clone(),
-            default_bindings: contribution.default_bindings.clone(),
-            extension_id: Some(manifest.id.clone()),
-        })
-        .collect();
-    let audio_sub_editors = manifest
-        .audio_sub_editor_contributions()
-        .map(|contribution| AudioSubEditorDescriptor {
-            id: contribution.id.clone(),
-            title: contribution.title.clone().unwrap_or_default(),
-            category: contribution.category.clone().unwrap_or_default(),
-            order: contribution.order,
-            extension_id: Some(manifest.id.clone()),
-        })
-        .collect();
-    Ok(LoadedExtension {
-        dir: dir.to_path_buf(),
-        manifest: manifest.clone(),
-        enabled: true,
-        runtime: Some(runtime),
-        specs,
-        commands,
-        audio_sub_editors,
-        status: ExtensionStatus::Loaded,
-        error: None,
-    })
+    let registrations = instance
+        .registrations()
+        .map_err(|error| error.to_string())?;
+    let resolved =
+        contributions::resolve(manifest, registrations).map_err(|error| error.to_string())?;
+    Ok((specs, resolved))
+}
+
+fn advance_runtime(engines: &Arc<ExtensionEngines>, prepared: &mut PreparedExtension) -> bool {
+    let mut last_error = None;
+    while let Some((target, entry_path)) = prepared.remaining.pop_front() {
+        match load_runtime(engines, &entry_path, &target) {
+            Ok(runtime) => {
+                prepared.runtime = runtime;
+                return true;
+            }
+            Err(error) => {
+                tracing::warn!(
+                    extension = %prepared.manifest.id,
+                    target = %target,
+                    error = %error,
+                    "extension entrypoint failed to load; trying the next target"
+                );
+                last_error = Some(error.to_string());
+            }
+        }
+    }
+    if let Some(error) = last_error {
+        tracing::warn!(extension = %prepared.manifest.id, %error, "no remaining entrypoint");
+    }
+    false
 }
 
 fn load_runtime(
@@ -316,6 +465,7 @@ fn failed(
         specs: Vec::new(),
         commands: Vec::new(),
         audio_sub_editors: Vec::new(),
+        points: Vec::new(),
         status: ExtensionStatus::Failed,
         error: Some(error.to_string()),
     }

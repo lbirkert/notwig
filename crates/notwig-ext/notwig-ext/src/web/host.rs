@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::contributions;
 use crate::error::ExtensionError;
 use crate::web::compiled::{WebLoadedExtension, WebLoadedExtensions};
 use crate::web::device::WebExtensionDeviceFactory;
@@ -11,7 +12,7 @@ use crate::web::sub_editor::WebExtensionAudioSubEditorHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
     AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionStatus,
+    DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionPointDescriptor, ExtensionStatus,
 };
 
 /// Browser host for WASM extension packages.
@@ -34,63 +35,134 @@ impl WebExtensionHost {
         let mut commands = BTreeMap::new();
         let mut audio_sub_editors = BTreeMap::new();
         let mut by_audio_sub_editor = BTreeMap::new();
+        let mut points = BTreeMap::new();
         let mut infos = Vec::new();
         let mut errors = Vec::new();
+
+        let mut pending = Vec::new();
         for package in packages {
             let installed_hash = config
                 .settings
                 .get(package.id())
                 .and_then(|settings| settings.installed_hash.clone());
             if !config.is_enabled(package.id()) {
-                infos.push(disabled_info(&package, installed_hash));
+                pending.push(Some(PendingWebPackage::Disabled {
+                    package,
+                    installed_hash,
+                }));
                 continue;
             }
-            match load_package(&package, installed_hash) {
-                Ok(extension) => {
-                    let extension = Arc::new(extension);
-                    infos.push(extension.info.clone());
-                    for spec in &extension.specs {
-                        if by_type.contains_key(&spec.type_id) {
-                            tracing::warn!(
-                                type_id = %spec.type_id,
-                                extension = %extension.manifest.id,
-                                "duplicate extension device type id"
-                            );
-                        } else {
-                            by_type.insert(spec.type_id.clone(), Arc::clone(&extension));
-                        }
-                    }
-                    for command in &extension.commands {
-                        if commands.contains_key(&command.id) {
-                            tracing::warn!(
-                                command = %command.id,
-                                extension = %extension.manifest.id,
-                                "duplicate browser extension command id"
-                            );
-                        } else {
-                            commands.insert(command.id.clone(), command.clone());
-                            by_command.insert(command.id.clone(), Arc::clone(&extension));
-                        }
-                    }
-                    for editor in &extension.audio_sub_editors {
-                        if audio_sub_editors.contains_key(&editor.id) {
-                            tracing::warn!(
-                                sub_editor = %editor.id,
-                                extension = %extension.manifest.id,
-                                "duplicate browser extension audio sub-editor id"
-                            );
-                        } else {
-                            audio_sub_editors.insert(editor.id.clone(), editor.clone());
-                            by_audio_sub_editor.insert(editor.id.clone(), Arc::clone(&extension));
-                        }
-                    }
-                }
-                Err(error) => {
+            let wasm = js_sys::Uint8Array::from(package.wasm.as_slice());
+            match js_sys::WebAssembly::Module::new(&wasm) {
+                Ok(module) => pending.push(Some(PendingWebPackage::Prepared {
+                    package,
+                    module,
+                    installed_hash,
+                })),
+                Err(error) => pending.push(Some(PendingWebPackage::Failed {
+                    package,
+                    error: js_error(error),
+                })),
+            }
+        }
+
+        // Preload before any package enters the load phase.
+        for slot in &mut pending {
+            let Some(item) = slot.take() else {
+                continue;
+            };
+            *slot = Some(match item {
+                PendingWebPackage::Prepared {
+                    package,
+                    module,
+                    installed_hash,
+                } => match WebExtensionInstance::instantiate_preload(&module, &package.manifest.id)
+                {
+                    Ok(_) => PendingWebPackage::Prepared {
+                        package,
+                        module,
+                        installed_hash,
+                    },
+                    Err(error) => PendingWebPackage::Failed { package, error },
+                },
+                other => other,
+            });
+        }
+
+        for item in pending.into_iter().flatten() {
+            match item {
+                PendingWebPackage::Disabled {
+                    package,
+                    installed_hash,
+                } => infos.push(disabled_info(&package, installed_hash)),
+                PendingWebPackage::Failed { package, error } => {
                     errors.push(format!("{}: {error}", package.id()));
                     infos.push(failed_info(&package, error, config));
                 }
+                PendingWebPackage::Prepared {
+                    package,
+                    module,
+                    installed_hash,
+                } => match load_package(package, module, installed_hash) {
+                    Ok(extension) => {
+                        let extension = Arc::new(extension);
+                        infos.push(extension.info.clone());
+                        for spec in &extension.specs {
+                            if by_type.contains_key(&spec.type_id) {
+                                tracing::warn!(
+                                    type_id = %spec.type_id,
+                                    extension = %extension.manifest.id,
+                                    "duplicate extension device type id"
+                                );
+                            } else {
+                                by_type.insert(spec.type_id.clone(), Arc::clone(&extension));
+                            }
+                        }
+                        for command in &extension.commands {
+                            if commands.contains_key(&command.id) {
+                                tracing::warn!(
+                                    command = %command.id,
+                                    extension = %extension.manifest.id,
+                                    "duplicate browser extension command id"
+                                );
+                            } else {
+                                commands.insert(command.id.clone(), command.clone());
+                                by_command.insert(command.id.clone(), Arc::clone(&extension));
+                            }
+                        }
+                        for point in &extension.points {
+                            if points.contains_key(&point.id) {
+                                tracing::warn!(
+                                    point = %point.id,
+                                    extension = %extension.manifest.id,
+                                    "duplicate browser extension point id"
+                                );
+                            } else {
+                                points.insert(point.id.clone(), point.clone());
+                            }
+                        }
+                        for editor in &extension.audio_sub_editors {
+                            if audio_sub_editors.contains_key(&editor.id) {
+                                tracing::warn!(
+                                    sub_editor = %editor.id,
+                                    extension = %extension.manifest.id,
+                                    "duplicate browser extension audio sub-editor id"
+                                );
+                            } else {
+                                audio_sub_editors.insert(editor.id.clone(), editor.clone());
+                                by_audio_sub_editor
+                                    .insert(editor.id.clone(), Arc::clone(&extension));
+                            }
+                        }
+                    }
+                    Err((error, package)) => {
+                        errors.push(format!("{}: {error}", package.id()));
+                        infos.push(failed_info(&package, error, config));
+                    }
+                },
             }
         }
+
         Self {
             loaded: Arc::new(WebLoadedExtensions {
                 by_type,
@@ -98,6 +170,7 @@ impl WebExtensionHost {
                 by_audio_sub_editor,
                 commands,
                 audio_sub_editors,
+                points,
                 infos,
             }),
             errors,
@@ -132,6 +205,12 @@ impl WebExtensionHost {
     #[must_use]
     pub fn audio_sub_editors(&self) -> Vec<AudioSubEditorDescriptor> {
         self.loaded.audio_sub_editors()
+    }
+
+    /// Returns extension points declared by loaded packages.
+    #[must_use]
+    pub fn extension_points(&self) -> Vec<ExtensionPointDescriptor> {
+        self.loaded.points()
     }
 
     /// Executes a contributed command against a bounded context.
@@ -176,21 +255,45 @@ impl WebExtensionHost {
     }
 }
 
+enum PendingWebPackage {
+    Disabled {
+        package: WebExtensionPackage,
+        installed_hash: Option<String>,
+    },
+    Prepared {
+        package: WebExtensionPackage,
+        module: js_sys::WebAssembly::Module,
+        installed_hash: Option<String>,
+    },
+    Failed {
+        package: WebExtensionPackage,
+        error: ExtensionError,
+    },
+}
+
 fn load_package(
-    package: &WebExtensionPackage,
+    package: WebExtensionPackage,
+    module: js_sys::WebAssembly::Module,
     installed_hash: Option<String>,
-) -> Result<WebLoadedExtension, ExtensionError> {
-    let wasm = js_sys::Uint8Array::from(package.wasm.as_slice());
-    let module = js_sys::WebAssembly::Module::new(&wasm).map_err(js_error)?;
-    let mut instance = WebExtensionInstance::instantiate(&module, &package.manifest.id)?;
+) -> Result<WebLoadedExtension, (ExtensionError, WebExtensionPackage)> {
+    let mut instance = match WebExtensionInstance::instantiate(&module, &package.manifest.id) {
+        Ok(instance) => instance,
+        Err(error) => return Err((error, package)),
+    };
     let mut specs = Vec::new();
     for declaration in &package.manifest.devices {
-        let mut spec = instance.describe(&declaration.type_id)?;
+        let mut spec = match instance.describe(&declaration.type_id) {
+            Ok(spec) => spec,
+            Err(error) => return Err((error, package)),
+        };
         if spec.type_id != declaration.type_id {
-            return Err(ExtensionError::Manifest(format!(
-                "device type mismatch: declared {}, described {}",
-                declaration.type_id, spec.type_id
-            )));
+            return Err((
+                ExtensionError::Manifest(format!(
+                    "device type mismatch: declared {}, described {}",
+                    declaration.type_id, spec.type_id
+                )),
+                package,
+            ));
         }
         if matches!(spec.ui, DeviceUiSpec::Generic) {
             spec.ui = DeviceUiSpec::custom(format!("ext:{}", spec.type_id), None);
@@ -217,36 +320,21 @@ fn load_package(
         installed_hash,
         error: None,
     };
-    let commands = package
-        .manifest
-        .command_contributions()
-        .map(|contribution| CommandDescriptor {
-            id: contribution.id.clone(),
-            title: contribution.title.clone().unwrap_or_default(),
-            category: contribution.category.clone().unwrap_or_default(),
-            description: contribution.description.clone().unwrap_or_default(),
-            when: contribution.when.clone(),
-            default_bindings: contribution.default_bindings.clone(),
-            extension_id: Some(package.manifest.id.clone()),
-        })
-        .collect();
-    let audio_sub_editors = package
-        .manifest
-        .audio_sub_editor_contributions()
-        .map(|contribution| AudioSubEditorDescriptor {
-            id: contribution.id.clone(),
-            title: contribution.title.clone().unwrap_or_default(),
-            category: contribution.category.clone().unwrap_or_default(),
-            order: contribution.order,
-            extension_id: Some(package.manifest.id.clone()),
-        })
-        .collect();
+    let registrations = match instance.registrations() {
+        Ok(registrations) => registrations,
+        Err(error) => return Err((error, package)),
+    };
+    let resolved = match contributions::resolve(&package.manifest, registrations) {
+        Ok(resolved) => resolved,
+        Err(error) => return Err((error, package)),
+    };
     Ok(WebLoadedExtension {
-        manifest: package.manifest.clone(),
+        manifest: package.manifest,
         module,
         specs,
-        commands,
-        audio_sub_editors,
+        commands: resolved.commands,
+        audio_sub_editors: resolved.audio_sub_editors,
+        points: resolved.points,
         info,
     })
 }

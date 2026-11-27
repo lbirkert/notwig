@@ -4,16 +4,47 @@ use std::sync::Arc;
 
 use notwig_core::dsp::DeviceSpec;
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandDescriptor, ExtensionInfo, ExtensionManifest, ExtensionStatus,
+    AudioSubEditorDescriptor, CommandDescriptor, ExtensionInfo, ExtensionManifest,
+    ExtensionPointDescriptor, ExtensionStatus,
 };
 use wasmtime::Module;
 
-use crate::abi::ExtensionEngines;
+use crate::abi::{ExtensionEngines, ExtensionInstance as WasmInstance};
+use crate::error::ExtensionError;
 use crate::native::NativeLibrary;
 
 pub(crate) enum ExtensionRuntime {
     Wasm(Module),
     Native(Arc<NativeLibrary>),
+}
+
+impl ExtensionRuntime {
+    pub(crate) fn preload(
+        &self,
+        engines: &ExtensionEngines,
+        extension_id: &str,
+    ) -> Result<(), ExtensionError> {
+        match self {
+            Self::Wasm(module) => {
+                let mut instance =
+                    WasmInstance::instantiate_preload(engines.engine(), module, extension_id)?;
+                instance.preload_phase()?;
+                Ok(())
+            }
+            Self::Native(library) => library.preload(),
+        }
+    }
+
+    pub(crate) fn load(
+        &self,
+        _engines: &ExtensionEngines,
+        _extension_id: &str,
+    ) -> Result<(), ExtensionError> {
+        match self {
+            Self::Wasm(_) => Ok(()),
+            Self::Native(library) => library.load_phase(),
+        }
+    }
 }
 
 pub(crate) struct LoadedExtension {
@@ -24,6 +55,7 @@ pub(crate) struct LoadedExtension {
     pub(crate) specs: Vec<DeviceSpec>,
     pub(crate) commands: Vec<CommandDescriptor>,
     pub(crate) audio_sub_editors: Vec<AudioSubEditorDescriptor>,
+    pub(crate) points: Vec<ExtensionPointDescriptor>,
     pub(crate) status: ExtensionStatus,
     pub(crate) error: Option<String>,
 }
@@ -35,6 +67,7 @@ pub(crate) struct LoadedExtensions {
     pub(crate) by_audio_sub_editor: BTreeMap<String, Arc<LoadedExtension>>,
     pub(crate) commands: BTreeMap<String, CommandDescriptor>,
     pub(crate) audio_sub_editors: BTreeMap<String, AudioSubEditorDescriptor>,
+    pub(crate) points: BTreeMap<String, ExtensionPointDescriptor>,
     pub(crate) infos: Vec<ExtensionInfo>,
 }
 
@@ -65,6 +98,10 @@ impl LoadedExtensions {
                 .then_with(|| a.id.cmp(&b.id))
         });
         editors
+    }
+
+    pub(crate) fn points(&self) -> Vec<ExtensionPointDescriptor> {
+        self.points.values().cloned().collect()
     }
 
     pub(crate) fn specs(&self) -> Vec<DeviceSpec> {

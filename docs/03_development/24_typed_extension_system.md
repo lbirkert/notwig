@@ -4,9 +4,11 @@ Status: phase foundation implemented; typed registry still proposed. This page
 replaces the earlier message-based sketch. The target is a flat, typed,
 registry-backed extension system with macro-generated RPC proxies over the
 existing WASM/native/browser transports. The preload/load/unload builders,
-macros, ABI exports, host calls, stock/example migration, and scaffold are in
-place. Host-wide point collection, typed interfaces, handles, replacement, and
-load-order resolution remain to be implemented.
+macros, ABI exports, host-wide preload ordering, runtime point/command/
+sub-editor registration manifests, native/web host resolution, stock/example
+migration, and scaffold are in place. Typed interface proxies, handle calls,
+replacement, `Single` cardinality, and user load-order resolution remain to be
+implemented.
 
 Related: [`Extension Platform Architecture`](23_extension_platform_architecture.md),
 [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md), and

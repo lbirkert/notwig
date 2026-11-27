@@ -38,6 +38,7 @@ pub(crate) struct WebExtensionInstance {
     preload: Option<Function>,
     load: Option<Function>,
     unload: Option<Function>,
+    registrations: Option<Function>,
     host_global: String,
 }
 
@@ -51,6 +52,25 @@ impl Drop for WebExtensionInstance {
 
 impl WebExtensionInstance {
     pub(crate) fn instantiate(
+        module: &js_sys::WebAssembly::Module,
+        extension_id: &str,
+    ) -> Result<Self, ExtensionError> {
+        let mut instance = Self::create(module, extension_id)?;
+        instance.preload_phase()?;
+        instance.load_phase()?;
+        Ok(instance)
+    }
+
+    pub(crate) fn instantiate_preload(
+        module: &js_sys::WebAssembly::Module,
+        extension_id: &str,
+    ) -> Result<Self, ExtensionError> {
+        let mut instance = Self::create(module, extension_id)?;
+        instance.preload_phase()?;
+        Ok(instance)
+    }
+
+    fn create(
         module: &js_sys::WebAssembly::Module,
         extension_id: &str,
     ) -> Result<Self, ExtensionError> {
@@ -74,7 +94,7 @@ impl WebExtensionInstance {
             )));
         }
 
-        let mut runtime = Self {
+        let runtime = Self {
             _instance: instance,
             alloc: abi::export_function(&exports, "notwig_alloc")?,
             free: abi::export_function(&exports, "notwig_free")?,
@@ -116,10 +136,12 @@ impl WebExtensionInstance {
             unload: Reflect::get(&exports, &JsValue::from_str("notwig_ext_unload"))
                 .ok()
                 .and_then(|value| value.dyn_into().ok()),
+            registrations: Reflect::get(&exports, &JsValue::from_str("notwig_ext_registrations"))
+                .ok()
+                .and_then(|value| value.dyn_into().ok()),
             memory,
             host_global: glue.global_name,
         };
-        runtime.run_phases()?;
         Ok(runtime)
     }
 }

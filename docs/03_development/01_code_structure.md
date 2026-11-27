@@ -114,8 +114,9 @@ that needs them; most cross-layer types live in `notwig-core`.
 
 ### `notwig-ext-api` — extension SDK and panel transport
 
-ABI 7 adds preload/load/unload phase exports. ABI 6 added extension-drawn audio sub-editor exports on top of the device panel
-path. Extensions run a private `egui::Context` and return validated meshes,
+ABI 8 adds the runtime registration manifest. ABI 7 added preload/load/unload
+phase exports. ABI 6 added extension-drawn audio sub-editor exports on top of
+the device panel path. Extensions run a private `egui::Context` and return validated meshes,
 texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 
 | Module | Responsibility |
@@ -133,8 +134,11 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 | `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
 | `command.rs` | Command contract, bounded context, host edit/UI families, declarative `when` evaluation, and `CommandExtension` |
 | `audio_editor.rs` | Audio sub-editor contracts: bounded context, clip/waveform snapshots, frame, extension renderer, and host trait |
-| `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, and guest draw dispatch |
-| `abi.rs` | ABI version (`7`), status codes, pointer/length packing, helper re-exports |
+| `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, guest draw dispatch, and runtime registration manifest |
+| `extension_point.rs` | Typed `ExtensionPoint<T>` stable-id key |
+| `lifecycle.rs` | Phase builders, preload/load/unload state, and lifecycle entrypoints |
+| `registration.rs` | Runtime point/command/sub-editor registration descriptor types |
+| `abi.rs` | ABI version (`8`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
 | `abi/pointers.rs` | Safe wrappers for WASM offsets and native pointers to strings, param IDs, and audio slices |
@@ -143,13 +147,16 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | `#[notwig_ext(preload/load/unload)]` attribute macro; generates phase exports plus WASM/native device, panel, command, and sub-editor ABI around the load entrypoint |
+| `lib.rs` | Proc-macro entrypoints for `#[notwig_ext(preload/load/unload)]` and the legacy `#[notwig_extension]` alias |
+| `expand/load.rs` | Load-phase ABI generation: devices, panels, commands, sub-editors, lifecycle, and registration manifest |
+| `expand/phase.rs` | Preload and unload export generation |
 
 ### `notwig-ext` — extension host
 
 | Module | Responsibility |
 |---|---|
 | `discovery.rs` | user-directory scan, manifest parse/validate, first supported entrypoint |
+| `contributions.rs` | Shared runtime/manifest contribution resolution and validation |
 | `archive.rs` | shared ZIP/file-tree validation, safe relative paths, manifest and size limits |
 | `abi.rs` | wasmtime engines/stores, host imports, typed exports, memory checks |
 | `native.rs` | `libloading` shared-library loader and native instance ABI |
@@ -408,7 +415,7 @@ UI tests run `egui` headlessly with `Context::default()` and `RawInput`. Use
    emit parameter changes through `panel_frame::set_param_normalized` /
    `set_param_value`. The host validates the resulting `PanelAction`s against
    the device spec.
-4. Ship a source `extension.json` with `api_version: 7`, no `entrypoints`, the
+4. Ship a source `extension.json` with `api_version: 8`, no `entrypoints`, the
    `device`/`ui.panel` capabilities, and optional target-gated `includes`. Set
    `DeviceUiSpec::custom` to route the panel to the extension renderer. Build
    with `cargo notwig-ext build --entrypoint <target>` on each platform, then run
