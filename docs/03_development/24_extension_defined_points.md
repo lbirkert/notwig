@@ -304,21 +304,173 @@ resulting effect as one undo group.
 
 ## 7. Pan editor example
 
-The pan extension declares:
+The example has three crates so that a second extension can use the point
+contract without linking the pan extension's ABI exports:
 
-```rust
-pub const PAN_EDITOR_COMMANDS: ExtensionPoint<CommandPoint> =
-    ExtensionPoint::new("notwig.ext.example.pan_editor.commands");
+```text
+notwig-ext-example-pan-api/       point id, marker type, command metadata
+notwig-ext-example/               pan editor extension
+notwig-ext-example-pan-commands/  command extension
 ```
 
-Its sub-editor context contains commands resolved for that point. The pan editor
-draws a context menu from `context.point_commands`, filtering by `when` on the
-host side. A click produces a `PointCommandInvocation`. The contributor's
-`CommandExtension` runs in its own package and returns the normal
-`CommandEffect`; it cannot mutate the pan editor's private state.
+The pan extension re-exports the contract for convenience, but the command
+package depends on the contract crate directly.
 
-This gives extension-to-extension extensibility with the host still owning
-capability checks, command dispatch, revision checks, and undo.
+### 7.1 Contract crate
+
+```rust
+// notwig-ext-example-pan-api
+use notwig_ext_api::{CommandPoint, ExtensionPoint};
+
+pub const PAN_EDITOR_COMMANDS: ExtensionPoint<CommandPoint> =
+    ExtensionPoint::new("notwig.ext.example.pan_editor.commands");
+pub const PAN_EDITOR_COMMANDS_CONTRACT: &str =
+    "notwig.ext.example.pan_editor.commands@1";
+```
+
+The point id is namespaced by the pan extension package id. The contract crate
+is the stable dependency shared by the point owner and contributors.
+
+### 7.2 Panning editor extension
+
+The pan package keeps its existing `notwig.ext.example.pan` audio sub-editor
+contribution. Its entrypoint declares the point in addition to registering the
+sub-editor:
+
+```rust
+use notwig_ext_api::Extension;
+use notwig_ext_example_pan_api::PAN_EDITOR_COMMANDS;
+
+#[notwig_extension]
+pub fn extension(extension: &mut Extension) {
+    extension.register_audio_sub_editor::<PanSubEditor>(PAN_SUB_EDITOR_ID);
+    extension.register_point(PAN_EDITOR_COMMANDS);
+}
+```
+
+The pan editor receives commands resolved for its own points in
+`AudioSubEditorContext`:
+
+```rust
+for command in &context.point_commands {
+    if !command.enabled {
+        continue;
+    }
+    if ui.button(&command.title).clicked() {
+        invocations.push(PointCommandInvocation {
+            point_id: command.point_id.clone(),
+            contribution_id: command.contribution_id.clone(),
+        });
+    }
+}
+```
+
+Only enabled commands appear in the context menu. `when` is evaluated by the
+host against the current `CommandContext`, so the pan editor does not need to
+reimplement condition parsing. Selecting an item returns an invocation in
+`AudioSubEditorResponse`.
+
+### 7.3 Command extension
+
+The second package declares a normal command contribution whose `point` is the
+pan editor point. Its manifest id and command id are namespaced by the command
+extension:
+
+```json
+{
+  "manifest_version": 2,
+  "id": "notwig.ext.example.pan-commands",
+  "capabilities": ["command"],
+  "contributes": [
+    {
+      "id": "notwig.ext.example.pan-commands.nudge-left",
+      "point": "notwig.ext.example.pan_editor.commands",
+      "contract": "notwig.ext.example.pan_editor.commands@1",
+      "title": "Nudge Pan Left",
+      "category": "Pan",
+      "when": "focus == audio_editor && selection.slices > 0"
+    }
+  ]
+}
+```
+
+The implementation registers the same contribution id to the typed point:
+
+```rust
+use notwig_ext_api::{CommandContext, CommandEdit, CommandEffect, CommandExtension, Extension};
+use notwig_ext_example_pan_api::PAN_EDITOR_COMMANDS;
+
+const NUDGE_LEFT: &str = "notwig.ext.example.pan-commands.nudge-left";
+
+struct NudgePanLeft;
+
+impl CommandExtension for NudgePanLeft {
+    fn new() -> Self { Self }
+
+    fn execute(&mut self, context: &CommandContext) -> CommandEffect {
+        // Return a host-owned AudioCurves edit for the active clip.
+        CommandEffect::Apply { edits: vec![/* ... */], ui: Vec::new() }
+    }
+}
+
+#[notwig_extension]
+pub fn extension(extension: &mut Extension) {
+    extension.register_extension::<NudgePanLeft>(PAN_EDITOR_COMMANDS, NUDGE_LEFT);
+}
+```
+
+This is the compile-time check in practice: if `NudgePanLeft` does not implement
+`CommandExtension`, the `register_extension::<NudgePanLeft>` call fails to
+compile.
+
+### 7.4 Compile-fail checks
+
+Add UI tests under `crates/notwig-ext/notwig-ext-api/tests/ui/`:
+
+- `wrong_interface.rs`: a type that does not implement `CommandExtension`
+  registers to `PAN_EDITOR_COMMANDS`.
+- `wrong_point.rs`: a valid command registers to a point whose marker expects a
+  different interface.
+- `missing_dependency.rs`: a package tries to use a point contract it does not
+  depend on.
+
+Each must fail with a type-bound error, not a runtime downcast or manifest error.
+
+### 7.5 Runtime flow
+
+1. Load the pan package. Its point metadata declares
+   `notwig.ext.example.pan_editor.commands` with interface `notwig.command@1`
+   and its owner extension id.
+2. Load the command package. Its registration metadata names the same point,
+   contribution id, and interface id.
+3. The host resolves the registration, validates that the point owner exists,
+   the interface ids match, the contract major matches, and the contribution id
+   is unique.
+4. While the pan sub-editor is active, the host builds a `CommandContext` for
+   the current audio-editor focus and includes resolved point-command
+   descriptors in `AudioSubEditorContext`. Only commands whose `when` condition
+   evaluates true are enabled.
+5. The pan editor draws enabled commands in its context menu. Selecting one
+   returns a `PointCommandInvocation`.
+6. The host executes the command through the contributing extension, checks the
+   document revision, applies the returned `CommandEffect`, and records one undo
+   entry.
+7. If the pan owner is disabled or removed, its point and the contributed
+   command become unresolved and the pan editor is no longer available.
+
+### 7.6 Tests
+
+- Contract crate test: the point const id and manifest contract string match.
+- Compile-fail tests from 7.4.
+- Host resolution tests: matching interface resolves; mismatched interface,
+  missing owner, duplicate contribution, and wrong contract major stay
+  unresolved with typed diagnostics.
+- Headless pan-editor test: the context menu lists the command only while
+  `when` is true; selecting it emits an invocation and applies exactly one undo
+  batch.
+- Cross-package integration test: build both WASM packages, load them, register
+  the command into the pan point, and drive the pan context menu from a
+  `PanelInput` snapshot.
 
 ## 8. Safety and lifecycle
 
