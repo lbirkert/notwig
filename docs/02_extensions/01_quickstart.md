@@ -60,7 +60,7 @@ use notwig_core::dsp::{
     DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit,
 };
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame, notwig_ext};
+use notwig_ext_api::{DEVICE_POINT, DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame, notwig_ext};
 use notwig_ui::{knob, section};
 use uuid::Uuid;
 
@@ -91,7 +91,7 @@ impl GainDevice {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_device::<GainDevice>();
+    extension.register_extension::<GainDevice>(DEVICE_POINT);
 }
 
 impl DeviceExtension for GainDevice {

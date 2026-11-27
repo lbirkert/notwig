@@ -14,9 +14,10 @@ use notwig_core::Curve;
 use notwig_core::Norm01;
 use notwig_core::time::TimeMus;
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorDescriptor, AudioSubEditorExtension,
-    AudioSubEditorResponse, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
-    CommandExtension, ExtensionBuilder, ExtensionPoint, PreloadBuilder, UnloadContext, notwig_ext,
+    AUDIO_SUB_EDITOR_EXTENSION_POINT, AudioSubEditorContext, AudioSubEditorDescriptor,
+    AudioSubEditorExtension, AudioSubEditorResponse, COMMANDS_POINT, CommandContext,
+    CommandDescriptor, CommandEdit, CommandEffect, CommandExtension, ExtensionBuilder,
+    ExtensionPoint, PreloadBuilder, UnloadContext, notwig_ext,
 };
 
 /// Humanize command id.
@@ -216,8 +217,11 @@ pub fn pan_descriptor() -> AudioSubEditorDescriptor {
 /// Registers the example extension commands.
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_command_with_descriptor::<HumanizeCommand>(humanize_descriptor());
-    extension.register_audio_sub_editor_with_descriptor::<PanSubEditor>(pan_descriptor());
+    extension.register_extension_command::<HumanizeCommand>(COMMANDS_POINT, humanize_descriptor());
+    extension.register_extension_audio_sub_editor::<PanSubEditor>(
+        AUDIO_SUB_EDITOR_EXTENSION_POINT,
+        pan_descriptor(),
+    );
 }
 
 /// Releases example extension resources.
@@ -243,7 +247,7 @@ mod tests {
         let manifest: notwig_ext_api::ExtensionManifest =
             serde_json::from_str(include_str!("../extension.json")).expect("valid manifest");
         assert_eq!(manifest.id, "notwig.ext.example");
-        assert!(manifest.contributes.is_empty());
+        assert_eq!(manifest.contributes.len(), 0);
 
         let mut extension = Extension::new();
         extension.register_command_with_descriptor::<HumanizeCommand>(humanize_descriptor());

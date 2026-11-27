@@ -5,7 +5,7 @@
 //! doubles as a worked example of the extension ABI, device specs, panels,
 //! containers, and real-time processing rules.
 
-use notwig_ext_api::{ExtensionBuilder, notwig_ext};
+use notwig_ext_api::{DEVICE_POINT, ExtensionBuilder, notwig_ext};
 
 mod chorus;
 mod clipper;
@@ -71,14 +71,14 @@ pub use synth::{
 /// Registers every stock device implemented by this crate.
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_device::<CompressorDevice>();
-    extension.register_device::<ClipperDevice>();
-    extension.register_device::<DelayDevice>();
-    extension.register_device::<ChorusDevice>();
-    extension.register_device::<TransientDevice>();
-    extension.register_device::<LimiterDevice>();
-    extension.register_device::<GateDevice>();
-    extension.register_device::<ReverbDevice>();
-    extension.register_device::<SynthDevice>();
-    extension.register_device::<GainDevice>();
+    extension.register_extension::<CompressorDevice>(DEVICE_POINT);
+    extension.register_extension::<ClipperDevice>(DEVICE_POINT);
+    extension.register_extension::<DelayDevice>(DEVICE_POINT);
+    extension.register_extension::<ChorusDevice>(DEVICE_POINT);
+    extension.register_extension::<TransientDevice>(DEVICE_POINT);
+    extension.register_extension::<LimiterDevice>(DEVICE_POINT);
+    extension.register_extension::<GateDevice>(DEVICE_POINT);
+    extension.register_extension::<ReverbDevice>(DEVICE_POINT);
+    extension.register_extension::<SynthDevice>(DEVICE_POINT);
+    extension.register_extension::<GainDevice>(DEVICE_POINT);
 }

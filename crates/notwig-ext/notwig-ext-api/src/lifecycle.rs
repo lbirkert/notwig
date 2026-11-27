@@ -131,7 +131,15 @@ impl ExtensionBuilder {
         self.extension
     }
 
-    /// Registers one device implementation.
+    /// Registers a device implementation on `point`.
+    pub fn register_extension<D: DeviceExtension>(
+        &mut self,
+        point: ExtensionPoint<dyn crate::extension::DeviceInterface>,
+    ) {
+        self.extension.register_device_at::<D>(point.id());
+    }
+
+    /// Registers one device implementation on [`DEVICE_POINT`](crate::DEVICE_POINT).
     pub fn register_device<D: DeviceExtension>(&mut self) {
         self.extension.register_device::<D>();
     }
@@ -141,13 +149,25 @@ impl ExtensionBuilder {
         self.extension.register_audio_sub_editor::<T>(id);
     }
 
+    /// Registers an audio sub-editor renderer on `point` with runtime metadata.
+    pub fn register_extension_audio_sub_editor<T: AudioSubEditorExtension>(
+        &mut self,
+        _point: ExtensionPoint<dyn crate::audio_editor::AudioSubEditorInterface>,
+        descriptor: crate::audio_editor::AudioSubEditorDescriptor,
+    ) {
+        self.extension
+            .register_audio_sub_editor_with_descriptor::<T>(descriptor);
+    }
+
     /// Registers an audio sub-editor renderer with runtime metadata.
     pub fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
         &mut self,
         descriptor: crate::audio_editor::AudioSubEditorDescriptor,
     ) {
-        self.extension
-            .register_audio_sub_editor_with_descriptor::<T>(descriptor);
+        self.register_extension_audio_sub_editor::<T>(
+            crate::audio_editor::AUDIO_SUB_EDITOR_EXTENSION_POINT,
+            descriptor,
+        );
     }
 
     /// Registers a command implementation under `id`.
@@ -155,13 +175,22 @@ impl ExtensionBuilder {
         self.extension.register_command::<C>(id);
     }
 
+    /// Registers a command implementation on `point` with runtime metadata.
+    pub fn register_extension_command<C: CommandExtension>(
+        &mut self,
+        _point: ExtensionPoint<dyn crate::command::CommandInterface>,
+        descriptor: crate::command::CommandDescriptor,
+    ) {
+        self.extension
+            .register_command_with_descriptor::<C>(descriptor);
+    }
+
     /// Registers a command implementation with runtime metadata.
     pub fn register_command_with_descriptor<C: CommandExtension>(
         &mut self,
         descriptor: crate::command::CommandDescriptor,
     ) {
-        self.extension
-            .register_command_with_descriptor::<C>(descriptor);
+        self.register_extension_command::<C>(crate::command::COMMANDS_POINT, descriptor);
     }
 }
 

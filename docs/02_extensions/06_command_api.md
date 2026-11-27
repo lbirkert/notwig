@@ -49,8 +49,8 @@ Register a command from the same macro entrypoint used by devices:
 
 ```rust
 use notwig_ext_api::{
-    CommandContext, CommandDescriptor, CommandEdit, CommandEffect, CommandExtension,
-    ExtensionBuilder, notwig_ext,
+    COMMANDS_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
+    CommandExtension, ExtensionBuilder, notwig_ext,
 };
 
 pub const HUMANIZE_COMMAND_ID: &str = "com.example.midi-tools.humanize";
@@ -92,15 +92,18 @@ impl CommandExtension for HumanizeCommand {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_command_with_descriptor::<HumanizeCommand>(CommandDescriptor {
-        id: HUMANIZE_COMMAND_ID.into(),
-        title: "Humanize Notes".into(),
-        category: "MIDI".into(),
-        description: "Nudge the timing and velocity of selected notes.".into(),
-        when: Some("focus == midi_editor && selection.notes > 0".into()),
-        default_bindings: vec!["Ctrl+Alt+H".into()],
-        extension_id: None,
-    });
+    extension.register_extension_command::<HumanizeCommand>(
+        COMMANDS_POINT,
+        CommandDescriptor {
+            id: HUMANIZE_COMMAND_ID.into(),
+            title: "Humanize Notes".into(),
+            category: "MIDI".into(),
+            description: "Nudge the timing and velocity of selected notes.".into(),
+            when: Some("focus == midi_editor && selection.notes > 0".into()),
+            default_bindings: vec!["Ctrl+Alt+H".into()],
+            extension_id: None,
+        },
+    );
 }
 ```
 

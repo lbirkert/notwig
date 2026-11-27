@@ -15,6 +15,15 @@ pub struct ExtensionPointDescriptor {
     pub id: String,
 }
 
+/// One device implementation registered on the `notwig.devices` point.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceRegistrationDescriptor {
+    /// Point the device implementation belongs to.
+    pub point: String,
+    /// Stable device type id.
+    pub type_id: String,
+}
+
 /// Bounded registration manifest returned by a loaded extension.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionRegistrations {
@@ -24,6 +33,9 @@ pub struct ExtensionRegistrations {
     /// Points declared during preload.
     #[serde(default)]
     pub points: Vec<ExtensionPointDescriptor>,
+    /// Device implementations registered during load.
+    #[serde(default)]
+    pub devices: Vec<DeviceRegistrationDescriptor>,
     /// Command implementations registered during load.
     #[serde(default)]
     pub commands: Vec<CommandDescriptor>,
@@ -41,6 +53,7 @@ impl Default for ExtensionRegistrations {
         Self {
             version: REGISTRATION_MANIFEST_VERSION,
             points: Vec::new(),
+            devices: Vec::new(),
             commands: Vec::new(),
             audio_sub_editors: Vec::new(),
         }

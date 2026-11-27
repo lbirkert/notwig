@@ -148,21 +148,20 @@ The devices are implemented with the SDK trait and registered from the macro
 entrypoint:
 
 ```rust
-use notwig_ext_api::{DeviceExtension, ExtensionBuilder, notwig_ext};
+use notwig_ext_api::{DEVICE_POINT, DeviceExtension, ExtensionBuilder, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_device::<LimiterDevice>();
-    extension.register_device::<CompressorDevice>();
-    extension.register_device::<ClipperDevice>();
-    extension.register_device::<DelayDevice>();
-    extension.register_device::<ChorusDevice>();
-    extension.register_device::<TransientDevice>();
-    extension.register_device::<LimiterDevice>();
-    extension.register_device::<GateDevice>();
-    extension.register_device::<ReverbDevice>();
-    extension.register_device::<SynthDevice>();
-    extension.register_device::<GainDevice>();
+    extension.register_extension::<LimiterDevice>(DEVICE_POINT);
+    extension.register_extension::<CompressorDevice>(DEVICE_POINT);
+    extension.register_extension::<ClipperDevice>(DEVICE_POINT);
+    extension.register_extension::<DelayDevice>(DEVICE_POINT);
+    extension.register_extension::<ChorusDevice>(DEVICE_POINT);
+    extension.register_extension::<TransientDevice>(DEVICE_POINT);
+    extension.register_extension::<GateDevice>(DEVICE_POINT);
+    extension.register_extension::<ReverbDevice>(DEVICE_POINT);
+    extension.register_extension::<SynthDevice>(DEVICE_POINT);
+    extension.register_extension::<GainDevice>(DEVICE_POINT);
 }
 ```
 

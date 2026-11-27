@@ -11,10 +11,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::command::{CommandEffect, MAX_COMMAND_EDITS};
 use crate::context::ThemeSnapshot;
+use crate::extension_point::ExtensionPoint;
 use crate::panel_frame::{PanelFrame, PanelInput};
+
+/// Marker interface for audio sub-editor extension points.
+pub trait AudioSubEditorInterface {}
 
 /// Extension point used for audio-editor sub-editor contributions.
 pub const AUDIO_SUB_EDITOR_POINT: &str = "notwig.audio_editor.sub_editor";
+/// Built-in typed extension point for audio sub-editor implementations.
+pub const AUDIO_SUB_EDITOR_EXTENSION_POINT: ExtensionPoint<dyn AudioSubEditorInterface> =
+    ExtensionPoint::new(AUDIO_SUB_EDITOR_POINT);
 /// Contract id and major version for audio-editor sub-editor contributions.
 pub const AUDIO_SUB_EDITOR_CONTRACT: &str = "notwig.audio_editor.sub_editor@1";
 /// Maximum length of a sub-editor title.

@@ -3,15 +3,16 @@
 use std::collections::BTreeMap;
 
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandDescriptor, ExtensionManifest, ExtensionPointDescriptor,
-    ExtensionRegistrations, MAX_COMMAND_DESCRIPTION_BYTES, REGISTRATION_MANIFEST_VERSION,
-    validate_when,
+    AudioSubEditorDescriptor, CommandDescriptor, DEVICE_POINT, DeviceRegistrationDescriptor,
+    ExtensionManifest, ExtensionPointDescriptor, ExtensionRegistrations,
+    MAX_COMMAND_DESCRIPTION_BYTES, REGISTRATION_MANIFEST_VERSION, validate_when,
 };
 
 use crate::error::ExtensionError;
 
 pub(crate) struct ResolvedContributions {
     pub(crate) points: Vec<ExtensionPointDescriptor>,
+    pub(crate) devices: Vec<DeviceRegistrationDescriptor>,
     pub(crate) commands: Vec<CommandDescriptor>,
     pub(crate) audio_sub_editors: Vec<AudioSubEditorDescriptor>,
 }
@@ -26,6 +27,30 @@ pub(crate) fn resolve(
             "unsupported registration manifest version {}",
             runtime.version
         )));
+    }
+
+    let mut devices: BTreeMap<String, DeviceRegistrationDescriptor> = manifest
+        .devices
+        .iter()
+        .map(|declaration| {
+            (
+                declaration.type_id.clone(),
+                DeviceRegistrationDescriptor {
+                    point: DEVICE_POINT.id().to_owned(),
+                    type_id: declaration.type_id.clone(),
+                },
+            )
+        })
+        .collect();
+
+    for device in runtime.devices {
+        if device.point != DEVICE_POINT.id() {
+            return Err(ExtensionError::Abi(format!(
+                "device {} registered on unsupported point {}",
+                device.type_id, device.point
+            )));
+        }
+        devices.insert(device.type_id.clone(), device);
     }
 
     let mut commands: BTreeMap<String, CommandDescriptor> = manifest
@@ -81,6 +106,7 @@ pub(crate) fn resolve(
 
     Ok(ResolvedContributions {
         points: runtime.points,
+        devices: devices.into_values().collect(),
         commands: commands.into_values().collect(),
         audio_sub_editors: audio_sub_editors.into_values().collect(),
     })

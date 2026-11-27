@@ -12,7 +12,8 @@ use crate::web::sub_editor::WebExtensionAudioSubEditorHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
     AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionPointDescriptor, ExtensionStatus,
+    DEVICE_POINT, DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionPointDescriptor,
+    ExtensionStatus,
 };
 
 /// Browser host for WASM extension packages.
@@ -36,6 +37,12 @@ impl WebExtensionHost {
         let mut audio_sub_editors = BTreeMap::new();
         let mut by_audio_sub_editor = BTreeMap::new();
         let mut points = BTreeMap::new();
+        points.insert(
+            DEVICE_POINT.id().to_owned(),
+            ExtensionPointDescriptor {
+                id: DEVICE_POINT.id().to_owned(),
+            },
+        );
         let mut infos = Vec::new();
         let mut errors = Vec::new();
 
@@ -280,17 +287,25 @@ fn load_package(
         Ok(instance) => instance,
         Err(error) => return Err((error, package)),
     };
+    let registrations = match instance.registrations() {
+        Ok(registrations) => registrations,
+        Err(error) => return Err((error, package)),
+    };
+    let resolved = match contributions::resolve(&package.manifest, registrations) {
+        Ok(resolved) => resolved,
+        Err(error) => return Err((error, package)),
+    };
     let mut specs = Vec::new();
-    for declaration in &package.manifest.devices {
-        let mut spec = match instance.describe(&declaration.type_id) {
+    for device in &resolved.devices {
+        let mut spec = match instance.describe(&device.type_id) {
             Ok(spec) => spec,
             Err(error) => return Err((error, package)),
         };
-        if spec.type_id != declaration.type_id {
+        if spec.type_id != device.type_id {
             return Err((
                 ExtensionError::Manifest(format!(
-                    "device type mismatch: declared {}, described {}",
-                    declaration.type_id, spec.type_id
+                    "device type mismatch: registered {}, described {}",
+                    device.type_id, spec.type_id
                 )),
                 package,
             ));
@@ -319,14 +334,6 @@ fn load_package(
             .collect(),
         installed_hash,
         error: None,
-    };
-    let registrations = match instance.registrations() {
-        Ok(registrations) => registrations,
-        Err(error) => return Err((error, package)),
-    };
-    let resolved = match contributions::resolve(&package.manifest, registrations) {
-        Ok(resolved) => resolved,
-        Err(error) => return Err((error, package)),
     };
     Ok(WebLoadedExtension {
         manifest: package.manifest,

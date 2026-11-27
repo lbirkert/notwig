@@ -646,7 +646,7 @@ independent WASM instances.
 
 ### Milestone 2 — Existing host points
 
-- Map `notwig.command`, `notwig.audio_editor.sub_editor`, and device panels onto
+- Map `notwig.commands`, `notwig.audio_editor.sub_editor`, and `notwig.devices` onto
   the new registry.
 - Introduce `NotwigCommands` as the app/UI facade.
 - Map `#[notwig_extension]` to `#[notwig_ext(load)]` with a deprecation warning for one ABI window.

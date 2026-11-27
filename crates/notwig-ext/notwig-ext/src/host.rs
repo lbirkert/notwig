@@ -6,8 +6,8 @@ use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
     AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DevicePanelHost, ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor, ExtensionSettings,
-    ExtensionStatus, target,
+    DEVICE_POINT, DevicePanelHost, ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor,
+    ExtensionSettings, ExtensionStatus, target,
 };
 use wasmtime::Module;
 
@@ -49,6 +49,12 @@ impl ExtensionHost {
         let mut audio_sub_editors = BTreeMap::new();
         let mut by_audio_sub_editor = BTreeMap::new();
         let mut points = BTreeMap::new();
+        points.insert(
+            DEVICE_POINT.id().to_owned(),
+            ExtensionPointDescriptor {
+                id: DEVICE_POINT.id().to_owned(),
+            },
+        );
         let mut infos = Vec::new();
 
         for failure in report.failures {
@@ -380,15 +386,20 @@ fn activate_candidate(
         .map_err(|error| error.to_string())?;
     let mut instance = ExtensionInstance::instantiate(runtime, engines, &manifest.id)
         .map_err(|error| error.to_string())?;
+    let registrations = instance
+        .registrations()
+        .map_err(|error| error.to_string())?;
+    let resolved =
+        contributions::resolve(manifest, registrations).map_err(|error| error.to_string())?;
     let mut specs = Vec::new();
-    for declaration in &manifest.devices {
+    for device in &resolved.devices {
         let mut spec = instance
-            .describe(&declaration.type_id)
-            .map_err(|error| format!("describe device {}: {error}", declaration.type_id))?;
-        if spec.type_id != declaration.type_id {
+            .describe(&device.type_id)
+            .map_err(|error| format!("describe device {}: {error}", device.type_id))?;
+        if spec.type_id != device.type_id {
             return Err(format!(
-                "device type mismatch: declared {}, described {}",
-                declaration.type_id, spec.type_id
+                "device type mismatch: registered {}, described {}",
+                device.type_id, spec.type_id
             ));
         }
         if matches!(spec.ui, DeviceUiSpec::Generic) {
@@ -396,11 +407,6 @@ fn activate_candidate(
         }
         specs.push(spec);
     }
-    let registrations = instance
-        .registrations()
-        .map_err(|error| error.to_string())?;
-    let resolved =
-        contributions::resolve(manifest, registrations).map_err(|error| error.to_string())?;
     Ok((specs, resolved))
 }
 

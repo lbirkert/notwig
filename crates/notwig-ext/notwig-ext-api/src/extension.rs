@@ -16,7 +16,15 @@ use crate::command::{
 use crate::context::{DeviceDrawContext, DeviceMeterSnapshot};
 use crate::extension_point::ExtensionPoint;
 use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
-use crate::registration::{ExtensionPointDescriptor, ExtensionRegistrations};
+use crate::registration::{
+    DeviceRegistrationDescriptor, ExtensionPointDescriptor, ExtensionRegistrations,
+};
+
+/// Marker interface for the built-in `notwig.devices` extension point.
+pub trait DeviceInterface {}
+
+/// Built-in extension point for device implementations.
+pub const DEVICE_POINT: ExtensionPoint<dyn DeviceInterface> = ExtensionPoint::new("notwig.devices");
 
 /// A device implemented by a WASM extension.
 ///
@@ -156,6 +164,7 @@ fn create_command<C: CommandExtension>() -> Box<dyn CommandInstance> {
 }
 
 struct RegisteredDevice {
+    point: String,
     spec_json: Vec<u8>,
     create: fn() -> Box<dyn DeviceInstance>,
 }
@@ -227,18 +236,23 @@ impl Extension {
         self.extension_points.iter().map(String::as_str)
     }
 
-    /// Registers one device implementation.
+    /// Registers one device implementation on the built-in device point.
     ///
     /// The device is keyed by [`DeviceExtension::spec`]'s `type_id`; registering
-    /// the same type id again replaces the earlier implementation. This is
-    /// normally called once from the `#[notwig_ext(load)]` entrypoint.
+    /// the same type id again replaces the earlier implementation. Prefer
+    /// [`ExtensionBuilder::register_extension`] with [`DEVICE_POINT`].
     pub fn register_device<D: DeviceExtension>(&mut self) {
+        self.register_device_at::<D>(DEVICE_POINT.id());
+    }
+
+    pub(crate) fn register_device_at<D: DeviceExtension>(&mut self, point: &str) {
         let spec = D::spec();
         let type_id = spec.type_id.clone();
         let spec_json = serde_json::to_vec(&spec).unwrap_or_default();
         self.devices.insert(
             type_id,
             RegisteredDevice {
+                point: point.to_owned(),
                 spec_json,
                 create: create_instance::<D>,
             },
@@ -320,6 +334,14 @@ impl Extension {
                 .extension_points
                 .iter()
                 .map(|id| ExtensionPointDescriptor { id: id.clone() })
+                .collect(),
+            devices: self
+                .devices
+                .iter()
+                .map(|(type_id, device)| DeviceRegistrationDescriptor {
+                    point: device.point.clone(),
+                    type_id: type_id.clone(),
+                })
                 .collect(),
             commands: self
                 .commands

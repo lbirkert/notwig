@@ -40,8 +40,8 @@ Implement `AudioSubEditorExtension` and register it with runtime metadata:
 
 ```rust
 use notwig_ext_api::{
-    AudioSubEditorContext, AudioSubEditorDescriptor, AudioSubEditorExtension, CommandEdit,
-    CommandEffect, ExtensionBuilder, notwig_ext,
+    AUDIO_SUB_EDITOR_EXTENSION_POINT, AudioSubEditorContext, AudioSubEditorDescriptor,
+    AudioSubEditorExtension, CommandEdit, CommandEffect, ExtensionBuilder, notwig_ext,
 };
 
 struct PanEditor;
@@ -62,7 +62,8 @@ impl AudioSubEditorExtension for PanEditor {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_audio_sub_editor_with_descriptor::<PanEditor>(
+    extension.register_extension_audio_sub_editor::<PanEditor>(
+        AUDIO_SUB_EDITOR_EXTENSION_POINT,
         AudioSubEditorDescriptor {
             id: "com.example.clip-tools.pan".into(),
             title: "Clip Pan".into(),

@@ -6,11 +6,11 @@ Proc-macro support for Notwig WASM and native extensions.
 exports the host expects:
 
 ```rust
-use notwig_ext_api::{ExtensionBuilder, notwig_ext};
+use notwig_ext_api::{DEVICE_POINT, ExtensionBuilder, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_device::<MyDevice>();
+    extension.register_extension::<MyDevice>(DEVICE_POINT);
 }
 ```
 

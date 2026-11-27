@@ -466,12 +466,12 @@ transition.
 
 #### Command contribution
 
-`notwig.command` is an augment point. One contribution declares:
+`notwig.commands` is an augment point. A runtime contribution declares:
 
 ```json
 {
   "id": "com.example.midi-tools.humanize",
-  "point": "notwig.command",
+  "point": "notwig.commands",
   "contract": "notwig.command@1",
   "mode": "augment",
   "title": "Humanize Notes",

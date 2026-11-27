@@ -4,13 +4,21 @@
 //! [`CommandEffect`]. The host owns validation, command lowering, selection,
 //! and undo. Commands never receive the project document or a mutable UI.
 
+use crate::extension_point::ExtensionPoint;
 use notwig_core::sequencer::{AudioSlice, NoteEntity};
 use notwig_core::{
     ClipId, Db, DeviceId, NoteId, Pan, ParamId, ParamValue, RangeMus, TimeMus, TrackId, time::Color,
 };
 use serde::{Deserialize, Serialize};
 
-/// Extension point used for command contributions.
+/// Marker interface for command extension points.
+pub trait CommandInterface {}
+
+/// Built-in extension point for command implementations.
+pub const COMMANDS_POINT: ExtensionPoint<dyn CommandInterface> =
+    ExtensionPoint::new("notwig.commands");
+
+/// Legacy manifest point id used for command contributions.
 pub const COMMAND_POINT: &str = "notwig.command";
 /// Contract id and major version for command contributions.
 pub const COMMAND_CONTRACT: &str = "notwig.command@1";
