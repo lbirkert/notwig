@@ -229,6 +229,48 @@ fn dragging_a_point_moves_time_and_value() {
 }
 
 #[test]
+fn dragging_a_point_moves_the_time_selection_by_the_same_delta() {
+    let ctx = egui::Context::default();
+    let mut curve = point_curve();
+    let mut state = LineEditorState::default();
+    let mut selected = BTreeSet::new();
+    let mut time_selection =
+        Some(notwig_core::RangeMus::new(beat(1), beat(2)).expect("initial time selection"));
+    run(
+        &ctx,
+        &mut curve,
+        &mut selected,
+        &mut time_selection,
+        &mut state,
+        Vec::new(),
+        Modifiers::NONE,
+    );
+    let start = position(2.0, 0.2);
+    let end = position(3.1, 0.3);
+    for event in [
+        Event::PointerMoved(start),
+        pointer(start, true),
+        Event::PointerMoved(end),
+        pointer(end, false),
+    ] {
+        run(
+            &ctx,
+            &mut curve,
+            &mut selected,
+            &mut time_selection,
+            &mut state,
+            vec![event],
+            Modifiers::NONE,
+        );
+    }
+    assert_eq!(curve.points()[0].time, beat(3));
+    assert_eq!(
+        time_selection,
+        Some(notwig_core::RangeMus::new(beat(2), beat(3)).expect("shifted time selection"))
+    );
+}
+
+#[test]
 fn shift_drag_uses_fine_time_and_value() {
     let ctx = egui::Context::default();
     let mut curve = point_curve();

@@ -86,6 +86,7 @@ pub struct LineEditorResponse {
 struct PointDrag {
     origin_pointer: Pos2,
     origin_curve: Curve,
+    origin_time_selection: Option<RangeMus>,
     selected: BTreeSet<usize>,
     primary: usize,
     time_drag: FineDrag,
@@ -224,6 +225,7 @@ pub fn show_with_background(
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
+                origin_time_selection: *time_selection,
                 selected: selected.clone(),
                 primary: point,
                 time_drag: FineDrag::default(),
@@ -273,6 +275,7 @@ pub fn show_with_background(
             state.drag = Some(PointDrag {
                 origin_pointer: pointer,
                 origin_curve: curve.clone(),
+                origin_time_selection: *time_selection,
                 selected: selected.clone(),
                 primary: index,
                 time_drag: FineDrag::default(),
@@ -327,6 +330,7 @@ pub fn show_with_background(
                 modifiers.shift,
                 curve,
                 selected,
+                time_selection,
             );
         }
         if let Some(marquee) = &mut state.marquee {
@@ -362,6 +366,7 @@ pub fn show_with_background(
                 modifiers.shift,
                 curve,
                 selected,
+                time_selection,
             );
         }
         if let Some(drag) = state.drag.take() {
@@ -403,6 +408,7 @@ pub fn show_with_background(
                 modifiers.shift,
                 curve,
                 selected,
+                time_selection,
             );
         }
         if let Some(drag) = state.drag.take() {
@@ -443,6 +449,7 @@ pub fn show_with_background(
             modifiers.shift,
             curve,
             selected,
+            time_selection,
         );
     }
 
@@ -657,6 +664,7 @@ fn apply_point_drag(
     fine: bool,
     curve: &mut Curve,
     selected: &mut BTreeSet<usize>,
+    time_selection: &mut Option<RangeMus>,
 ) -> bool {
     let Some(primary) = drag.origin_curve.points().get(drag.primary) else {
         return false;
@@ -680,6 +688,10 @@ fn apply_point_drag(
     let (min_delta, max_delta) = allowed_time_delta(&drag.origin_curve, &drag.selected);
     delta_beats = delta_beats.clamp(min_delta, max_delta);
     drag.last_time_delta = delta_beats;
+    if let Some(origin) = drag.origin_time_selection {
+        let delta = beats_to_time(delta_beats);
+        *time_selection = RangeMus::new(origin.start + delta, origin.end + delta).ok();
+    }
     let raw_value = f64::from(drag.origin_pointer.y - pointer.y);
     let value_update = drag
         .value_drag
