@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 use crate::audio_editor::AudioSubEditorDescriptor;
 use crate::command::CommandDescriptor;
 
+/// Fixed id for built-in, in-code extensions that ship with Notwig.
+pub const CORE_EXTENSION_ID: &str = "notwig.core";
+/// Display name for the built-in extension owner.
+pub const CORE_EXTENSION_NAME: &str = "Notwig Core";
+
 /// Current runtime registration manifest version.
 pub const REGISTRATION_MANIFEST_VERSION: u32 = 1;
 

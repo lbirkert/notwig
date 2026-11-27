@@ -20,7 +20,7 @@ pub trait AudioSubEditorInterface {}
 /// Extension point used for audio-editor sub-editor contributions.
 pub const AUDIO_SUB_EDITOR_POINT: &str = "notwig.audio_editor.sub_editor";
 /// Built-in typed extension point for audio sub-editor implementations.
-pub const AUDIO_SUB_EDITOR_EXTENSION_POINT: ExtensionPoint<dyn AudioSubEditorInterface> =
+pub const EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR: ExtensionPoint<dyn AudioSubEditorInterface> =
     ExtensionPoint::new(AUDIO_SUB_EDITOR_POINT);
 /// Contract id and major version for audio-editor sub-editor contributions.
 pub const AUDIO_SUB_EDITOR_CONTRACT: &str = "notwig.audio_editor.sub_editor@1";

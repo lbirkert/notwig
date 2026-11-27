@@ -86,6 +86,7 @@ pub mod test_api {
     pub use crate::views::audio_editor::test_api as audio_editor;
     pub use crate::views::device_editor::test_api as device_editor;
     pub use crate::views::midi_editor::test_api as midi_editor;
+    pub use crate::views::panel_registry::test_api as panel_registry;
     pub use crate::views::settings::test_api as settings;
     pub use crate::waveform::test_api as waveform;
     pub use crate::widgets::drop_target::test_api as drop_target;

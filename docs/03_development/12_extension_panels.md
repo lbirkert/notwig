@@ -122,7 +122,7 @@ impl DeviceExtension for MyDevice {
 
 #[notwig_ext(load)]
 pub fn extension(extension: &mut notwig_ext_api::Extension) {
-    extension.register_extension::<MyDevice>(DEVICE_POINT);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 

@@ -6,7 +6,7 @@ use notwig_core::dsp::DeviceFactory;
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
     AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DEVICE_POINT, DevicePanelHost, ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor,
+    DevicePanelHost, EP_NOTWIG_DEVICES, ExtensionInfo, ExtensionManifest, ExtensionPointDescriptor,
     ExtensionSettings, ExtensionStatus, target,
 };
 use wasmtime::Module;
@@ -50,9 +50,9 @@ impl ExtensionHost {
         let mut by_audio_sub_editor = BTreeMap::new();
         let mut points = BTreeMap::new();
         points.insert(
-            DEVICE_POINT.id().to_owned(),
+            EP_NOTWIG_DEVICES.id().to_owned(),
             ExtensionPointDescriptor {
-                id: DEVICE_POINT.id().to_owned(),
+                id: EP_NOTWIG_DEVICES.id().to_owned(),
             },
         );
         let mut infos = Vec::new();

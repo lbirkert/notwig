@@ -56,7 +56,8 @@ fn create(path: &Path, package_name: Option<String>, extension_id: Option<String
 
     let files = [
         (PathBuf::from("Cargo.toml"), cargo_toml(&package_name)),
-        (PathBuf::from("src/lib.rs"), library_rs(&extension_id)),
+        (PathBuf::from("src/lib.rs"), library_rs()),
+        (PathBuf::from("src/device.rs"), device_rs(&extension_id)),
         (
             PathBuf::from("extension.json"),
             extension_json(&extension_id, &display_name),
@@ -152,8 +153,12 @@ fn toml_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn library_rs(extension_id: &str) -> String {
-    LIB_TEMPLATE.replace("__EXTENSION_ID__", extension_id)
+fn library_rs() -> String {
+    LIB_TEMPLATE.into()
+}
+
+fn device_rs(extension_id: &str) -> String {
+    DEVICE_TEMPLATE.replace("__EXTENSION_ID__", extension_id)
 }
 
 fn extension_json(extension_id: &str, display_name: &str) -> String {
@@ -195,13 +200,10 @@ notwig-ext-api = { path = "__EXT_API_PATH__" }
 uuid = { version = "1", default-features = false, features = ["serde", "std"] }
 "#;
 
-const LIB_TEMPLATE: &str = r#"use egui::{Align2, FontId, Sense, Vec2};
+const DEVICE_TEMPLATE: &str = r#"use egui::{Align2, FontId, Sense, Vec2};
 use notwig_core::dsp::{DeviceSpec, DeviceUiSpec, ParamSpec, Unit};
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_ext_api::{
-    DEVICE_POINT, DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame,
-    notwig_ext,
-};
+use notwig_ext_api::{DeviceExtension, DeviceMeterSnapshot, egui, panel_frame};
 use notwig_ui::{knob, palette, section};
 use uuid::Uuid;
 
@@ -309,9 +311,21 @@ impl DeviceExtension for MyDevice {
         }
     }
 }
+"#;
+
+const LIB_TEMPLATE: &str = r"//! Extension wiring and lifecycle entrypoints.
+
+mod device;
+
+pub use device::*;
+
+use notwig_ext_api::{EP_NOTWIG_DEVICES, ExtensionBuilder, UnloadContext, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<MyDevice>(DEVICE_POINT);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
-"#;
+
+#[notwig_ext(unload)]
+pub fn unload(_context: &mut UnloadContext) {}
+";

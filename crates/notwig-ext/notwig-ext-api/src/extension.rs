@@ -24,7 +24,8 @@ use crate::registration::{
 pub trait DeviceInterface {}
 
 /// Built-in extension point for device implementations.
-pub const DEVICE_POINT: ExtensionPoint<dyn DeviceInterface> = ExtensionPoint::new("notwig.devices");
+pub const EP_NOTWIG_DEVICES: ExtensionPoint<dyn DeviceInterface> =
+    ExtensionPoint::new("notwig.devices");
 
 /// A device implemented by a WASM extension.
 ///

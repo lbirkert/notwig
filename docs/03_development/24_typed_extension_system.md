@@ -6,9 +6,9 @@ registry-backed extension system with macro-generated RPC proxies over the
 existing WASM/native/browser transports. The preload/load/unload builders,
 macros, ABI exports, host-wide preload ordering, runtime point/command/
 sub-editor registration manifests, native/web host resolution, stock/example
-migration, and scaffold are in place. Typed interface proxies, handle calls,
-replacement, `Single` cardinality, and user load-order resolution remain to be
-implemented.
+migration, scaffold, and the Notwig Core bottom-panel registry are in place.
+Typed interface proxies, handle calls, replacement, `Single` cardinality, and
+user load-order resolution remain to be implemented.
 
 Related: [`Extension Platform Architecture`](23_extension_platform_architecture.md),
 [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md), and
@@ -39,6 +39,31 @@ Related: [`Extension Platform Architecture`](23_extension_platform_architecture.
 8. **The context is the author-facing API.** Extensions do not manage
    transports, registries, WASM instances, or locks.
 9. **Real-time audio is separate.** General RPC never enters the audio callback.
+
+## 2. Naming and core ownership
+
+Extension-point constants use the `EP_` prefix; `EP` means **extension point**.
+The id stays a stable namespaced string, while the constant name makes call
+sites read as point registrations:
+
+- `EP_NOTWIG_DEVICES` -> `notwig.devices`
+- `EP_COMMANDS` -> `notwig.commands`
+- `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR` -> `notwig.audio_editor.sub_editor`
+- `EP_NOTWIG_DEVICE_EDITOR_BOTTOM_PANEL` -> `notwig.device_editor.bottom_panel`
+- `EP_NOTWIG_MIDI_EDITOR_BOTTOM_PANEL` -> `notwig.midi_editor.bottom_panel`
+- `EP_NOTWIG_AUDIO_EDITOR_BOTTOM_PANEL` -> `notwig.audio_editor.bottom_panel`
+
+Built-in implementations that ship with the application are registered under
+the fixed, non-uninstallable extension owner `notwig.core` / `Notwig Core`.
+They use the same points and registry shape as package extensions; the only
+difference is ownership and installation policy. The device, MIDI, and audio
+editor bottom panels are currently hosted by this core registry instead of a
+hard-coded shell match.
+
+Extension crate roots follow the same separation: `lib.rs` contains wiring and
+the lifecycle entrypoints only. Implementations and helpers live in modules,
+tests live under `tests/`, and `load`, `unload`, and any explicit reload hook
+are the last items in the file.
 
 ## 2. Core model
 
@@ -164,7 +189,7 @@ pub fn preload(extension: &mut PreloadBuilder) {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<TrackDevice>(DEVICE_POINT);
+    extension.register_extension::<TrackDevice>(EP_NOTWIG_DEVICES);
 }
 
 #[notwig_ext(unload)]

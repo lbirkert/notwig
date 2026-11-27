@@ -40,7 +40,7 @@ Implement `AudioSubEditorExtension` and register it with runtime metadata:
 
 ```rust
 use notwig_ext_api::{
-    AUDIO_SUB_EDITOR_EXTENSION_POINT, AudioSubEditorContext, AudioSubEditorDescriptor,
+    EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR, AudioSubEditorContext, AudioSubEditorDescriptor,
     AudioSubEditorExtension, CommandEdit, CommandEffect, ExtensionBuilder, notwig_ext,
 };
 
@@ -72,7 +72,7 @@ impl AudioSubEditorExtension for PanEditor {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<PanEditor>(AUDIO_SUB_EDITOR_EXTENSION_POINT);
+    extension.register_extension::<PanEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
 }
 ```
 

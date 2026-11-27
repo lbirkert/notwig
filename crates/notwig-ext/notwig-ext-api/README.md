@@ -18,9 +18,11 @@ host uses the same wire types to validate and composite extension panels.
 - `PreloadBuilder`, `ExtensionBuilder`, and `UnloadContext` for the three
   extension lifecycle phases;
 - `ExtensionPoint<T>` typed extension-point keys and preload declaration
-  storage;
+  storage; built-in point constants use the `EP_*` naming convention;
 - runtime registration descriptors and the bounded post-load registration
   manifest;
+- the fixed `notwig.core` / `Notwig Core` ownership id for built-in, in-code
+  extensions;
 - `DeviceExtension` and `Extension` for registering device implementations and
   delivering note events before each processed block;
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
@@ -44,11 +46,11 @@ Device authors implement `DeviceExtension` for their device type and register it
 from the load phase:
 
 ```rust
-use notwig_ext_api::{DEVICE_POINT, DeviceExtension, ExtensionBuilder, notwig_ext};
+use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<MyDevice>(DEVICE_POINT);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 

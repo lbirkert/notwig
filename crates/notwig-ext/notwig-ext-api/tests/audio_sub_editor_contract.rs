@@ -1,9 +1,9 @@
 use notwig_core::sequencer::AudioClipData;
 use notwig_core::{AssetId, ClipId, Curve, CurvePoint, Db, FadeShape, RangeMus, TimeMus, TrackId};
 use notwig_ext_api::{
-    AUDIO_SUB_EDITOR_EXTENSION_POINT, AudioSubEditorContext, AudioSubEditorDescriptor,
-    AudioSubEditorExtension, AudioSubEditorResponse, CommandEdit, CommandEffect, Extension,
-    PanelInput, ThemeSnapshot,
+    AudioSubEditorContext, AudioSubEditorDescriptor, AudioSubEditorExtension,
+    AudioSubEditorResponse, CommandEdit, CommandEffect, EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR,
+    Extension, PanelInput, ThemeSnapshot,
 };
 use uuid::Uuid;
 
@@ -94,7 +94,7 @@ fn context() -> AudioSubEditorContext {
 #[test]
 fn registered_audio_sub_editor_draws_a_frame_with_edits() {
     let mut extension = Extension::new();
-    extension.register_extension::<TestEditor>(AUDIO_SUB_EDITOR_EXTENSION_POINT);
+    extension.register_extension::<TestEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
     let handle = extension.create_audio_sub_editor("com.test.renderer");
     assert!(handle > 0);
     let ctx = context();

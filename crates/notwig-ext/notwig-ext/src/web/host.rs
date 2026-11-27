@@ -12,7 +12,7 @@ use crate::web::sub_editor::WebExtensionAudioSubEditorHost;
 use notwig_core::dsp::{DeviceFactory, DeviceSpec, DeviceUiSpec};
 use notwig_ext_api::{
     AudioSubEditorDescriptor, AudioSubEditorHost, CommandContext, CommandDescriptor, CommandEffect,
-    DEVICE_POINT, DevicePanelHost, ExtensionConfig, ExtensionInfo, ExtensionPointDescriptor,
+    DevicePanelHost, EP_NOTWIG_DEVICES, ExtensionConfig, ExtensionInfo, ExtensionPointDescriptor,
     ExtensionStatus,
 };
 
@@ -38,9 +38,9 @@ impl WebExtensionHost {
         let mut by_audio_sub_editor = BTreeMap::new();
         let mut points = BTreeMap::new();
         points.insert(
-            DEVICE_POINT.id().to_owned(),
+            EP_NOTWIG_DEVICES.id().to_owned(),
             ExtensionPointDescriptor {
-                id: DEVICE_POINT.id().to_owned(),
+                id: EP_NOTWIG_DEVICES.id().to_owned(),
             },
         );
         let mut infos = Vec::new();

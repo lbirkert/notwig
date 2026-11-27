@@ -78,6 +78,26 @@ and boundaries. Start there when working inside a crate.
    detail public just because another module needs it.
 5. **Tests belong in the tests folder. Sources in src.**
 
+### Extension authoring conventions
+
+- Extension-point constants use the `EP_` prefix. `EP` means **extension
+  point**. Built-in ids are path-shaped and typed, for example
+  `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
+  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and
+  `EP_NOTWIG_DEVICE_EDITOR_BOTTOM_PANEL`. Do not introduce legacy aliases.
+- Package extension implementations are registered with
+  `extension.register_extension::<T>(EP_...)`. Metadata belongs on the
+  implementation trait (`CommandExtension::descriptor`,
+  `AudioSubEditorExtension::descriptor`), not in registration overloads.
+- Built-in, in-code extensions are owned by the fixed extension id
+  `notwig.core` with display name `Notwig Core`. Core registrations cannot be
+  uninstalled and use the same extension-point ids as package extensions.
+- An extension crate's `lib.rs` is wiring only: module declarations,
+  re-exports, imports needed by the lifecycle functions, and the lifecycle
+  entrypoints. Implementations, helpers, and tests live in other files. Keep
+  `load`, `unload`, and any explicit `reload` hook as the final items in
+  `lib.rs`. Host reload currently runs unload then load.
+
 ### Architecture and ownership
 
 - Follow the dependency direction in [`docs/03_development/01_code_structure.md`](docs/03_development/01_code_structure.md).

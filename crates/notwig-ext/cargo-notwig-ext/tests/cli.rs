@@ -137,7 +137,15 @@ fn new_scaffolds_a_buildable_extension() {
     assert!(path.join("icon.png").is_file());
     let library = fs::read_to_string(path.join("src/lib.rs")).unwrap();
     assert!(library.contains("#[notwig_ext(load)]"));
-    assert!(library.contains("com.test.my-gain"));
+    assert!(library.contains("#[notwig_ext(unload)]"));
+    assert!(
+        library
+            .trim_end()
+            .ends_with("pub fn unload(_context: &mut UnloadContext) {}")
+    );
+    assert!(!library.contains("impl DeviceExtension"));
+    let device = fs::read_to_string(path.join("src/device.rs")).unwrap();
+    assert!(device.contains("com.test.my-gain"));
 
     let manifest: Value =
         serde_json::from_slice(&fs::read(path.join("extension.json")).unwrap()).unwrap();

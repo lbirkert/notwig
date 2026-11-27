@@ -39,7 +39,12 @@ audio sub-editor point ──►  extension renderer ──►  audio editor
   app.
 - `notwig-ui` composites the returned panel frame and applies validated
   parameter actions. Extension panels use its shared knobs, meters, labels,
-  sections, toggles, and dropdowns.
+  sections, toggles, and dropdowns. Built-in bottom panels are registered
+  through the same `EP_*` points under the fixed, non-uninstallable
+  `notwig.core` / `Notwig Core` owner.
+- Extension-point constants use the `EP_` prefix (`EP` = extension point), such
+  as `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
+  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and the three editor bottom-panel points.
 - `cargo notwig-ext` scaffolds extensions and builds target-specific ZIPs. It
   reads a source `extension.json` without `entrypoints`, adds the selected
   entrypoint, filters `includes` by target, removes `includes`, and bundles the

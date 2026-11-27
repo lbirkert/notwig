@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 pub trait CommandInterface {}
 
 /// Built-in extension point for command implementations.
-pub const COMMANDS_POINT: ExtensionPoint<dyn CommandInterface> =
+pub const EP_COMMANDS: ExtensionPoint<dyn CommandInterface> =
     ExtensionPoint::new("notwig.commands");
 
 /// Legacy manifest point id used for command contributions.

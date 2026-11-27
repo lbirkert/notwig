@@ -60,7 +60,7 @@ use notwig_core::dsp::{
     DeviceSpec, DeviceUiSpec, ParamSpec, Port, PortDir, SignalType, Unit,
 };
 use notwig_core::{DeviceKind, ParamId, SchemaVersion};
-use notwig_ext_api::{DEVICE_POINT, DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame, notwig_ext};
+use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, DeviceMeterSnapshot, ExtensionBuilder, egui, panel_frame, notwig_ext};
 use notwig_ui::{knob, section};
 use uuid::Uuid;
 
@@ -91,7 +91,7 @@ impl GainDevice {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<GainDevice>(DEVICE_POINT);
+    extension.register_extension::<GainDevice>(EP_NOTWIG_DEVICES);
 }
 
 impl DeviceExtension for GainDevice {
@@ -183,6 +183,11 @@ An extension may also define optional `#[notwig_ext(preload)]` and
 `#[notwig_ext(unload)]` functions. Preload declares extension points before any
 load-phase registration; unload releases extension-owned resources. The `load`
 phase is required and remains the place for devices, commands, and sub-editors.
+
+Keep `lib.rs` as wiring only: module declarations, re-exports, imports needed by
+the lifecycle functions, and the lifecycle entrypoints. Put device, command,
+panel, and helper implementations in other modules. `load`, `unload`, and any
+explicit reload hook must be the final items in `lib.rs`.
 
 ## 3. Add the manifest
 

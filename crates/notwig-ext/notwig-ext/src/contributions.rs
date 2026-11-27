@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use notwig_ext_api::{
-    AudioSubEditorDescriptor, CommandDescriptor, DEVICE_POINT, DeviceRegistrationDescriptor,
+    AudioSubEditorDescriptor, CommandDescriptor, DeviceRegistrationDescriptor, EP_NOTWIG_DEVICES,
     ExtensionManifest, ExtensionPointDescriptor, ExtensionRegistrations,
     MAX_COMMAND_DESCRIPTION_BYTES, REGISTRATION_MANIFEST_VERSION, validate_when,
 };
@@ -36,7 +36,7 @@ pub(crate) fn resolve(
             (
                 declaration.type_id.clone(),
                 DeviceRegistrationDescriptor {
-                    point: DEVICE_POINT.id().to_owned(),
+                    point: EP_NOTWIG_DEVICES.id().to_owned(),
                     type_id: declaration.type_id.clone(),
                 },
             )
@@ -44,7 +44,7 @@ pub(crate) fn resolve(
         .collect();
 
     for device in runtime.devices {
-        if device.point != DEVICE_POINT.id() {
+        if device.point != EP_NOTWIG_DEVICES.id() {
             return Err(ExtensionError::Abi(format!(
                 "device {} registered on unsupported point {}",
                 device.type_id, device.point

@@ -185,7 +185,10 @@ describes the extension subsystem and crate boundaries.
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | Humanize MIDI command, preload point declaration, and `#[notwig_ext(load)]` registration |
+| `lib.rs` | Wiring and `preload`/`load`/`unload` lifecycle entrypoints only |
+| `humanize.rs` | Humanize MIDI command and runtime descriptor |
+| `pan.rs` | Clip Pan audio sub-editor and runtime descriptor |
+| `point.rs` | Example preload extension point |
 
 ### `notwig-ext-devices` — example extension devices
 
@@ -204,7 +207,8 @@ describes the extension subsystem and crate boundaries.
 | `gain.rs` | Small guest-egui gain example using shared `notwig-ui` controls |
 | `dynamics.rs` | Shared 50-frame peak/gain history and egui history-graph painter |
 | `ui.rs` | Shared knob caption helper |
-| `lib.rs` | `#[notwig_ext(load)]` entrypoint registering all devices |
+| `lib.rs` | Wiring and `load`/`unload` lifecycle entrypoints only |
+| `devices.rs` | Device module wiring, re-exports, and `EP_NOTWIG_DEVICES` registrations |
 
 ### `notwig-engine` — real-time execution
 
@@ -242,6 +246,7 @@ describes the extension subsystem and crate boundaries.
 | `views/arranger/` | Track lanes, clip interaction, navigation, drop preview, edit helpers; track split into header, lane, drop, menu |
 | `views/info/` | Left info panel: track, device, MIDI clip, audio clip, files, time |
 | `views/panel.rs` | Shared bottom-panel chrome and layout helpers |
+| `views/panel_registry.rs` | `Notwig Core` bottom-panel registrations keyed by `EP_*` editor points; the shell resolves panels through this registry instead of a hard-coded match |
 | `views/audio_editor/` | Audio clip editor: state, actions, geometry, model, navigation, shared built-in Gain curve adapter, and extension-rendered sub-editor host; panel split into range selection, slice paint, slice gestures |
 | `views/midi_editor/` | MIDI note editor: state, model, geometry, actions, navigation; panel split into paint, note drag, velocity lane, audition |
 | `views/device_editor/` | Device panel, browser, drag/drop and insertion points, parameter widgets, EQ display, renderer dispatch; card/stock body/knob/bracket/plugin-kind split |

@@ -148,20 +148,20 @@ The devices are implemented with the SDK trait and registered from the macro
 entrypoint:
 
 ```rust
-use notwig_ext_api::{DEVICE_POINT, DeviceExtension, ExtensionBuilder, notwig_ext};
+use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<LimiterDevice>(DEVICE_POINT);
-    extension.register_extension::<CompressorDevice>(DEVICE_POINT);
-    extension.register_extension::<ClipperDevice>(DEVICE_POINT);
-    extension.register_extension::<DelayDevice>(DEVICE_POINT);
-    extension.register_extension::<ChorusDevice>(DEVICE_POINT);
-    extension.register_extension::<TransientDevice>(DEVICE_POINT);
-    extension.register_extension::<GateDevice>(DEVICE_POINT);
-    extension.register_extension::<ReverbDevice>(DEVICE_POINT);
-    extension.register_extension::<SynthDevice>(DEVICE_POINT);
-    extension.register_extension::<GainDevice>(DEVICE_POINT);
+    extension.register_extension::<LimiterDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<CompressorDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<ClipperDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<DelayDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<ChorusDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<TransientDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<GateDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<ReverbDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<SynthDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<GainDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 
@@ -175,7 +175,8 @@ come from `notwig-ext-api`.
 
 | Module | Responsibility |
 | --- | --- |
-| `lib.rs` | `#[notwig_ext(load)]` entrypoint registering every stock device |
+| `lib.rs` | Wiring and `load`/`unload` lifecycle entrypoints only |
+| `devices.rs` | Device module wiring, re-exports, and `EP_NOTWIG_DEVICES` registrations |
 | `synth/mod.rs` | Synth device state and `DeviceExtension` delegation |
 | `synth/params.rs` | Synth parameter ids, ranges, defaults, normalization |
 | `synth/spec.rs` | Synth device spec |

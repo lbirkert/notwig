@@ -256,11 +256,10 @@ impl NotwigUi {
         self.top_bar(ctx, doc, runtime);
         self.status_bar(ctx, doc, runtime);
         self.info_panel(ctx, doc, runtime);
-        match self.currently_opened {
-            Some(OpenedEditor::ClipEditor) => self.clip_editor_panel(ctx, doc, runtime),
-            Some(OpenedEditor::MidiEditor) => self.midi_editor_panel(ctx, doc, runtime),
-            Some(OpenedEditor::DeviceEditor) => self.device_panel(ctx, doc, runtime),
-            None => {}
+        if let Some(editor) = self.currently_opened
+            && let Some(panel) = crate::views::panel_registry::core_bottom_panel(editor)
+        {
+            (panel.render)(self, ctx, doc, runtime);
         }
         self.device_browser_window(ctx, doc, runtime);
         self.command_palette_window(ctx, doc, runtime);

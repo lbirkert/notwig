@@ -49,7 +49,7 @@ Register a command from the same macro entrypoint used by devices:
 
 ```rust
 use notwig_ext_api::{
-    COMMANDS_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
+    EP_COMMANDS, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
     CommandExtension, ExtensionBuilder, notwig_ext,
 };
 
@@ -104,7 +104,7 @@ impl CommandExtension for HumanizeCommand {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<HumanizeCommand>(COMMANDS_POINT);
+    extension.register_extension::<HumanizeCommand>(EP_COMMANDS);
 }
 ```
 

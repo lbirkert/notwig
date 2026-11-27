@@ -9,7 +9,7 @@
 //! `#[notwig_ext(load)]`, or `#[notwig_ext(unload)]`.
 //!
 //! ```text
-//! use notwig_ext_api::{DEVICE_POINT, DeviceExtension, ExtensionBuilder, notwig_ext};
+//! use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwig_ext};
 //!
 //! struct MyDevice;
 //! impl DeviceExtension for MyDevice {
@@ -21,7 +21,7 @@
 //!
 //! #[notwig_ext(load)]
 //! pub fn load(extension: &mut ExtensionBuilder) {
-//!     extension.register_extension::<MyDevice>(DEVICE_POINT);
+//!     extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 //! }
 //! ```
 //!
@@ -32,6 +32,7 @@
 
 pub mod abi;
 pub mod audio_editor;
+pub mod bottom_panel;
 pub mod command;
 pub mod config;
 pub mod context;
@@ -52,23 +53,27 @@ pub mod target;
 
 pub use abi::{ABI_VERSION, AbiStatus, MAX_OUTPUT_BYTES, pack_ptr_len, unpack_ptr_len};
 pub use audio_editor::{
-    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_EXTENSION_POINT, AUDIO_SUB_EDITOR_POINT,
-    AudioSubEditorClip, AudioSubEditorContext, AudioSubEditorDescriptor, AudioSubEditorExtension,
-    AudioSubEditorFrame, AudioSubEditorHost, AudioSubEditorInterface, AudioSubEditorResponse,
-    AudioSubEditorSelectionActions, AudioWaveformColumn, AudioWaveformPreview, CurveTarget,
+    AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, AudioSubEditorClip, AudioSubEditorContext,
+    AudioSubEditorDescriptor, AudioSubEditorExtension, AudioSubEditorFrame, AudioSubEditorHost,
+    AudioSubEditorInterface, AudioSubEditorResponse, AudioSubEditorSelectionActions,
+    AudioWaveformColumn, AudioWaveformPreview, CurveTarget, EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR,
     MAX_AUDIO_SUB_EDITOR_CLIPBOARD_POINTS, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
 };
+pub use bottom_panel::{
+    BottomPanelInterface, EP_NOTWIG_AUDIO_EDITOR_BOTTOM_PANEL,
+    EP_NOTWIG_DEVICE_EDITOR_BOTTOM_PANEL, EP_NOTWIG_MIDI_EDITOR_BOTTOM_PANEL,
+};
 pub use command::{
-    COMMAND_CONTRACT, COMMAND_POINT, COMMANDS_POINT, CommandContext, CommandDescriptor,
-    CommandEdit, CommandEffect, CommandExtension, CommandFocus, CommandId, CommandInterface,
-    CommandSelection, CommandTimeSelection, CommandUiRequest, MAX_COMMAND_CONTEXT_NOTES,
+    COMMAND_CONTRACT, COMMAND_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
+    CommandExtension, CommandFocus, CommandId, CommandInterface, CommandSelection,
+    CommandTimeSelection, CommandUiRequest, EP_COMMANDS, MAX_COMMAND_CONTEXT_NOTES,
     MAX_COMMAND_CONTEXT_SLICES, MAX_COMMAND_DESCRIPTION_BYTES, MAX_COMMAND_EDITS, WhenError,
     evaluate_when, validate_when,
 };
 pub use config::{CONFIG_VERSION, DEFAULT_INDEX_URL, ExtensionConfig};
 pub use context::{DeviceDrawContext, DeviceMeterSnapshot, ThemeSnapshot};
 pub use cursor::CursorIcon;
-pub use extension::{DEVICE_POINT, DeviceExtension, DeviceInterface, Extension};
+pub use extension::{DeviceExtension, DeviceInterface, EP_NOTWIG_DEVICES, Extension};
 pub use extension_point::ExtensionPoint;
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
@@ -86,7 +91,7 @@ pub use panel_frame::{
     PanelVertex,
 };
 pub use registration::{
-    DeviceRegistrationDescriptor, ExtensionPointDescriptor, ExtensionRegistrations,
-    REGISTRATION_MANIFEST_VERSION,
+    CORE_EXTENSION_ID, CORE_EXTENSION_NAME, DeviceRegistrationDescriptor, ExtensionPointDescriptor,
+    ExtensionRegistrations, REGISTRATION_MANIFEST_VERSION,
 };
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

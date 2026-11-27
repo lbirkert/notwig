@@ -1,8 +1,7 @@
 use notwig_ext_api::{
     AUDIO_SUB_EDITOR_CONTRACT, AUDIO_SUB_EDITOR_POINT, COMMAND_CONTRACT, COMMAND_POINT,
-    COMMANDS_POINT, CommandContext, CommandDescriptor, CommandEdit, CommandEffect,
-    CommandExtension, CommandFocus, CommandSelection, Extension, ExtensionManifest, evaluate_when,
-    validate_when,
+    CommandContext, CommandDescriptor, CommandEdit, CommandEffect, CommandExtension, CommandFocus,
+    CommandSelection, EP_COMMANDS, Extension, ExtensionManifest, evaluate_when, validate_when,
 };
 
 struct EchoCommand;
@@ -115,7 +114,7 @@ fn contributions_require_manifest_v2() {
 #[test]
 fn command_runtime_executes_a_registered_handler() {
     let mut extension = Extension::new();
-    extension.register_extension::<EchoCommand>(COMMANDS_POINT);
+    extension.register_extension::<EchoCommand>(EP_COMMANDS);
     let mut context = CommandContext {
         active_clip: Some(notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(2))),
         ..Default::default()

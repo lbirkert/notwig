@@ -5,6 +5,7 @@ pub(crate) mod dsp;
 pub(crate) mod info;
 pub(crate) mod midi_editor;
 pub(crate) mod panel;
+pub(crate) mod panel_registry;
 pub(crate) mod project_picker;
 pub(crate) mod render;
 pub(crate) mod settings;
