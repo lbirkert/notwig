@@ -130,9 +130,10 @@ fn generated_interface_bridge_creates_handles_and_processes_calls() {
     let request = EchoRequest::echo {
         value: "direct".into(),
     };
-    let payload = notwig_ext_api::postcard::to_allocvec(&request).unwrap();
+    let payload = notwig_ext_api::bitcode::serialize(&request).unwrap();
     let mut call = Echoer;
     let response = call.process(&context, "echo", &payload).unwrap();
-    let response: EchoResponse = notwig_ext_api::postcard::from_bytes(&response).unwrap();
+    let response: EchoResponse =
+        notwig_ext_api::bitcode::deserialize::<EchoResponse>(&response).unwrap();
     assert!(matches!(response, EchoResponse::echo(Ok(value)) if value == "echo:direct"));
 }

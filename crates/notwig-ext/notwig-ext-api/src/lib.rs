@@ -62,6 +62,7 @@ pub use audio_editor::{
     AudioWaveformColumn, AudioWaveformPreview, CurveTarget, EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR,
     MAX_AUDIO_SUB_EDITOR_CLIPBOARD_POINTS, MAX_AUDIO_SUB_EDITOR_TITLE_BYTES,
 };
+pub use bitcode;
 pub use bottom_panel::{
     BottomPanelContext, BottomPanelDescriptor, BottomPanelExtension, BottomPanelFrame,
     BottomPanelHost, BottomPanelInterface, BottomPanelResponse, EP_NOTWIG_BOTTOM_PANEL,

@@ -198,7 +198,7 @@ let frame = panel_handle.draw(&context, input)?;
 Macro restrictions for the first milestone:
 
 - `&self` plus a required `&ExtensionContext<'_>` argument;
-- owned, serializable arguments and return values;
+- owned, bitcode-serializable arguments and return values;
 - explicit `Result<_, ExtensionError>` errors;
 - no borrowed values, references, or lifetimes across the boundary;
 - no generic methods or associated types;

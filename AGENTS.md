@@ -93,7 +93,7 @@ and boundaries. Start there when working inside a crate.
   `AudioSubEditorExtension::descriptor`), not in registration overloads.
 - Callable interfaces use `#[notwig_ext_trait(id = "...", version = N)]`.
   Methods take `&self` plus `&ExtensionContext<'_>`, avoid generics/lifetimes,
-  and return `Result<T, ExtensionError>` with owned postcard-serializable
+  and return `Result<T, ExtensionError>` with owned bitcode-serializable
   values. The context is the only supported path for calling other points.
   Concrete types use `#[derive(ExtensionCall)]` plus
   `#[extension_call(TraitName)]` so the guest can store the actual instance as

@@ -89,7 +89,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 handle_methods.push(quote! {
                     fn #ident(#receiver, #context_pat: #context_ty #(, #arg_decls)*) -> ::core::result::Result<#ret, ::notwig_ext_api::ExtensionError> {
                         let request = #request_init;
-                        let payload = ::notwig_ext_api::postcard::to_allocvec(&request)
+                        let payload = ::notwig_ext_api::bitcode::serialize(&request)
                             .map_err(|error| ::notwig_ext_api::ExtensionError::new(
                                 format!("encode {} request: {error}", #method_name)
                             ))?;
@@ -101,7 +101,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                             #method_name,
                             &payload,
                         )?;
-                        let response: #response_ident = ::notwig_ext_api::postcard::from_bytes(&response)
+                        let response: #response_ident = ::notwig_ext_api::bitcode::deserialize::<#response_ident>(&response)
                             .map_err(|error| ::notwig_ext_api::ExtensionError::new(
                                 format!("decode {} response: {error}", #method_name)
                             ))?;
@@ -114,14 +114,14 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let args_bindings = args.iter().map(|(name, _)| quote!(#name));
                 dispatch_arms.push(quote! {
                     #method_name => {
-                        let request: #request_ident = ::notwig_ext_api::postcard::from_bytes(payload)
+                        let request: #request_ident = ::notwig_ext_api::bitcode::deserialize::<#request_ident>(payload)
                             .map_err(|error| ::notwig_ext_api::ExtensionError::new(
                                 format!("decode {} request: {error}", #method_name)
                             ))?;
                         match request {
                             #response_pattern => {
                                 let result = #trait_ident::#ident(self, context #(, #args_bindings)*);
-                                ::notwig_ext_api::postcard::to_allocvec(&#response_ident::#ident(result))
+                                ::notwig_ext_api::bitcode::serialize(&#response_ident::#ident(result))
                                     .map_err(|error| ::notwig_ext_api::ExtensionError::new(
                                         format!("encode {} response: {error}", #method_name)
                                     ))
