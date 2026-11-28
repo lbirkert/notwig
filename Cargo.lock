@@ -2635,12 +2635,11 @@ dependencies = [
 name = "notwig-plugins"
 version = "0.1.0"
 dependencies = [
- "block2 0.6.2",
+ "hound",
+ "image",
  "notwig-core",
  "notwig-rack",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
+ "notwig-rack-editor",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2741,6 +2740,17 @@ dependencies = [
  "crossbeam-queue",
  "smallvec",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "notwig-rack-editor"
+version = "1.1.5"
+dependencies = [
+ "block2 0.6.2",
+ "notwig-rack-core",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]

@@ -51,6 +51,7 @@ cargo install cargo-truce --version 6.3.0
 scripts/test-plugins.sh          # CLAP/VST3/VST2, plus LV2 when lilv is installed
 NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh   # macOS AU v2 + AU v3
 scripts/test-plugins.sh --editor-only              # only the macOS editor windows
+scripts/test-plugin-parity.sh    # installed plugins across formats (macOS)
 ```
 
 The script builds `crates/notwig-plugins/tests/fixtures/truce_test_plugin`,
@@ -131,6 +132,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Engine control exchange and prepared runtimes | ✅ Implemented | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/control.rs` covers the shared slot, fixed-frame sync interval, prepared-runtime installation, transport application, and playhead publication. |
 | Plugin scan, cache, and blacklist | ✅ Implemented | ⭐⭐⭐⭐ | |
 | Real plugin load and process (CLAP/VST3/VST2/LV2/AU) | ✅ Implemented | ⭐⭐⭐⭐⭐ | Manual `scripts/test-plugins.sh` builds the truce fixture and runs `notwig-plugins/tests/plugin_integration.rs`: discovery, load, capabilities, parameter updates, state round-trip, latency, re-prepare, silence, zero-frame blocks, and repeated instantiation. |
+| Installed plugin cross-format parity | ✅ Implemented | ⭐⭐⭐⭐ | Manual `scripts/test-plugin-parity.sh` runs `plugin_format_parity.rs` on macOS: groups the same installed plugin across formats, compares editor size and PNG content, randomizes matched parameters deterministically, renders one generated clip per format, aligns by reported latency, and writes a JSON report plus failure artifacts. |
 | Plugin delay compensation across tracks | 🧪 Partial | ⭐⭐⭐⭐⭐ | `notwig-engine/tests/pdc.rs` covers flat and nested latent tracks and send-vs-direct phase coherence. Hosted plugin latency is queried through the vendored VST3/VST2/AU wrappers but is not exercised by the headless test suite. |
 
 ## Unit tests
@@ -212,7 +214,7 @@ tables below summarize test groups. One row can cover several test functions.
 | Undo and redo across panels | 🧪 Partial | ⭐⭐⭐⭐⭐ | Document undo is tested. UI surface coverage is incomplete. |
 | Startup without an audio device | 📋 Planned | ⭐⭐⭐⭐ | |
 | Window scaling and high DPI | 📋 Planned | ⭐⭐ | |
-| Native plugin editor window | 🧪 Partial | ⭐⭐⭐ | macOS manual path in `plugin_editor.rs`: open, size stability, host-to-editor parameter updates, state save/load, and reopen. Non-macOS builds assert the backend-unavailable stub. |
+| Native plugin editor window | 🧪 Partial | ⭐⭐⭐ | macOS manual path in `plugin_editor.rs`: open, size stability, host-to-editor parameter updates, state save/load, and reopen. Non-macOS builds assert the backend-unavailable stub. `plugin_format_parity.rs` adds installed-plugin editor size and PNG-content comparisons across formats. |
 
 ## Editing workflow tests
 

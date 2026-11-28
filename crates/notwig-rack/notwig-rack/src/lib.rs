@@ -62,6 +62,14 @@ pub use notwig_rack_vst2 as vst2;
 #[cfg(feature = "lv2")]
 pub use notwig_rack_lv2 as lv2;
 
+/// Native plugin editor-window hosting. Enable with the `editor` feature.
+///
+/// This re-exports `notwig-rack-editor`, which owns the outer native window,
+/// editor lifecycle, parameter polling, and PNG capture for any
+/// [`core::Plugin`].
+#[cfg(feature = "editor")]
+pub use notwig_rack_editor as editor_window;
+
 /// ARA (Audio Random Access) host support. Enable with the `ara` feature.
 ///
 /// This re-exports `notwig-rack-ara`. The individual format wrappers expose

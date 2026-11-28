@@ -98,9 +98,13 @@ leaves the default `0`.
 ## 5. Editor hosting
 
 Native editors live in the engine child, not the UI process. The adapter
-`open_editor` hook is unused; `NativePluginWindow` loads the plugin directly. Each
-editor is a separate plugin instance from the DSP instance, so state crosses the
-boundary only at open/close and through parameter messages.
+`open_editor` hook is unused. The vendored `notwig-rack-editor` crate owns the
+outer native window, AppKit lifecycle, idle pump, editor sizing, parameter
+polling, Space-key handling, and PNG capture. `notwig-plugins::NativePluginWindow`
+is a thin adapter: it loads the plugin through the format adapter, maps
+descriptor/state types, and feeds the engine monitor tap into the rack editor
+instance. Each editor is a separate plugin instance from the DSP instance, so
+state crosses the boundary only at open/close and through parameter messages.
 
 ```text
 UI process                               engine-host child (main thread)
@@ -181,6 +185,7 @@ runs the ignored integration tests.
 | --- | --- |
 | `tests/plugin_integration.rs` | Per-format discovery, descriptor shape, load, capabilities, editor capability, latency expectations, parameter updates, state round-trip, wrong-UID rejection, corrupt-state safety, re-prepare at another rate/block size, zero-frame and silent blocks, and repeated instantiation. |
 | `tests/plugin_editor.rs` | macOS `NativePluginWindow` open/size/pump/focus, host-to-editor parameter change, editor state save/load, and reopen. Off macOS it asserts `BackendUnavailable`. |
+| `tests/plugin_format_parity.rs` | Installed-plugin matrix: groups the same plugin across formats, compares native editor size and PNG content, randomizes matched parameters, renders the same clip through each format, aligns by reported latency, and writes a JSON report plus failure artifacts. Run through `scripts/test-plugin-parity.sh`. |
 
 The format matrix is intentionally explicit about adapter gaps:
 
@@ -204,4 +209,5 @@ Run the matrix manually:
 cargo install cargo-truce --version 6.3.0
 scripts/test-plugins.sh
 NOTWIG_PLUGIN_TEST_AU3=1 scripts/test-plugins.sh   # macOS AU v3 as well
+scripts/test-plugin-parity.sh                     # installed-plugin format parity
 ```

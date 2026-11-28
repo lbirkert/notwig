@@ -27,6 +27,7 @@ The fork follows the same format-agnostic `Plugin` / `PluginScanner` /
 | --- | --- |
 | [`notwig-rack`](notwig-rack) | Umbrella crate; re-exports the wrappers behind features |
 | [`notwig-rack-core`](notwig-rack-core) | Format-agnostic traits, buffers, events, transport |
+| [`notwig-rack-editor`](notwig-rack-editor) | Native editor-window hosting, parameter polling, and PNG capture |
 | [`notwig-rack-clap`](notwig-rack-clap) | CLAP host |
 | [`notwig-rack-vst3`](notwig-rack-vst3) | VST3 host |
 | [`notwig-rack-vst2`](notwig-rack-vst2) | VST 2.4 host |
@@ -73,6 +74,7 @@ directly instead of the umbrella.
 | `lv2` | no | `notwig-rack-lv2` | all (needs `lilv-0`) |
 | `au` | no | `notwig-rack-au` | Apple |
 | `au3` | no | `notwig-rack-au3` | Apple |
+| `editor` | no | `notwig-rack-editor` | all (native windows on macOS) |
 | `ara` | no | `notwig-rack-ara` + format `ara` features | all (AU only on Apple) |
 
 ## Differences from upstream truce-rack
@@ -83,6 +85,11 @@ directly instead of the umbrella.
 - VST2 is a first-class host format rather than "not planned".
 - `notwig-rack-vst2` is new in this fork.
 - ARA hosting is new in this fork; see [`notwig-rack-ara`](notwig-rack-ara).
+- Native editor-window hosting lives in `notwig-rack-editor`. It owns the
+  outer `NSWindow`, editor lifecycle, idle pump, parameter polling, Space-key
+  transport toggles, and PNG capture for any format wrapper. Notwig's engine
+  process supplies descriptors, state, and monitor audio through a thin
+  adapter in `notwig-plugins`.
 
 ## License
 

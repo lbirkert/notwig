@@ -23,8 +23,9 @@ This page is a quick map of the workspace crates. Each crate also has a
 
 `notwig-rack` is a separate Cargo workspace under `crates/notwig-rack/`. It
 vendors the VST3, VST2, CLAP, LV2, AU v2, and AU v3 wrapper crates used by
-`notwig-plugins`, plus `notwig-rack-ara`, the framework-level ARA host runtime.
-It is excluded from the main workspace and its lint policy.
+`notwig-plugins`, plus `notwig-rack-ara` (the framework-level ARA host runtime)
+and `notwig-rack-editor` (native editor-window hosting). It is excluded from the
+main workspace and its lint policy.
 
 ## Where to make a change
 
@@ -38,6 +39,7 @@ It is excluded from the main workspace and its lint policy.
 | Extension scaffolding and package ZIPs | `notwig-ext/cargo-notwig-ext` |
 | Playback, scheduling, transport, routing, latency compensation | `notwig-engine` |
 | VST3/VST2/CLAP/LV2/AU/AU3 discovery and hosting | `notwig-plugins` |
+| Native editor window, editor pump, parameter polling, PNG capture | `notwig-rack-editor` |
 | ARA host runtime, document graph, audio/archive providers | `notwig-rack-ara` |
 | View, widget, gesture, editor UI | `notwig-ui` |
 | Intent handling, workspace policy, audio device, dialogs | `notwig-app` |

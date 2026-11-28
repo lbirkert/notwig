@@ -52,3 +52,4 @@
 - [Routing and Delay Compensation](03_development/21_routing_and_pdc.md)
 - [Logging and Diagnostics](03_development/22_logging.md)
 - [ARA Hosting](03_development/25_ara_hosting.md)
+- [Plugin Format Parity Scan](03_development/26_plugin_format_parity.md)

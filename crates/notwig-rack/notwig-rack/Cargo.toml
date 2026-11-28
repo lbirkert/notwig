@@ -16,6 +16,7 @@ path = "src/lib.rs"
 notwig-rack-ara = { path = "../notwig-rack-ara", optional = true }
 notwig-rack-clap = { path = "../notwig-rack-clap", optional = true }
 notwig-rack-core = { path = "../notwig-rack-core" }
+notwig-rack-editor = { path = "../notwig-rack-editor", optional = true }
 notwig-rack-lv2 = { path = "../notwig-rack-lv2", optional = true }
 notwig-rack-vst2 = { path = "../notwig-rack-vst2", optional = true }
 notwig-rack-vst3 = { path = "../notwig-rack-vst3", optional = true }
@@ -32,6 +33,7 @@ vst2 = ["dep:notwig-rack-vst2"]
 lv2 = ["dep:notwig-rack-lv2"]
 au = ["dep:notwig-rack-au"]
 au3 = ["dep:notwig-rack-au3"]
+editor = ["dep:notwig-rack-editor"]
 ara = [
   "dep:notwig-rack-ara",
   "notwig-rack-clap?/ara",

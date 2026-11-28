@@ -1,0 +1,26 @@
+[package]
+name = "notwig-rack-editor"
+version = "1.1.5"
+edition = "2024"
+rust-version = "1.90"
+description = "Native plugin editor window hosting for the notwig-rack audio-plugin framework"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lbirkert/notwig"
+
+[lib]
+name = "notwig_rack_editor"
+path = "src/lib.rs"
+
+[dependencies]
+notwig-rack-core = { path = "../notwig-rack-core" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "block2"] }
+objc2-foundation = "0.3"
+block2 = "0.6"
+
+[lints.clippy.pedantic]
+level = "warn"
+priority = -1

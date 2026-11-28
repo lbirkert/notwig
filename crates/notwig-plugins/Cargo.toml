@@ -23,12 +23,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 notwig-rack = { path = "../notwig-rack/notwig-rack", default-features = false, optional = true }
+notwig-rack-editor = { path = "../notwig-rack/notwig-rack-editor" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSEvent", "block2"] }
-objc2-foundation = "0.3"
-block2 = "0.6"
+[dev-dependencies]
+hound.workspace = true
+image.workspace = true
 
 [lints]
 workspace = true
@@ -36,4 +35,9 @@ workspace = true
 [[test]]
 name = "plugin_editor"
 path = "tests/plugin_editor.rs"
+harness = false
+
+[[test]]
+name = "plugin_format_parity"
+path = "tests/plugin_format_parity.rs"
 harness = false

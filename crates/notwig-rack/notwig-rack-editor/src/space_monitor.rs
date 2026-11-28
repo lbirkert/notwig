@@ -11,10 +11,10 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2_app_kit::{NSEvent, NSEventMask, NSEventType};
 
-use super::appkit::key_window;
+use crate::appkit::key_window;
 
 static PLUGIN_WINDOWS: Mutex<BTreeSet<usize>> = Mutex::new(BTreeSet::new());
-pub(super) static PLAYBACK_TOGGLE_PENDING: AtomicBool = AtomicBool::new(false);
+pub(crate) static PLAYBACK_TOGGLE_PENDING: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static SPACE_MONITOR: RefCell<Option<Retained<AnyObject>>> =
@@ -26,7 +26,7 @@ thread_local! {
 
 const SPACE_KEY_CODE: u16 = 49;
 
-pub(super) fn register_plugin_window(window: *mut AnyObject) {
+pub(crate) fn register_plugin_window(window: *mut AnyObject) {
     let mut windows = PLUGIN_WINDOWS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -35,7 +35,7 @@ pub(super) fn register_plugin_window(window: *mut AnyObject) {
     install_space_monitor();
 }
 
-pub(super) fn unregister_plugin_window(window: *mut AnyObject) {
+pub(crate) fn unregister_plugin_window(window: *mut AnyObject) {
     let empty = {
         let mut windows = PLUGIN_WINDOWS
             .lock()

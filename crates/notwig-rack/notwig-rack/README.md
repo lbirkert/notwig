@@ -4,11 +4,12 @@ Cross-format audio plugin host umbrella crate for the
 [**notwig-rack**](../README.md) framework, forked from
 [truce-rack](https://github.com/truce-audio/truce-rack).
 
-CLAP, VST3, and VST 2.4 are enabled by default. LV2, Audio Unit v2, and Audio
-Unit v3 are opt-in; the Audio Unit formats are Apple-only and LV2 needs the
-system `lilv-0` library. Every wrapper forwards host transport from
-`ProcessContext::transport` into its backend, and the VST3, VST2, and AU
-wrappers report plugin latency.
+CLAP, VST3, and VST 2.4 are enabled by default. LV2, Audio Unit v2, Audio Unit
+v3, and the native editor host are opt-in; the Audio Unit formats are Apple-only
+and LV2 needs the system `lilv-0` library. Every wrapper forwards host transport
+from `ProcessContext::transport` into its backend, and the VST3, VST2, and AU
+wrappers report plugin latency. The `editor` feature re-exports
+`notwig-rack-editor` as `notwig_rack::editor_window`.
 
 | Feature | Default | Crate it enables | Platforms |
 | --- | --- | --- | --- |
@@ -18,6 +19,7 @@ wrappers report plugin latency.
 | `lv2` | no | `notwig-rack-lv2` | all (needs `lilv-0`) |
 | `au` | no | `notwig-rack-au` | Apple |
 | `au3` | no | `notwig-rack-au3` | Apple |
+| `editor` | no | `notwig-rack-editor` | all (native windows on macOS) |
 
 ## Usage
 

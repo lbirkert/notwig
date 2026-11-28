@@ -68,7 +68,7 @@ do not need plugin SDKs.
 | `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 implementations |
 | `cache.rs` | `PluginCache`, scan records |
 | `types.rs` | Format-agnostic descriptors/state/errors |
-| `native_editor/` | Native editor windows (facade, editor pump, AppKit host, Space-key monitor, stub) |
+| `native_editor/` | Notwig adapter over `notwig-rack-editor`; descriptor/state mapping, engine monitor tap, and non-macOS stub |
 | `rack.rs` | `notwig-rack` integration |
 
 ## Tests
@@ -83,3 +83,12 @@ because they build a real truce plugin from
 and invokes the ignored tests. The fixture covers CLAP, VST3, VST2, LV2, AU v2,
 and AU v3 where the host platform supports them. Native editor windows are
 macOS-only; other platforms assert the backend-unavailable stub.
+
+`tests/plugin_format_parity.rs` is the installed-plugin matrix. Run it through
+`scripts/test-plugin-parity.sh` on macOS. It scans the normal install
+locations, groups descriptors that describe the same plugin, compares native
+editor size and PNG content, randomizes matched parameters with one
+deterministic sequence, renders the same generated clip through each format,
+aligns by reported latency, and writes a JSON report plus failure artifacts.
+Pass `--no-gui` or `--no-audio` to narrow the run, and `--formats=a,b` to limit
+the matrix. The harness is skipped by default under `cargo test --workspace`.

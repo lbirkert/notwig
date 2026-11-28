@@ -1,9 +1,5 @@
 use crate::types::{PluginDescriptor, PluginError, PluginState};
 
-pub fn prepare_window_host() {}
-
-pub fn pump_window_host() {}
-
 pub struct NativePluginWindow;
 
 impl NativePluginWindow {
@@ -44,6 +40,12 @@ impl NativePluginWindow {
     }
 
     pub fn load_state(&mut self, _state: &PluginState) -> Result<(), PluginError> {
+        Err(PluginError::Load(
+            "native plugin editors are unavailable on this platform".into(),
+        ))
+    }
+
+    pub fn capture_png(&self) -> Result<Vec<u8>, PluginError> {
         Err(PluginError::Load(
             "native plugin editors are unavailable on this platform".into(),
         ))

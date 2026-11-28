@@ -241,7 +241,7 @@ describes the extension subsystem and crate boundaries.
 | `adapters.rs` | VST3/VST2/CLAP/LV2/AU/AU3 adapters built on vendored `notwig-rack` |
 | `cache.rs` | Persisted plugin scan cache |
 | `types.rs` | Format-agnostic descriptors, metadata, states, capabilities, errors |
-| `native_editor/` | Native plugin editor window lifecycle: editor/monitor pump, AppKit host, Space-key monitor, platform stub |
+| `native_editor/` | Adapter over `notwig-rack-editor`: descriptor/state mapping, engine monitor tap, and platform stub |
 | `rack.rs` | Vendored `notwig-rack` integration details and latency reporting |
 
 ### `notwig-ui` — views and interaction
