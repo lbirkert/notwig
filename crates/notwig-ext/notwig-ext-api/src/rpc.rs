@@ -56,7 +56,7 @@ impl RemoteTarget {
 
 /// Transport used by generated handles to invoke an implementation.
 pub trait RpcTransport: Send + Sync {
-    /// Invokes one interface method with a postcard payload.
+    /// Invokes one interface method with a bitcode payload.
     fn invoke(
         &self,
         target: &RemoteTarget,
@@ -83,7 +83,7 @@ pub trait ExtensionCall: Send + Sync {
     /// Interface major version.
     fn interface_version(&self) -> u32;
 
-    /// Processes one postcard-encoded method request.
+    /// Processes one bitcode-encoded method request.
     fn process(
         &mut self,
         context: &crate::ExtensionContext<'_>,

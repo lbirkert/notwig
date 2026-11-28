@@ -6,8 +6,11 @@ Extension discovery, loading, and runtime hosting.
 
 `notwig-ext` scans the user extensions directory (and browser packages), loads
 WASM or trusted native extension modules, caches compiled modules, and exposes
-device specs, DSP processors, and panel hosts to the app. It never renders UI
-and never depends on `notwig-ui`.
+device specs, DSP processors, commands, audio sub-editors, bottom panels, and
+panel hosts to the app. It never renders UI and never depends on `notwig-ui`.
+
+Package-side typed RPC dispatch is not exported yet; typed handles and
+dispatchers are implemented in `notwig-ext-api` and ready for that host wiring.
 
 ## Owns
 

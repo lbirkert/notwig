@@ -108,7 +108,7 @@ pub fn notwig_ext(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// Methods must take `&self`, have no generics, and return
 /// `Result<T, ExtensionError>`. Arguments and return values must be
-/// postcard-serializable.
+/// bitcode-serializable.
 #[proc_macro_attribute]
 pub fn notwig_ext_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
     trait_macro::expand(attr, item)

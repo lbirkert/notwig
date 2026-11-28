@@ -14,7 +14,7 @@ pub fn load(extension: &mut ExtensionBuilder) {
 
 Panels use the guest egui API. Implement `draw` with the shared
 `notwig-ui` components; see
-[extension panels](../03_development/12_extension_panels.md).
+[extension panels](../03_development/19_extension_system.md).
 
 The full trait is:
 
@@ -83,7 +83,7 @@ engine rebuilds instances.
   explicit memory or fuel cap. Native libraries are trusted and unsandboxed.
 
 The runtime design and version policy are specified in
-[`Extension ABI and Hosts`](../03_development/19_extension_abi_and_hosts.md).
+[`Extension System`](../03_development/19_extension_system.md).
 
 ## Device spec
 

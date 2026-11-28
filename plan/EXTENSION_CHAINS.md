@@ -9,14 +9,14 @@ Related:
 - [`plan/MOVING_DEVICES.md`](MOVING_DEVICES.md) — why `notwig.chain` stays core.
 - [`docs/02_extensions/03_device_api.md`](../docs/02_extensions/03_device_api.md)
   — author-facing container contract.
-- [`docs/03_development/19_extension_abi_and_hosts.md`](../docs/03_development/19_extension_abi_and_hosts.md)
+- [`docs/03_development/19_extension_system.md`](../docs/03_development/19_extension_system.md)
   — ABI and host boundary.
 
 ## What shipped
 
-- `DeviceSpec::container: Option<ContainerSpec>` in `notwig-core`. This is an
-  additive field, but it changes the spec wire layout, so `ABI_VERSION` is now
-  `5`.
+- `DeviceSpec::container: Option<ContainerSpec>` in `notwig-core`. This was an
+  additive field, but it changed the spec wire layout; the current
+  `ABI_VERSION` is `9`.
 - `ContainerSpec { routing, wet_param }`:
   - `ContainerRouting::StageThenChildren` (default): stage, then child chain.
   - `ContainerRouting::ChildrenThenStage`: child chain, then stage.

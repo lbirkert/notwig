@@ -43,9 +43,10 @@ does without assuming knowledge of the Rust code.
 Start with the [Extension Overview](02_extensions/00_overview.md) and the
 [Quickstart](02_extensions/01_quickstart.md). Extensions are Rust crates
 written against `notwig-ext-api` and built as WebAssembly modules or native
-shared libraries. They add devices with their own DSP and custom panels. The
-guide covers the package format, the device trait, the immediate-mode panel
-API, host limits, testing, and distribution.
+shared libraries. They add devices and their DSP, custom panels, commands,
+audio sub-editors, and bottom panels. The guide covers the package format,
+device and panel APIs, contribution APIs, host limits, testing, and
+distribution.
 
 ### Developing Notwig
 

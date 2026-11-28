@@ -270,15 +270,19 @@ Dependencies worth planning around:
 | Extension sandboxing | ✅ Implemented | ⭐⭐⭐⭐ | WASM always runs with memory and fuel limits. Native shared libraries run trusted with no sandbox, as documented. |
 | Extension registry and browser | ✅ Implemented | ⭐⭐⭐⭐ | Settings explorer has All/Available/Installed filters, icons/descriptions, context actions, manage-index window, and configurable index sources. |
 | Extension install and update | ✅ Implemented | ⭐⭐⭐⭐ | Install from index URLs/paths or local ZIPs, confirm reinstall, uninstall cleans files and settings. |
-| Extension commands | 🧪 Partial | ⭐⭐⭐⭐ | Manifest v2 command contributions, bounded command context, host edit families, command palette (F1 / Cmd+Shift+P) with muted unavailable commands, string-keyed bindings, WASM/native/browser execution, and the `notwig-ext-example` humanize command. The audio editor also accepts extension-rendered sub-editors; general panels remain follow-ups. |
+| Extension commands | ✅ Implemented | ⭐⭐⭐⭐ | Manifest v2 command contributions, bounded command context, host edit families, command palette (F1 / Cmd+Shift+P) with muted unavailable commands, string-keyed bindings, WASM/native/browser execution, and the `notwig-ext-example` humanize command. |
+| Audio sub-editors | ✅ Implemented | ⭐⭐⭐⭐ | Extension-rendered audio-editor sub-editors with bounded clip context, shared curve clipboard, revision checks, and one undo batch per edit. |
+| Bottom panels | ✅ Implemented | ⭐⭐⭐⭐ | Core and package panels share `EP_NOTWIG_BOTTOM_PANEL`; the shell keeps one open and selects by stable id. A command opens a package panel. |
+| Extension points and typed interfaces | 🧪 Partial | ⭐⭐⭐⭐ | Runtime point declarations, manifests, `CoreExtensionRegistry`, `#[notwig_ext_trait]`, generated bitcode handles, `ExtensionCall` dispatch, and context-provided handles are implemented. Package-side typed RPC invoke/scheduling and many-point handle targeting remain. |
+| Clipboard provider point | 🧪 Partial | ⭐⭐⭐ | `EP_NOTWIG_CLIPBOARD` and a replaceable core provider are implemented. Package clipboard contributions are not wired through discovery or the runtime manifest. |
 | General drawing hooks | 📋 Planned | ⭐⭐⭐ | Arranger clips, track headers, lanes, and editors on the shared draw IR. |
 | Official extension index | 🧪 Partial | ⭐⭐⭐ | `docs/extensions.csv` builds `docs/extensions.json` with per-target URLs and SHA-256 hashes; CI packages macOS Apple Silicon and WASM builds and publishes via GitHub Pages. |
 
-The broader Eclipse-style extension-point model is not scheduled. The proposed
-first migration (extension commands and a palette, audio-editor sub-editors, and
-extension panels), determinism rules, clipboard service design, and migration
-risks are analyzed in
-[`Extension Platform Architecture`](23_extension_platform_architecture.md).
+The registry now backs commands, audio sub-editors, bottom panels, devices, and
+the replaceable clipboard provider. Typed package-to-package calls and full
+resolution (replacement edges, user load order, and generations) remain open.
+The authoritative design and gap list are in
+[`Extension System`](19_extension_system.md).
 
 ## UI and workflow
 

@@ -4,10 +4,11 @@ Author-facing SDK and shared boundary types for Notwig extensions.
 
 ## Purpose
 
-`notwig-ext-api` defines the stable device-extension contract: device specs,
-guest panel transport, note events, manifests, target matching, ABI
-constants, and the reusable ABI helpers generated into extension modules. The
-host uses the same wire types to validate and composite extension panels.
+`notwig-ext-api` defines the stable extension contract: devices, typed
+interfaces, points, lifecycle phases, commands, audio sub-editors, bottom
+panels, the clipboard provider, guest panel transport, note events, manifests,
+target matching, ABI constants, and the helpers generated into extension
+modules. The host uses the same wire types to validate and composite panels.
 
 ## Owns
 
@@ -18,14 +19,19 @@ host uses the same wire types to validate and composite extension panels.
   `notwig-ext-macros`;
 - `PreloadBuilder`, `ExtensionBuilder`, and `UnloadContext` for the three
   extension lifecycle phases;
-- `ExtensionPoint<T>` typed extension-point keys and preload declaration
-  storage; built-in point constants use the `EP_*` naming convention;
+- `ExtensionPoint<T>` typed extension-point keys, `Cardinality`, and preload
+  declaration storage; built-in point constants use the `EP_*` naming
+  convention;
 - runtime registration descriptors and the bounded post-load registration
   manifest;
 - the fixed `notwig.core` / `Notwig Core` ownership id for built-in, in-code
   extensions;
 - `DeviceExtension` and `Extension` for registering device implementations and
   delivering note events before each processed block;
+- `#[notwig_ext_trait]` handles and `ExtensionCall` dispatch, with bitcode RPC;
+- `CoreExtensionRegistry` for host/core points;
+- `CommandExtension`, `AudioSubEditorExtension`, `BottomPanelExtension`,
+  `ClipboardProvider`, and their point contracts;
 - note events (`NoteEvent`, `NoteKind`) and their fixed-size ABI wire format;
 - extension manifest types, ordered entrypoints, target matching, and ABI
   constants;
@@ -51,7 +57,7 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwi
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 

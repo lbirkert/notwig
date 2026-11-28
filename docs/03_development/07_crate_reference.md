@@ -81,8 +81,6 @@ It is excluded from the main workspace and its lint policy.
   selection, and render modes.
 - [Supported Editing Operations](11_supported_editing_operations.md) — the
   operation matrix and known gaps.
-- [Extension Panels](12_extension_panels.md) — guest panel rendering, validation,
-  and compositing.
 - [Command Application and Undo](13_command_application_and_undo.md) — apply,
   deltas, batches, ID allocation, and history.
 - [Persistence and Recovery](14_persistence_and_recovery.md) — bundle layout,
@@ -97,14 +95,10 @@ It is excluded from the main workspace and its lint policy.
   view state, focus, and time/space conversions.
 - [Application Lifecycle](18_app_lifecycle.md) — startup order, workspace
   policy, async jobs, and shutdown.
-- [Extension ABI and Hosts](19_extension_abi_and_hosts.md) — ABI versioning,
-  host calls, native/WASM/browser parity.
+- [Extension System](19_extension_system.md) — points, lifecycle, typed calls,
+  ABI, hosts, panels, and current gaps.
 - [Web Build and Storage](20_web_build_and_storage.md) — OPFS layout, browser
   build, and deployment.
 - [Routing and Delay Compensation](21_routing_and_pdc.md) — track/group/master
   routing, sends, bypass/inactive tracks, latency labels, plugin latency
   reporting, and PDC limits.
-- [Extension Platform Architecture](23_extension_platform_architecture.md) —
-  contribution registry, extension points, command palette and context,
-  audio sub-editors, extension panels, deterministic resolution, service slots,
-  clipboard formats, performance, and migration analysis.

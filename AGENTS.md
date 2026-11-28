@@ -16,17 +16,20 @@ phase.
 - **Implemented today:** project bundles, autosave/recovery with a startup
   recovery modal, undo/redo, tracks, Arranger, MIDI/audio clips, audio clip
   event editing, a MIDI editor, device chains with stock EQ/Tool/Chain,
-  VST3/VST2/CLAP/LV2/AU hosting, WASM and native extension devices and panels
-  with ordered target selection, a supervised native audio-engine process with
+  VST3/VST2/CLAP/LV2/AU hosting, WASM and native extension devices, commands,
+  audio sub-editors, bottom panels, and panels with ordered target selection,
+  typed in-process extension points with bitcode RPC, a supervised native
+  audio-engine process with
   plugin DSP and editor hosting, an extension explorer with index/ZIP installs
   and hash-verified downloads, render mixdown, linear audio recording with
   per-track input and monitoring, persisted audio settings, customizable
   keyboard shortcuts, and DSP load analysis.
 - **Not implemented yet:** MIDI recording, loop/punch recording, take lanes,
-  monitoring modes, automation editing, general extension drawing hooks, Clip
-  Launcher/scenes, comping, warping, tempo/time-signature automation,
-  modulation/macros runtime, stock instruments, Windows/Linux builds,
-  collaboration, and out-of-process plugin hosting.
+  monitoring modes, automation editing, package-side typed extension RPC,
+  general extension drawing hooks, Clip Launcher/scenes, comping, warping,
+  tempo/time-signature automation, modulation/macros runtime, stock
+  instruments, Windows/Linux builds, collaboration, and out-of-process plugin
+  hosting.
 
 ## Where to start
 
@@ -106,8 +109,8 @@ and boundaries. Start there when working inside a crate.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.
-- `EP_NOTWIG_BOTTOM_PANEL` is a single extension point. Package and core
-  bottom-panel implementations are distinguished by stable implementation ids;
+- `EP_NOTWIG_BOTTOM_PANEL` is one extension point with many implementations.
+  Package and core implementations are distinguished by stable ids;
   the shell keeps at most one panel open and selects it by id. Commands open one
   with `CommandUiRequest::OpenBottomPanel`.
 - `EP_NOTWIG_CLIPBOARD` is a single-provider point. `ClipboardProvider` is the

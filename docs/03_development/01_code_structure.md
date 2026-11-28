@@ -135,10 +135,14 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 | `panel_frame/` | Guest panel wire types, validation, frame runner, and theme bridge |
 | `command.rs` | Command contract, bounded context, host edit/UI families, declarative `when` evaluation, and `CommandExtension` |
 | `audio_editor.rs` | Audio sub-editor contracts: bounded context, clip/waveform snapshots, frame, extension renderer, and host trait |
-| `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `Extension`, registration, note delivery, command execution, guest draw dispatch, and runtime registration manifest |
-| `extension_point.rs` | Typed `ExtensionPoint<T>` stable-id key |
-| `lifecycle.rs` | Phase builders, preload/load/unload state, and lifecycle entrypoints |
-| `registration.rs` | Runtime point/command/sub-editor registration descriptor types |
+| `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `BottomPanelExtension`, `Extension`, registration, note delivery, command execution, guest draw dispatch, and runtime registration manifest |
+| `extension_point.rs` | Typed `ExtensionPoint<T>` stable-id key and `Cardinality` |
+| `registry.rs` | Host-side `CoreExtensionRegistry` and `ExtensionContext` |
+| `rpc.rs` | `ExtensionCall`, `ExtensionTrait`, generated-handle transport, and `RemoteTarget` |
+| `lifecycle.rs` | Phase builders, preload/load/unload state, lifecycle entrypoints, and registration adapters |
+| `registration.rs` | Runtime point/device/command/sub-editor/bottom-panel descriptor types |
+| `bottom_panel.rs` | Bottom-panel contracts, context, frame, and host trait |
+| `clipboard.rs` | `ClipboardProvider` and `EP_NOTWIG_CLIPBOARD` |
 | `abi.rs` | ABI version (`9`), status codes, pointer/length packing, helper re-exports |
 | `abi/heap.rs` | Stable bump heap for host inputs and audio buffers |
 | `abi/store.rs` | Handle-keyed `DeviceStore<T>` with per-instance locks |
@@ -148,9 +152,10 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 
 | Module | Responsibility |
 |---|---|
-| `lib.rs` | Proc-macro entrypoints for `#[notwig_ext(preload/load/unload)]` and the legacy `#[notwig_extension]` alias |
-| `expand/load.rs` | Load-phase ABI generation: devices, panels, commands, sub-editors, lifecycle, and registration manifest |
+| `lib.rs` | Proc-macro entrypoints for `#[notwig_ext(preload/load/unload)]`, `#[notwig_ext_trait]`, `#[derive(ExtensionCall)]`, and the legacy `#[notwig_extension]` alias |
+| `expand/load.rs` | Load-phase ABI generation: devices, panels, commands, sub-editors, bottom panels, lifecycle, and registration manifest |
 | `expand/phase.rs` | Preload and unload export generation |
+| `trait_macro.rs` | Typed handle/dispatcher generation and the `ExtensionCall` derive |
 
 ### `notwig-ext` — extension host
 
@@ -267,7 +272,7 @@ describes the extension subsystem and crate boundaries.
 | `fine_drag.rs` | Shared coarse/fine drag offsets that accumulate across Shift toggles |
 | `widgets/drop_target.rs` | Drag preview and drop-target resolution |
 | `waveform.rs` | Cached power-of-four waveform peak hierarchy, exact range queries, close area and far line drawing |
-| `clipboard.rs` | Shared arranger/audio-clip clipboard payloads |
+| `clipboard.rs` | Re-exports the shared clipboard payload from `notwig-core` |
 | `intent.rs` | `UiIntent` and drag/drop target types |
 | `runtime.rs` | Read-only runtime projection (`RuntimeView`, meters, audio/DSP views) |
 

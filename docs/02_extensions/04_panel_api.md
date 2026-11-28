@@ -171,7 +171,7 @@ stable FFI layout, and cannot be passed across the WASM boundary. Running a
 private guest context keeps output validated, bounded, and isolated while still
 giving authors the real egui API.
 
-See [extension panels](../03_development/12_extension_panels.md) for
+See [extension panels](../03_development/19_extension_system.md) for
 the protocol, limits, and current non-goals (floating windows, IME, and guest
 accessibility trees).
 

@@ -1,6 +1,6 @@
 # Extension devices for `notwig-ext-devices`
 
-Status: planning note. The crate currently ships Compressor, Clipper, Delay,
+Status: implemented. The crate currently ships Compressor, Clipper, Delay,
 Chorus, Transient, Limiter, Gate, Room/Hall/Plate Reverb, Synth, and Gain. Reverb
 is a container with a host-owned wet FX chain; see
 [`plan/EXTENSION_CHAINS.md`](EXTENSION_CHAINS.md). The ready list below has been
@@ -9,7 +9,7 @@ the polish pass and the remaining ideas.
 
 Related:
 
-- [`plan/EXTENSIONS.md`](EXTENSIONS.md) — extension system plan and ABI history.
+- [`docs/03_development/19_extension_system.md`](../docs/03_development/19_extension_system.md) — current extension system and ABI.
 - [`plan/EXTENSION_CHAINS.md`](EXTENSION_CHAINS.md) — container/chain support.
 - [`plan/MOVING_DEVICES.md`](MOVING_DEVICES.md) — whether core stock devices
   should move here.

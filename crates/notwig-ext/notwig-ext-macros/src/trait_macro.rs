@@ -194,7 +194,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         /// Server-side dispatcher for a generated extension interface.
         pub trait #dispatcher_ident: Send + Sync {
-            /// Dispatches one postcard-encoded method call.
+            /// Dispatches one bitcode-encoded method call.
             fn dispatch_extension(
                 &self,
                 context: &::notwig_ext_api::ExtensionContext<'_>,

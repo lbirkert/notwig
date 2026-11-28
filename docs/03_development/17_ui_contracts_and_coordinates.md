@@ -5,7 +5,7 @@ document, the focus model, panel sizing, and the time/sample/pixel mappings
 used by the arranger and clip editors.
 
 Related: [`Editing`](03_editing.md), [`Waveform Rendering`](10_waveform_rendering.md),
-[`Extension Panels`](12_extension_panels.md), and
+[`Extension System`](19_extension_system.md), and
 [`crates/notwig-ui/src`](../../crates/notwig-ui/src).
 
 ## 1. View and intent flow

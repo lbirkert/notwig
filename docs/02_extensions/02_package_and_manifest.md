@@ -103,7 +103,7 @@ binary it finds in Cargo's target directory, or only the targets you list.
 
 An extension without `ui.panel` still appears in the device browser and uses the
 generic parameter view. See the
-[development design page](../03_development/12_extension_panels.md).
+[development design page](../03_development/19_extension_system.md).
 
 ### Includes
 

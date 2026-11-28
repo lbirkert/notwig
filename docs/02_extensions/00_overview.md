@@ -1,9 +1,10 @@
 # Extension Overview
 
-Notwig extensions add devices and commands. An extension can be built as a
-portable WebAssembly module or as a native shared library for the current
-platform. Both targets share the same author-facing API. An extension can
-provide:
+Notwig extensions add devices, commands, audio-editor sub-editors, and bottom
+panels, and can register typed interface instances on extension points. An
+extension can be built as a portable WebAssembly module or as a native shared
+library for the current platform. Both targets share the same author-facing
+API. An extension can provide:
 
 - device metadata and parameters through a `DeviceSpec`;
 - real-time DSP through the `DeviceExtension` trait;
@@ -11,7 +12,9 @@ provide:
   components;
 - commands with runtime metadata, a bounded `CommandContext`, validated edit
   families, command palette entries, and default keybindings;
-- bottom panels drawn with the guest egui API and opened by command.
+- bottom panels drawn with the guest egui API and opened by command;
+- typed interface implementations registered on extension points (package
+  invocation is not wired yet).
 
 Extensions never receive the host `egui::Context`, host pointers to application
 state, or the project document. The extension runs a private egui context and
@@ -45,7 +48,11 @@ audio sub-editor point ──►  extension renderer ──►  audio editor
   fixed, non-uninstallable `notwig.core` / `Notwig Core` owner.
 - Extension-point constants use the `EP_` prefix (`EP` = extension point), such
   as `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
-  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, and `EP_NOTWIG_BOTTOM_PANEL`.
+  `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, `EP_NOTWIG_BOTTOM_PANEL`, and
+  `EP_NOTWIG_CLIPBOARD`. Typed handles use bitcode RPC; the package invoke
+  scheduler is still being wired, so package-to-package typed calls are not
+  available yet. The development design is in
+  [`Extension System`](../03_development/19_extension_system.md).
 - `cargo notwig-ext` scaffolds extensions and builds target-specific ZIPs. It
   reads a source `extension.json` without `entrypoints`, adds the selected
   entrypoint, filters `includes` by target, removes `includes`, and bundles the
@@ -108,3 +115,5 @@ Install native extensions only from trusted sources.
 7. [Audio Sub-editor API](07_audio_sub_editor_api.md) covers
    extension-rendered editors in the audio editor, including the shared curve
    editor and waveform underlay.
+8. [Bottom Panel API](08_bottom_panel_api.md) covers extension-drawn editor
+   bottom panels and command-based opening.

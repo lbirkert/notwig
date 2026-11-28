@@ -1,6 +1,6 @@
 # Command API
 
-Status: implemented for the Phase 1 command platform. Extensions can contribute
+Status: implemented. Extensions can contribute
 commands with runtime metadata, a bounded context, host-owned edit families,
 command palette integration, and default keybindings. The reference package is
 `crates/notwig-ext/notwig-ext-example`.

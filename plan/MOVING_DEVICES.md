@@ -91,7 +91,7 @@ dependencies, and structural behavior.
 - **Panic and debugging behavior.** A panic in a core device is a normal Rust
   panic with a backtrace. A panic in a WASM device traps the instance; in a
   native extension it aborts the process
-  (`docs/03_development/19_extension_abi_and_hosts.md`). Basic mixing devices
+  (`docs/03_development/19_extension_system.md`). Basic mixing devices
   should not inherit that failure mode.
 - **UI parity and persistence.** Moving a device means reimplementing its panel,
   keeping the exact type id and parameter ids, and proving old projects load.

@@ -300,16 +300,12 @@ plugin adapter and editor contract is in
   shared ABI/panel types in `notwig-ext-api`. Source manifests omit
   `entrypoints`; `cargo notwig-ext` adds the built target entrypoint and filters
   `includes`. Device specs, DSP, and panels come from the extension;
-  Notwig owns validation, resource limits, and rendering. `ui.panel` panels run a
-  private guest egui context, use shared `notwig-ui` components, and send
-  validated meshes/texture deltas for the host to composite, as described in
-  [`Extension Panels`](12_extension_panels.md). The ABI version policy, host
-  calls, call order, and native/WASM/browser differences are in
-  [`Extension ABI and Hosts`](19_extension_abi_and_hosts.md). General clip/track
-  drawing hooks remain future work. The proposed contribution registry,
-  extension points, deterministic resolution, and service-slot model are
-  analyzed in
-  [`Extension Platform Architecture`](23_extension_platform_architecture.md).
+  Notwig owns validation, resource limits, and rendering. Panels run a private
+  guest egui context and send validated meshes/texture deltas for the host to
+  composite. The point/registry model, typed call path, lifecycle, ABI, hosts,
+  panels, and current gaps are all documented in
+  [`Extension System`](19_extension_system.md). General clip/track drawing hooks
+  remain future work.
 - **Keyboard shortcuts**: add a command spec in `notwig-ui::commands` and
   handle it in the focused view. Bindings are edited in Settings and persisted
   by `notwig-app`.
