@@ -103,8 +103,8 @@ pub fn preload(extension: &mut PreloadBuilder) {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<TrackDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension(MY_SINGLE_POINT, MyService::new());
+    extension.register_extension::<TrackDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension_instance(MY_SINGLE_POINT, MyService::new());
 }
 
 #[notwig_ext(unload)]
@@ -124,12 +124,15 @@ Runtime descriptors take precedence over manifest `contributes` entries, which
 remain a compatibility fallback. Device specs are merged into the normal device
 registry and are stock-like to the rest of the app.
 
-`register_extension(point, instance)` keeps the actual typed instance inside the
-guest runtime as a `Box<dyn ExtensionCall>`. `register_extension_factory::<T>`
-registers a factory for contributions whose host creates separate instances
-(devices, commands, sub-editors, bottom panels). A factory registration is
-listed in the runtime manifest; a typed instance is currently not, because the
-package RPC export is not implemented yet.
+`register_extension_instance(point, instance)` keeps the actual typed instance
+inside the guest runtime as a `Box<dyn ExtensionCall>`. `register_extension::<T>
+(point)` constructs `T::default()` and registers it on the point interface
+declared by `#[extension_call(Trait)]` on `T`. This is the single registration
+path for devices, commands, audio sub-editors, bottom panels, and typed
+interfaces. Device DSP still uses the dedicated block-processing ABI rather than
+generic RPC. These registrations are listed in the runtime manifest; a typed
+instance is currently not, because the package RPC export is not implemented
+yet.
 
 ## 4. Typed interfaces and the call path
 
@@ -152,7 +155,7 @@ The macro generates:
 - `PanelRequest`, `PanelResponse`, and method ids;
 - `PanelDispatcher`, which decodes a request, calls the implementation, and
   encodes a response;
-- `ExtensionTrait for dyn Panel` with `type Handle = PanelHandle`;
+- `ExtensionHandle for dyn Panel` with `type Handle = PanelHandle`;
 - interface id/version metadata and a `Debug` handle implementation.
 
 Implementations use the normal trait impl plus one derive on the concrete type:
@@ -183,6 +186,12 @@ consts, and borrowed wire values are rejected. The generated handle and
 dispatcher use **bitcode** for RPC payloads. Other extension wire data, such as
 panel frames and commands, still uses postcard; metadata is JSON.
 
+Contribution implementations use the same derive with their extension trait,
+for example `#[derive(ExtensionCall)] #[extension_call(DeviceExtension)]` on a
+device type. For these traits the derive emits the registration hook instead of
+RPC dispatch; the host still drives device DSP and panel drawing through the
+dedicated ABI.
+
 ### Call-path diagram
 
 ```text
@@ -212,7 +221,7 @@ Registration closes the loop:
 ```text
 #[derive(ExtensionCall)] #[extension_call(Panel)]
   -> MyPanel: ExtensionCall { interface_id, version, process(...) }
-register_extension(POINT, MyPanel)
+register_extension_instance(POINT, MyPanel)
   -> Extension::typed_extensions[point_id].push(Box<dyn ExtensionCall>)
 ```
 
@@ -441,7 +450,7 @@ on catching panics.
 
 - `src/extension_point.rs`: point keys and cardinality.
 - `src/registry.rs`: `CoreExtensionRegistry` and `ExtensionContext`.
-- `src/rpc.rs`: `ExtensionCall`, `ExtensionTrait`, `RpcTransport`,
+- `src/rpc.rs`: `ExtensionCall`, `ExtensionHandle`, `RpcTransport`,
   `RemoteTarget`.
 - `src/lifecycle.rs`: phase builders and registration adapters.
 - `src/extension.rs`: guest runtime, factories, per-instance stores.

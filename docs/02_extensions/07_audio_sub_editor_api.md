@@ -44,6 +44,8 @@ use notwig_ext_api::{
     AudioSubEditorExtension, CommandEdit, CommandEffect, ExtensionBuilder, notwig_ext,
 };
 
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(AudioSubEditorExtension)]
 struct PanEditor;
 
 impl AudioSubEditorExtension for PanEditor {
@@ -72,7 +74,7 @@ impl AudioSubEditorExtension for PanEditor {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<PanEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension::<PanEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
 }
 ```
 

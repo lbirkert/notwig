@@ -22,10 +22,18 @@ pub fn descriptor() -> AudioSubEditorDescriptor {
 }
 
 /// Extension-drawn clip pan sub-editor.
+#[derive(notwig_ext_api::ExtensionCall)]
+#[extension_call(AudioSubEditorExtension)]
 pub struct PanSubEditor {
     selected: std::collections::BTreeSet<usize>,
     time_selection: Option<notwig_core::RangeMus>,
     state: notwig_ui::extension_ui::LineEditorState,
+}
+
+impl Default for PanSubEditor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AudioSubEditorExtension for PanSubEditor {

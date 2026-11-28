@@ -242,7 +242,8 @@ impl Allpass {
 }
 
 /// Stereo algorithmic reverb with a host-owned wet FX chain.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct ReverbDevice {
     sample_rate: f64,
     reverb_type: ReverbType,

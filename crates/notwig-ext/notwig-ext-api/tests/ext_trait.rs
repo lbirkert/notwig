@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use notwig_ext_api::{
     CoreExtensionRegistry, Extension, ExtensionCall, ExtensionContext, ExtensionError,
-    ExtensionPoint, ExtensionTrait, RemoteTarget, RpcTransport, SharedRpcTransport,
+    ExtensionHandle, ExtensionPoint, RemoteTarget, RpcTransport, SharedRpcTransport,
     notwig_ext_trait,
 };
 
@@ -17,7 +17,7 @@ pub trait Echo {
 const ECHO_POINT: ExtensionPoint<dyn Echo> = ExtensionPoint::new("test.echo.point");
 const ECHO_SINGLE_POINT: ExtensionPoint<dyn Echo> = ExtensionPoint::single("test.echoer");
 
-#[derive(ExtensionCall)]
+#[derive(Default, ExtensionCall)]
 #[extension_call(Echo)]
 struct Echoer;
 
@@ -69,7 +69,16 @@ impl RpcTransport for TestTransport {
 #[test]
 fn generated_registration_keeps_the_instance_inside_the_guest() {
     let mut extension = Extension::new();
-    extension.register_extension(ECHO_POINT, Echoer);
+    extension.register_extension_instance(ECHO_POINT, Echoer);
+    let calls = extension.extension_calls(ECHO_POINT.id());
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].interface_id(), EchoHandle::INTERFACE_ID);
+}
+
+#[test]
+fn default_registration_uses_the_instance_interface() {
+    let mut extension = Extension::new();
+    extension.register_extension::<Echoer>(ECHO_POINT);
     let calls = extension.extension_calls(ECHO_POINT.id());
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].interface_id(), EchoHandle::INTERFACE_ID);
@@ -117,12 +126,14 @@ fn generated_interface_bridge_creates_handles_and_processes_calls() {
     let transport: SharedRpcTransport = Arc::new(TestTransport {
         dispatcher: Arc::new(Echoer),
     });
-    let handle =
-        <dyn Echo as ExtensionTrait>::create_handle(transport, RemoteTarget::new("test.echoer", 7));
+    let handle = <dyn Echo as ExtensionHandle>::create_handle(
+        transport,
+        RemoteTarget::new("test.echoer", 7),
+    );
     let registry = CoreExtensionRegistry::new();
     let context = ExtensionContext::new(&registry);
     assert_eq!(
-        <dyn Echo as ExtensionTrait>::INTERFACE_ID,
+        <dyn Echo as ExtensionHandle>::INTERFACE_ID,
         EchoHandle::INTERFACE_ID
     );
     assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");

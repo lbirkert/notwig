@@ -6,9 +6,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use crate::abi::AbiStatus;
-use crate::audio_editor::AudioSubEditorExtension;
-use crate::command::CommandExtension;
-use crate::extension::{DeviceExtension, Extension};
+use crate::extension::Extension;
 use crate::extension_point::ExtensionPoint;
 
 static PRELOADED: Mutex<Option<Extension>> = Mutex::new(None);
@@ -131,68 +129,30 @@ impl ExtensionBuilder {
         self.extension
     }
 
-    /// Registers a typed interface instance on `point`.
+    /// Registers one extension instance on `point`.
     ///
     /// The instance stays inside the guest runtime; only its descriptors cross
     /// the ABI.
-    pub fn register_extension<I: ?Sized, T>(&mut self, point: ExtensionPoint<I>, instance: T)
-    where
-        T: crate::rpc::ExtensionCall + 'static,
-    {
-        self.extension
-            .register_extension_call(point.id(), Box::new(instance));
+    pub fn register_extension_instance<T: crate::rpc::ExtensionInstance>(
+        &mut self,
+        point: ExtensionPoint<T::Interface>,
+        instance: T,
+    ) {
+        self.extension.register_extension_instance(point, instance);
     }
 
-    /// Registers an implementation factory on `point`.
-    ///
-    /// This is used by device, command, sub-editor, and bottom-panel
-    /// contributions whose host creates separate instances.
-    pub fn register_extension_factory<T: ?Sized>(&mut self, point: impl ExtensionPointFor<T>) {
-        self.extension.register_extension_factory(point);
+    /// Registers a default-constructed implementation on its point.
+    pub fn register_extension<T>(&mut self, point: ExtensionPoint<T::Interface>)
+    where
+        T: Default + crate::rpc::ExtensionInstance,
+    {
+        self.extension.register_extension::<T>(point);
     }
 }
 
 impl Default for ExtensionBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Registration adapter for a typed extension point.
-pub trait ExtensionPointFor<T: ?Sized> {
-    /// Registers `T` into the guest runtime.
-    fn register(self, extension: &mut Extension);
-}
-
-impl<T: DeviceExtension> ExtensionPointFor<T>
-    for ExtensionPoint<dyn crate::extension::DeviceInterface>
-{
-    fn register(self, extension: &mut Extension) {
-        extension.register_device_at::<T>(self.id());
-    }
-}
-
-impl<T: CommandExtension> ExtensionPointFor<T>
-    for ExtensionPoint<dyn crate::command::CommandInterface>
-{
-    fn register(self, extension: &mut Extension) {
-        extension.register_command_with_descriptor::<T>(T::descriptor());
-    }
-}
-
-impl<T: crate::bottom_panel::BottomPanelExtension> ExtensionPointFor<T>
-    for ExtensionPoint<dyn crate::bottom_panel::BottomPanelInterface>
-{
-    fn register(self, extension: &mut Extension) {
-        extension.register_bottom_panel_with_descriptor::<T>(T::descriptor());
-    }
-}
-
-impl<T: AudioSubEditorExtension> ExtensionPointFor<T>
-    for ExtensionPoint<dyn crate::audio_editor::AudioSubEditorInterface>
-{
-    fn register(self, extension: &mut Extension) {
-        extension.register_audio_sub_editor_with_descriptor::<T>(T::descriptor());
     }
 }
 

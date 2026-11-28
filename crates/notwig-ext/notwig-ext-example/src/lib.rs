@@ -27,10 +27,10 @@ pub fn preload(extension: &mut PreloadBuilder) {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<HumanizeCommand>(EP_COMMANDS);
-    extension.register_extension_factory::<OpenExamplePanelCommand>(EP_COMMANDS);
-    extension.register_extension_factory::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
-    extension.register_extension_factory::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
+    extension.register_extension::<HumanizeCommand>(EP_COMMANDS);
+    extension.register_extension::<OpenExamplePanelCommand>(EP_COMMANDS);
+    extension.register_extension::<PanSubEditor>(EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR);
+    extension.register_extension::<ExampleBottomPanel>(EP_NOTWIG_BOTTOM_PANEL);
 }
 
 #[notwig_ext(unload)]

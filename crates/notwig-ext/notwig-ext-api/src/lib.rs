@@ -21,7 +21,7 @@
 //!
 //! #[notwig_ext(load)]
 //! pub fn load(extension: &mut ExtensionBuilder) {
-//!     extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
+//!     extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 //! }
 //! ```
 //!
@@ -83,7 +83,7 @@ pub use extension::{DeviceExtension, DeviceInterface, EP_NOTWIG_DEVICES, Extensi
 pub use extension_point::{Cardinality, ExtensionPoint};
 pub use geometry::Color;
 pub use index::{ExtensionIndexDevice, ExtensionIndexEntry, ExtensionIndexUrl};
-pub use lifecycle::{ExtensionBuilder, ExtensionPointFor, PreloadBuilder, UnloadContext};
+pub use lifecycle::{ExtensionBuilder, PreloadBuilder, UnloadContext};
 pub use manifest::{
     CURRENT_MANIFEST_VERSION, ExtensionCapability, ExtensionContribution, ExtensionDeviceDecl,
     ExtensionEntryPoint, ExtensionInclude, ExtensionManifest, ManifestError,
@@ -103,7 +103,8 @@ pub use registration::{
 };
 pub use registry::{CoreExtensionRegistry, ExtensionContext, RegistryError};
 pub use rpc::{
-    ExtensionCall, ExtensionError, ExtensionTrait, RemoteTarget, RpcTransport, SharedRpcTransport,
+    ExtensionCall, ExtensionError, ExtensionHandle, ExtensionInstance, RemoteTarget, RpcTransport,
+    SharedRpcTransport,
 };
 pub use serde;
 pub use status::{ExtensionInfo, ExtensionSettings, ExtensionStatus};

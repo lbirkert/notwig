@@ -20,7 +20,8 @@ pub fn gain_id() -> ParamId {
 }
 
 /// Stock gain (trim) device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct GainDevice {
     gain_db: f64,
     gain: f32,

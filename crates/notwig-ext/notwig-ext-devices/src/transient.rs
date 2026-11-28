@@ -117,7 +117,8 @@ impl DetectorMode {
 }
 
 /// Transient shaper device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct TransientDevice {
     sample_rate: f64,
     attack_gain_db: f64,

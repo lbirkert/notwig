@@ -4,6 +4,8 @@ use notwig_ext_api::{
     CommandSelection, EP_COMMANDS, Extension, ExtensionManifest, evaluate_when, validate_when,
 };
 
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(CommandExtension)]
 struct EchoCommand;
 
 impl CommandExtension for EchoCommand {
@@ -114,7 +116,7 @@ fn contributions_require_manifest_v2() {
 #[test]
 fn command_runtime_executes_a_registered_handler() {
     let mut extension = Extension::new();
-    extension.register_extension_factory::<EchoCommand>(EP_COMMANDS);
+    extension.register_extension::<EchoCommand>(EP_COMMANDS);
     let mut context = CommandContext {
         active_clip: Some(notwig_core::ClipId::from_uuid(uuid::Uuid::from_u128(2))),
         ..Default::default()

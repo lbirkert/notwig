@@ -152,16 +152,16 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwi
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<LimiterDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<CompressorDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<ClipperDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<DelayDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<ChorusDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<TransientDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<GateDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<ReverbDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<SynthDevice>(EP_NOTWIG_DEVICES);
-    extension.register_extension_factory::<GainDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<LimiterDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<CompressorDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<ClipperDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<DelayDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<ChorusDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<TransientDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<GateDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<ReverbDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<SynthDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<GainDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 

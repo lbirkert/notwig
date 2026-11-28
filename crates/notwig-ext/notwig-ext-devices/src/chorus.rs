@@ -138,7 +138,8 @@ impl ChorusMode {
 }
 
 /// Stereo chorus/flanger device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct ChorusDevice {
     sample_rate: f64,
     mode: ChorusMode,

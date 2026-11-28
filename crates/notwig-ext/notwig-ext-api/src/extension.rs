@@ -22,7 +22,7 @@ use crate::note::{NOTE_EVENT_BYTES, NoteEvent, decode_note_event};
 use crate::registration::{
     DeviceRegistrationDescriptor, ExtensionPointDescriptor, ExtensionRegistrations,
 };
-use crate::rpc::ExtensionCall;
+use crate::rpc::{ExtensionCall, ExtensionInstance};
 
 /// Marker interface for the built-in `notwig.devices` extension point.
 pub trait DeviceInterface {}
@@ -259,12 +259,13 @@ impl Extension {
         }
     }
 
-    /// Registers one callable typed extension instance on `point`.
-    pub fn register_extension<I: ?Sized, T>(&mut self, point: ExtensionPoint<I>, instance: T)
-    where
-        T: ExtensionCall + 'static,
-    {
-        self.register_extension_call(point.id(), Box::new(instance));
+    /// Registers one extension instance on `point`.
+    pub fn register_extension_instance<T: ExtensionInstance>(
+        &mut self,
+        point: ExtensionPoint<T::Interface>,
+        instance: T,
+    ) {
+        instance.register_instance(self, point.id());
     }
 
     /// Registers one callable typed extension instance in the guest runtime.
@@ -298,15 +299,19 @@ impl Extension {
         self.extension_points.iter().map(String::as_str)
     }
 
-    /// Registers an implementation factory on a typed extension point.
-    pub fn register_extension_factory<T: ?Sized>(
-        &mut self,
-        point: impl crate::lifecycle::ExtensionPointFor<T>,
-    ) {
-        point.register(self);
+    /// Registers a default-constructed implementation on its point.
+    ///
+    /// `T` selects the implementation and the point interface; the point value
+    /// must match that interface.
+    pub fn register_extension<T>(&mut self, point: ExtensionPoint<T::Interface>)
+    where
+        T: Default + ExtensionInstance,
+    {
+        self.register_extension_instance(point, T::default());
     }
 
-    pub(crate) fn register_device_at<D: DeviceExtension>(&mut self, point: &str) {
+    #[doc(hidden)]
+    pub fn register_device_at<D: DeviceExtension>(&mut self, point: &str) {
         let spec = D::spec();
         let type_id = spec.type_id.clone();
         let spec_json = serde_json::to_vec(&spec).unwrap_or_default();
@@ -321,7 +326,8 @@ impl Extension {
     }
 
     /// Registers an audio sub-editor renderer with runtime metadata.
-    pub(crate) fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
+    #[doc(hidden)]
+    pub fn register_audio_sub_editor_with_descriptor<T: AudioSubEditorExtension>(
         &mut self,
         descriptor: crate::audio_editor::AudioSubEditorDescriptor,
     ) {
@@ -335,7 +341,8 @@ impl Extension {
     }
 
     /// Registers a bottom panel with runtime metadata.
-    pub(crate) fn register_bottom_panel_with_descriptor<T: BottomPanelExtension>(
+    #[doc(hidden)]
+    pub fn register_bottom_panel_with_descriptor<T: BottomPanelExtension>(
         &mut self,
         descriptor: crate::bottom_panel::BottomPanelDescriptor,
     ) {
@@ -349,7 +356,8 @@ impl Extension {
     }
 
     /// Registers a command implementation with runtime metadata.
-    pub(crate) fn register_command_with_descriptor<C: CommandExtension>(
+    #[doc(hidden)]
+    pub fn register_command_with_descriptor<C: CommandExtension>(
         &mut self,
         descriptor: CommandDescriptor,
     ) {

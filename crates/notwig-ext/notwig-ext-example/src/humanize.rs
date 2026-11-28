@@ -24,6 +24,8 @@ pub fn descriptor() -> CommandDescriptor {
 }
 
 /// Nudges selected note timing and velocity deterministically.
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(CommandExtension)]
 pub struct HumanizeCommand;
 
 impl CommandExtension for HumanizeCommand {

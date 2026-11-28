@@ -55,6 +55,8 @@ use notwig_ext_api::{
 
 pub const HUMANIZE_COMMAND_ID: &str = "com.example.midi-tools.humanize";
 
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(CommandExtension)]
 pub struct HumanizeCommand;
 
 impl CommandExtension for HumanizeCommand {
@@ -104,7 +106,7 @@ impl CommandExtension for HumanizeCommand {
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<HumanizeCommand>(EP_COMMANDS);
+    extension.register_extension::<HumanizeCommand>(EP_COMMANDS);
 }
 ```
 

@@ -165,7 +165,8 @@ fn gain_reduction_db(input_db: f32, threshold_db: f64, ratio: f64, knee_db: f64)
 }
 
 /// Stereo-linked compressor with a soft knee.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct CompressorDevice {
     sample_rate: f64,
     channels: usize,

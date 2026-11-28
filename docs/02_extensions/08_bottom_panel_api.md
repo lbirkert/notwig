@@ -17,6 +17,8 @@ use notwig_ext_api::{
 
 pub const PANEL_ID: &str = "com.example.notes";
 
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(BottomPanelExtension)]
 struct NotesPanel;
 
 impl BottomPanelExtension for NotesPanel {
@@ -48,7 +50,7 @@ impl BottomPanelExtension for NotesPanel {
 ```rust
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<NotesPanel>(EP_NOTWIG_BOTTOM_PANEL);
+    extension.register_extension::<NotesPanel>(EP_NOTWIG_BOTTOM_PANEL);
 }
 ```
 

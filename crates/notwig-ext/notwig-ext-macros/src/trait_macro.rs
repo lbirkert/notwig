@@ -203,7 +203,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             ) -> ::core::result::Result<Vec<u8>, ::notwig_ext_api::ExtensionError>;
         }
 
-        impl ::notwig_ext_api::ExtensionTrait for dyn #trait_ident {
+        impl ::notwig_ext_api::ExtensionHandle for dyn #trait_ident {
             type Handle = #handle_ident;
 
             const INTERFACE_ID: &'static str = #id_lit;
@@ -419,9 +419,50 @@ pub(crate) fn expand_derive(item: TokenStream) -> TokenStream {
         .last()
         .map(|segment| segment.ident.clone())
         .expect("trait path has at least one segment");
+    let self_ty = &input.ident;
+    let contribution = match trait_ident.to_string().as_str() {
+        "DeviceExtension" => Some((
+            quote!(dyn ::notwig_ext_api::DeviceInterface),
+            quote!(extension.register_device_at::<Self>(point_id);),
+        )),
+        "CommandExtension" => Some((
+            quote!(dyn ::notwig_ext_api::CommandInterface),
+            quote!(extension.register_command_with_descriptor::<Self>(
+                <Self as ::notwig_ext_api::CommandExtension>::descriptor(),
+            );),
+        )),
+        "AudioSubEditorExtension" => Some((
+            quote!(dyn ::notwig_ext_api::AudioSubEditorInterface),
+            quote!(extension.register_audio_sub_editor_with_descriptor::<Self>(
+                <Self as ::notwig_ext_api::AudioSubEditorExtension>::descriptor(),
+            );),
+        )),
+        "BottomPanelExtension" => Some((
+            quote!(dyn ::notwig_ext_api::BottomPanelInterface),
+            quote!(extension.register_bottom_panel_with_descriptor::<Self>(
+                <Self as ::notwig_ext_api::BottomPanelExtension>::descriptor(),
+            );),
+        )),
+        _ => None,
+    };
+    if let Some((interface, register)) = contribution {
+        return quote! {
+            impl ::notwig_ext_api::ExtensionInstance for #self_ty {
+                type Interface = #interface;
+
+                fn register_instance(
+                    self,
+                    extension: &mut ::notwig_ext_api::Extension,
+                    point_id: &'static str,
+                ) {
+                    #register
+                }
+            }
+        }
+        .into();
+    }
     let handle_ident = format_ident!("{}Handle", trait_ident);
     let dispatcher_ident = format_ident!("{}Dispatcher", trait_ident);
-    let self_ty = &input.ident;
     quote! {
         impl ::notwig_ext_api::ExtensionCall for #self_ty {
             fn interface_id(&self) -> &'static str {
@@ -444,6 +485,21 @@ pub(crate) fn expand_derive(item: TokenStream) -> TokenStream {
                     method,
                     payload,
                 )
+            }
+        }
+
+        impl ::notwig_ext_api::ExtensionInstance for #self_ty {
+            type Interface = dyn #trait_path;
+
+            fn register_instance(
+                self,
+                extension: &mut ::notwig_ext_api::Extension,
+                point_id: &'static str,
+            ) {
+                extension.register_extension_call(
+                    point_id,
+                    ::std::boxed::Box::new(self),
+                );
             }
         }
     }

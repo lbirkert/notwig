@@ -21,7 +21,7 @@ use expand::{Phase, expand_load, expand_phase};
 /// ```ignore
 /// #[notwig_extension]
 /// pub fn extension(extension: &mut notwig_ext_api::ExtensionBuilder) {
-///     extension.register_extension_factory::<MyDevice>(notwig_ext_api::EP_NOTWIG_DEVICES);
+///     extension.register_extension::<MyDevice>(notwig_ext_api::EP_NOTWIG_DEVICES);
 /// }
 /// ```
 ///

@@ -21,7 +21,8 @@ pub use params::{attack_id, hold_id, range_id, release_id, threshold_id};
 pub const TYPE_ID: &str = "notwig.ext.devices.gate";
 
 /// Stock noise gate device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct GateDevice {
     sample_rate: f64,
     channels: usize,

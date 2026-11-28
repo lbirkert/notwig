@@ -223,7 +223,8 @@ fn gain_norm(db: f64) -> f32 {
     ((db - MIN_GAIN_DB) / (MAX_GAIN_DB - MIN_GAIN_DB)) as f32
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct MyDevice {
     gain_db: f64,
     gain: f32,
@@ -323,7 +324,7 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, ExtensionBuilder, UnloadContext, notwig_
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 
 #[notwig_ext(unload)]

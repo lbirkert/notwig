@@ -97,7 +97,8 @@ fn time_seconds(norm: f32) -> f64 {
 }
 
 /// Stereo delay device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct DelayDevice {
     sample_rate: f64,
     time_left: f64,

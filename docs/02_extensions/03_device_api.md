@@ -8,8 +8,16 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwi
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
+```
+
+`MyDevice` must implement `Default` and opt into registration with the derive:
+
+```rust
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
+struct MyDevice;
 ```
 
 Panels use the guest egui API. Implement `draw` with the shared

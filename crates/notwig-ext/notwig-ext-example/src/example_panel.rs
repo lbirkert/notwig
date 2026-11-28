@@ -11,7 +11,8 @@ pub const EXAMPLE_PANEL_ID: &str = "notwig.ext.example.notes";
 pub const OPEN_EXAMPLE_PANEL_COMMAND_ID: &str = "notwig.ext.example.open_panel";
 
 /// Extension-drawn bottom panel.
-#[derive(Default)]
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(BottomPanelExtension)]
 pub struct ExampleBottomPanel {
     frames: u64,
 }
@@ -47,6 +48,8 @@ impl BottomPanelExtension for ExampleBottomPanel {
 }
 
 /// Command that opens the example bottom panel.
+#[derive(Default, notwig_ext_api::ExtensionCall)]
+#[extension_call(CommandExtension)]
 pub struct OpenExamplePanelCommand;
 
 impl CommandExtension for OpenExamplePanelCommand {

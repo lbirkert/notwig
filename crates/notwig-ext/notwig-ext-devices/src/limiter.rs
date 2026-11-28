@@ -51,7 +51,8 @@ fn release_norm(seconds: f64) -> f32 {
 }
 
 /// Stock lookahead limiter device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct LimiterDevice {
     sample_rate: f64,
     channels: usize,

@@ -26,7 +26,8 @@ const MAX_EVENTS: usize = 256;
 const VOICE_GAIN: f32 = 0.22;
 
 /// Stock monophonic/polyphonic subtractive synth device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct SynthDevice {
     sample_rate: f64,
     channels: usize,

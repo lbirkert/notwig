@@ -10,7 +10,7 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, ExtensionBuilder, notwig_ext};
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 
@@ -57,7 +57,7 @@ handler calls other extension points. Arguments and return values are bitcode
 encoded. The generated handle takes an [`RpcTransport`] and `RemoteTarget`; the
 generated `EchoDispatcher` forwards the context and is implemented for every
 `Echo + Send + Sync` implementation. The macro also generates
-`ExtensionTrait` for `dyn Trait`, which exposes the interface metadata and
+`ExtensionHandle` for `dyn Trait`, which exposes the interface metadata and
 associates the generated `TraitHandle` as `type Handle`. A scheduler-backed
 `ExtensionContext` can create the handle with `get_extension_handle`. Raw-request
 processing lives on `ExtensionCall`.
@@ -74,7 +74,7 @@ struct MyEcho;
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension(ECHO_POINT, MyEcho::new());
+    extension.register_extension_instance(ECHO_POINT, MyEcho::new());
 }
 ```
 

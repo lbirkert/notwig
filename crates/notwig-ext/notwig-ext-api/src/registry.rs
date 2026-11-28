@@ -236,7 +236,7 @@ impl<'a> ExtensionContext<'a> {
     ///
     /// Panics when the context was created without a scheduler.
     #[must_use]
-    pub fn get_extension_handle<T: crate::ExtensionTrait + ?Sized>(
+    pub fn get_extension_handle<T: crate::ExtensionHandle + ?Sized>(
         &self,
         point: ExtensionPoint<T>,
     ) -> T::Handle {

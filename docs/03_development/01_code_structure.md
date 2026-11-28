@@ -138,7 +138,7 @@ texture deltas, host actions, and, for audio sub-editors, host-owned edits.
 | `extension.rs` | `DeviceExtension`, `AudioSubEditorExtension`, `CommandExtension`, `BottomPanelExtension`, `Extension`, registration, note delivery, command execution, guest draw dispatch, and runtime registration manifest |
 | `extension_point.rs` | Typed `ExtensionPoint<T>` stable-id key and `Cardinality` |
 | `registry.rs` | Host-side `CoreExtensionRegistry` and `ExtensionContext` |
-| `rpc.rs` | `ExtensionCall`, `ExtensionTrait`, generated-handle transport, and `RemoteTarget` |
+| `rpc.rs` | `ExtensionCall`, `ExtensionHandle`, generated-handle transport, and `RemoteTarget` |
 | `lifecycle.rs` | Phase builders, preload/load/unload state, lifecycle entrypoints, and registration adapters |
 | `registration.rs` | Runtime point/device/command/sub-editor/bottom-panel descriptor types |
 | `bottom_panel.rs` | Bottom-panel contracts, context, frame, and host trait |

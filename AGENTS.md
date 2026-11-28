@@ -88,24 +88,25 @@ and boundaries. Start there when working inside a crate.
   `EP_NOTWIG_DEVICES`, `EP_COMMANDS`,
   `EP_NOTWIG_AUDIO_EDITOR_SUB_EDITOR`, `EP_NOTWIG_BOTTOM_PANEL`, and
   `EP_NOTWIG_CLIPBOARD`. Do not introduce legacy aliases.
-- Typed-interface instances are registered with
-  `extension.register_extension(EP_..., instance)`. The instance stays inside
-  the guest runtime. Contributions whose host creates separate instances use
-  `extension.register_extension_factory::<T>(EP_...)`. Metadata belongs on the
-  implementation trait (`CommandExtension::descriptor`,
+- Implementations opt in with `#[derive(ExtensionCall)]` plus
+  `#[extension_call(TraitName)]`. `extension.register_extension::<T>(EP_...)`
+  constructs and registers `T::default()`; `extension
+  .register_extension_instance(EP_..., instance)` registers an explicit
+  instance. Both cover devices, commands, audio sub-editors, bottom panels, and
+  callable typed interfaces. Device DSP still runs on the dedicated real-time
+  ABI. Metadata belongs on the implementation trait (`CommandExtension::descriptor`,
   `AudioSubEditorExtension::descriptor`), not in registration overloads.
 - Callable interfaces use `#[notwig_ext_trait(id = "...", version = N)]`.
   Methods take `&self` plus `&ExtensionContext<'_>`, avoid generics/lifetimes,
   and return `Result<T, ExtensionError>` with owned bitcode-serializable
   values. The context is the only supported path for calling other points.
-  Concrete types use `#[derive(ExtensionCall)]` plus
-  `#[extension_call(TraitName)]` so the guest can store the actual instance as
-  `Box<dyn ExtensionCall>` without crossing the ABI. `ExtensionCall::process`
-  receives the context, method id, and payload. The trait macro also generates
-  `ExtensionTrait` for the interface trait object with `type Handle` set to the
-  generated handle. `ExtensionContext::get_extension_handle` creates handles for
-  single-provider points when the context has a scheduler. Raw request dispatch
-  lives on `ExtensionCall`.
+  The derive stores callable instances as `Box<dyn ExtensionCall>`;
+  `ExtensionCall::process` receives the context, method id, and payload. The
+  trait macro also generates `ExtensionHandle` for the interface trait object
+  with `type Handle` set to the generated handle.
+  `ExtensionContext::get_extension_handle` creates handles for single-provider
+  points when the context has a scheduler. Raw request dispatch lives on
+  `ExtensionCall`.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.

@@ -57,7 +57,7 @@ use notwig_ext_api::{EP_NOTWIG_DEVICES, DeviceExtension, ExtensionBuilder, notwi
 
 #[notwig_ext(load)]
 pub fn load(extension: &mut ExtensionBuilder) {
-    extension.register_extension_factory::<MyDevice>(EP_NOTWIG_DEVICES);
+    extension.register_extension::<MyDevice>(EP_NOTWIG_DEVICES);
 }
 ```
 

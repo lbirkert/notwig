@@ -111,7 +111,8 @@ impl DcBlocker {
 }
 
 /// Soft clipper with tilt tone control.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, notwig_ext_api::ExtensionCall)]
+#[extension_call(DeviceExtension)]
 pub struct ClipperDevice {
     drive: f64,
     knee: f64,
