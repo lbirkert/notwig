@@ -83,7 +83,11 @@ activates at the configured sample rate and block size, and sizes per-channel
 scratch buffers. VST3 parameter updates are delivered to both the edit
 controller and the audio processor: the wrapper queues `setParamNormalized`
 changes and sends them as `I ParameterChanges` in the next process block, so
-plugins with separate controller and processor classes receive host edits. `process` copies interleaved stereo into channel buffers, converts
+plugins with separate controller and processor classes receive host edits.
+VST3 activation also queries the plugin's audio buses, configures the main
+input/output bus as stereo, deactivates auxiliary buses, and supplies one
+`AudioBusBuffers` entry per bus so plugins with sidechain or auxiliary buses
+receive the bus count their process callback expects. `process` copies interleaved stereo into channel buffers, converts
 note on/off events to channel-0 MIDI, supplies transport, calls the plugin, and
 copies the output back. A plugin error or undersized scratch yields silence with
 `overloaded: true`; `Sleep` yields `produced_silence: true`. MIDI output and

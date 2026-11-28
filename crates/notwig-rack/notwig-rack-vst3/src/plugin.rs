@@ -8,9 +8,9 @@ use notwig_rack_core::plugin::PluginCore;
 use std::ptr;
 
 use vst3::Steinberg::Vst::{
-    IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentTrait, IConnectionPoint,
-    IConnectionPointTrait, IEditController, IEditControllerTrait, ProcessModes_, ProcessSetup,
-    SymbolicSampleSizes_,
+    BusDirections_, BusInfo, BusTypes_, IAudioProcessor, IAudioProcessorTrait, IComponent,
+    IComponentTrait, IConnectionPoint, IConnectionPointTrait, IEditController,
+    IEditControllerTrait, MediaTypes_, ProcessModes_, ProcessSetup, SymbolicSampleSizes_,
 };
 use vst3::Steinberg::{
     IBStream, IPlugView, IPluginBaseTrait, IPluginFactory, IPluginFactoryTrait, TUID, kResultOk,
@@ -52,6 +52,10 @@ pub struct Vst3Plugin {
 
     param_count: usize,
     processing: bool,
+    pub(crate) input_bus_count: usize,
+    pub(crate) output_bus_count: usize,
+    pub(crate) main_input_bus: usize,
+    pub(crate) main_output_bus: usize,
     /// Parameter changes queued for the next process call. VST3 hosts must
     /// deliver these through `ProcessData::inputParameterChanges` so a
     /// separate edit controller's changes reach the audio processor.
@@ -185,6 +189,11 @@ impl Vst3Plugin {
             info.supports_ara = ara_supported;
         }
 
+        let (input_bus_count, main_input_bus) =
+            unsafe { audio_bus_layout(&component, BusDirections_::kInput) };
+        let (output_bus_count, main_output_bus) =
+            unsafe { audio_bus_layout(&component, BusDirections_::kOutput) };
+
         Ok(Self {
             info,
             layouts: vec![BusLayout::stereo()],
@@ -198,6 +207,10 @@ impl Vst3Plugin {
             controller_cp,
             param_count,
             processing: false,
+            input_bus_count,
+            output_bus_count,
+            main_input_bus,
+            main_output_bus,
             pending_params: Vec::new(),
             view: None,
             editor_open: false,
@@ -225,6 +238,35 @@ where
         return None;
     }
     unsafe { ComPtr::<I>::from_raw(obj.cast()) }
+}
+
+/// Count the audio buses in one direction and find the first main bus index.
+unsafe fn audio_bus_layout(
+    component: &ComPtr<IComponent>,
+    direction: vst3::Steinberg::Vst::BusDirections,
+) -> (usize, usize) {
+    let count =
+        unsafe { component.getBusCount(MediaTypes_::kAudio as i32, direction as i32) }.max(0);
+    let count = usize::try_from(count).unwrap_or(0);
+    let mut main_index = 0;
+    let mut info: BusInfo = unsafe { std::mem::zeroed() };
+    for index in 0..count {
+        let index = i32::try_from(index).unwrap_or(i32::MAX);
+        if unsafe {
+            component.getBusInfo(
+                MediaTypes_::kAudio as i32,
+                direction as i32,
+                index,
+                &raw mut info,
+            )
+        } == kResultOk
+            && info.busType == BusTypes_::kMain as i32
+        {
+            main_index = usize::try_from(index).unwrap_or(0);
+            break;
+        }
+    }
+    (count, main_index)
 }
 
 impl Drop for Vst3Plugin {
@@ -377,12 +419,45 @@ impl PluginCore for Vst3Plugin {
         sample_rate: f64,
         max_block_size: usize,
     ) -> Result<()> {
-        let mut input_arr = STEREO_ARRANGEMENT;
-        let mut output_arr = STEREO_ARRANGEMENT;
+        let mut input_arr = vec![0_u64; self.input_bus_count];
+        let mut output_arr = vec![0_u64; self.output_bus_count];
+        if let Some(arrangement) = input_arr.get_mut(self.main_input_bus) {
+            *arrangement = STEREO_ARRANGEMENT;
+        }
+        if let Some(arrangement) = output_arr.get_mut(self.main_output_bus) {
+            *arrangement = STEREO_ARRANGEMENT;
+        }
         let _ = unsafe {
-            self.processor
-                .setBusArrangements(&raw mut input_arr, 1, &raw mut output_arr, 1)
+            self.processor.setBusArrangements(
+                input_arr.as_mut_ptr(),
+                i32::try_from(self.input_bus_count).unwrap_or(i32::MAX),
+                output_arr.as_mut_ptr(),
+                i32::try_from(self.output_bus_count).unwrap_or(i32::MAX),
+            )
         };
+        for (direction, count, main) in [
+            (
+                BusDirections_::kInput,
+                self.input_bus_count,
+                self.main_input_bus,
+            ),
+            (
+                BusDirections_::kOutput,
+                self.output_bus_count,
+                self.main_output_bus,
+            ),
+        ] {
+            for index in 0..count {
+                let _ = unsafe {
+                    self.component.activateBus(
+                        MediaTypes_::kAudio as i32,
+                        direction as i32,
+                        i32::try_from(index).unwrap_or(i32::MAX),
+                        u8::from(index == main),
+                    )
+                };
+            }
+        }
 
         let mut setup = ProcessSetup {
             #[allow(clippy::cast_possible_wrap)]

@@ -720,6 +720,7 @@ Options:
         capabilities: PluginCapabilities,
         params: Vec<ParamSpec>,
         latency: u32,
+        default_rms: f64,
         rounds: Vec<Vec<f32>>,
         errors: Vec<String>,
     }
@@ -932,6 +933,7 @@ Options:
             capabilities,
             params,
             latency,
+            default_rms: 0.0,
             rounds: Vec::new(),
             errors: Vec::new(),
         })
@@ -991,6 +993,18 @@ Options:
                     .wrapping_mul(0x9e37_79b9_7f4a_7c15));
             values.push(random_param_values(seed, shared_params));
         }
+        for format in loaded.iter_mut() {
+            let mut default_errors = Vec::new();
+            let output = render_clip(format, config, input, &mut default_errors);
+            format.default_rms = signal_rms(&output);
+            if !default_errors.is_empty() {
+                format.errors.extend(
+                    default_errors
+                        .into_iter()
+                        .map(|error| format!("default state: {error}")),
+                );
+            }
+        }
         for (round_index, round_values) in values.iter().enumerate() {
             for format in loaded.iter_mut() {
                 let mut round_errors = Vec::new();
@@ -1034,6 +1048,26 @@ Options:
                 report.comparisons.push(comparison);
             }
         }
+        let audible_defaults: Vec<_> = loaded
+            .iter()
+            .filter(|format| format.default_rms > 1.0e-6)
+            .map(|format| format.descriptor.format)
+            .collect();
+        if audible_defaults.len() >= 2 {
+            for format in loaded.iter() {
+                if format.default_rms <= 1.0e-6 {
+                    errors.push(format!(
+                        "{} produced silence with default parameters while {} did not",
+                        format.descriptor.format.prefix(),
+                        audible_defaults
+                            .iter()
+                            .map(|format| format.prefix())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+            }
+        }
         for format in loaded.iter() {
             let mut rms = Vec::with_capacity(format.rounds.len());
             for output in &format.rounds {
@@ -1044,6 +1078,7 @@ Options:
                 latency_samples: format.latency,
                 parameter_count: format.params.len(),
                 rounds: format.rounds.len(),
+                default_rms: format.default_rms,
                 rms,
                 errors: format.errors.clone(),
             });
@@ -1621,6 +1656,7 @@ Options:
         latency_samples: u32,
         parameter_count: usize,
         rounds: usize,
+        default_rms: f64,
         rms: Vec<f64>,
         errors: Vec<String>,
     }

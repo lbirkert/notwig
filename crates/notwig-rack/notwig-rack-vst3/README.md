@@ -10,7 +10,10 @@ reporting (`IAudioProcessor::getLatencySamples`), and the VST3 `IPlugView` GUI.
 Host transport from `ProcessContext::transport` is translated into Steinberg's
 `Vst::ProcessContext`. Parameter updates are sent both to the edit controller
 and to the audio processor through `ProcessData::inputParameterChanges`, which
-is required when a plugin uses a separate controller class.
+is required when a plugin uses a separate controller class. Activation queries
+the plugin's audio buses, configures the main input/output bus as stereo,
+deactivates auxiliary buses, and supplies one `AudioBusBuffers` entry per bus
+(including empty entries for inactive buses).
 
 With the optional `ara` feature, scan marks audio classes that have a matching
 `ARA Main Factory Class`, and `Vst3Plugin` implements `notwig_rack_ara::AraPlugin`.

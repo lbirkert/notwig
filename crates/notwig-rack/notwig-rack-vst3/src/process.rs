@@ -53,24 +53,34 @@ impl Plugin<f32> for Vst3Plugin {
         let main_inputs = buffer.main_inputs();
         let mut input_ptrs: Vec<*mut f32> =
             main_inputs.iter().map(|c| c.as_ptr().cast_mut()).collect();
-        let mut input_bus = AudioBusBuffers {
-            numChannels: i32::try_from(input_ptrs.len()).unwrap_or(0),
-            silenceFlags: 0,
-            __field0: AudioBusBuffers__type0 {
-                channelBuffers32: input_ptrs.as_mut_ptr(),
-            },
-        };
+        let mut input_buses: Vec<AudioBusBuffers> = (0..self.input_bus_count)
+            .map(|_| empty_audio_bus())
+            .collect();
+        if let Some(bus) = input_buses.get_mut(self.main_input_bus) {
+            *bus = AudioBusBuffers {
+                numChannels: i32::try_from(input_ptrs.len()).unwrap_or(0),
+                silenceFlags: 0,
+                __field0: AudioBusBuffers__type0 {
+                    channelBuffers32: input_ptrs.as_mut_ptr(),
+                },
+            };
+        }
 
         let main_outputs = buffer.main_outputs();
         let mut output_ptrs: Vec<*mut f32> =
             main_outputs.iter_mut().map(|c| c.as_mut_ptr()).collect();
-        let mut output_bus = AudioBusBuffers {
-            numChannels: i32::try_from(output_ptrs.len()).unwrap_or(0),
-            silenceFlags: 0,
-            __field0: AudioBusBuffers__type0 {
-                channelBuffers32: output_ptrs.as_mut_ptr(),
-            },
-        };
+        let mut output_buses: Vec<AudioBusBuffers> = (0..self.output_bus_count)
+            .map(|_| empty_audio_bus())
+            .collect();
+        if let Some(bus) = output_buses.get_mut(self.main_output_bus) {
+            *bus = AudioBusBuffers {
+                numChannels: i32::try_from(output_ptrs.len()).unwrap_or(0),
+                silenceFlags: 0,
+                __field0: AudioBusBuffers__type0 {
+                    channelBuffers32: output_ptrs.as_mut_ptr(),
+                },
+            };
+        }
 
         // Build the transport context up front so its backing
         // struct outlives the process call.
@@ -94,10 +104,18 @@ impl Plugin<f32> for Vst3Plugin {
             #[allow(clippy::cast_possible_wrap)]
             symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
             numSamples: i32::try_from(frames).unwrap_or(i32::MAX),
-            numInputs: 1,
-            numOutputs: 1,
-            inputs: &raw mut input_bus,
-            outputs: &raw mut output_bus,
+            numInputs: i32::try_from(input_buses.len()).unwrap_or(i32::MAX),
+            numOutputs: i32::try_from(output_buses.len()).unwrap_or(i32::MAX),
+            inputs: if input_buses.is_empty() {
+                ptr::null_mut()
+            } else {
+                input_buses.as_mut_ptr()
+            },
+            outputs: if output_buses.is_empty() {
+                ptr::null_mut()
+            } else {
+                output_buses.as_mut_ptr()
+            },
             inputParameterChanges: input_parameter_changes_ptr,
             outputParameterChanges: ptr::null_mut::<IParameterChanges>(),
             inputEvents: input_events_ptr.as_ptr(),
@@ -122,5 +140,15 @@ impl Plugin<f32> for Vst3Plugin {
             }
             Ok(ProcessStatus::Error)
         }
+    }
+}
+
+fn empty_audio_bus() -> AudioBusBuffers {
+    AudioBusBuffers {
+        numChannels: 0,
+        silenceFlags: 0,
+        __field0: AudioBusBuffers__type0 {
+            channelBuffers32: ptr::null_mut(),
+        },
     }
 }
