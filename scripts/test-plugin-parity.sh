@@ -86,7 +86,14 @@ export NOTWIG_PLUGIN_PARITY_DIR="$run_dir"
 echo "==> scanning installed plugins (features: $feature_list)"
 echo "==> report: $report"
 echo "==> artifacts: $artifacts"
-cargo test -p notwig-plugins \
-  --test plugin_format_parity \
-  --features "$feature_list" \
-  -- "${forward[@]}"
+if (( ${#forward[@]} )); then
+  cargo test -p notwig-plugins \
+    --test plugin_format_parity \
+    --features "$feature_list" \
+    -- "${forward[@]}"
+else
+  cargo test -p notwig-plugins \
+    --test plugin_format_parity \
+    --features "$feature_list" \
+    --
+fi
