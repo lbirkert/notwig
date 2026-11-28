@@ -63,7 +63,8 @@ fn main() {
 mod macos {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::{Path, PathBuf};
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use notwig_core::Norm01;
     use notwig_core::dsp::{ParamSpec, ProcessContext, ProcessStatus, RenderConfig, TransportInfo};
@@ -71,7 +72,7 @@ mod macos {
         NativePluginWindow, PluginCapabilities, PluginDescriptor, PluginFormat, PluginHost,
         PluginInstance, prepare_window_host, pump_window_host,
     };
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
 
     const DEFAULT_SEED: u64 = 0x4e6f_7477_6967_0001;
 
@@ -90,7 +91,12 @@ mod macos {
                 std::process::exit(2);
             }
         };
-        prepare_window_host();
+        if let (Some(group_path), Some(report_path)) =
+            (&options.worker_group, &options.worker_report)
+        {
+            run_worker(&options, group_path, report_path);
+            return;
+        }
         match run(&options) {
             Ok(summary) => {
                 eprintln!(
@@ -110,6 +116,50 @@ mod macos {
             }
             Err(error) => {
                 eprintln!("plugin format parity failed: {error}");
+                std::process::exit(2);
+            }
+        }
+    }
+
+    fn run_worker(options: &Options, group_path: &Path, report_path: &Path) {
+        prepare_window_host();
+        let group: Group = if let Some(group) = std::fs::read(group_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        {
+            group
+        } else {
+            eprintln!(
+                "plugin format parity worker: could not read group {}",
+                group_path.display()
+            );
+            std::process::exit(2);
+        };
+        let mut host = PluginHost::new();
+        let report = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_group(&mut host, &group, options)
+        })) {
+            Ok(report) => report,
+            Err(payload) => GroupReport::failed(
+                &group,
+                format!(
+                    "plugin group panicked while under test: {}",
+                    panic_message(&payload)
+                ),
+            ),
+        };
+        match serde_json::to_vec_pretty(&report) {
+            Ok(bytes) => {
+                if let Err(error) = std::fs::write(report_path, bytes) {
+                    eprintln!(
+                        "plugin format parity worker: write {}: {error}",
+                        report_path.display()
+                    );
+                    std::process::exit(2);
+                }
+            }
+            Err(error) => {
+                eprintln!("plugin format parity worker: serialize report: {error}");
                 std::process::exit(2);
             }
         }
@@ -162,19 +212,12 @@ mod macos {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            let group_report = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                run_group(&mut host, group, options)
-            })) {
-                Ok(report) => report,
-                Err(payload) => {
-                    let message = panic_message(&payload);
-                    GroupReport::failed(
-                        group,
-                        format!("plugin group panicked while under test: {message}"),
-                    )
-                }
-            };
-            match group_report.status.as_str() {
+            let group_report = run_group_isolated(group, options, index);
+            let status = group_report
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("fail");
+            match status {
                 "pass" => summary.passed += 1,
                 "fail" => summary.failed += 1,
                 _ => summary.skipped += 1,
@@ -182,15 +225,93 @@ mod macos {
             summary.groups += 1;
             eprintln!(
                 "    {} ({} error(s), {} warning(s))",
-                group_report.status,
-                group_report.errors.len(),
-                group_report.warnings.len()
+                status,
+                array_len(&group_report, "errors"),
+                array_len(&group_report, "warnings")
             );
             report.groups.push(group_report);
             write_report(&report, &options.report)?;
         }
         write_report(&report, &options.report)?;
         Ok(summary)
+    }
+
+    // Each group runs in a fresh child process. Plugin editors are native code
+    // and a single bad plugin can panic, segfault, or hang; isolating a group
+    // keeps the rest of the scan alive and leaves the report for the failure.
+    fn run_group_isolated(group: &Group, options: &Options, index: usize) -> serde_json::Value {
+        let worker_dir =
+            std::env::temp_dir().join(format!("notwig-parity-{}-{index}", std::process::id()));
+        let group_path = worker_dir.join("group.json");
+        let report_path = worker_dir.join("report.json");
+        let result = (|| -> Result<serde_json::Value, String> {
+            std::fs::create_dir_all(&worker_dir).map_err(|error| {
+                format!("create worker directory {}: {error}", worker_dir.display())
+            })?;
+            let group_bytes =
+                serde_json::to_vec(group).map_err(|error| format!("serialize group: {error}"))?;
+            std::fs::write(&group_path, group_bytes)
+                .map_err(|error| format!("write {}: {error}", group_path.display()))?;
+
+            let executable = std::env::current_exe()
+                .map_err(|error| format!("resolve current executable: {error}"))?;
+            let mut command = Command::new(executable);
+            command.args(std::env::args_os().skip(1));
+            command.arg("--worker-group").arg(&group_path);
+            command.arg("--worker-report").arg(&report_path);
+            command.env("NOTWIG_PLUGIN_PARITY", "1");
+            command.stdin(Stdio::null());
+            command.stdout(Stdio::inherit());
+            command.stderr(Stdio::inherit());
+            let mut child = command
+                .spawn()
+                .map_err(|error| format!("spawn group worker: {error}"))?;
+
+            let started = Instant::now();
+            let status = loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break Some(status),
+                    Ok(None) => {}
+                    Err(error) => return Err(format!("wait for group worker: {error}")),
+                }
+                if options.group_timeout_seconds > 0
+                    && started.elapsed() >= Duration::from_secs(options.group_timeout_seconds)
+                {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            };
+
+            let report = std::fs::read(&report_path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            if let Some(report) = report {
+                return Ok(report);
+            }
+            let error = match status {
+                None => format!(
+                    "group timed out after {} seconds",
+                    options.group_timeout_seconds
+                ),
+                Some(status) => format!("group worker exited without a report ({status})"),
+            };
+            serde_json::to_value(GroupReport::failed(group, error))
+                .map_err(|error| format!("serialize failed group: {error}"))
+        })();
+        let _ = std::fs::remove_dir_all(&worker_dir);
+        result.unwrap_or_else(|error| {
+            serde_json::to_value(GroupReport::failed(group, error))
+                .unwrap_or(serde_json::Value::Null)
+        })
+    }
+
+    fn array_len(value: &serde_json::Value, key: &str) -> usize {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len)
     }
 
     #[derive(Default)]
@@ -221,8 +342,11 @@ mod macos {
         formats: Option<BTreeSet<PluginFormat>>,
         filter: Option<String>,
         max_groups: Option<usize>,
+        group_timeout_seconds: u64,
         report: PathBuf,
         artifacts: PathBuf,
+        worker_group: Option<PathBuf>,
+        worker_report: Option<PathBuf>,
     }
 
     impl Default for Options {
@@ -258,8 +382,11 @@ mod macos {
                 formats: None,
                 filter: None,
                 max_groups: None,
+                group_timeout_seconds: 180,
                 report,
                 artifacts,
+                worker_group: None,
+                worker_report: None,
             }
         }
     }
@@ -287,6 +414,7 @@ Options:
   --ignore-latency          Do not fail groups whose reported latency differs
   --keep-all-artifacts      Save screenshots/WAVs for passing groups too
   --max-groups=N            Stop after N candidate groups
+  --group-timeout-seconds=N Kill and fail a group that runs longer than N (default: 180)
   --report=PATH             JSON report path
   --artifacts=PATH          Artifact directory
   -h, --help                Show this help
@@ -371,6 +499,16 @@ Options:
                             "--max-groups" => {
                                 options.max_groups =
                                     Some(parse_value::<usize>(&take_value(&mut args)?)?);
+                            }
+                            "--group-timeout-seconds" => {
+                                options.group_timeout_seconds =
+                                    parse_value::<u64>(&take_value(&mut args)?)?;
+                            }
+                            "--worker-group" => {
+                                options.worker_group = Some(PathBuf::from(take_value(&mut args)?));
+                            }
+                            "--worker-report" => {
+                                options.worker_report = Some(PathBuf::from(take_value(&mut args)?));
                             }
                             "--report" => {
                                 options.report = PathBuf::from(take_value(&mut args)?);
@@ -474,6 +612,7 @@ Options:
         name
     }
 
+    #[derive(Serialize, Deserialize)]
     struct Group {
         name: String,
         vendor: String,
@@ -1408,7 +1547,7 @@ Options:
         generated_utc: i64,
         options: ReportOptions,
         scanned_descriptors: usize,
-        groups: Vec<GroupReport>,
+        groups: Vec<serde_json::Value>,
     }
 
     #[derive(Serialize)]

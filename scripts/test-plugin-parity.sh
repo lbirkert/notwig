@@ -25,6 +25,7 @@
 #   --filter=TEXT --formats=clap,vst3 --rounds=N --seconds=N
 #   --audio-tolerance=F --gui-mean-tolerance=F --no-gui --no-audio
 #   --include-instruments --ignore-latency --keep-all-artifacts --max-groups=N
+#   --group-timeout-seconds=N
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

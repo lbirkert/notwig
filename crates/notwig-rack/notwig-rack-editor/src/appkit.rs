@@ -182,10 +182,13 @@ pub(super) unsafe fn capture_window_png(window: *mut AnyObject) -> Result<Vec<u8
         ));
     }
     let length: usize = unsafe { msg_send![data, length] };
-    let bytes: *const u8 = unsafe { msg_send![data, bytes] };
+    // `-[NSData bytes]` is declared as `const void *`. Declaring the return as
+    // `*const u8` makes objc2 check for `*` (char pointer) and panic because
+    // the runtime method signature is `^v` (void pointer).
+    let bytes: *const std::ffi::c_void = unsafe { msg_send![data, bytes] };
     if length == 0 || bytes.is_null() {
         return Err(Error::Other("plugin view produced an empty PNG".into()));
     }
-    let png = unsafe { std::slice::from_raw_parts(bytes, length) }.to_vec();
+    let png = unsafe { std::slice::from_raw_parts(bytes.cast::<u8>(), length) }.to_vec();
     Ok(png)
 }

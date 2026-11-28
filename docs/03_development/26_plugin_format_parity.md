@@ -20,6 +20,11 @@ plugin locations. Audio Unit and LV2 use their registries; CLAP, VST3, and VST2
 use their standard filesystem paths. Descriptors are normalized by display name
 and vendor (case-insensitive, punctuation and whitespace removed).
 
+After grouping, each group runs in a fresh child process. Plugin editors are
+native code; one bad plugin can panic, segfault, or hang, so a group failure is
+contained to that child and the scan continues. The parent kills a worker that
+exceeds `--group-timeout-seconds` (default 180) and records it as failed.
+
 VST3 scanning often reports an empty vendor. If exactly one non-empty vendor
 exists for a name, descriptors with the missing vendor merge into that group;
 otherwise the empty-vendor descriptors remain a separate group. `--formats`
@@ -110,8 +115,9 @@ remained after filtering.
 
 ## 6. Current limits
 
-- The harness runs all plugins in one process. A hard plugin crash ends the
-  run; the JSON report up to the previous group remains.
+- Each plugin group runs in a child process, but the initial metadata scan still
+  runs in the parent. A scanner crash ends the run; the JSON report up to the
+  previous group remains.
 - Editor capture uses the view bitmap path, not a screen-recording API, so
   plugins that draw exclusively through GPU layers may produce blank captures.
 - Grouping is heuristic. Plugins whose display names or vendors differ between
