@@ -80,7 +80,10 @@ through silently.
 `RackPluginInstance` maps the format-agnostic call to a `notwig_rack::Plugin<f32>`.
 It uses a stereo contract: `prepare` deactivates, chooses a 2-in/2-out layout,
 activates at the configured sample rate and block size, and sizes per-channel
-scratch buffers. `process` copies interleaved stereo into channel buffers, converts
+scratch buffers. VST3 parameter updates are delivered to both the edit
+controller and the audio processor: the wrapper queues `setParamNormalized`
+changes and sends them as `I ParameterChanges` in the next process block, so
+plugins with separate controller and processor classes receive host edits. `process` copies interleaved stereo into channel buffers, converts
 note on/off events to channel-0 MIDI, supplies transport, calls the plugin, and
 copies the output back. A plugin error or undersized scratch yields silence with
 `overloaded: true`; `Sleep` yields `produced_silence: true`. MIDI output and

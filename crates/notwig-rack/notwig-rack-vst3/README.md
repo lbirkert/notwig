@@ -8,7 +8,9 @@ Steinberg SDK submodule and no cmake.
 Implements scan, load, audio and MIDI processing, state, parameters, latency
 reporting (`IAudioProcessor::getLatencySamples`), and the VST3 `IPlugView` GUI.
 Host transport from `ProcessContext::transport` is translated into Steinberg's
-`Vst::ProcessContext`.
+`Vst::ProcessContext`. Parameter updates are sent both to the edit controller
+and to the audio processor through `ProcessData::inputParameterChanges`, which
+is required when a plugin uses a separate controller class.
 
 With the optional `ara` feature, scan marks audio classes that have a matching
 `ARA Main Factory Class`, and `Vst3Plugin` implements `notwig_rack_ara::AraPlugin`.

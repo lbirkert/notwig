@@ -28,6 +28,7 @@ mod ara;
 mod editor;
 mod events;
 mod module;
+mod param_changes;
 mod params;
 mod plugin;
 mod process;

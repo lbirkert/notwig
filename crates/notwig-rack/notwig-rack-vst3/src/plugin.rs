@@ -52,6 +52,10 @@ pub struct Vst3Plugin {
 
     param_count: usize,
     processing: bool,
+    /// Parameter changes queued for the next process call. VST3 hosts must
+    /// deliver these through `ProcessData::inputParameterChanges` so a
+    /// separate edit controller's changes reach the audio processor.
+    pub(crate) pending_params: Vec<(u32, f64)>,
 
     /// Cached `IPlugView` for the plugin's editor. Created on
     /// `open()`, released on `close()` / Drop.
@@ -194,6 +198,7 @@ impl Vst3Plugin {
             controller_cp,
             param_count,
             processing: false,
+            pending_params: Vec::new(),
             view: None,
             editor_open: false,
         })
@@ -311,6 +316,15 @@ impl PluginCore for Vst3Plugin {
                 "IEditController::setParamNormalized failed".into(),
             ));
         }
+        if let Some(existing) = self
+            .pending_params
+            .iter_mut()
+            .find(|(id, _)| *id == info.id)
+        {
+            existing.1 = clamped;
+        } else {
+            self.pending_params.push((info.id, clamped));
+        }
         Ok(())
     }
 
@@ -397,6 +411,7 @@ impl PluginCore for Vst3Plugin {
     }
 
     fn deactivate(&mut self) {
+        self.pending_params.clear();
         if self.processing {
             unsafe { self.processor.setProcessing(0) };
             self.processing = false;

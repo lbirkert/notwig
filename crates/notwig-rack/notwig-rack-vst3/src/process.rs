@@ -17,6 +17,7 @@ use vst3::Steinberg::kResultOk;
 
 use crate::FORMAT;
 use crate::events::{EventBuffer, EventList3};
+use crate::param_changes::ParameterChanges;
 use crate::params::build_vst3_context;
 use crate::plugin::Vst3Plugin;
 
@@ -77,6 +78,16 @@ impl Plugin<f32> for Vst3Plugin {
             .transport
             .map(|t| build_vst3_context(&t, context.sample_rate));
 
+        // A separate VST3 edit controller does not necessarily forward
+        // setParamNormalized() to the processor. Queue host changes here and
+        // hand them to the processor in this block.
+        let parameter_changes =
+            ComWrapper::new(ParameterChanges::from_pending(&self.pending_params));
+        let input_parameter_changes = parameter_changes.to_com_ptr::<IParameterChanges>();
+        let input_parameter_changes_ptr = input_parameter_changes
+            .as_ref()
+            .map_or(ptr::null_mut(), |changes| changes.as_ptr());
+
         let mut data = ProcessData {
             #[allow(clippy::cast_possible_wrap)]
             processMode: ProcessModes_::kRealtime as i32,
@@ -87,7 +98,7 @@ impl Plugin<f32> for Vst3Plugin {
             numOutputs: 1,
             inputs: &raw mut input_bus,
             outputs: &raw mut output_bus,
-            inputParameterChanges: ptr::null_mut::<IParameterChanges>(),
+            inputParameterChanges: input_parameter_changes_ptr,
             outputParameterChanges: ptr::null_mut::<IParameterChanges>(),
             inputEvents: input_events_ptr.as_ptr(),
             outputEvents: output_events_ptr.as_ptr(),
@@ -100,6 +111,7 @@ impl Plugin<f32> for Vst3Plugin {
         let status = run_audio_block_with::<Vst3Plugin, i32>(FORMAT, -1, || unsafe {
             ((*(*processor_ptr).vtbl).process)(processor_ptr, &raw mut data)
         });
+        self.pending_params.clear();
         if status == kResultOk {
             Ok(ProcessStatus::Continue)
         } else {
