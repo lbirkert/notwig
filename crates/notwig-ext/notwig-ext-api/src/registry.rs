@@ -201,13 +201,53 @@ impl CoreExtensionRegistry {
 /// extension points without retaining registry locks.
 pub struct ExtensionContext<'a> {
     registry: &'a CoreExtensionRegistry,
+    transport: Option<crate::SharedRpcTransport>,
+    generation: u64,
 }
 
 impl<'a> ExtensionContext<'a> {
     /// Creates a context over one registry snapshot.
     #[must_use]
     pub fn new(registry: &'a CoreExtensionRegistry) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            transport: None,
+            generation: 0,
+        }
+    }
+
+    /// Creates a context that can also build generated handles.
+    #[must_use]
+    pub fn with_scheduler(
+        registry: &'a CoreExtensionRegistry,
+        transport: crate::SharedRpcTransport,
+        generation: u64,
+    ) -> Self {
+        Self {
+            registry,
+            transport: Some(transport),
+            generation,
+        }
+    }
+
+    /// Creates the generated handle for a single-provider point.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the context was created without a scheduler.
+    #[must_use]
+    pub fn get_extension_handle<T: crate::ExtensionTrait + ?Sized>(
+        &self,
+        point: ExtensionPoint<T>,
+    ) -> T::Handle {
+        let transport = self
+            .transport
+            .clone()
+            .expect("ExtensionContext has no scheduler");
+        T::create_handle(
+            transport,
+            crate::RemoteTarget::new(point.id(), self.generation),
+        )
     }
 
     /// Returns all active implementations for a point.

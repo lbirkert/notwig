@@ -15,6 +15,7 @@ pub trait Echo {
 }
 
 const ECHO_POINT: ExtensionPoint<dyn Echo> = ExtensionPoint::new("test.echo.point");
+const ECHO_SINGLE_POINT: ExtensionPoint<dyn Echo> = ExtensionPoint::single("test.echoer");
 
 #[derive(ExtensionCall)]
 #[extension_call(Echo)]
@@ -83,6 +84,20 @@ fn generated_handle_round_trips_method_calls() {
     let registry = CoreExtensionRegistry::new();
     let context = ExtensionContext::new(&registry);
     assert_eq!(handle.echo(&context, "hi".into()).unwrap(), "echo:hi");
+    let scheduler_context = ExtensionContext::with_scheduler(
+        &registry,
+        Arc::new(TestTransport {
+            dispatcher: Arc::new(Echoer),
+        }),
+        7,
+    );
+    assert_eq!(
+        scheduler_context
+            .get_extension_handle(ECHO_SINGLE_POINT)
+            .echo(&scheduler_context, "ctx".into())
+            .unwrap(),
+        "echo:ctx"
+    );
     let debug_handle = DebugEchoHandle::new(
         Arc::new(TestTransport {
             dispatcher: Arc::new(Echoer),

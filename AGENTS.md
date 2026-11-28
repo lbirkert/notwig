@@ -100,7 +100,9 @@ and boundaries. Start there when working inside a crate.
   `Box<dyn ExtensionCall>` without crossing the ABI. `ExtensionCall::process`
   receives the context, method id, and payload. The trait macro also generates
   `ExtensionTrait` for the interface trait object with `type Handle` set to the
-  generated handle. Raw request dispatch lives on `ExtensionCall`.
+  generated handle. `ExtensionContext::get_extension_handle` creates handles for
+  single-provider points when the context has a scheduler. Raw request dispatch
+  lives on `ExtensionCall`.
 - Built-in, in-code extensions are owned by the fixed extension id
   `notwig.core` with display name `Notwig Core`. Core registrations cannot be
   uninstalled and use the same extension-point ids as package extensions.

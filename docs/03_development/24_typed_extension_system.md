@@ -187,9 +187,11 @@ struct MyTrackPanel;
 Methods receive `&ExtensionContext<'_>` so implementations can resolve other
 points through `get_extensions`, `get_extension`, and `try_get_extension`.
 
-The generated handle is a concrete proxy, not a Rust trait object:
+The generated handle is a concrete proxy, not a Rust trait object. A context
+with a scheduler can create it for a single-provider point:
 
 ```rust
+let panel_handle = context.get_extension_handle(TRACK_PANEL);
 let frame = panel_handle.draw(&context, input)?;
 ```
 
